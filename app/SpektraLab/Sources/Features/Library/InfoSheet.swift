@@ -114,6 +114,13 @@ struct InfoSheet: View {
         return frame.developed != nil ? L("Film in full · print colour-only") : L("None: not developed yet")
     }
 
+    /// "Variant 2 of 3" where the frame is one of an image's several variants (PRD-G §3): the number its cell has in the
+    /// library (`MacImage.variantNumber`), read from the cells loaded; none for a frame no loaded cell joins.
+    private func variantRow(_ frame: LibraryFrame) -> [InfoRow.Model] {
+        guard let cell = model.macLibrary.images.first(where: { $0.develop?.frameID == frame.id }), cell.variantCount > 1 else { return [] }
+        return [.init(L("Variant"), L("\(cell.variantNumber) of \(cell.variantCount)"))]
+    }
+
     private func groups(_ frame: LibraryFrame) -> [InfoSection] {
         let catalog = StockCatalog.shared
         let p = frame.edit.params
@@ -137,7 +144,7 @@ struct InfoSheet: View {
             InfoSection(title: L("Where"), rows: [
                 .init(L("Original", as: "the file"), frame.source.whereText, colour: away ? Theme.danger : Theme.text),
                 .init(L("Kept here"), keptHere(frame)),
-            ]),
+            ] + variantRow(frame)),
             InfoSection(title: L("This render"), rows: [
                 .init(L("Preview"), frame.previewSize.text),
                 .init(L("Full size"), fullText),

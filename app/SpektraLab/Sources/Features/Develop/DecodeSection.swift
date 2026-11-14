@@ -8,7 +8,8 @@
 //
 //  - **Exposure**: Film Exposure, the slider the panel had (`exposure_compensation_ev`).
 //  - **White Balance**: the Decode tile's rulers (`ScenePanel`, embedded), RAW files only, and on a
-//    half-frame pair the focus frame's own, as they were.
+//    half-frame pair the focus frame's own, as they were; beside its ↺ the neutral-grey eyedropper
+//    (`NeutralPick`, 2026-11-11), which sets them from a click on something grey.
 //  - **Curve**: Edit's Curve tool on `FilmParams.sceneCurve` (`CurveTarget.decode`): its axes are
 //    stops about the metered mid-grey, ±8, the Latitude card's — the engine applies it to the linear
 //    scene as a gain, after the meter and before Film Exposure (`scene_curve`, API-SPEC §17).
@@ -55,8 +56,13 @@ struct DecodeSection: View {
 
     /// The section's title line, and its chips' row.
     static let header: CGFloat = 30
-    /// A wide window's Decode folded: its rule and its title line (`stackedBody`, `ColumnSectionHeader`'s 44 pt).
-    static let foldedHeight: CGFloat = Theme.Metric.rule + 44
+    /// A wide window's Decode folded: its hairline and its header (`stackedBody`, `ColumnSectionHeader`'s 32.5 pt).
+    static var foldedHeight: CGFloat { ColumnSectionHeader<EmptyView>.height }
+    /// A wide window's part's name line, with its ↺ (and White Balance's eyedropper) at 22 pt, Edit's.
+    static let partHeader: CGFloat = 28
+    /// A wide window's Decode open, as the column reserves it: its header and its shortest part (Exposure); the
+    /// rest scrolls.
+    static var stackedHeight: CGFloat { foldedHeight + partHeader + exposureHeight }
     static let chips: CGFloat = 44
     /// Each part's own height under the chips.
     static let exposureHeight: CGFloat = 52
@@ -78,31 +84,49 @@ struct DecodeSection: View {
     private var appliesFilm: Bool { session.edit.appliesFilm }
     private func enabled(_ tool: DecodeTool) -> Bool { appliesFilm || !tool.isFilms }
 
-    @ViewBuilder var body: some View {
-        if stacked { stackedBody } else { chipsBody }
+    var body: some View {
+        Group {
+            if stacked { stackedBody } else { chipsBody }
+        }
+        // Another frame on the kept page (2.4.0 A2b): the curve's channel back to RGB, as a page made for it opened.
+        .onChange(of: frame.id) { _, _ in channel = .rgb }
     }
 
     /// Each part under its name and its ↺, in the chips' order; folded, the title line alone.
     private var stackedBody: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(Theme.rule).frame(height: Theme.Metric.rule).padding(.horizontal, Theme.Metric.margin)
             ColumnSectionHeader(title: L("Decode"), folded: prefs.decodeCollapsed, id: "decode",
                                 toggleFold: { prefs.decodeCollapsed.toggle() })
             if !prefs.decodeCollapsed {
                 ForEach(DecodeTool.allCases) { t in
-                    HStack(spacing: 8) {
-                        Text(t.title).font(Theme.Font.ui(12.5, .medium)).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                    // On a pair or a double the white balance is each picture's (R3): the whole has none, and
+                    // says where it is (`LayerWhiteBalanceLinks`).
+                    if t == .whiteBalance, !session.layerPiece.isSingle {
+                        HStack(spacing: 6) {
+                            Text(t.title).font(Theme.Font.ui(12, .medium)).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.leading, FoldHeader<EmptyView, EmptyView>.titleInset).padding(.trailing, 16)
+                        .frame(height: Self.partHeader)
+                        LayerWhiteBalanceLinks(session: session)
+                    } else {
+                    // Each part's name under Decode's own (`FoldHeader.titleInset`), its controls Edit's 22 pt.
+                    HStack(spacing: 6) {
+                        Text(t.title).font(Theme.Font.ui(12, .medium)).foregroundStyle(Theme.secondaryText).lineLimit(1)
                         Spacer(minLength: 0)
-                        RoundButton(diameter: 28, label: L("Reset") + " " + t.title, action: { reset(t.scope) }) {
-                            Icon(.reset, size: 16)
+                        // White Balance's neutral-grey eyedropper (2026-11-11, `NeutralPick`): the RAW's own.
+                        if t == .whiteBalance { NeutralPickButton(session: session, target: .decode, diameter: 22) }
+                        RoundButton(diameter: 22, label: L("Reset") + " " + t.title, action: { reset(t.scope) }) {
+                            Icon(.reset, size: 13)
                         }
                         .rowEnabled(enabled(t) && moved(t.scope))
                         .accessibilityIdentifier("v5.decode.reset." + t.rawValue)
                     }
-                    .padding(.horizontal, 16)
-                    .frame(height: 36)
+                    .padding(.leading, FoldHeader<EmptyView, EmptyView>.titleInset).padding(.trailing, 16)
+                    .frame(height: Self.partHeader)
                     .rowEnabled(enabled(t))
                     part(t).rowEnabled(enabled(t))
+                    }
                 }
                 EnlargerGroup(session: session)
                 HighDynamicRangeGroup(session: session)
@@ -122,6 +146,7 @@ struct DecodeSection: View {
             HStack(spacing: 8) {
                 ChipRow(options: DecodeTool.allCases, selection: $tool, title: \.title, height: 28, size: 12.5, padding: 12)
                 Spacer(minLength: 0)
+                if tool == .whiteBalance { NeutralPickButton(session: session, target: .decode, diameter: 32) }
                 RoundButton(diameter: 32, label: L("Reset") + " " + tool.title, action: { reset(tool.scope) }) {
                     Icon(.reset, size: 18)
                 }

@@ -59,6 +59,8 @@ final class FullView {
         /// Where it is on the finished picture: normalised, top-left origin.
         let rect: CGRect
         let adjustments: Adjustments
+        /// The 成片 layers it carries (PRD-E): the page shows it only while they are the edit's.
+        let layers: FinishedLayers?
     }
 
     /// What the canvas asks to see.
@@ -68,6 +70,8 @@ final class FullView {
         /// The screen's pixels it covers.
         var pixels: PixelSize
         var adjustments: Adjustments
+        /// The edit's 成片 layers (`AppServices.finishedLayers`): nil, today's pass.
+        var layers: FinishedLayers? = nil
     }
 
     let frameID: LibraryFrame.ID
@@ -101,7 +105,8 @@ final class FullView {
     /// Whether a frame has more to show than its preview: a photograph whose
     /// original is a quarter larger or more, that the engine develops.
     static func hasMore(_ frame: LibraryFrame) -> Bool {
-        !frame.isPair && !frame.isDemo && frame.originalSize.longEdge * 4 > frame.previewSize.longEdge * 5
+        // Not a piece made of frames — a pair, or a double exposure (RFC-048 §6): its full render is an export's.
+        !frame.isComposite && !frame.isDemo && frame.originalSize.longEdge * 4 > frame.previewSize.longEdge * 5
     }
 
     /// The render this page shows or is making, by its file's name: the one the renders' limit never
@@ -279,8 +284,12 @@ final class FullView {
             let made: CGImage?
             do {
                 let renderer = try await FullDetail.shared(darkroom)
+                // The layers' planes first, off the main actor (`MaskBaker`, kept by key): no detail is drawn without
+                // them — the one shown stays until this one is made (RFC-052 §7).
+                let planes = try await ask.layers?.planes(device: renderer.device)
                 made = try await Task.detached(priority: .userInitiated) {
-                    try renderer.render(reader, rect: ask.rect, pixels: ask.pixels, adjustments: ask.adjustments)
+                    try renderer.render(reader, rect: ask.rect, pixels: ask.pixels, adjustments: ask.adjustments,
+                                        layers: ask.layers, planes: planes ?? [])
                 }.value
             } catch {
                 self?.log.error("the detail could not be made: \(String(describing: error), privacy: .public)")
@@ -290,7 +299,7 @@ final class FullView {
             self.drawing = false
             // Still the render, and still zoomed: shown. The canvas may have moved on meanwhile.
             if let made, self.kept?.ask == kept.ask, self.asked != nil {
-                self.detail = Detail(image: made, rect: ask.rect, adjustments: ask.adjustments)
+                self.detail = Detail(image: made, rect: ask.rect, adjustments: ask.adjustments, layers: ask.layers)
             }
             if self.asked != ask { self.draw() }
         }
@@ -299,9 +308,12 @@ final class FullView {
 
 /// The pass that makes the part on screen of a full render (`spkFullDetail`). One for the app.
 final class FullDetail: @unchecked Sendable {
-    private let device: MTLDevice
+    let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLComputePipelineState
+    /// With 成片 layers (`Layer2Local`): `spkFullDetailLocal`, the mask read at the pixel's place on the render, before
+    /// the host's turn — where the vignette is read — through `FinishedLayers.matrix(turnsAfter:)`.
+    private let localPipeline: MTLComputePipelineState
     private let setup: OutputTransformer.Setup
 
     @MainActor private static var made: FullDetail?
@@ -339,12 +351,19 @@ final class FullDetail: @unchecked Sendable {
                                              options: Layer2Kernel.options())
         guard let function = library.makeFunction(name: "spkFullDetail") else { throw EngineError.failed("the detail's kernel is missing") }
         pipeline = try device.makeComputePipelineState(function: function)
+        // The local variant in a library of its own: today's kernel is compiled from today's source alone.
+        let local = try device.makeLibrary(source: OutputTransformer.source + "\n" + Layer2Kernel.functions + "\n" + Layer2Local.functions
+                                           + "\n" + Self.kernel + "\n" + Self.localKernel, options: Layer2Kernel.options())
+        guard let lf = local.makeFunction(name: "spkFullDetailLocal") else { throw EngineError.failed("the detail's local kernel is missing") }
+        localPipeline = try device.makeComputePipelineState(function: lf)
     }
 
     /// The part `rect` (normalised, of the finished picture) of the render
     /// `reader` holds, `pixels` large at most — never larger than the render
-    /// has it — in Display P3, 16 bits a channel, with `adjustments` laid on.
-    func render(_ reader: FullRender.Reader, rect: CGRect, pixels: PixelSize, adjustments: Adjustments) throws -> CGImage {
+    /// has it — in Display P3, 16 bits a channel, with `adjustments` laid on, and `layers` (their `planes`, baked)
+    /// where there are.
+    func render(_ reader: FullRender.Reader, rect: CGRect, pixels: PixelSize, adjustments: Adjustments,
+                layers: FinishedLayers? = nil, planes: [MaskPlane] = []) throws -> CGImage {
         let h = reader.header
         let (fw, fh) = h.finished
         // On the finished picture, in its pixels.
@@ -382,7 +401,14 @@ final class FullDetail: @unchecked Sendable {
         for f in [Float(r.minX), Float(r.minY), Float(step), Float(W), Float(H), Float(x0), Float(y0), Float(scale)] {
             withUnsafeBytes(of: f) { map.append(contentsOf: $0) }
         }
-        for u in [UInt32(rw), UInt32(rh), UInt32(ow), UInt32(oh), UInt32(h.turnsAfter % 4), adjustments.isActive ? 1 : 0, 0, 0] as [UInt32] {
+        // A layer without its plane is no picture, never the picture without the layer.
+        var local: Layer2LocalPass?
+        if let layers {
+            guard planes.count == layers.layers.count else { throw EngineError.failed("the detail's layers have no planes") }
+            local = Layer2LocalPass(layers, planes: planes, adjustments: adjustments, matrix: layers.matrix(turnsAfter: h.turnsAfter))
+        }
+        let applies = local == nil ? adjustments.isActive : adjustments.enabled
+        for u in [UInt32(rw), UInt32(rh), UInt32(ow), UInt32(oh), UInt32(h.turnsAfter % 4), applies ? 1 : 0, 0, 0] as [UInt32] {
             withUnsafeBytes(of: u) { map.append(contentsOf: $0) }
         }
         var u = adjustments.uniforms()
@@ -391,7 +417,8 @@ final class FullDetail: @unchecked Sendable {
               let commands = queue.makeCommandBuffer(), let encoder = commands.makeComputeCommandEncoder() else {
             throw EngineError.resource("no memory for the detail")
         }
-        encoder.setComputePipelineState(pipeline)
+        let state = local == nil ? pipeline : localPipeline
+        encoder.setComputePipelineState(state)
         encoder.setBuffer(region, offset: 0, index: 0)
         encoder.setBytes(setup.uniforms, length: setup.uniforms.count, index: 1)
         encoder.setBuffer(setup.cmax, offset: 0, index: 2)
@@ -399,7 +426,8 @@ final class FullDetail: @unchecked Sendable {
         encoder.setBytes(&u, length: MemoryLayout<Layer2Uniforms>.stride, index: 4)
         encoder.setBuffer(curves, offset: 0, index: 5)
         encoder.setBytes(map, length: map.count, index: 6)
-        let tw = pipeline.threadExecutionWidth, th = max(1, pipeline.maxTotalThreadsPerThreadgroup / tw)
+        local?.bind(encoder, at: 7)
+        let tw = state.threadExecutionWidth, th = max(1, state.maxTotalThreadsPerThreadgroup / tw)
         encoder.dispatchThreadgroups(MTLSize(width: (ow + tw - 1) / tw, height: (oh + th - 1) / th, depth: 1),
                                      threadsPerThreadgroup: MTLSize(width: tw, height: th, depth: 1))
         encoder.endEncoding()
@@ -479,6 +507,55 @@ final class FullDetail: @unchecked Sendable {
         p = select(p, float3(0.0f), isnan(p));
         p = floor(saturate(p) * 65535.0f + 0.5f) / 65535.0f;
         if (m.layer2 != 0u) p = l2Apply(p, c / float2(m.renderW, m.renderH), u, curves);
+        uint o = (gid.y * m.outW + gid.x) * 4u;
+        dst[o]      = to16(p.x);
+        dst[o + 1u] = to16(p.y);
+        dst[o + 2u] = to16(p.z);
+        dst[o + 3u] = (ushort)65535;
+    }
+    """#
+
+    /// `spkFullDetail` with the 成片 layers: the block at 7, the planes at 8–15; the same footprint average and
+    /// transform, the mask read where the vignette is (the pixel's place on the render, before the host's turn).
+    static let localKernel = #"""
+    kernel void spkFullDetailLocal(device const ushort *src [[buffer(0)]],
+                                   constant OutputTransformUniforms &toPage [[buffer(1)]],
+                                   device const float *cmax [[buffer(2)]],
+                                   device ushort *dst [[buffer(3)]],
+                                   constant Layer2Uniforms &u [[buffer(4)]],
+                                   device const float *curves [[buffer(5)]],
+                                   constant FullDetailMap &m [[buffer(6)]],
+                                   constant Layer2LocalBlock &L [[buffer(7)]],
+                                   L2_PLANE_PARAMS(8, 9, 10, 11, 12, 13, 14, 15),
+                                   uint2 gid [[thread_position_in_grid]])
+    {
+        if (gid.x >= m.outW || gid.y >= m.outH) return;
+        float2 f = float2(m.originX, m.originY) + (float2(gid) + 0.5f) * m.step;
+        float2 c = fdOnRender(f, m.turns, m.renderW, m.renderH);
+        float2 l = c / m.levelScale - float2(m.regionX, m.regionY);
+        float r = max(0.5f * m.step / m.levelScale, 0.5f);
+        float x0 = l.x - r, x1 = l.x + r, y0 = l.y - r, y1 = l.y + r;
+        int ix0 = max(int(floor(x0)), 0), ix1 = min(int(ceil(x1)) - 1, int(m.regionW) - 1);
+        int iy0 = max(int(floor(y0)), 0), iy1 = min(int(ceil(y1)) - 1, int(m.regionH) - 1);
+        ix1 = min(ix1, ix0 + 4); iy1 = min(iy1, iy0 + 4);
+        float3 sum = float3(0.0f); float wsum = 0.0f;
+        for (int y = iy0; y <= iy1; y++) {
+            float wy = min(y1, float(y + 1)) - max(y0, float(y));
+            if (wy <= 0.0f) continue;
+            for (int x = ix0; x <= ix1; x++) {
+                float wx = min(x1, float(x + 1)) - max(x0, float(x));
+                if (wx <= 0.0f) continue;
+                uint i = (uint(y) * m.regionW + uint(x)) * 4u;
+                sum += float3(float(src[i]), float(src[i + 1u]), float(src[i + 2u])) / 65535.0f * (wx * wy);
+                wsum += wx * wy;
+            }
+        }
+        float3 working = wsum > 0.0f ? sum / wsum : float3(0.0f);
+        float3 p = spkTransformed(working, toPage, cmax);
+        p = select(p, float3(0.0f), isnan(p));
+        p = floor(saturate(p) * 65535.0f + 0.5f) / 65535.0f;
+        float2 uv = c / float2(m.renderW, m.renderH);
+        if (m.layer2 != 0u) p = l2LocalApply(p, uv, uv, u, curves, L, L2_PLANES);
         uint o = (gid.y * m.outW + gid.x) * 4u;
         dst[o]      = to16(p.x);
         dst[o + 1u] = to16(p.y);

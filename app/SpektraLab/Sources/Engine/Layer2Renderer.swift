@@ -124,11 +124,18 @@ final class Layer2Renderer: @unchecked Sendable {
     private let histogramPass: MTLComputePipelineState
     /// The neutral curve table, for a pass whose curves are the identity.
     private let identityCurves: MTLBuffer
+    /// The 成片 layers' variants (`Layer2Local`): compiled the first time a pass has layers, from a library of their own
+    /// so today's three are compiled from today's source alone.
+    private let localSource: String
+    private let localLock = NSLock()
+    private var localStates: (pass: MTLComputePipelineState, float: MTLComputePipelineState, histogram: MTLComputePipelineState)?
 
     /// `source` is for a check that compiles a broken copy of the kernels.
-    init(device: MTLDevice? = MTLCreateSystemDefaultDevice(), source: String = Layer2Kernel.source) throws {
+    init(device: MTLDevice? = MTLCreateSystemDefaultDevice(), source: String = Layer2Kernel.source,
+         localSource: String = Layer2Local.source) throws {
         guard let device else { throw Layer2Kernel.Failure.noDevice }
         self.device = device
+        self.localSource = localSource
         guard let queue = device.makeCommandQueue() else { throw Failure.gpu("no command queue for Layer 2") }
         self.queue = queue
         let library = try Layer2Kernel.library(device, source: source)
@@ -144,6 +151,20 @@ final class Layer2Renderer: @unchecked Sendable {
             throw Failure.memory("no buffer for the curve table")
         }
         identityCurves = curves
+    }
+
+    /// The local variants, compiled once.
+    private func local() throws -> (pass: MTLComputePipelineState, float: MTLComputePipelineState, histogram: MTLComputePipelineState) {
+        localLock.lock(); defer { localLock.unlock() }
+        if let made = localStates { return made }
+        let library = try Layer2Local.library(device, source: localSource)
+        func state(_ name: String) throws -> MTLComputePipelineState {
+            guard let f = library.makeFunction(name: name) else { throw Layer2Kernel.Failure.compile("\(name) is missing") }
+            return try device.makeComputePipelineState(function: f)
+        }
+        let made = (try state("spkLayer2Local"), try state("spkLayer2LocalFloat"), try state("spkLayer2LocalHistogram"))
+        localStates = made
+        return made
     }
 
     // MARK: the picture in
@@ -222,22 +243,25 @@ final class Layer2Renderer: @unchecked Sendable {
         return gpu > 0 ? gpu * 1000 : 0
     }
 
-    /// The pass into `out` (16 bits, the source's size). Returns the GPU's milliseconds.
+    /// The pass into `out` (16 bits, the source's size). Returns the GPU's milliseconds. With `local` (the surface's
+    /// 成片 layers, `Layer2LocalPass`) the local variant runs; without, today's kernel, as it always has.
     @discardableResult
-    func apply(_ source: Layer2Source, _ a: Adjustments, into out: MTLBuffer) throws -> Double {
+    func apply(_ source: Layer2Source, _ a: Adjustments, local: Layer2LocalPass? = nil, into out: MTLBuffer) throws -> Double {
+        let state = try local.map { _ in try self.local().pass } ?? pass
         guard out.length >= source.bytes, let curves = curves(a),
               let commands = queue.makeCommandBuffer(), let encoder = commands.makeComputeCommandEncoder() else {
             throw Failure.gpu("the Layer 2 pass could not be encoded")
         }
         var u = a.uniforms()
         var size = Size(width: UInt32(source.width), height: UInt32(source.height), stride: 1, applies: 1)
-        encoder.setComputePipelineState(pass)
+        encoder.setComputePipelineState(state)
         encoder.setBuffer(source.buffer, offset: 0, index: 0)
         encoder.setBuffer(out, offset: 0, index: 1)
         encoder.setBytes(&u, length: MemoryLayout<Layer2Uniforms>.stride, index: 2)
         encoder.setBuffer(curves, offset: 0, index: 3)
         encoder.setBytes(&size, length: MemoryLayout<Size>.stride, index: 4)
-        dispatch(encoder, pass, width: source.width, height: source.height)
+        local?.bind(encoder, at: 5)
+        dispatch(encoder, state, width: source.width, height: source.height)
         encoder.endEncoding()
         return try run(commands)
     }
@@ -245,13 +269,13 @@ final class Layer2Renderer: @unchecked Sendable {
     /// The picture with `a`, as a `CGImage` over the bytes the kernel wrote:
     /// Display P3, 16 bits a channel. The buffer comes from `pool` and goes
     /// back to it when the image is released.
-    func image(_ source: Layer2Source, _ a: Adjustments, pool: Layer2Pool? = nil) throws -> (CGImage, Layer2Timing) {
+    func image(_ source: Layer2Source, _ a: Adjustments, local: Layer2LocalPass? = nil, pool: Layer2Pool? = nil) throws -> (CGImage, Layer2Timing) {
         let started = DispatchTime.now().uptimeNanoseconds
         let bytes = source.bytes
         guard let out = pool?.take(device, bytes: bytes) ?? device.makeBuffer(length: bytes, options: .storageModeShared) else {
             throw Failure.memory("no \(bytes >> 20) MB buffer for the adjusted picture")
         }
-        let gpu = try apply(source, a, into: out)
+        let gpu = try apply(source, a, local: local, into: out)
         let image = try Self.image(over: out, width: source.width, height: source.height, pool: pool)
         let wall = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
         return (image, Layer2Timing(width: source.width, height: source.height, gpuMilliseconds: gpu, wallMilliseconds: wall))
@@ -281,7 +305,8 @@ final class Layer2Renderer: @unchecked Sendable {
     }
 
     /// The pass with float out, unclamped: four floats a pixel. For a check.
-    func floats(_ source: Layer2Source, _ a: Adjustments) throws -> [Float] {
+    func floats(_ source: Layer2Source, _ a: Adjustments, local: Layer2LocalPass? = nil) throws -> [Float] {
+        let state = try local.map { _ in try self.local().float } ?? passFloat
         let n = source.width * source.height * 4
         guard let out = device.makeBuffer(length: n * 4, options: .storageModeShared), let curves = curves(a),
               let commands = queue.makeCommandBuffer(), let encoder = commands.makeComputeCommandEncoder() else {
@@ -289,13 +314,14 @@ final class Layer2Renderer: @unchecked Sendable {
         }
         var u = a.uniforms()
         var size = Size(width: UInt32(source.width), height: UInt32(source.height), stride: 1, applies: 1)
-        encoder.setComputePipelineState(passFloat)
+        encoder.setComputePipelineState(state)
         encoder.setBuffer(source.buffer, offset: 0, index: 0)
         encoder.setBuffer(out, offset: 0, index: 1)
         encoder.setBytes(&u, length: MemoryLayout<Layer2Uniforms>.stride, index: 2)
         encoder.setBuffer(curves, offset: 0, index: 3)
         encoder.setBytes(&size, length: MemoryLayout<Size>.stride, index: 4)
-        dispatch(encoder, passFloat, width: source.width, height: source.height)
+        local?.bind(encoder, at: 5)
+        dispatch(encoder, state, width: source.width, height: source.height)
         encoder.endEncoding()
         _ = try run(commands)
         return Array(UnsafeBufferPointer(start: out.contents().bindMemory(to: Float.self, capacity: n), count: n))
@@ -310,8 +336,9 @@ final class Layer2Renderer: @unchecked Sendable {
     }
 
     /// The histogram of `source` as shown with `a` (the pass applied where it
-    /// is active). Returns the GPU's milliseconds beside it.
-    func histogram(_ source: Layer2Source, _ a: Adjustments) throws -> (Layer2Histogram, Double) {
+    /// is active) and, with `local`, its 成片 layers. Returns the GPU's milliseconds beside it.
+    func histogram(_ source: Layer2Source, _ a: Adjustments, local: Layer2LocalPass? = nil) throws -> (Layer2Histogram, Double) {
+        let state = try local.map { _ in try self.local().histogram } ?? histogramPass
         guard let bins = device.makeBuffer(length: 1024 * 4, options: .storageModeShared), let curves = curves(a),
               let commands = queue.makeCommandBuffer(), let encoder = commands.makeComputeCommandEncoder() else {
             throw Failure.gpu("the histogram could not be encoded")
@@ -320,14 +347,15 @@ final class Layer2Renderer: @unchecked Sendable {
         let stride = Self.stride(width: source.width, height: source.height)
         var u = a.uniforms()
         var size = Size(width: UInt32(source.width), height: UInt32(source.height), stride: UInt32(stride),
-                        applies: a.isActive ? 1 : 0)
-        encoder.setComputePipelineState(histogramPass)
+                        applies: (local == nil ? a.isActive : a.enabled) ? 1 : 0)
+        encoder.setComputePipelineState(state)
         encoder.setBuffer(source.buffer, offset: 0, index: 0)
         encoder.setBuffer(bins, offset: 0, index: 1)
         encoder.setBytes(&u, length: MemoryLayout<Layer2Uniforms>.stride, index: 2)
         encoder.setBuffer(curves, offset: 0, index: 3)
         encoder.setBytes(&size, length: MemoryLayout<Size>.stride, index: 4)
-        dispatch(encoder, histogramPass, width: (source.width + stride - 1) / stride, height: (source.height + stride - 1) / stride)
+        local?.bind(encoder, at: 5)
+        dispatch(encoder, state, width: (source.width + stride - 1) / stride, height: (source.height + stride - 1) / stride)
         encoder.endEncoding()
         let gpu = try run(commands)
         let counts = Array(UnsafeBufferPointer(start: bins.contents().bindMemory(to: UInt32.self, capacity: 1024), count: 1024))

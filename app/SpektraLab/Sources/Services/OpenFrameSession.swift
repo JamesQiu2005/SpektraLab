@@ -68,39 +68,6 @@ import Observation
 import UIKit
 import os
 
-/// A page revision includes source-owned decode changes made from a pair.
-struct DevelopRevision: Equatable {
-    var edit: FrameEdit
-    var pair: HalfFramePair?
-    var sourceDecodes: [UUID: DecodeSettings]
-
-    /// Meter and As Shot readback are observations, not undoable controls.
-    /// Pair meter keys still gate reuse if a restored exposure intent differs.
-    func keepingReports(from current: DevelopRevision) -> DevelopRevision {
-        var copy = self
-        func decode(_ saved: DecodeSettings, _ now: DecodeSettings) -> DecodeSettings {
-            var value = saved
-            if saved.whiteBalance == .asShot, now.whiteBalance == .asShot {
-                value.temperature = now.temperature; value.tint = now.tint
-            }
-            return value
-        }
-        copy.edit.solvedEV = current.edit.solvedEV
-        copy.edit.decode = decode(copy.edit.decode, current.edit.decode)
-        for side in HalfFramePair.Side.allCases {
-            if var saved = copy.pair?[side], let now = current.pair?[side], saved.frame == now.frame {
-                saved.meteredEV = now.meteredEV; saved.meteredFor = now.meteredFor
-                saved.decode = decode(saved.decode, now.decode)
-                copy.pair?[side] = saved
-            }
-        }
-        for (id, saved) in copy.sourceDecodes {
-            if let now = current.sourceDecodes[id] { copy.sourceDecodes[id] = decode(saved, now) }
-        }
-        return copy
-    }
-}
-
 @MainActor
 @Observable
 final class OpenFrameSession {
@@ -114,9 +81,55 @@ final class OpenFrameSession {
     /// develop is to be made again (`AppServices.develop`).
     @ObservationIgnored var onStale: (() -> Void)?
     @ObservationIgnored var onRestoreRevision: ((DevelopRevision) -> Void)?
+    /// An edit's 成片 layers as Edit's pass takes them (`AppServices.finishedLayers`, PRD-E): handed to the page's
+    /// pass with every edit it is handed. Set by the app's model; handing it hands the edit's layers at once.
+    @ObservationIgnored var finishedLayers: (LibraryFrame, FrameEdit) -> FinishedLayers? = { _, _ in nil } {
+        didSet { layer2.show(layers: shownLayers(edit)) }
+    }
+    /// The edit the page's picture was developed from (`landed`): its framing is the one the picture has, which an
+    /// edit that moved the crop, the turns or the film edge is ahead of until its develop lands.
+    @ObservationIgnored private var pictureOf: FrameEdit?
+
+    /// `e`'s 成片 layers for the picture the page shows: its layers and Edit's switch, through the framing that picture
+    /// was developed with — so a mask never lands on an older picture by a newer crop's matrix (RFC-052 §7).
+    private func shownLayers(_ e: FrameEdit) -> FinishedLayers? {
+        guard let frame else { return nil }
+        var on = pictureOf ?? e
+        on.layers = e.layers
+        on.adjustments = e.adjustments
+        return finishedLayers(frame, on)
+    }
+    /// The frame's history (PRD-F §3.1): 256 steps, the states around the cursor held, the rest in the store.
     private var history = EditHistory<DevelopRevision>()
     private var historyBefore: DevelopRevision?
     @ObservationIgnored private var replayingHistory = false
+    /// The app's line to the history store (`attachHistory`); nil keeps this session's history in memory alone: a
+    /// session no store was given (a test), or one the store refused (a newer build's file, PRD-F §3.5).
+    @ObservationIgnored private var historyLine: EditHistoryLine?
+    /// The frame's history is being read as the page opens (≤ 10 ms, off the main actor): Undo and Redo wait,
+    /// greyed, until it lands. A step made meanwhile is kept and laid on what was read (`historyLanded`).
+    private(set) var historyLoading = false
+    @ObservationIgnored private var recordedWhileLoading: [(before: DevelopRevision, after: DevelopRevision)] = []
+    /// An Undo or Redo pressed before the history landed, or past the states held: made once they are read.
+    @ObservationIgnored private var historyWaiting: [Int] = []
+    /// States past the window are being read for an Undo or Redo that reached them (greyed meanwhile).
+    private(set) var historyReading = false
+    /// Counts the history's changes of shape (a step, a Clear): a read that was out across one is of numbers the
+    /// history has since given to other states, and is dropped.
+    @ObservationIgnored private var historyTurn = 0
+    /// The origin and label of the step the current transaction will make (`recording`); nil is a develop step,
+    /// named by `HistoryLabels.develop`.
+    @ObservationIgnored private var stepNote: (origin: HistoryOrigin, label: HistoryLabel)?
+    /// A step of this pair or double changed member photographs' decodes: their decodes before it, by id. The app
+    /// records a `composite` step on each member (`AppServices.recordMembers`, PRD-F §3.3).
+    @ObservationIgnored var onMembersChanged: (([UUID: DecodeSettings]) -> Void)?
+    /// How many states either side of the cursor a session holds and reads at a time (PRD-F §5).
+    static let historyRadius = 8
+    #if DEBUG
+    /// Each `recordHistory` on the main actor, in milliseconds: the snapshot, the diff, the label and the hand-off
+    /// (PRD-F §5's ≤ 1 ms), for `--history-check`.
+    static var recordMillis: [Double] = []
+    #endif
 
     /// What the controls bind to. Set it through `change`, so the session sees it.
     private(set) var edit: FrameEdit
@@ -127,6 +140,16 @@ final class OpenFrameSession {
     /// `AppServices.changePair`; what a change of it owes the picture is told
     /// from this (`HalfFramePair.changes`).
     @ObservationIgnored private var renderedPair: HalfFramePair?
+    /// A double exposure's piece the last develop that landed was of (`DoubleExposure.developed`: its
+    /// readings left out), as `renderedPair` is a pair's.
+    @ObservationIgnored private var renderedDouble: DoubleExposure?
+    /// **A double exposure's layer picked** (PRD-D §3.6, the 图层 panel's rows: 胶片 on top, then 上层 · 下层):
+    /// the whole, or one exposure. What Decode's white balance, an exposure's own stops and its place are
+    /// about (`DoubleExposure.decodePosition(on:)`). `.film` for a photograph and a pair.
+    private(set) var doubleLayer = DoubleExposure.Layer.film
+    /// **The exposure shown alone** (the review's R9, the panel's eye per exposure row): nil shows the
+    /// double. The page's state, not the piece's: nothing is kept or undone (`AppServices.showAlone`).
+    var alone: DoubleExposure.Position?
     /// A half-frame pair: the layer the page's controls are about — the film,
     /// or one of its frames (`pick`). The desktop's `Session.pairLayer`.
     private(set) var layer = HalfFramePair.Layer.film
@@ -141,6 +164,13 @@ final class OpenFrameSession {
     private(set) var developed: DevelopedPicture?
     @ObservationIgnored private var developedImage: UIImage?
     @ObservationIgnored private var opened = false
+    /// The neutral-grey eyedropper that is waiting for a click on the picture, if one is (`NeutralPick`,
+    /// `pickNeutral(at:)`, 2026-11-11). Nil when no eyedropper is out.
+    var neutralPick: NeutralPick.Target?
+    /// What the last pick came to, for the canvas's line: "Neutral at 5,240 K, tint +6", or why none was set.
+    var neutralNote: String?
+    /// The page's own develop as a picture, for the print's eyedropper: what Layer 2 is applied to.
+    var developedCGImage: CGImage? { developedImage?.cgImage }
 
     /// What the Latitude card draws: the engine's measurement of this frame
     /// against its film and paper. In the drawings' own library — whose frames
@@ -178,7 +208,7 @@ final class OpenFrameSession {
     /// scheduler would cancel the one in flight for it — the same picture,
     /// twice the wait (seen in the simulator, 2026-10-05: a develop 0.37 s in,
     /// cancelled and run again from the start).
-    @ObservationIgnored private var asked: (id: UUID, target: FrameEdit, piece: HalfFramePair?)?
+    @ObservationIgnored private var asked: (id: UUID, target: FrameEdit, piece: HalfFramePair?, double: DoubleExposure?)?
     /// What the pixels of the last job asked for start from, and of the last
     /// one that finished (`EngineRouter.sourceKey`). A job whose own differs —
     /// another cut for a film edge, another white balance of a RAW — opens
@@ -231,13 +261,8 @@ final class OpenFrameSession {
         // alone: every host photograph is 4:3, and all of them would develop
         // again at launch.)
         let kept = library.frame(frameID)
-        var current = (kept?.edit ?? .default).held(to: kept?.originalSize ?? PixelSize(width: 0, height: 0))
-        // A half-frame pair's look has no cut and no film edge of a frame's own (`FrameEdit.asPairLook`),
-        // and is held to its piece: where the second frame begins, and a placement shown that is
-        // of a frame that is there (`HalfFramePair.hold`).
+        let current = kept.map(Self.pageEdit(of:)) ?? .default
         if let pair = kept?.pair {
-            current = current.asPairLook
-            pair.hold(&current.params)
             // A hole still empty is what the page is about first: it asks for its frame.
             if pair.isFilled || (pair.left == nil && pair.right == nil) { layer = .film }
             else { layer = pair.left == nil ? .left : .right }
@@ -245,9 +270,12 @@ final class OpenFrameSession {
         edit = current
         rendered = current
         renderedPair = kept?.pair
+        renderedDouble = kept?.double?.developed
         latitude = Self.unmeasured(darkroom)
+        lensResolution = kept.flatMap { Self.lensNow($0, edit: current) }
         layer2.show(adjustments: current.adjustments)
         layer2.show(picture: Layer2Live.picture(for: kept, developed: nil, edit: current))
+        // Its 成片 layers follow once the app hands the resolver (`finishedLayers`, set just after this).
         let placement = current.params.sceneLatitude
         // Pull-backs that were never solved — dragged in a build with no engine,
         // which kept them as numbers — wait for this frame's Fit, as pasted ones do.
@@ -255,6 +283,41 @@ final class OpenFrameSession {
            placement.highlightPullBack > 0 || placement.shadowPullBack > 0 {
             edit.placementNeedsFit = true
         }
+    }
+
+    /// A frame's edit as its page takes it (the session's `edit` at its start, and every edit it commits): held
+    /// to its photograph (`FrameEdit.held`); a half-frame pair's look with no cut and no film edge of a frame's own
+    /// (`FrameEdit.asPairLook`), held to its piece — where the second frame begins, a placement shown that is of a
+    /// frame that is there (`HalfFramePair.hold`); a double exposure's with no cut and no framing of its own
+    /// (`FrameEdit.asDoubleLook`). What a history state of a frame with no page open is made of too, so the two
+    /// compare (`revision(of:darkroom:)`).
+    static func pageEdit(of frame: LibraryFrame) -> FrameEdit {
+        var current = frame.edit.held(to: frame.originalSize)
+        if let pair = frame.pair {
+            current = current.asPairLook
+            pair.hold(&current.params)
+        }
+        if frame.isDouble { current = current.asDoubleLook }
+        return current
+    }
+
+    /// A frame's history state as a page would snapshot it (`historySnapshot`), for a frame with no page open:
+    /// its page's edit, its piece, and its member photographs' decodes.
+    static func revision(of frame: LibraryFrame, darkroom: EngineRouter?) -> DevelopRevision {
+        DevelopRevision(edit: pageEdit(of: frame), pair: frame.pair,
+                        sourceDecodes: memberDecodes(pair: frame.pair, double: frame.double, darkroom: darkroom), double: frame.double)
+    }
+
+    /// The decodes of a pair's or a double's photographs, as the library holds them, by id.
+    private static func memberDecodes(pair: HalfFramePair?, double: DoubleExposure?, darkroom: EngineRouter?) -> [UUID: DecodeSettings] {
+        var decodes: [UUID: DecodeSettings] = [:]
+        if let pair, let darkroom {
+            for source in darkroom.held(by: pair).values { decodes[source.id] = source.edit.decode }
+        }
+        if let double, let darkroom {
+            for source in darkroom.held(by: double).values { decodes[source.id] = source.edit.decode }
+        }
+        return decodes
     }
 
     /// Whether the card's reading is the engine's measurement of this frame.
@@ -272,6 +335,75 @@ final class OpenFrameSession {
     }
 
     var frame: LibraryFrame? { library.frame(frameID) }
+    /// Whose lens correction this frame's decode is, with which distortion, as a word (`LensResolution.geometryWord`):
+    /// "" but where the app corrects it itself. With `edit.decode.lensCorrection`, the decode geometry a mask is made on
+    /// (`MaskMadeOn`). Read through `lensResolution`, so a view that shows it follows the resolution when it settles.
+    var lensWord: String {
+        _ = lensResolution
+        guard let frame else { return "" }
+        return LensCorrection.geometryWord(source: frame.developSource, fileName: frame.fileName, decode: edit.decode,
+                                           isRAW: frame.developsFromRAW)
+    }
+
+    // MARK: 镜头校正 (lens correction)
+
+    /// The open photograph's lens correction as resolved (`LensResolver`): who corrects it, with what, which of its
+    /// controls are live (`adjustsDistortion`, `adjustsLightFalloff`, `adjustsHideDistortedAreas`) and why
+    /// (`why.text`). Nil for a pair, a double, a picture that is not a RAW and a frame with nothing to develop from:
+    /// their photographs' own are resolved as each is decoded. Provisional (`settled` false) until the page's first
+    /// develop has landed and the frame has been resolved (`resolveLens`); then again after every lens change.
+    private(set) var lensResolution: LensResolution?
+    /// The lenses of the database the 配置文件 popup recommends for this frame, best first (`LensDatabase.recommended`:
+    /// `.exif`, `.name`, `.similar`); none for a file already corrected (an Apple ProRAW), and none without a database.
+    private(set) var recommendedLenses: [LensDatabase.Recommendation] = []
+    @ObservationIgnored private var resolvingLens: Task<Void, Never>?
+
+    /// 镜头校正 on or off (off is the popup's "none").
+    func setLensCorrection(_ on: Bool) { change { $0.decode.lensCorrection = on } }
+    /// 配置文件: nil is automatic, else a lens of the database (`LensDatabase.Lens`: its `key` and `name`).
+    func setLensProfile(_ pick: DecodeSettings.LensPick?) { change { $0.decode.lensProfile = pick } }
+    func setLensProfile(_ lens: LensDatabase.Lens?) { setLensProfile(lens.map { DecodeSettings.LensPick(key: $0.key, name: $0.name) }) }
+    /// 畸变, 0–100. A drag is one history step: the panel brackets it with `began(.shoot)` … `ended()`, as every slider.
+    func setLensDistortion(_ amount: Double) { change { $0.decode.lensDistortion = Self.lensAmount(amount) } }
+    /// 光衰减, 0–100 (a drag as 畸变's).
+    func setLensLightFalloff(_ amount: Double) { change { $0.decode.lensLightFalloff = Self.lensAmount(amount) } }
+    /// 隐藏畸变区域.
+    func setLensHideDistortedAreas(_ on: Bool) { change { $0.decode.lensHideDistortedAreas = on } }
+
+    private static func lensAmount(_ v: Double) -> Double {
+        min(max(v.isFinite ? v : 0, DecodeSettings.lensAmountRange.lowerBound), DecodeSettings.lensAmountRange.upperBound)
+    }
+
+    /// A RAW photograph whose file the black repair has not measured yet this session (`RawBlack.resolved`).
+    private var blackUnresolved: Bool {
+        guard let frame, frame.developsFromRAW, !frame.isComposite, let source = frame.developSource else { return false }
+        return !RawBlack.resolved(source)
+    }
+
+    /// The frame's lens correction resolved as it stands (`EngineRouter.resolveLens`: every file a develop of it reads),
+    /// off the main actor; `lensResolution` and `recommendedLenses` follow. Where the answer is another picture than the one the
+    /// page asked for (Core Image's support that changes nothing, a database match), the frame is developed again.
+    func resolveLens() {
+        guard let frame else { return }
+        lensResolution = Self.lensNow(frame, edit: edit)
+        resolvingLens?.cancel()
+        guard let darkroom, let source = frame.developSource, frame.developsFromRAW || frame.isComposite else { return }
+        let fields = edit.decode.lensFields
+        let single = !frame.isComposite && frame.developsFromRAW
+        resolvingLens = Task { [weak self] in
+            let moved = await darkroom.resolveLens(frame)
+            let lenses = single ? await LensResolver.recommended(for: source) : []
+            guard let self, !Task.isCancelled, self.edit.decode.lensFields == fields, let now = self.frame else { return }
+            self.lensResolution = Self.lensNow(now, edit: self.edit)
+            self.recommendedLenses = lenses
+            if moved { self.sourceChanged() }
+        }
+    }
+
+    private static func lensNow(_ frame: LibraryFrame, edit: FrameEdit) -> LensResolution? {
+        guard !frame.isComposite, frame.developsFromRAW, let source = frame.developSource else { return nil }
+        return LensResolver.current(source, fileName: frame.fileName, decode: edit.decode)
+    }
 
     // MARK: who holds it
 
@@ -286,6 +418,7 @@ final class OpenFrameSession {
             visit = Visit(began: now, edit: edit, settled: edit, pair: pair, settledPair: pair, clock: SurfaceClock(on: surface, at: now))
             // A page taken up again: the layer is drawn on what the page shows until its develop lands.
             layer2.show(adjustments: edit.adjustments)
+            layer2.show(layers: shownLayers(edit))
             layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: edit))
         }
         holders += 1
@@ -299,6 +432,9 @@ final class OpenFrameSession {
         guard holders == 0 else { return }
         visit?.settling?.cancel()
         endHistoryTransaction()
+        // What was read rather than set while the page was open (a placement solved, the frame picked on a pair)
+        // is the cursor's state as the page leaves it: the next page's guard sees no change that is none.
+        amendHistory()
         settle()
         if let visit {
             // The log's line for the visit: how long, what of the edit it touched, what it left changed,
@@ -516,6 +652,15 @@ final class OpenFrameSession {
         }
         RenderedPictures.shared.remove(old?.picture)
         visit?.pictures += 1
+        // The picture is of the edit whose develop has its stamp: the job in flight, the last one finished, or the edit
+        // as it stands (a frame's kept develop); none of them known, the edit as it stands.
+        if let frame, let darkroom {
+            pictureOf = [asked?.target, rendered, edit].compactMap { $0 }
+                .first { darkroom.stamp(frame, edit: $0, longEdge: frame.previewDevelopLongEdge($0)) == stamp } ?? edit
+        } else {
+            pictureOf = nil
+        }
+        layer2.show(layers: shownLayers(moving.map { var e = edit; e.adjustments = $0; return e } ?? edit))
         layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: edit))
     }
 
@@ -533,8 +678,20 @@ final class OpenFrameSession {
             if moved.contains(.pixels) || moved.contains(.film) { layers.insert(.shoot) }
             if moved.contains(.print) { layers.insert(.print) }
         }
+        // A double exposure's piece moved on: its frame is other pixels, developed again.
+        if !isCurrent(double: renderedDouble) { layers.insert(.shoot) }
         return layers
     }
+
+    /// Whether `piece` is the double exposure as it stands, readings left out (`DoubleExposure.developed`).
+    private func isCurrent(double piece: DoubleExposure?) -> Bool {
+        guard let now = frame?.double else { return true }
+        return piece == now.developed
+    }
+
+    /// A finger is on a control of this page (`began` … `ended`): a double exposure's guide is owed, not
+    /// drawn, until it lifts (`AppServices.changeDouble`), and a Balance drag is one Undo step (R2).
+    var isDragging: Bool { dragging != nil }
 
     /// Whether `piece` is the piece as it stands, for a develop: nothing of
     /// its pixels, its dates or its frames' prints has moved since.
@@ -548,6 +705,7 @@ final class OpenFrameSession {
     /// A finger landed on a control of this layer.
     func began(_ layer: ParamLayer) {
         beginHistoryTransaction()
+        adjusting = true
         dragging = layer
         scheduler.frontend.interaction = .dragging(layer)
     }
@@ -561,10 +719,25 @@ final class OpenFrameSession {
         recordHistory(from: before)
     }
 
+    /// **Enable HDR switched** on this photograph (`HighDynamicRangeGroup`'s row, the driver's `hdr.on`/`hdr.off`): its
+    /// own choice, an undo step as every row's — **and Settings' Enable HDR by Default** (2.4.0; the owner, 2026-11-13:
+    /// "remember the state of whether EDR / HDR is opened in a persistent way, not the current behavior of always
+    /// default to off"). Until then a photograph that never chose followed a default only Settings moved, off unless
+    /// turned on there, so every new or untouched photograph came up off however often the person switched it on
+    /// (`tools/hdr_choice_check.sh`, red on 2.4.0's tree before this). One stored value (`settings.hdrByDefault`), so
+    /// the switch and Settings never disagree, and it is kept across a relaunch; a photograph that chose keeps its
+    /// own (`hdrChoice`). An undo takes the photograph's choice back, not the default: the default is what was last
+    /// switched.
+    func switchHDR(_ on: Bool) {
+        change { $0.hdr = on }
+        if settings.hdrByDefault != on { settings.hdrByDefault = on }
+    }
+
     private func changeWithoutHistory(_ mutate: (inout FrameEdit) -> Void) {
         var next = edit
         mutate(&next)
         commit(next, pieceMoved: false)
+        amendHistory()
     }
 
     /// A kept edit may be a user's Crop Done, or only decoder/meter
@@ -580,16 +753,19 @@ final class OpenFrameSession {
         else { change { $0 = wanted } }
     }
 
-    var canUndo: Bool { historyBefore == nil && history.canUndo }
-    var canRedo: Bool { historyBefore == nil && history.canRedo }
+    /// Undo and Redo stand down inside a gesture, while the history is read as the page opens, and while states
+    /// past the window are read (PRD-F §5: ⌘Z before it lands waits, greyed for that moment).
+    var canUndo: Bool { historyBefore == nil && !historyLoading && !historyReading && history.canUndo }
+    var canRedo: Bool { historyBefore == nil && !historyLoading && !historyReading && history.canRedo }
 
     func historySnapshot() -> DevelopRevision {
-        var decodes: [UUID: DecodeSettings] = [:]
-        if let pair, let darkroom {
-            for source in darkroom.held(by: pair).values { decodes[source.id] = source.edit.decode }
-        }
-        return DevelopRevision(edit: edit, pair: pair, sourceDecodes: decodes)
+        let double = frame?.double
+        return DevelopRevision(edit: edit, pair: pair, sourceDecodes: Self.memberDecodes(pair: pair, double: double, darkroom: darkroom),
+                               double: double)
     }
+
+    /// A transaction held open over many gestures (`holdHistory`).
+    @ObservationIgnored private var historyHeld = false
 
     /// Returns whether this caller owns the group, so nested transactions
     /// cannot finish a gesture's history entry early.
@@ -599,22 +775,210 @@ final class OpenFrameSession {
         return true
     }
     func endHistoryTransaction() {
-        guard let before = historyBefore else { return }
+        guard !historyHeld, let before = historyBefore else { return }
         historyBefore = nil
         recordHistory(from: before)
     }
+    /// **One step of Undo over many gestures** (摆放, `ArrangeStage`; LAYERS-SPEC gap G7): the transaction is
+    /// opened now and no gesture's lift closes it (`ended` → `endHistoryTransaction`) until `releaseHistory`.
+    /// ⌘Z stands down meanwhile, as inside any transaction (`canUndo`).
+    /// `origin` and `label`: what the one step is (the Film Edge flow's: `flow`, *Film Edge*); none, a develop step
+    /// named by what moved (`HistoryLabels.develop`).
+    func holdHistory(as origin: HistoryOrigin? = nil, _ label: HistoryLabel? = nil) {
+        guard !historyHeld else { return }
+        beginHistoryTransaction()
+        historyHeld = true
+        if let origin, let label { stepNote = (origin, label) }
+    }
+    /// The held transaction closes: one step for all that moved, none where nothing did (`EditHistory.record`).
+    func releaseHistory() {
+        guard historyHeld else { return }
+        historyHeld = false
+        endHistoryTransaction()
+    }
+    /// A step, from `before` to the edit as it stands: recorded here, and written through to the store as it is
+    /// recorded (PRD-F §3.2) — the encode and the write are the store's, off the main actor.
     func recordHistory(from before: DevelopRevision) {
         guard !replayingHistory, historyBefore == nil else { return }
+        #if DEBUG
+        let began = ContinuousClock.now
+        defer {
+            let d = ContinuousClock.now - began
+            if Self.recordMillis.count < 10_000 {
+                Self.recordMillis.append(Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15)
+            }
+        }
+        #endif
+        let note = stepNote
+        stepNote = nil
         let after = historySnapshot()
-        history.record(from: before.keepingReports(from: after), to: after)
+        let from = before.keepingReports(from: after)
+        guard history.record(from: from, to: after) else { return }
+        historyTurn &+= 1
+        if historyLoading { recordedWhileLoading.append((from, after)) }
+        let step = HistoryAppend(before: from, after: after, origin: note?.origin ?? .develop,
+                                 label: note?.label ?? HistoryLabels.develop(from: from, to: after), at: Date(), mode: .amends)
+        let id = frameID
+        historyLine?.send("append") { try await $0.append(id, step) }
+        // A pair's or a double's step that moved a photograph's own decode is a step of that photograph too.
+        let moved = from.sourceDecodes.filter { id, was in after.sourceDecodes[id].map { $0 != was } ?? false }
+        if !moved.isEmpty { onMembersChanged?(moved) }
     }
-    @discardableResult func undo() -> Bool {
-        guard canUndo, let revision = history.undo() else { return false }
-        restore(revision); return true
+
+    /// The step the transaction `body` makes is named, and its origin said (PRD-F §3.3): Paste Settings, a preset,
+    /// Crop's or the Film Edge flow's Done. Inside a transaction already open, the note is that one's.
+    func recording(_ origin: HistoryOrigin, _ label: HistoryLabel, _ body: () -> Void) {
+        let owns = beginHistoryTransaction()
+        if owns || stepNote == nil { stepNote = (origin, label) }
+        body()
+        if owns {
+            endHistoryTransaction()
+            stepNote = nil
+        }
     }
-    @discardableResult func redo() -> Bool {
-        guard canRedo, let revision = history.redo() else { return false }
-        restore(revision); return true
+
+    @discardableResult func undo() -> Bool { move(by: -1) }
+    @discardableResult func redo() -> Bool { move(by: 1) }
+
+    /// Undo (−1) or Redo (+1). Pressed while the history is still being read, it is made once it lands; one that
+    /// reaches a state past the window reads it first (one read, ≤ 5 ms), greyed meanwhile.
+    private func move(by step: Int) -> Bool {
+        if historyLoading || historyReading {
+            if historyBefore == nil { historyWaiting.append(step) }
+            return true
+        }
+        guard historyBefore == nil else { return false }
+        guard let target = step < 0 ? history.undoSeq : history.redoSeq else { return false }
+        guard let revision = step < 0 ? history.undo() : history.redo() else {
+            read(around: target, then: step)
+            return true
+        }
+        restore(revision)
+        historyMoved()
+        return true
+    }
+
+    /// The cursor moved by an Undo or Redo: the store's moves too, and the states next in that direction are read
+    /// ahead when they are not held, so the next ⌘Z does not wait.
+    private func historyMoved() {
+        let id = frameID, seq = history.cursorSeq
+        historyLine?.send("move") { try await $0.move(id, to: seq) }
+        let ahead = history.missing(around: seq, radius: 2)
+        if !ahead.isEmpty { read(around: seq, then: nil) }
+    }
+
+    /// The states within `historyRadius` of `seq`, read from the store; then the Undo or Redo that wanted one.
+    private func read(around seq: Int, then step: Int?) {
+        guard let line = historyLine else { return }
+        if step != nil { historyReading = true }
+        let id = frameID, turn = historyTurn
+        let range = (seq - Self.historyRadius)...(seq + Self.historyRadius)
+        Task { [weak self] in
+            let got = try? await line.ask("read") { try await $0.states(id, seqs: range) }
+            guard let self else { return }
+            if step != nil { self.historyReading = false }
+            if let got, turn == self.historyTurn { self.history.take(got) }
+            // The one that waited, if what it needs is here now; a refused read leaves the cursor where it was.
+            if let step, self.history.state(seq) != nil { _ = self.move(by: step) }
+            self.runWaiting()
+        }
+    }
+
+    /// The Undos and Redos pressed while the history was read, in order.
+    private func runWaiting() {
+        while !historyLoading, !historyReading, !historyWaiting.isEmpty {
+            let step = historyWaiting.removeFirst()
+            _ = move(by: step)
+        }
+    }
+
+    /// **Go to This Step** (PRD-F §4, the history page): the cursor onto `seq`, the state restored, no step — the
+    /// same as that many ⌘Z or ⇧⌘Z, and the redo tail survives until the next edit. Reads the state first if it
+    /// is not held. False where the history holds no such step.
+    @discardableResult func goTo(_ seq: Int) -> Bool {
+        guard historyBefore == nil, !historyLoading, !historyReading, seq >= history.baseSeq, seq <= history.lastSeq else { return false }
+        guard seq != history.cursorSeq else { return true }
+        if history.state(seq) == nil {
+            guard let line = historyLine else { return false }
+            historyReading = true
+            let id = frameID, turn = historyTurn
+            Task { [weak self] in
+                let got = try? await line.ask("read") { try await $0.states(id, seqs: (seq - Self.historyRadius)...(seq + Self.historyRadius)) }
+                guard let self else { return }
+                self.historyReading = false
+                if let got, turn == self.historyTurn { self.history.take(got) }
+                if self.history.state(seq) != nil { self.goTo(seq) }
+                self.runWaiting()
+            }
+            return true
+        }
+        guard let revision = history.move(to: seq) else { return false }
+        restore(revision)
+        historyMoved()
+        return true
+    }
+
+    /// **Clear History** (PRD-F §4): the edit as it stands is kept and becomes the base, *Original*.
+    func clearHistory() {
+        guard historyBefore == nil, !historyLoading else { return }
+        let now = historySnapshot()
+        history.amend(now)
+        history.clear()
+        historyTurn &+= 1
+        let id = frameID
+        historyLine?.send("clear") { try await $0.clear(id, keeping: now) }
+    }
+
+    /// The history as this page holds it, for the checks: its shape and cursor.
+    var historyShape: (baseSeq: Int, cursorSeq: Int, lastSeq: Int, baseIsEarlier: Bool, empty: Bool) {
+        (history.baseSeq, history.cursorSeq, history.lastSeq, history.baseIsEarlier, history.isEmpty)
+    }
+
+    /// The cursor's state, where what was read rather than set since moved it (`changeWithoutHistory`, `leave`).
+    private func amendHistory() {
+        guard historyBefore == nil, !replayingHistory, !historyLoading, !history.isEmpty else { return }
+        let now = historySnapshot()
+        guard history.current != now else { return }
+        history.amend(now)
+        let id = frameID
+        historyLine?.send("amend") { try await $0.amend(id, current: now) }
+    }
+
+    /// The frame's history is kept in the store behind `line` (`AppServices.session(for:)`): the session reads its
+    /// cursor and the states around it, reconciled to the library's edit first (PRD-F §3.2), off the main actor.
+    func attachHistory(_ line: EditHistoryLine) {
+        guard historyLine == nil, history.isEmpty else { return }
+        historyLine = line
+        historyLoading = true
+        let id = frameID, current = historySnapshot()
+        Task { [weak self] in
+            let result: Result<HistoryWindow, Error>
+            do { result = .success(try await line.ask("open", writes: true) { try await $0.open(id, current: current, radius: Self.historyRadius, at: Date()) }) }
+            catch { result = .failure(error) }
+            self?.historyLanded(result)
+        }
+    }
+
+    /// What the store had, and the guard's verdict on it, for the checks.
+    @ObservationIgnored private(set) var historyReconciled: HistoryWindow.Reconciled?
+
+    /// The frame's history has been read: it is the page's, with any step made meanwhile laid on it, as the store
+    /// lays the same steps (they were sent after the open). A store that refused — a newer build's file — leaves
+    /// the page its history in memory alone, from here on (PRD-F §3.5).
+    private func historyLanded(_ result: Result<HistoryWindow, Error>) {
+        historyLoading = false
+        switch result {
+        case .success(let window):
+            var landed = window.history(limit: history.limit)
+            for step in recordedWhileLoading { landed.record(from: step.before, to: step.after) }
+            history = landed
+            historyTurn &+= 1
+            historyReconciled = window.reconciled
+        case .failure:
+            historyLine = nil
+        }
+        recordedWhileLoading = []
+        runWaiting()
     }
     private func restore(_ saved: DevelopRevision) {
         var revision = saved.keepingReports(from: historySnapshot())
@@ -639,6 +1003,7 @@ final class OpenFrameSession {
             next = next.asPairLook
             pair.hold(&next.params)
         }
+        if frame?.isDouble == true { next = next.asDoubleLook }
         guard next != edit || pieceMoved else { return }
         // The picture under the placement moves on: a measurement that is out
         // is of another (`measure`).
@@ -649,6 +1014,9 @@ final class OpenFrameSession {
         var same = edit
         same.adjustments = next.adjustments
         same.printCrop = next.printCrop
+        // A mask layer that changes nothing the 场景 stage's wire sees (a 成片 layer, a name, a part switched off and on
+        // again) is made after it, as Edit's layer is; a 场景 layer's change is the film's (`ChangeDescriber.layers`).
+        if ChangeDescriber.sceneLayers(edit) == ChangeDescriber.sceneLayers(next) { same.layers = next.layers }
         // Enable HDR: a print's is the same full render (D3) — but a slide's develop is its stretched scan.
         // The stored choice, not `hdr`.
         if HDRGain.sdrWire(for: next) == HDRGain.sdrWire(for: edit) { same.hdrChoice = next.hdrChoice }
@@ -658,13 +1026,19 @@ final class OpenFrameSession {
         #endif
         // Enable HDR turned on, or its peak moved (the curve's H, PRD-B): the curve asked again, alone — no develop.
         let hdrTurnedOn = next.hdr && (!edit.hdr || next.hdrPeakStops != edit.hdrPeakStops)
+        // The stage switch's line goes with the next change (drawing 11); the act that sets it sets it after this.
+        stageNotice = nil
+        let lensMoved = next.decode.lensFields != edit.decode.lensFields
         edit = next
         touched()
+        // 镜头校正 moved: its answer now (a chosen lens is read at once), and the whole one off the main actor.
+        if lensMoved { resolveLens() }
         library.update(frameID) { $0.edit = next }
         // Enable HDR on: the curve of the edit as it stands (a print develops nothing for it).
         if hdrTurnedOn { askCurve() }
         // Layer 2 follows the edit at once: it is the GPU's pass, not a render.
         layer2.show(adjustments: next.adjustments)
+        layer2.show(layers: shownLayers(next))
         layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: next))
         // The Latitude card follows the placement, not the develop: a solve is
         // not a render.
@@ -743,6 +1117,23 @@ final class OpenFrameSession {
         refocus()
     }
 
+    // MARK: a double exposure (RFC-050; the 图层 panel's rows, PRD-D §3.6)
+
+    /// The double exposure this page is of, as the library has it; nil for a photograph or a pair.
+    var double: DoubleExposure? { frame?.double }
+
+    /// The exposure the picked layer is, when it holds a photograph.
+    var pickedPosition: DoubleExposure.Position? { double?.pickedPosition(doubleLayer) }
+
+    /// Pick a double exposure's layer: the whole (胶片) or one exposure (上层 · 下层). Nothing is asked for: a
+    /// pick changes what the controls are about, never the picture.
+    func pickLayer(_ picked: DoubleExposure.Layer) {
+        guard double != nil, picked != doubleLayer else { return }
+        doubleLayer = picked
+        visit?.picked.insert(Log.layerName(picked))
+        Log.doubleLayer(frameID, picked)
+    }
+
     /// The reading on the page is of another frame, or of a piece that has
     /// moved on: the rulers wait, and the card is measured again.
     private func refocus() {
@@ -796,8 +1187,9 @@ final class OpenFrameSession {
 
     /// The finger lifted: whatever is outstanding is asked for now.
     func ended() {
+        adjusting = false
         dragging = nil
-        scheduler.frontend.interaction = .idle
+        if scheduler.frontend.interaction != .idle { scheduler.frontend.interaction = .idle }
         pause?.cancel(); pause = nil
         request()
         endHistoryTransaction()
@@ -834,6 +1226,7 @@ final class OpenFrameSession {
     func beganEdit() {
         guard !editing else { return }
         beginHistoryTransaction()
+        adjusting = true
         editing = true
         Layer2Copies.shared.hold(frameID)
     }
@@ -844,9 +1237,49 @@ final class OpenFrameSession {
         change { mutate(&$0.adjustments) }
     }
 
+    /// A control of Edit's on the move (between `beganEdit` and `endedEdit`: a slider, the curve, a colour wheel):
+    /// the GPU's pass is given the value at once, and the edit takes it when the finger lifts. Outside a drag,
+    /// `changeEdit`.
+    ///
+    /// Measured 2026-11-11 (the slider-feel round, "滑块……卡卡的"): the edit set at every pointer event redraws
+    /// every view that reads it — the whole column, the page, the bar, the browser over the library's copy — and
+    /// at 120 events a second the main thread never caught up: Brightness's knob drawn 10 times a second
+    /// (median 125 ms between frames), the picture with it. Given to the pass alone, the edit unpublished until
+    /// the lift, 70 frames a second (median 8.3 ms) with the picture following. The control reads
+    /// `shownAdjustments` meanwhile (a slider draws its own knob and number, `SliderTrack`).
+    func moveEdit(_ mutate: (inout Adjustments) -> Void) {
+        guard editing else { changeEdit(mutate); return }
+        var next = moving ?? edit.adjustments
+        mutate(&next)
+        guard next != (moving ?? edit.adjustments) else { return }
+        moving = next
+        layer2.show(adjustments: next)
+        // Edit switched off under a finger takes its layers with it (`FinishedLayers.of`).
+        if next.enabled != edit.adjustments.enabled {
+            var e = edit; e.adjustments = next
+            layer2.show(layers: shownLayers(e))
+        }
+    }
+
+    /// Edit's layer as the page shows it: the one under a moving slider (`moveEdit`), else the edit's.
+    var shownAdjustments: Adjustments { moving ?? edit.adjustments }
+
+    /// A control's values since `beganEdit`, not yet the edit's (`moveEdit`). Observed on its own: what reads
+    /// `shownAdjustments` — the control being moved — is drawn again, and nothing that reads the edit is.
+    private var moving: Adjustments?
+
+    /// What a moving slider left becomes the edit: one change, inside the drag's Undo step.
+    private func landMoving() {
+        guard let a = moving else { return }
+        moving = nil
+        change { $0.adjustments = a }
+    }
+
     /// The finger lifted: the library's edited copy is made, a moment later.
     func endedEdit() {
         guard editing else { return }
+        landMoving()
+        adjusting = false
         editing = false
         Layer2Copies.shared.release(frameID)
         endHistoryTransaction()
@@ -896,9 +1329,15 @@ final class OpenFrameSession {
     /// leaves behind is the frame's kept develop — its last picture when that
     /// is of the edit as it stands, a develop in the queue when it is not.
     private func close() {
+        landMoving()
+        landMovingLayers()
+        if layerMoving { layerMoving = false; Layer2Copies.shared.release(frameID) }
         pause?.cancel()
         dragging = nil
-        scheduler.frontend.interaction = .idle
+        // Written only when it changes (the queue's own `didSet` ignores a write of the same state): an observed write
+        // notifies every reader, and this one runs in the page's `onDisappear`, inside SwiftUI's update, where it made
+        // the graph flush again — ~190 ms of a switch to another variant from the browser on 45 MP (2.4.0 A2, `sample`).
+        if scheduler.frontend.interaction != .idle { scheduler.frontend.interaction = .idle }
         scheduler.cancelAll(frameID: frameID) { $0.kind.isCanvas }
         bringing?.cancel(); bringing = nil
         notBrought = nil
@@ -932,6 +1371,252 @@ final class OpenFrameSession {
         opened = false
     }
 
+    // MARK: mask layers (PRD-E, MASKS-SPEC §4, §5; RFC-052 §8)
+    //
+    // A layer act is one step of Undo with a label a person can read (`recording`): made, removed, duplicated by the
+    // act's own words, a field of a layer by `HistoryFields.layerTable`'s ("主体 1 · 不透明度 60"). A slider of a
+    // layer's page does not commit per tick (`moveLayer`, as `moveEdit` for Edit's): a 成片 layer's value goes to
+    // Edit's pass at once and nothing develops; a 场景 layer's is committed when the pointer rests, which asks the
+    // live tier's develop (`ChangeDescriber.layers` sees a 场景 layer as film-side), as every film-side control.
+
+    /// A single photograph's picked mask layer (gap G2): the page's state, kept across 冲洗 and 编辑 as a pair's
+    /// pick is; nil is 胶片. A pick whose layer has gone (removed, undone away) reads as 胶片 (`LayerRules.held`), and
+    /// comes back with it.
+    var maskPick: UUID?
+    /// The layer whose stage was switched with adjustments that were not zero (drawing 11): the line under the switch
+    /// with 撤销. Gone with the next change of the edit or the next pick.
+    var stageNotice: UUID?
+    /// Why the last layer act was refused (8 a stage, an export holding the frame), at the panel's foot until the next.
+    var maskNote: String?
+    /// Whether an export batch is reading this frame (AGENTS.md trap 34: a layer act must not move the edit under the
+    /// file being written). Set by the app's model; false where nothing set it (a check without an exporter).
+    @ObservationIgnored var exportHolds: () -> Bool = { false }
+
+    /// Whether an adjustment is being dragged (a film-side control, Edit's, a layer's slider): the mask overlay steps
+    /// aside meanwhile (MASKS-SPEC §6.1). Observed: the overlay reads it.
+    private(set) var adjusting = false
+    /// Whether a layer's one-step drag is open (`beganLayer` … `endedLayer`).
+    var isMovingLayer: Bool { layerMoving }
+    /// A control is held: a film-side one (`began`), Edit's (`beganEdit`) or a layer's or a tool's on the picture
+    /// (`beganLayer`). The page is made again for another frame while one is (`DevelopWorkspace.pageHolds`): the
+    /// control's own drag lives in its view, which must not carry it to the next frame's session (2.4.0 A2b).
+    var controlHeld: Bool { dragging != nil || editing || layerMoving }
+
+    /// The edit's mask layers.
+    var maskLayers: LocalLayers? { edit.layers }
+    /// The layers as the page shows them: the one under a moving slider (`moveLayer`), else the edit's.
+    var shownMaskLayers: LocalLayers? { movingLayers ?? edit.layers }
+    /// The layer picked, as it stands on the page.
+    var pickedMaskLayer: LocalLayer? { maskPick.flatMap { shownMaskLayers?[$0] } }
+
+    /// A layer's values since `beganLayer`, not yet the edit's. Observed on its own, as `moving` is.
+    private var movingLayers: LocalLayers?
+    @ObservationIgnored private var layerMoving = false
+    /// A 场景 layer's value waiting for the pointer to rest (`filmSidePause`).
+    @ObservationIgnored private var layerRest: Task<Void, Never>?
+
+    /// Refused while an export reads the frame: said at the panel's foot.
+    private func layerActRefused() -> Bool {
+        guard exportHolds() else { return false }
+        maskNote = L("This picture is being exported. Its layers wait until the export is done.")
+        return true
+    }
+
+    /// One layer act: one step, named `label` (nil: by the field it moved, `HistoryFields.layerTable`).
+    @discardableResult
+    private func layerAct(_ label: HistoryLabel?, _ mutate: (inout LocalLayers) -> Void) -> Bool {
+        guard LayerRules.takesMasks(layerPiece), !layerActRefused() else { return false }
+        maskNote = nil
+        func apply() { change { e in var l = e.layers ?? LocalLayers(); mutate(&l); e.layers = l.kept } }
+        if let label { recording(.develop, label) { apply() } } else { apply() }
+        return true
+    }
+
+    /// **+**, and the first stroke of a tool with 胶片 picked: a new layer, picked, in `stage` (nil: the mode in front's,
+    /// 冲洗 → 场景, 编辑 → 成片), named for how it was made (`MaskRules.name`) with `parts` as its mask. Refused past 8 a
+    /// stage, with the reason at the panel's foot. The layer's id, or nil where it was refused.
+    @discardableResult
+    func makeLayer(_ made: MaskRules.Made = .empty, parts: [MaskPart] = [], stage: LayerStage? = nil, name: String? = nil) -> UUID? {
+        let stage = stage ?? MaskRules.stage(for: surface == .edit ? .edit : .develop)
+        guard LayerRules.takesMasks(layerPiece) else { return nil }
+        if let refusal = MaskRules.refusal(adding: stage, to: edit.layers) { maskNote = refusal; return nil }
+        var layer = LocalLayer(name: name ?? MaskRules.name(made, among: edit.layers), stage: stage, parts: parts)
+        // The decode's geometry it is made on (RFC-052 §8.1): the row's mark when lens correction changes after.
+        layer.madeOn = MaskMadeOn(lensCorrection: edit.decode.lensCorrection, lensWord: lensWord)
+        guard layerAct(HistoryLabel("New Layer"), { $0.items.append(layer) }) else { return nil }
+        maskPick = layer.id
+        return layer.id
+    }
+
+    /// What 主体 · 背景 · 人 find on (`SubjectFinder`, RFC-052 §5): the frame's own file and the decode the edit asks of
+    /// it, and a RAW's kept decode at the page's size where there is one (`RawProxy`; the finder reads it only where it
+    /// is at least its rendition's size). Nil where the frame has nothing to read (an original that is away).
+    var findSource: FindSource? {
+        guard let frame, let url = frame.developSource else { return nil }
+        let raw = frame.developsFromRAW
+        return FindSource(frame: frame.id, url: url, isRAW: raw, decode: edit.decode,
+                          proxy: raw ? darkroom?.proxy(frame, decode: edit.decode)?.url : nil)
+    }
+
+    /// The found masks' files the page's history names in memory — what the store may not have been sent yet: the
+    /// close's sweep keeps them (`FoundMaskKeeping.pageClosed`'s `extra`).
+    var historyFoundAssets: Set<String> {
+        history.states.reduce(into: Set<String>()) { $0.formUnion($1.map { FoundMaskKeeping.assets($0.edit) } ?? []) }
+    }
+
+    /// A part joined to the picked layer's mask (a tool's stroke or drag with a mask layer picked; 组合蒙版's join): one
+    /// step, "主体 1 · 蒙版". False with no mask layer picked: the tool makes a layer instead (`makeLayer`).
+    @discardableResult
+    func addPart(_ part: MaskPart, to id: UUID? = nil) -> Bool {
+        guard let id = id ?? maskPick, edit.layers?[id] != nil else { return false }
+        return layerAct(nil) { $0[id]?.parts.append(part) }
+    }
+
+    /// One part of a layer's mask changed (its join, its eye, a gradient's handle let go): one step.
+    func changePart(_ id: UUID, part: UUID, _ mutate: (inout MaskPart) -> Void) {
+        layerAct(nil) { l in
+            guard var layer = l[id], let i = layer.parts.firstIndex(where: { $0.id == part }) else { return }
+            mutate(&layer.parts[i])
+            l[id] = layer
+        }
+    }
+
+    /// A part's × : removed, one step; Undo brings it back.
+    func removePart(_ id: UUID, part: UUID) {
+        layerAct(nil) { $0[id]?.parts.removeAll { $0.id == part } }
+    }
+
+    /// **−** and 删除图层: the layer goes, asking nothing (Undo restores it). The pick moves to the row that took its
+    /// place — the next older layer — or the one above it, or 胶片.
+    func removeLayer(_ id: UUID) {
+        guard let items = edit.layers?.items, let i = items.firstIndex(where: { $0.id == id }) else { return }
+        guard layerAct(HistoryLabel("Delete Layer"), { $0[id] = nil }) else { return }
+        if maskPick == id { maskPick = i > 0 ? items[i - 1].id : items.count > 1 ? items[i + 1].id : nil }
+    }
+
+    /// 复制图层: a copy beside it, newer, picked, its parts with ids of their own; refused past 8 a stage.
+    @discardableResult
+    func duplicateLayer(_ id: UUID) -> UUID? {
+        guard let layer = edit.layers?[id] else { return nil }
+        if let refusal = MaskRules.refusal(adding: layer.stage, to: edit.layers) { maskNote = refusal; return nil }
+        var copy = layer
+        copy.id = UUID()
+        copy.name = MaskRules.duplicateName(of: layer.name, among: edit.layers)
+        for i in copy.parts.indices { copy.parts[i].id = UUID() }
+        let made = copy
+        guard layerAct(HistoryLabel("Duplicate Layer"), { l in
+            let at = (l.items.firstIndex { $0.id == id } ?? l.items.count - 1) + 1
+            l.items.insert(made, at: at)
+        }) else { return nil }
+        maskPick = copy.id
+        return copy.id
+    }
+
+    /// The eye: the layer in the picture or not, written with the edit (one step).
+    func setLayerOn(_ id: UUID, _ on: Bool) { changeLayer(id) { $0.on = on } }
+
+    /// Renamed in place: an empty name keeps the old one.
+    func renameLayer(_ id: UUID, _ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, edit.layers?[id]?.name != trimmed else { return }
+        changeLayer(id) { $0.name = trimmed }
+    }
+
+    /// 反相.
+    func setLayerInverted(_ id: UUID, _ invert: Bool) { changeLayer(id) { $0.invert = invert } }
+
+    /// **The stage switch** (drawing 11, PRD-E §9 decision 2): the mask, the name, the opacity and the eye stay; the
+    /// other stage's adjustments from zero. One step: one Undo brings the old stage and its values back. Where the old
+    /// adjustments were not zero, the line under the switch says they start again (`stageNotice`). Refused where the
+    /// other stage holds 8 already.
+    func switchStage(_ id: UUID, to stage: LayerStage) {
+        guard let layer = edit.layers?[id], layer.stage != stage else { return }
+        var others = edit.layers
+        others?[id] = nil
+        if let refusal = MaskRules.refusal(adding: stage, to: others) { maskNote = refusal; return }
+        let restarts = MaskRules.restarts(layer)
+        guard layerAct(nil, { $0[id] = layer.moved(to: stage) }) else { return }
+        if restarts { stageNotice = id }
+    }
+
+    /// A layer's field changed by a tap, a typed number, a switch: one step, named by the field.
+    func changeLayer(_ id: UUID, _ mutate: (inout LocalLayer) -> Void) {
+        guard var layer = edit.layers?[id] else { return }
+        let was = layer
+        mutate(&layer)
+        guard layer != was else { return }
+        let made = layer
+        layerAct(nil) { $0[id] = made }
+    }
+
+    /// The pointer landed on a layer's slider (不透明度, a 场景 or 成片 control): one step until it lifts. A tool on the
+    /// picture (a stroke, a gradient's drag: `MaskStage`) is the same one step, with `adjusting` false: it changes the
+    /// mask, and the overlay shows itself for it rather than stepping aside.
+    func beganLayer(adjusting: Bool = true) {
+        guard !layerMoving, LayerRules.takesMasks(layerPiece), !layerActRefused() else { return }
+        beginHistoryTransaction()
+        // Written only when it changes (an observed write re-makes its readers, `moveLayer`'s note).
+        if self.adjusting != adjusting { self.adjusting = adjusting }
+        layerMoving = true
+        Layer2Copies.shared.hold(frameID)
+    }
+
+    /// A layer's slider on the move (between `beganLayer` and `endedLayer`). A 成片 layer's value is Edit's pass's at
+    /// once, nothing developed; a 场景 layer's is committed when the pointer rests for `filmSidePause` — a develop at
+    /// the live tier, as a film-side control's — and again at the lift. Outside a drag, `changeLayer`.
+    func moveLayer(_ id: UUID, _ mutate: (inout LocalLayer) -> Void) {
+        guard layerMoving else { changeLayer(id, mutate); return }
+        var next = movingLayers ?? edit.layers ?? LocalLayers()
+        guard var layer = next[id] else { return }
+        let was = layer
+        mutate(&layer)
+        guard layer != was else { return }
+        next[id] = layer
+        movingLayers = next
+        // Only what changes the 场景 stage's wire waits for a develop; a 成片 layer, its opacity included, is the pass's.
+        var shown = edit
+        shown.layers = next.kept
+        layer2.show(layers: shownLayers(shown))
+        guard layer.stage == .scene else { return }
+        // Written only when it changes: an observed property notifies on every write, and the page's status line
+        // reads the scheduler — a write per pointer move re-made the whole Develop page each move (2.4.0 A1: the main
+        // actor busy ~30 ms a move in SwiftUI's update under a stroke, by `sample`).
+        if scheduler.frontend.interaction != .dragging(.shoot) { scheduler.frontend.interaction = .dragging(.shoot) }
+        layerRest?.cancel()
+        layerRest = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.filmSidePause * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.landMovingLayers()
+        }
+    }
+
+    /// What a moving slider left becomes the edit: inside the drag's one step.
+    private func landMovingLayers() {
+        layerRest?.cancel(); layerRest = nil
+        guard let next = movingLayers else { return }
+        movingLayers = nil
+        change { $0.layers = next.kept }
+    }
+
+    /// The pointer lifted: the value is the edit's, and the drag one step.
+    func endedLayer() {
+        guard layerMoving else { return }
+        landMovingLayers()
+        adjusting = false
+        layerMoving = false
+        if dragging == nil, scheduler.frontend.interaction != .idle { scheduler.frontend.interaction = .idle }
+        Layer2Copies.shared.release(frameID)
+        endHistoryTransaction()
+    }
+
+    /// ↺ on 调整: the layer's adjustments back to zero, the mask as it is (one step).
+    func resetLayerAdjustments(_ id: UUID) {
+        changeLayer(id) { l in
+            if l.scene != nil { l.scene = SceneDeltas() }
+            if l.finished != nil { l.finished = FinishedDeltas() }
+        }
+    }
+
     // MARK: asking for the render
 
     private func request() {
@@ -940,7 +1625,8 @@ final class OpenFrameSession {
         let layers = owed(to: target)
         guard !layers.isEmpty else { return }
         // Already on its way.
-        if let asked, ChangeDescriber.layers(from: asked.target, to: target).isEmpty, isCurrent(asked.piece) { return }
+        if let asked, ChangeDescriber.layers(from: asked.target, to: target).isEmpty, isCurrent(asked.piece),
+           isCurrent(double: asked.double) { return }
         submit(frame, target: target, layers: layers, opening: false)
     }
 
@@ -997,15 +1683,20 @@ final class OpenFrameSession {
                             // of the same negative, cut in along its hole (`PrintLayers.swift`).
                             printLayers: darkroom?.printLayers(frame, edit: target) ?? 0,
                             // A cropped frame's decode is larger than its canvas (`previewDevelopLongEdge`).
-                            opens: frame.previewDevelopOpens(target))
+                            opens: frame.previewDevelopOpens(target),
+                            // A RAW with no proxy here: a first open, priced as its decode (`CostModel`).
+                            rawDecode: opens && (darkroom?.decodesRAW(frame, edit: target) ?? false),
+                            // Its 场景 layers' planes (RFC-052 §8.5); none for a piece of frames.
+                            scenePlanes: frame.isComposite ? 0 : SceneLayerWire.priced(target.layers, source: frame.originalSize).planes,
+                            scenePlaneBytes: frame.isComposite ? 0 : SceneLayerWire.priced(target.layers, source: frame.originalSize).bytes)
         // The frame's file, its decode and its whole wire, as they are now: the
         // engine asks for them on its own queue. A frame with nothing to develop
         // from (a demo picture, an original that is away) is not submitted.
         if let darkroom, !darkroom.prepare(job, frame: frame, edit: target, purpose: .canvas,
                                            longEdge: frame.previewDevelopLongEdge(target)) { return }
         let id = scheduler.submit(job)
-        let piece = frame.pair
-        asked = (id, target, piece)
+        let piece = frame.pair, double = frame.double?.developed
+        asked = (id, target, piece, double)
         askedSource = source
         if !opening {
             settings.lastFilm = target.params.filmStock
@@ -1018,9 +1709,14 @@ final class OpenFrameSession {
                 finished = true
                 self.rendered = target
                 self.renderedPair = piece
+                self.renderedDouble = double
                 self.renderedSource = source
                 // The page's first picture is measured at once; an edit's when it settles.
                 self.measureSoon(after: opening ? 0 : Self.latitudePause)
+                // Its lens correction is resolved once the first picture is on the page: Core Image's verdict (two draft
+                // decodes, the first time a camera and lens are seen) stays off the open's critical time.
+                // So is the black repair's measurement of a RAW (`RawBlack`, once a file), whatever its lens.
+                if opening, self.lensResolution?.settled != true || self.blackUnresolved { self.resolveLens() }
                 // A placement the engine has not solved — pasted from another frame, or
                 // kept by a build with no engine — is solved now that the engine has
                 // the frame as it stands (RFC-027 §4.1).
@@ -1058,7 +1754,8 @@ final class OpenFrameSession {
     /// way. Nil while the page is catching up with anything but a placement.
     private var settled: FrameEdit? {
         let base = rendered.withoutPlacement
-        guard ChangeDescriber.layers(from: base, to: edit.withoutPlacement).isEmpty, isCurrent(renderedPair) else { return nil }
+        guard ChangeDescriber.layers(from: base, to: edit.withoutPlacement).isEmpty, isCurrent(renderedPair),
+              isCurrent(double: renderedDouble) else { return nil }
         if let asked, !ChangeDescriber.layers(from: base, to: asked.target.withoutPlacement).isEmpty { return nil }
         return base
     }

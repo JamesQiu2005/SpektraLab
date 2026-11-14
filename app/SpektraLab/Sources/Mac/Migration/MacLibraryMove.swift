@@ -91,7 +91,7 @@ final class MacLibraryMove {
     /// pair, which is made of two frames and gets a row of its own, `MacPairRows.swift`), and in no catalog by the record.
     nonisolated static func candidates(_ frames: [LibraryFrame], record: Record) -> [LibraryFrame.ID] {
         let known = record.known
-        return frames.filter { !$0.isDemo && !$0.isPair && $0.picture.fileURL != nil && !known.contains($0.id) }.map(\.id)
+        return frames.filter { !$0.isDemo && !$0.isComposite && $0.picture.fileURL != nil && !known.contains($0.id) }.map(\.id)
     }
 
     /// *Not now*: put off until the next launch.

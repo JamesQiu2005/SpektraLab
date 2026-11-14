@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <initializer_list>
 #include <sstream>
 #include <unordered_map>
 
@@ -47,7 +48,9 @@ const SchemaField kFields[] = {
     // schema declares it too — `parity_schema.py` compares the two tables in
     // order, not as sets.
     {"auto_exposure_method",     "camera.auto_exposure_method",           S, SHOOT, false, 0, 0, false},
-    {"film_format_mm",           "camera.film_format_mm",                 F, SHOOT, true, 4.0, 200.0, false},
+    // 3…300 since 2026-11-11 (the oracle's 4…200): 8×10 sheet film is 245 mm long, a square
+    // picture on 8mm 3.68 (API-SPEC §20; `parity_schema.py` records the divergence).
+    {"film_format_mm",           "camera.film_format_mm",                 F, SHOOT, true, 3.0, 300.0, false},
     {"lens_blur_um",             "camera.lens_blur_um",                   F, SHOOT, true, 0.0, 200.0, false},
     {"halation_active",          "film_render.halation.active",           B, SHOOT, false, 0, 0, false},
     {"halation_amount",          "film_render.halation.halation_amount",  F, SHOOT, true, 0.0, 4.0, false},
@@ -224,6 +227,48 @@ const SchemaField kFields[] = {
     {"scan_hdr_stretch",         "io.scan_hdr_stretch",                   B, SHOOT, false, 0, 0, false},
     {"scan_hdr_output_scale",    "io.scan_hdr_output_scale",              F, PRINT, true, 0.0625, 1.0, false},
     {"grain_seed",               "settings.film_seed",                    I, SHOOT, true, 0.0, 2147483647.0, false},
+    // API-SPEC §21 (2026-11-09; in this engine 2026-11-11):
+    // leaks in the picture, the MZ-S data line, 120 from 65 mm cine film, the
+    // full-width 135 frame's falloff, and the lens (diffusion filter and
+    // aberrations). Native-only, SHOOT, not live, after `grain_seed` in
+    // one fixed order; every default renders byte for byte as before.
+    {"diffusion_filter_active",          "camera.diffusion_filter.active",          B, SHOOT, false, 0, 0, false},
+    {"diffusion_filter_family",          "camera.diffusion_filter.filter_family",   S, SHOOT, false, 0, 0, false},
+    {"diffusion_filter_strength",        "camera.diffusion_filter.strength",        F, SHOOT, true, 0.0, 2.0, false},
+    {"diffusion_filter_spatial_scale",   "camera.diffusion_filter.spatial_scale",   F, SHOOT, true, 0.25, 4.0, false},
+    {"diffusion_filter_halo_warmth",     "camera.diffusion_filter.halo_warmth",     F, SHOOT, true, -1.5, 1.5, false},
+    {"diffusion_filter_core_intensity",  "camera.diffusion_filter.core_intensity",  F, SHOOT, true, 0.0, 4.0, false},
+    {"diffusion_filter_core_size",       "camera.diffusion_filter.core_size",       F, SHOOT, true, 0.25, 4.0, false},
+    {"diffusion_filter_halo_intensity",  "camera.diffusion_filter.halo_intensity",  F, SHOOT, true, 0.0, 4.0, false},
+    {"diffusion_filter_halo_size",       "camera.diffusion_filter.halo_size",       F, SHOOT, true, 0.25, 4.0, false},
+    {"diffusion_filter_bloom_intensity", "camera.diffusion_filter.bloom_intensity", F, SHOOT, true, 0.0, 4.0, false},
+    {"diffusion_filter_bloom_size",      "camera.diffusion_filter.bloom_size",      F, SHOOT, true, 0.25, 4.0, false},
+    {"lens_aberrations_active",  "camera.lens_aberrations.active",              B, SHOOT, false, 0, 0, false},
+    {"lens_field_curvature_um",  "camera.lens_aberrations.field_curvature_um",  F, SHOOT, true, 0.0, 120.0, false},
+    {"lens_astigmatism_um",      "camera.lens_aberrations.astigmatism_um",      F, SHOOT, true, -120.0, 120.0, false},
+    {"lens_field_exponent",      "camera.lens_aberrations.field_exponent",      F, SHOOT, true, 1.0, 4.0, false},
+    {"lens_sharp_radius",        "camera.lens_aberrations.sharp_radius",        F, SHOOT, true, 0.0, 0.8, false},
+    {"lens_coma_um",             "camera.lens_aberrations.coma_um",             F, SHOOT, true, -150.0, 150.0, false},
+    {"lens_spherical_amount",    "camera.lens_aberrations.spherical_amount",    F, SHOOT, true, 0.0, 0.6, false},
+    {"lens_spherical_um",        "camera.lens_aberrations.spherical_um",        F, SHOOT, true, 10.0, 400.0, false},
+    {"lens_lateral_ca_r",        "camera.lens_aberrations.lateral_ca_r",        F, SHOOT, true, -3.0, 3.0, false},
+    {"lens_lateral_ca_b",        "camera.lens_aberrations.lateral_ca_b",        F, SHOOT, true, -3.0, 3.0, false},
+    {"lens_loca_um",             "camera.lens_aberrations.loca_um",             F, SHOOT, true, 0.0, 30.0, false},
+    {"lens_loca_sign",           "camera.lens_aberrations.loca_sign",           S, SHOOT, false, 0, 0, false},
+    {"lens_loca_highlight_gate", "camera.lens_aberrations.loca_highlight_gate", F, SHOOT, true, 0.0, 1.0, false},
+    {"leak_kind",                "film_render.leak.kind",                       S, SHOOT, false, 0, 0, false},
+    {"leak_amount",              "film_render.leak.amount",                     F, SHOOT, true, 0.0, 4.0, false},
+    {"leak_rate",                "film_render.leak.rate",                       F, SHOOT, true, 0.0, 1.0, false},
+    {"leak_front",               "film_render.leak.front",                      F, SHOOT, true, -1.0, 1.0, false},
+    {"date_imprint_data_placement", "film_render.date_imprint.data_placement",  S, SHOOT, false, 0, 0, false},
+    {"date_imprint_data_leader",    "film_render.date_imprint.data_leader",     S, SHOOT, false, 0, 0, false},
+    {"overscan_perforation",     "film_render.overscan.perforation",            S, SHOOT, false, 0, 0, false},
+    {"overscan_falloff",         "film_render.overscan.falloff",                F, SHOOT, true, 0.0, 1.5, false},
+    // RFC-052 §6.4 (API-SPEC §23): the stamp of the session's scene layers,
+    // whose planes and gains `spk_set_scene_layers` hands over. Native-only,
+    // SHOOT (a layer is exposure on the negative), not live, after
+    // `overscan_falloff`. "" = none: the node is not dispatched.
+    {"scene_layers",             "camera.scene_layers",                         S, SHOOT, false, 0, 0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -293,6 +338,31 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "print_render.glare.amount") return &p.print_render.glare.amount;
     if (path == "io.scan_hdr_headroom") return &p.io.scan_hdr_headroom;
     if (path == "io.scan_hdr_output_scale") return &p.io.scan_hdr_output_scale;
+    // API-SPEC §21
+    if (path == "camera.diffusion_filter.strength") return &p.camera.diffusion_filter.strength;
+    if (path == "camera.diffusion_filter.spatial_scale") return &p.camera.diffusion_filter.spatial_scale;
+    if (path == "camera.diffusion_filter.halo_warmth") return &p.camera.diffusion_filter.halo_warmth;
+    if (path == "camera.diffusion_filter.core_intensity") return &p.camera.diffusion_filter.core_intensity;
+    if (path == "camera.diffusion_filter.core_size") return &p.camera.diffusion_filter.core_size;
+    if (path == "camera.diffusion_filter.halo_intensity") return &p.camera.diffusion_filter.halo_intensity;
+    if (path == "camera.diffusion_filter.halo_size") return &p.camera.diffusion_filter.halo_size;
+    if (path == "camera.diffusion_filter.bloom_intensity") return &p.camera.diffusion_filter.bloom_intensity;
+    if (path == "camera.diffusion_filter.bloom_size") return &p.camera.diffusion_filter.bloom_size;
+    if (path == "camera.lens_aberrations.field_curvature_um") return &p.camera.lens_aberrations.field_curvature_um;
+    if (path == "camera.lens_aberrations.astigmatism_um") return &p.camera.lens_aberrations.astigmatism_um;
+    if (path == "camera.lens_aberrations.field_exponent") return &p.camera.lens_aberrations.field_exponent;
+    if (path == "camera.lens_aberrations.sharp_radius") return &p.camera.lens_aberrations.sharp_radius;
+    if (path == "camera.lens_aberrations.coma_um") return &p.camera.lens_aberrations.coma_um;
+    if (path == "camera.lens_aberrations.spherical_amount") return &p.camera.lens_aberrations.spherical_amount;
+    if (path == "camera.lens_aberrations.spherical_um") return &p.camera.lens_aberrations.spherical_um;
+    if (path == "camera.lens_aberrations.lateral_ca_r") return &p.camera.lens_aberrations.lateral_ca_r;
+    if (path == "camera.lens_aberrations.lateral_ca_b") return &p.camera.lens_aberrations.lateral_ca_b;
+    if (path == "camera.lens_aberrations.loca_um") return &p.camera.lens_aberrations.loca_um;
+    if (path == "camera.lens_aberrations.loca_highlight_gate") return &p.camera.lens_aberrations.loca_highlight_gate;
+    if (path == "film_render.leak.amount") return &p.film_render.leak.amount;
+    if (path == "film_render.leak.rate") return &p.film_render.leak.rate;
+    if (path == "film_render.leak.front") return &p.film_render.leak.front;
+    if (path == "film_render.overscan.falloff") return &p.film_render.overscan.falloff;
     return nullptr;
 }
 
@@ -324,6 +394,8 @@ bool* bool_slot(Params& p, const std::string& path) {
     if (path == "film_render.overscan.active") return &p.film_render.overscan.active;
     if (path == "film_render.overscan.pair") return &p.film_render.overscan.pair;
     if (path == "film_render.date_imprint.active") return &p.film_render.date_imprint.active;
+    if (path == "camera.diffusion_filter.active") return &p.camera.diffusion_filter.active;
+    if (path == "camera.lens_aberrations.active") return &p.camera.lens_aberrations.active;
     return nullptr;
 }
 
@@ -336,6 +408,7 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "camera.auto_exposure_method") return &p.camera.auto_exposure_method;
     if (path == "camera.filter") return &p.camera.filter;
     if (path == "camera.scene_curve") return &p.camera.scene_curve;
+    if (path == "camera.scene_layers") return &p.camera.scene_layers;
     if (path == "camera.scene_latitude.norm") return &p.camera.scene_latitude.norm;
     if (path == "print_render.contrast_mask.scheme") return &p.print_render.contrast_mask.scheme;
     if (path == "film_render.overscan.format") return &p.film_render.overscan.format;
@@ -350,6 +423,12 @@ std::string* str_slot(Params& p, const std::string& path) {
     if (path == "film_render.overscan.gate") return &p.film_render.overscan.gate;
     if (path == "film_render.overscan.holes") return &p.film_render.overscan.holes;
     if (path == "film_render.overscan.carrier") return &p.film_render.overscan.carrier;
+    if (path == "camera.diffusion_filter.filter_family") return &p.camera.diffusion_filter.filter_family;
+    if (path == "camera.lens_aberrations.loca_sign") return &p.camera.lens_aberrations.loca_sign;
+    if (path == "film_render.leak.kind") return &p.film_render.leak.kind;
+    if (path == "film_render.date_imprint.data_placement") return &p.film_render.date_imprint.data_placement;
+    if (path == "film_render.date_imprint.data_leader") return &p.film_render.date_imprint.data_leader;
+    if (path == "film_render.overscan.perforation") return &p.film_render.overscan.perforation;
     return nullptr;
 }
 
@@ -429,7 +508,8 @@ bool is_known_camera_filter(const std::string& name) {
 }
 
 const std::vector<SchemaField>& schema_fields() {
-    static const std::vector<SchemaField> v(std::begin(kFields), std::end(kFields));
+    // Never destroyed: read by a render, which may still run while `exit()` tears the statics down (colour.cpp).
+    static const auto& v = *new const std::vector<SchemaField>(std::begin(kFields), std::end(kFields));
     return v;
 }
 
@@ -507,6 +587,28 @@ bool validate_delta(const Json& delta, std::string& error, std::string& param) {
             std::vector<float> table;
             size_t n = 0;
             if (!parse_scene_curve(v.as_string(), table, n, error)) { param = kv.first; return false; }
+        }
+        // API-SPEC §21: the new enumerated strings (2026-11-09).
+        {
+            struct Enum { const char* field; const char* names; std::initializer_list<const char*> ok; };
+            static const Enum kEnums[] = {
+                {"diffusion_filter_family", "black_pro_mist, pro_mist, glimmerglass, cinebloom",
+                 {"black_pro_mist", "pro_mist", "glimmerglass", "cinebloom"}},
+                {"lens_loca_sign", "purple, green", {"purple", "green"}},
+                {"leak_kind", "off, auto, band, wash, spot", {"off", "auto", "band", "wash", "spot"}},
+                {"date_imprint_data_placement", "gap, perfs", {"gap", "perfs"}},
+                {"overscan_perforation", "none, ks65", {"none", "ks65"}},
+            };
+            for (const Enum& en : kEnums) {
+                if (kv.first != en.field) continue;
+                bool ok = false;
+                for (const char* name : en.ok) ok = ok || v.as_string() == name;
+                if (!ok) {
+                    error = "'" + kv.first + "' = '" + v.as_string() + "' is not one of (" + en.names + ")";
+                    param = kv.first;
+                    return false;
+                }
+            }
         }
         if (kv.first == "scene_latitude_norm" && !is_known_scene_latitude_norm(v.as_string())) {
             error = "'scene_latitude_norm' = '" + v.as_string() +
@@ -712,6 +814,7 @@ bool digest(Params& p, const Json& neutral_filters, std::string& error) {
         p.enlarger.lens_blur = 0.0;
         p.enlarger.diffusion_filter.active = false;
         p.camera.diffusion_filter.active = false;
+        p.camera.lens_aberrations.active = false;
         p.scanner.lens_blur = 0.0;
         set2(p.scanner.unsharp_mask, 0.0, 0.0);
     }

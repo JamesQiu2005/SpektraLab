@@ -397,7 +397,7 @@ final class StockPreviews {
         let job = RenderJob(frameID: frame.id, kind: .stockPreview, tier: .live, canvas: plan.canvas,
                             what: StockCatalog.shared.pairText(edit.params), decodesOriginal: decodes, bandable: false,
                             original: decodes ? darkroom.openSize(frame, edit: edit) : nil, printLayers: plan.layers.count,
-                            opens: plan.opens, slot: card.slot)
+                            opens: plan.opens, slot: card.slot, rawDecode: decodes && darkroom.decodesRAW(frame, edit: edit))
         guard darkroom.prepareCard(job, frame: frame, edit: edit, plan: plan, strip: source, decodes: decodes) else { return false }
         beginRun(frame.id, strip: strip, canvas: plan.canvas)
         let id = scheduler.submit(job)

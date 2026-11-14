@@ -35,7 +35,9 @@ if ! xcodebuild -project "$here/SpektraLab.xcodeproj" -scheme SpektraLab -config
   exit 1
 fi
 rm -f "$out"/*.png
-app="$derived/Build/Products/Debug-maccatalyst/SpektraLab.app/Contents/MacOS/SpektraLab"
+# A copy with a bundle identifier of this run's own: the build's preferences are never reachable (tools/check_app.sh).
+source "$here/tools/check_app.sh"; check_app_isolate "$derived/Build/Products/Debug-maccatalyst/SpektraLab.app"
+app="$bin"
 "$app" --tour "$out" 2>&1 | grep -E "^tour" &
 pid=$!
 ( sleep 180; kill $pid 2>/dev/null ) & watchdog=$!

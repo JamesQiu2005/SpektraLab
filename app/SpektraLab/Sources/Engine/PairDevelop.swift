@@ -78,8 +78,11 @@ extension LibraryFrame {
 
     /// The canvas a develop of `edit` makes of this item at preview size, for
     /// pricing the job before it runs: a photograph's (`FrameEdit.canvas`), or
-    /// a pair's piece and the film round it.
+    /// a pair's piece and the film round it, or a double exposure's frame and
+    /// the film round it as a photograph's (`DoubleExposure.canvas`, RFC-048 §5:
+    /// its preview size is its frame's, `DoubleKeeping`'s `ownSize`).
     func canvas(_ edit: FrameEdit) -> PixelSize {
+        if let double { return double.canvas(piece: previewSize, look: edit) }
         guard let pair else { return edit.canvas(preview: previewSize) }
         return pair.canvas(piece: previewSize, look: edit)
     }

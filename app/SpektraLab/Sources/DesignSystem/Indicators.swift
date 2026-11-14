@@ -81,12 +81,22 @@ struct StatusLine: View {
 /// its off track and its size are the drawing's on every system.
 struct SpkToggle: View {
     @Binding var isOn: Bool
+    var size: Size = .regular
+
+    /// `regular` is the host's finger-sized switch; `compact` is the Mac column's, sized to Edit › Adjust's 22 pt
+    /// controls (2026-11-11: "shrink the toggles … to Edit's size"), for a 32 pt row.
+    enum Size {
+        case regular, compact
+        var track: CGSize { self == .regular ? CGSize(width: 51, height: 31) : CGSize(width: 34, height: 20) }
+        var knob: CGFloat { self == .regular ? 27 : 16 }
+    }
+
     var body: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             Capsule().fill(isOn ? Theme.accent : Theme.toggleOff)
-            Circle().fill(Color.white).frame(width: 27, height: 27).padding(2)
+            Circle().fill(Color.white).frame(width: size.knob, height: size.knob).padding(2)
         }
-        .frame(width: 51, height: 31)
+        .frame(width: size.track.width, height: size.track.height)
         .contentShape(Capsule())
         .onTapGesture { withAnimation(.easeOut(duration: 0.16)) { isOn.toggle() } }
         .accessibilityAddTraits(.isButton)

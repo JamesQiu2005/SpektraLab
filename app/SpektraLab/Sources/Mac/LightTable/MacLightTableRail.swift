@@ -222,6 +222,21 @@ final class MacRailPictures {
     /// Each tile's picture as it was last read: where it came from, by film.
     private(set) var readFrom: [String: String] = [:]
     static let limit = 120
+    private var warning: NSObjectProtocol?
+
+    init() {
+        // The host is short of memory (`MemoryRelease`): the pictures go; a tile shown keeps its own and the rest
+        // are read again from disk as they come into view.
+        warning = NotificationCenter.default.addObserver(forName: .spkMemoryWarning, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.empty()
+                MemoryRelease.tally("rail_pictures")
+            }
+        }
+    }
+
+    /// How many are kept, for the check (`MemoryRelease.counts`).
+    var count: Int { kept.count }
 
     func cached(_ source: LightTableSource, edge: Int) -> CGImage? { kept["\(edge)|\(source.key)"] }
 

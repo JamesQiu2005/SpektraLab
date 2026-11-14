@@ -560,6 +560,16 @@ struct LibraryNewVariant: Decodable, Sendable {
     }
 }
 
+/// `variant.delete`'s reply (0.4.0).
+struct LibraryDeletedVariant: Decodable, Sendable {
+    /// The keys as they are written: renaming a property must not move its key.
+    enum CodingKeys: String, CodingKey { case variant = "variant", image = "image", deleted = "deleted", filesMoved = "files_moved" }
+    let variant: String
+    let image: String
+    let deleted: Bool
+    let filesMoved: Bool?
+}
+
 struct LibraryAdd: Decodable, Sendable {
     struct Item: Decodable, Sendable {
         let path: String?
@@ -1064,10 +1074,21 @@ struct LibraryClient: Sendable {
         ])
     }
 
+    /// `variant.create`: a variant of `image` one past the highest position left, its edit copied from `variant`'s
+    /// when one is given (Clone Variant) — the helper's `edit` row, which the Mac app does not keep its edits in
+    /// (`LibraryFrame` does): the frame's edit is the app's to copy (`ImportService.cloneFrame`).
     func newVariant(_ library: String, image: String, from variant: String?) async throws -> LibraryNewVariant {
         try await call("variant.create", LibraryNewVariant.self, [
             ("library", .string(library)), ("image", .string(image)), ("from_variant", variant.map { .string($0) }),
         ])
+    }
+
+    /// `variant.delete` (spklib 0.4.0): the variant's row, edit and keywords; never a file, never the image, whose album
+    /// places stay. Refused with `read_only` for one of Capture One's in a mirror, `last_variant` for the image's last
+    /// present one, `not_found`. The others keep their positions; the next present one becomes the primary, so the
+    /// image is read again after (`CatalogSourcesStore.deleteVariant`).
+    func deleteVariant(_ library: String, variant: String) async throws -> LibraryDeletedVariant {
+        try await call("variant.delete", LibraryDeletedVariant.self, [("library", .string(library)), ("variant", .string(variant))])
     }
 
     /// What `ImageDecoder` would read, passed so the helper never opens a file.

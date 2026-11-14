@@ -42,6 +42,12 @@ struct Case: Decodable {
     var edge_text: String?
     var f_number: Double?
     var date: DateCase?
+    /// `overscan_perforation` (PRD-D §3.2): "ks65", the keyholes on a 120 film; none by default.
+    var perforation: String?
+    /// A light leak (`leak_kind`, PRD-D §3.3), and whether the film edge is off for it: the leak's wire is then
+    /// the app's own (`FrameEdit.leakWire`), with the overscan seeds it sends by itself.
+    var leak: String?
+    var edge_off: Bool?
 
     struct DateCase: Decodable {
         var text: String
@@ -70,12 +76,18 @@ enum Dump {
         // The repository's own catalogue, where there is no bundle: a case
         // with no words of its own is laid out in the words the app sends.
         let catalog = args.count >= 4 ? StockCatalog(contentsOf: URL(fileURLWithPath: args[3])) : nil
+        // The engine this is held against has API-SPEC §21 (PRD-D): the app's wire then carries its fields
+        // (`overscan_falloff`, `overscan_perforation`) as it does against such an engine.
+        EngineFeatures.publish(Set(EngineFeatures.Feature.allCases.map(\.rawValue)))
         if args.count >= 4 && catalog == nil { fail("no catalogue at \(args[3])") }
         for c in cases {
             guard let format = FilmEdgeFormat(rawValue: c.format) else { fail("\(c.id): unknown format \(c.format)") }
             var r = FilmEdgeRequest()
             r.format = format
-            r.mode = FilmEdgeView(rawValue: c.mode ?? "strip") ?? .strip
+            // The View the case keeps, and the one the app lays out and sends (`FilmEdgeSettings.view`, as
+            // `FilmEdgeResolver` asks it): 135 Full Width is a strip whatever is kept.
+            let keptView = FilmEdgeView(rawValue: c.mode ?? "strip") ?? .strip
+            r.mode = format.fixedView ?? keptView
             r.gate = FilmEdgeGate(rawValue: c.gate ?? "auto") ?? .auto
             r.holes = FilmEdgeHoles(rawValue: c.holes ?? "white") ?? .white
             r.cameraSeed = c.camera_seed ?? 1
@@ -86,6 +98,7 @@ enum Dump {
             let appText = catalog?.stock(c.stock)?.edgeText ?? ""
             r.edgeText = c.edge_text ?? appText
             r.fNumber = c.f_number ?? 0
+            r.perforation = FilmEdgePerforation(rawValue: c.perforation ?? "none") ?? .none
             if let d = c.date {
                 r.date = DateRequest(text: d.text,
                                      style: DateBackFace(rawValue: d.style ?? "lcd") ?? .lcd,
@@ -106,9 +119,10 @@ enum Dump {
             // What the app sends for this case: its own settings types, its own wire.
             var edge = FilmEdgeSettings()
             edge.active = true
-            edge.format = format; edge.mode = r.mode; edge.gate = r.gate; edge.holes = r.holes
+            edge.format = format; edge.mode = keptView; edge.gate = r.gate; edge.holes = r.holes
             edge.cameraSeed = r.cameraSeed; edge.frameNumber = r.frameNumber
             edge.fog = 0; edge.leaks = 0                    // a flat rebate, so the marks can be measured
+            edge.perforation = r.perforation
             var back = DateBackSettings()
             if let d = r.date {
                 back.active = true
@@ -117,8 +131,14 @@ enum Dump {
                 back.alsoData = !d.dataText.isEmpty
             }
             var wire: [String: Any] = [:]
-            for field in edge.wire(edgeText: r.edgeText, frameSeed: r.frameSeed, fNumber: r.fNumber)
-                + back.wire(text: r.date?.text ?? "", filmEdge: edge, dataText: r.date?.dataText ?? "") {
+            var leakEdit = FrameEdit.default
+            leakEdit.filmEdge = edge
+            leakEdit.filmEdge.active = !(c.edge_off ?? false)
+            leakEdit.frameSeed = r.frameSeed
+            leakEdit.leak.kind = LeakKind(rawValue: c.leak ?? "off") ?? .off
+            let leakFields = leakEdit.leakWire(bodySeed: r.cameraSeed).map { (name: $0.name, value: $0.value, layer: ParamLayer.shoot) }
+            for field in leakEdit.filmEdge.wire(edgeText: r.edgeText, frameSeed: r.frameSeed, fNumber: r.fNumber)
+                + back.wire(text: r.date?.text ?? "", filmEdge: leakEdit.filmEdge, dataText: r.date?.dataText ?? "") + leakFields {
                 switch field.value {
                 case .bool(let b): wire[field.name] = b
                 case .double(let d): wire[field.name] = d
@@ -126,6 +146,18 @@ enum Dump {
                 }
             }
 
+            // The same frame with the film edge off: what the app sends then (the leak's own seeds).
+            var wireOff: [String: Any] = [:]
+            var bare = leakEdit
+            bare.filmEdge.active = false
+            for field in bare.filmEdge.wire(edgeText: r.edgeText, frameSeed: r.frameSeed, fNumber: r.fNumber)
+                + bare.leakWire(bodySeed: r.cameraSeed).map({ (name: $0.name, value: $0.value, layer: ParamLayer.shoot) }) {
+                switch field.value {
+                case .bool(let b): wireOff[field.name] = b
+                case .double(let d): wireOff[field.name] = d
+                case .string(let s): wireOff[field.name] = s
+                }
+            }
             let m = g.filmToCanvas
             func canvas(_ s: Double, _ t: Double) -> [Double] {
                 let p = CGPoint(x: s, y: t).applying(m)
@@ -147,7 +179,12 @@ enum Dump {
                 "dx_codes": g.dxCodes.map { ["s": $0.s, "frame": $0.frame, "half": $0.half] as [String: Any] },
                 "name": g.printedName, "numbers": g.printedNumbers, "app_edge_text": appText,
                 "edge_marks": g.edge.count, "date_marks": g.date.count,
+                // the film's two edges (t = 0 and t = film_w) from the gate's start to its end, and whether the app's
+                // layout draws Fujifilm's stripes on this film (`EdgeLook.stripes135`, on a perforated 135 gauge)
+                "film_edges": canvas(s0, 0) + canvas(s1, 0) + canvas(s1, g.filmW) + canvas(s0, g.filmW),
+                "stripes": g.request.format.rawValue.hasPrefix("135") && EdgeLook.of(c.stock).stripes135,
                 "wire": wire,
+                "wire_edge_off": wireOff,
             ]
             try write(report, to: out.appendingPathComponent(c.id + ".json"))
             let (png, raw) = mask(g)

@@ -39,6 +39,15 @@ enum MacWindowCapture {
         return "." + arguments[i + 1]
     }
 
+    /// One capture now, as `<name>.png` (key window) and `<name>+k.png`, for a check that knows what it shows.
+    static func capture(named name: String) {
+        guard directory != nil else { return }
+        named = name
+        capture()
+        named = nil
+    }
+    private static var named: String?
+
     static func capture() {
         guard let directory else { return }
         count += 1
@@ -55,7 +64,8 @@ enum MacWindowCapture {
                 w.drawHierarchy(in: w.bounds, afterScreenUpdates: true)
             }
             let name: String
-            if w === key { name = String(format: "%02d.png", count) } else { others += 1; name = String(format: "%02d+%d.png", count, others) }
+            let stem = named ?? String(format: "%02d", count)
+            if w === key { name = stem + ".png" } else { others += 1; name = stem + "+\(others).png" }
             try? image.pngData()?.write(to: directory.appendingPathComponent(name))
         }
         print("capture \(count): \(windows.count) window(s), key \(key.map { "\(Int($0.bounds.width))x\(Int($0.bounds.height))" } ?? "-")")

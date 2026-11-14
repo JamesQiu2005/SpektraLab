@@ -93,7 +93,7 @@ bool validate_settings(const RenderSettings& settings, const Catalog& catalog) {
     // Reject before touching the live session, including NaN/Inf values
     // that cannot be represented faithfully in the JSON parameter delta.
     range(settings.film_exposure_ev, -8.0, 8.0, "Film exposure (EV)");
-    range(settings.film_format_mm, 4.0, 200.0, "Film format (mm)");
+    range(settings.film_format_mm, 3.0, 300.0, "Film format (mm)");
     range(settings.grain_amount, 0.0, 2.0, "Grain amount");
     range(settings.halation_amount, 0.0, 4.0, "Halation amount");
     range(settings.glare_amount, 0.0, 30.0, "Glare amount");

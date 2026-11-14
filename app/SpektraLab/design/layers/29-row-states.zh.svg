@@ -1,0 +1,290 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1164" height="1016" viewBox="0 0 1164 1016">
+<defs><image id="sd61a9f3b05" width="17.0" height="12.0" href="data:image/png;base64,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"/><clipPath id="c1"><rect x="46.00" y="5.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16264a"/><stop offset="0.55" stop-color="#6b5a7a"/><stop offset="0.74" stop-color="#e0935a"/><stop offset="0.75" stop-color="#1b2a45"/><stop offset="1" stop-color="#0c1322"/></linearGradient><clipPath id="c3"><rect x="46.00" y="5.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16264a"/><stop offset="0.55" stop-color="#6b5a7a"/><stop offset="0.74" stop-color="#e0935a"/><stop offset="0.75" stop-color="#1b2a45"/><stop offset="1" stop-color="#0c1322"/></linearGradient><image id="sd4b037f9bf" width="17.0" height="12.0" href="data:image/png;base64,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"/><clipPath id="c5"><rect x="46.00" y="5.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g6" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16264a"/><stop offset="0.55" stop-color="#6b5a7a"/><stop offset="0.74" stop-color="#e0935a"/><stop offset="0.75" stop-color="#1b2a45"/><stop offset="1" stop-color="#0c1322"/></linearGradient><image id="s12dcc58cb5" width="17.0" height="12.0" href="data:image/png;base64,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"/><clipPath id="c7"><rect x="46.00" y="5.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g8" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16264a"/><stop offset="0.55" stop-color="#6b5a7a"/><stop offset="0.74" stop-color="#e0935a"/><stop offset="0.75" stop-color="#1b2a45"/><stop offset="1" stop-color="#0c1322"/></linearGradient><clipPath id="c9"><rect x="46.00" y="5.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g10" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16264a"/><stop offset="0.55" stop-color="#6b5a7a"/><stop offset="0.74" stop-color="#e0935a"/><stop offset="0.75" stop-color="#1b2a45"/><stop offset="1" stop-color="#0c1322"/></linearGradient><image id="s7adb23bdc5" width="17.0" height="14.0" href="data:image/png;base64,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"/><clipPath id="c11"><rect x="46.00" y="5.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g12" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e6dfd2"/><stop offset="1" stop-color="#b3aa9a"/></linearGradient><image id="s23ebf56a9f" width="17.0" height="14.0" href="data:image/png;base64,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"/><clipPath id="c13"><rect x="46.00" y="5.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g14" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e6dfd2"/><stop offset="1" stop-color="#b3aa9a"/></linearGradient><image id="sd84432707a" width="11.0" height="11.0" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAAEgAAAAAQAAASAAAAABAAKgAgAEAAAAAQAAACygAwAEAAAAAQAAACwAAAAAnpVMeAAAAAlwSFlzAAAsSwAALEsBpT2WqQAAAg1JREFUWAntV7FKA0EQndnEmMQziorai+IH2IqtiJXaWhn8BDsbP8Af0E6wjiDYWFlYKNha2QhCBBExibk7cxkngoWbueDGzRFlD5Yw797MvHvZS2YB3OUc+OYAfossBL7/MgOQWsYmlDM57wQRGxbK9qaE77+uBvVKwItay69XLoho0GY3ZasYC0sh4QHXy3zV5K9vMQiq21+xjU9rgsOwOs+CpnVRLHpJx34TWxOMDZUThRDlRbxL0JrgLvsbpznBxpYZJjiHDQ0zpjuHjS0zTHAOGxpmTP9zDqc7PSIPNPxAj/JfrpbY8KMcgTStYoqoPKTRY8KpiMdRP+bmJyx1ABaafq9X9wmhyKwfCe7UxPDerSIqDuQLl1KeKJhn2T0m70oJiWAIL5mQZrFQeNL7xe3hLZ2YaEww+p7BNalnnOBxiZwkxttyQuonCiaAa4mcJEaorqR+omB+rXeY/CYlJIIhlLJZ71zqJb50LSIfKOf4jLZJBGNSoo6hgkkg2NBxju+5xqmAt0HsXgRINwPZ4SP+eYvaCAzECpbInbCwVlsg1RS2Ep0N5gornXJN7olbwqRA0lwnuNeOO4edw5oDbktohlgPncPWLdUK2nSYhzzpUk0J7RazJjgkepBEEMi4xP0JZk2w53llHqVKWtNINdWhhvVPSPQ8wufBY141XnfBW2W9f9Q5Jf/UgQ/peJEtwZV1FQAAAABJRU5ErkJggg=="/><image id="sa83e27f86a" width="11.0" height="11.0" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAAEgAAAAAQAAASAAAAABAAKgAgAEAAAAAQAAACygAwAEAAAAAQAAACwAAAAAnpVMeAAAAAlwSFlzAAAsSwAALEsBpT2WqQAAAhxJREFUWAntWb9Kw0AcvksKTatNpIp1skNRfAB3d3ESJ8HJgm/g5uID+ARuvoCDoIODODgouDq4KYIVhyahxUrb8+sQQnM/ba85I8IdHLnfd78/Xz4uyV3LmGlGgSEF7CFLg+F5Xi2fz287jrPY6XQekbKvIe3vpCiVShue63bQxaC7rnuNSnmd1XQqbBcc5wrkvIggZ6wKtd+g9G2Epb1aaRNE8eXp6RWMFyI7unIh1qKxjqs2wj3bLpCEOC+S+ISgNsIT1lcOM4SVJVMMMAorCqbsbhRWlkwxwCisKJiy+79TODfiFq1KpUJ/chOBn+12oc+x3ZGbjRxTMiwjjUajB/RDnokRsgKmczOueyQ4rzMhxiIcp0w9eugLUQ/D8IbKRBIG2UPB2AEVkBHWBOklkH5P1iPXMI4Iu0nHjO0Zy7I2qZokYcg+SzlnjM1R9UjCWA53lHPGGHlKoQkLsQ9y7YwJxuU4P/V9/zIG4hH50A2mcaBctjnfgdrl2P2HkRDzjPMtwuMJ2BmBSxDI9PBWum+G4QkmB684qX1LWPIcAeB4v4pi1FI694NgfUT42NPkkhg7+g8cDeHfFt0obBROKGCWREIQ7aZRWLukiYQ6Fca2Q2749mv9BV4b4W63+yLTZdheCBKnfMfBtBFutVqv2K2dJor2cC48TmCpTJ1/GbBisXgBRatgVEN/xg3sBUFA7mtTsTbBRoFYgS9Fsm+STliFmQAAAABJRU5ErkJggg=="/><image id="s8cf6317af6" width="19.0" height="14.0" href="data:image/png;base64,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"/><image id="se58b0cb7f0" width="19.0" height="14.0" href="data:image/png;base64,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"/><clipPath id="c15"><rect x="53.50" y="5.00" width="15.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g16" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fb6cf"/><stop offset="1" stop-color="#e9d9c4"/></linearGradient></defs>
+<rect x="0.00" y="0.00" width="1164.00" height="1016.00" fill="#08090B"/>
+<text x="24.00" y="974.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="14" font-weight="600" fill="#F9F7F3">29 · 行的各种状态（2×）</text>
+<text x="24.00" y="994.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="400" fill="#898989">选中是白色胶囊（Theme.selection），不是强调色；强调色只用于状态：亮起的眼睛。退下的一行整体 0.38。</text>
+<text x="1140.00" y="974.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="500" fill="#6D6D6B" text-anchor="end">29-row-states</text>
+<rect x="24.00" y="24.00" width="1116.00" height="912.00" fill="#1A1D22" rx="10.00"/>
+<g transform="translate(64,54) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<use href="#sd61a9f3b05" x="23.50" y="9.00" opacity="0.75"/>
+<g clip-path="url(#c1)">
+<rect x="46.00" y="5.00" width="30.00" height="20.00" fill="url(#g2)"/>
+<rect x="46.13" y="17.38" width="1.40" height="2.52" fill="#0f1730"/>
+<rect x="46.50" y="17.88" width="0.67" height="1.39" fill="#f1c27b" opacity="0.55"/>
+<rect x="47.80" y="15.53" width="1.40" height="4.37" fill="#0f1730"/>
+<rect x="49.47" y="16.71" width="1.40" height="3.19" fill="#0f1730"/>
+<rect x="49.83" y="17.35" width="0.67" height="1.76" fill="#f1c27b" opacity="0.55"/>
+<rect x="51.13" y="13.35" width="1.40" height="6.55" fill="#0f1730"/>
+<rect x="51.50" y="14.66" width="0.67" height="3.60" fill="#f1c27b" opacity="0.55"/>
+<rect x="52.80" y="16.04" width="1.40" height="3.86" fill="#0f1730"/>
+<rect x="54.47" y="17.04" width="1.40" height="2.86" fill="#0f1730"/>
+<rect x="54.83" y="17.62" width="0.67" height="1.57" fill="#f1c27b" opacity="0.55"/>
+<rect x="56.13" y="14.69" width="1.40" height="5.21" fill="#0f1730"/>
+<rect x="56.50" y="15.73" width="0.67" height="2.86" fill="#f1c27b" opacity="0.55"/>
+<rect x="57.80" y="17.63" width="1.40" height="2.27" fill="#0f1730"/>
+<rect x="59.47" y="15.20" width="1.40" height="4.70" fill="#0f1730"/>
+<rect x="59.83" y="16.14" width="0.67" height="2.59" fill="#f1c27b" opacity="0.55"/>
+<rect x="61.13" y="12.34" width="1.40" height="7.56" fill="#0f1730"/>
+<rect x="61.50" y="13.85" width="0.67" height="4.16" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.80" y="16.37" width="1.40" height="3.53" fill="#0f1730"/>
+<rect x="64.47" y="16.88" width="1.40" height="3.02" fill="#0f1730"/>
+<rect x="64.83" y="17.48" width="0.67" height="1.66" fill="#f1c27b" opacity="0.55"/>
+<rect x="66.13" y="14.36" width="1.40" height="5.54" fill="#0f1730"/>
+<rect x="66.50" y="15.46" width="0.67" height="3.05" fill="#f1c27b" opacity="0.55"/>
+<rect x="67.80" y="17.30" width="1.40" height="2.60" fill="#0f1730"/>
+<rect x="69.47" y="15.87" width="1.40" height="4.03" fill="#0f1730"/>
+<rect x="69.83" y="16.67" width="0.67" height="2.22" fill="#f1c27b" opacity="0.55"/>
+<rect x="71.13" y="15.03" width="1.40" height="4.87" fill="#0f1730"/>
+<rect x="71.50" y="16.00" width="0.67" height="2.68" fill="#f1c27b" opacity="0.55"/>
+<rect x="72.80" y="17.46" width="1.40" height="2.44" fill="#0f1730"/>
+<rect x="74.47" y="16.54" width="1.40" height="3.36" fill="#0f1730"/>
+<rect x="74.83" y="17.21" width="0.67" height="1.85" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.05" y="6.60" width="0.36" height="6.00" fill="#f1c27b" opacity="0.5"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">上层</text>
+<text x="365.00" y="19.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#898989" text-anchor="end" style="font-variant-numeric: tabular-nums">60 %</text>
+</g>
+<text x="856.00" y="88.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">静止</text>
+<g transform="translate(64,126) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="18.00" y="1.00" width="357.00" height="28.00" fill="#30343B" rx="6.00" opacity="0.5"/>
+<use href="#sd61a9f3b05" x="23.50" y="9.00" opacity="0.75"/>
+<g clip-path="url(#c3)">
+<rect x="46.00" y="5.00" width="30.00" height="20.00" fill="url(#g4)"/>
+<rect x="46.13" y="17.38" width="1.40" height="2.52" fill="#0f1730"/>
+<rect x="46.50" y="17.88" width="0.67" height="1.39" fill="#f1c27b" opacity="0.55"/>
+<rect x="47.80" y="15.53" width="1.40" height="4.37" fill="#0f1730"/>
+<rect x="49.47" y="16.71" width="1.40" height="3.19" fill="#0f1730"/>
+<rect x="49.83" y="17.35" width="0.67" height="1.76" fill="#f1c27b" opacity="0.55"/>
+<rect x="51.13" y="13.35" width="1.40" height="6.55" fill="#0f1730"/>
+<rect x="51.50" y="14.66" width="0.67" height="3.60" fill="#f1c27b" opacity="0.55"/>
+<rect x="52.80" y="16.04" width="1.40" height="3.86" fill="#0f1730"/>
+<rect x="54.47" y="17.04" width="1.40" height="2.86" fill="#0f1730"/>
+<rect x="54.83" y="17.62" width="0.67" height="1.57" fill="#f1c27b" opacity="0.55"/>
+<rect x="56.13" y="14.69" width="1.40" height="5.21" fill="#0f1730"/>
+<rect x="56.50" y="15.73" width="0.67" height="2.86" fill="#f1c27b" opacity="0.55"/>
+<rect x="57.80" y="17.63" width="1.40" height="2.27" fill="#0f1730"/>
+<rect x="59.47" y="15.20" width="1.40" height="4.70" fill="#0f1730"/>
+<rect x="59.83" y="16.14" width="0.67" height="2.59" fill="#f1c27b" opacity="0.55"/>
+<rect x="61.13" y="12.34" width="1.40" height="7.56" fill="#0f1730"/>
+<rect x="61.50" y="13.85" width="0.67" height="4.16" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.80" y="16.37" width="1.40" height="3.53" fill="#0f1730"/>
+<rect x="64.47" y="16.88" width="1.40" height="3.02" fill="#0f1730"/>
+<rect x="64.83" y="17.48" width="0.67" height="1.66" fill="#f1c27b" opacity="0.55"/>
+<rect x="66.13" y="14.36" width="1.40" height="5.54" fill="#0f1730"/>
+<rect x="66.50" y="15.46" width="0.67" height="3.05" fill="#f1c27b" opacity="0.55"/>
+<rect x="67.80" y="17.30" width="1.40" height="2.60" fill="#0f1730"/>
+<rect x="69.47" y="15.87" width="1.40" height="4.03" fill="#0f1730"/>
+<rect x="69.83" y="16.67" width="0.67" height="2.22" fill="#f1c27b" opacity="0.55"/>
+<rect x="71.13" y="15.03" width="1.40" height="4.87" fill="#0f1730"/>
+<rect x="71.50" y="16.00" width="0.67" height="2.68" fill="#f1c27b" opacity="0.55"/>
+<rect x="72.80" y="17.46" width="1.40" height="2.44" fill="#0f1730"/>
+<rect x="74.47" y="16.54" width="1.40" height="3.36" fill="#0f1730"/>
+<rect x="74.83" y="17.21" width="0.67" height="1.85" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.05" y="6.60" width="0.36" height="6.00" fill="#f1c27b" opacity="0.5"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">上层</text>
+<text x="365.00" y="19.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#898989" text-anchor="end" style="font-variant-numeric: tabular-nums">60 %</text>
+</g>
+<text x="856.00" y="160.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">指针悬停：Theme.card 50 %</text>
+<g transform="translate(64,198) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="18.00" y="1.00" width="357.00" height="28.00" fill="#FFFFFF" rx="6.00"/>
+<use href="#sd4b037f9bf" x="23.50" y="9.00" opacity="0.75"/>
+<g clip-path="url(#c5)">
+<rect x="46.00" y="5.00" width="30.00" height="20.00" fill="url(#g6)"/>
+<rect x="46.13" y="17.38" width="1.40" height="2.52" fill="#0f1730"/>
+<rect x="46.50" y="17.88" width="0.67" height="1.39" fill="#f1c27b" opacity="0.55"/>
+<rect x="47.80" y="15.53" width="1.40" height="4.37" fill="#0f1730"/>
+<rect x="49.47" y="16.71" width="1.40" height="3.19" fill="#0f1730"/>
+<rect x="49.83" y="17.35" width="0.67" height="1.76" fill="#f1c27b" opacity="0.55"/>
+<rect x="51.13" y="13.35" width="1.40" height="6.55" fill="#0f1730"/>
+<rect x="51.50" y="14.66" width="0.67" height="3.60" fill="#f1c27b" opacity="0.55"/>
+<rect x="52.80" y="16.04" width="1.40" height="3.86" fill="#0f1730"/>
+<rect x="54.47" y="17.04" width="1.40" height="2.86" fill="#0f1730"/>
+<rect x="54.83" y="17.62" width="0.67" height="1.57" fill="#f1c27b" opacity="0.55"/>
+<rect x="56.13" y="14.69" width="1.40" height="5.21" fill="#0f1730"/>
+<rect x="56.50" y="15.73" width="0.67" height="2.86" fill="#f1c27b" opacity="0.55"/>
+<rect x="57.80" y="17.63" width="1.40" height="2.27" fill="#0f1730"/>
+<rect x="59.47" y="15.20" width="1.40" height="4.70" fill="#0f1730"/>
+<rect x="59.83" y="16.14" width="0.67" height="2.59" fill="#f1c27b" opacity="0.55"/>
+<rect x="61.13" y="12.34" width="1.40" height="7.56" fill="#0f1730"/>
+<rect x="61.50" y="13.85" width="0.67" height="4.16" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.80" y="16.37" width="1.40" height="3.53" fill="#0f1730"/>
+<rect x="64.47" y="16.88" width="1.40" height="3.02" fill="#0f1730"/>
+<rect x="64.83" y="17.48" width="0.67" height="1.66" fill="#f1c27b" opacity="0.55"/>
+<rect x="66.13" y="14.36" width="1.40" height="5.54" fill="#0f1730"/>
+<rect x="66.50" y="15.46" width="0.67" height="3.05" fill="#f1c27b" opacity="0.55"/>
+<rect x="67.80" y="17.30" width="1.40" height="2.60" fill="#0f1730"/>
+<rect x="69.47" y="15.87" width="1.40" height="4.03" fill="#0f1730"/>
+<rect x="69.83" y="16.67" width="0.67" height="2.22" fill="#f1c27b" opacity="0.55"/>
+<rect x="71.13" y="15.03" width="1.40" height="4.87" fill="#0f1730"/>
+<rect x="71.50" y="16.00" width="0.67" height="2.68" fill="#f1c27b" opacity="0.55"/>
+<rect x="72.80" y="17.46" width="1.40" height="2.44" fill="#0f1730"/>
+<rect x="74.47" y="16.54" width="1.40" height="3.36" fill="#0f1730"/>
+<rect x="74.83" y="17.21" width="0.67" height="1.85" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.05" y="6.60" width="0.36" height="6.00" fill="#f1c27b" opacity="0.5"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="600" fill="#0F0E0E">上层</text>
+<text x="365.00" y="19.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#0F0E0E" text-anchor="end" style="font-variant-numeric: tabular-nums" opacity="0.85">60 %</text>
+</g>
+<text x="856.00" y="232.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">选中：白色胶囊、深色字</text>
+<g transform="translate(64,270) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="21.00" y="6.00" width="22.00" height="18.00" fill="#E1A95F" rx="5.00"/>
+<use href="#s12dcc58cb5" x="23.50" y="9.00"/>
+<g clip-path="url(#c7)">
+<rect x="46.00" y="5.00" width="30.00" height="20.00" fill="url(#g8)"/>
+<rect x="46.13" y="17.38" width="1.40" height="2.52" fill="#0f1730"/>
+<rect x="46.50" y="17.88" width="0.67" height="1.39" fill="#f1c27b" opacity="0.55"/>
+<rect x="47.80" y="15.53" width="1.40" height="4.37" fill="#0f1730"/>
+<rect x="49.47" y="16.71" width="1.40" height="3.19" fill="#0f1730"/>
+<rect x="49.83" y="17.35" width="0.67" height="1.76" fill="#f1c27b" opacity="0.55"/>
+<rect x="51.13" y="13.35" width="1.40" height="6.55" fill="#0f1730"/>
+<rect x="51.50" y="14.66" width="0.67" height="3.60" fill="#f1c27b" opacity="0.55"/>
+<rect x="52.80" y="16.04" width="1.40" height="3.86" fill="#0f1730"/>
+<rect x="54.47" y="17.04" width="1.40" height="2.86" fill="#0f1730"/>
+<rect x="54.83" y="17.62" width="0.67" height="1.57" fill="#f1c27b" opacity="0.55"/>
+<rect x="56.13" y="14.69" width="1.40" height="5.21" fill="#0f1730"/>
+<rect x="56.50" y="15.73" width="0.67" height="2.86" fill="#f1c27b" opacity="0.55"/>
+<rect x="57.80" y="17.63" width="1.40" height="2.27" fill="#0f1730"/>
+<rect x="59.47" y="15.20" width="1.40" height="4.70" fill="#0f1730"/>
+<rect x="59.83" y="16.14" width="0.67" height="2.59" fill="#f1c27b" opacity="0.55"/>
+<rect x="61.13" y="12.34" width="1.40" height="7.56" fill="#0f1730"/>
+<rect x="61.50" y="13.85" width="0.67" height="4.16" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.80" y="16.37" width="1.40" height="3.53" fill="#0f1730"/>
+<rect x="64.47" y="16.88" width="1.40" height="3.02" fill="#0f1730"/>
+<rect x="64.83" y="17.48" width="0.67" height="1.66" fill="#f1c27b" opacity="0.55"/>
+<rect x="66.13" y="14.36" width="1.40" height="5.54" fill="#0f1730"/>
+<rect x="66.50" y="15.46" width="0.67" height="3.05" fill="#f1c27b" opacity="0.55"/>
+<rect x="67.80" y="17.30" width="1.40" height="2.60" fill="#0f1730"/>
+<rect x="69.47" y="15.87" width="1.40" height="4.03" fill="#0f1730"/>
+<rect x="69.83" y="16.67" width="0.67" height="2.22" fill="#f1c27b" opacity="0.55"/>
+<rect x="71.13" y="15.03" width="1.40" height="4.87" fill="#0f1730"/>
+<rect x="71.50" y="16.00" width="0.67" height="2.68" fill="#f1c27b" opacity="0.55"/>
+<rect x="72.80" y="17.46" width="1.40" height="2.44" fill="#0f1730"/>
+<rect x="74.47" y="16.54" width="1.40" height="3.36" fill="#0f1730"/>
+<rect x="74.83" y="17.21" width="0.67" height="1.85" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.05" y="6.60" width="0.36" height="6.00" fill="#f1c27b" opacity="0.5"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">上层</text>
+<text x="365.00" y="19.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#898989" text-anchor="end" style="font-variant-numeric: tabular-nums">60 %</text>
+</g>
+<text x="856.00" y="304.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">单独查看：眼睛亮起（强调色底、深色字形）</text>
+<g transform="translate(64,342) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="18.00" y="1.00" width="357.00" height="28.00" fill="#FFFFFF" rx="6.00"/>
+<rect x="21.00" y="6.00" width="22.00" height="18.00" fill="#E1A95F" rx="5.00"/>
+<use href="#s12dcc58cb5" x="23.50" y="9.00"/>
+<g clip-path="url(#c9)">
+<rect x="46.00" y="5.00" width="30.00" height="20.00" fill="url(#g10)"/>
+<rect x="46.13" y="17.38" width="1.40" height="2.52" fill="#0f1730"/>
+<rect x="46.50" y="17.88" width="0.67" height="1.39" fill="#f1c27b" opacity="0.55"/>
+<rect x="47.80" y="15.53" width="1.40" height="4.37" fill="#0f1730"/>
+<rect x="49.47" y="16.71" width="1.40" height="3.19" fill="#0f1730"/>
+<rect x="49.83" y="17.35" width="0.67" height="1.76" fill="#f1c27b" opacity="0.55"/>
+<rect x="51.13" y="13.35" width="1.40" height="6.55" fill="#0f1730"/>
+<rect x="51.50" y="14.66" width="0.67" height="3.60" fill="#f1c27b" opacity="0.55"/>
+<rect x="52.80" y="16.04" width="1.40" height="3.86" fill="#0f1730"/>
+<rect x="54.47" y="17.04" width="1.40" height="2.86" fill="#0f1730"/>
+<rect x="54.83" y="17.62" width="0.67" height="1.57" fill="#f1c27b" opacity="0.55"/>
+<rect x="56.13" y="14.69" width="1.40" height="5.21" fill="#0f1730"/>
+<rect x="56.50" y="15.73" width="0.67" height="2.86" fill="#f1c27b" opacity="0.55"/>
+<rect x="57.80" y="17.63" width="1.40" height="2.27" fill="#0f1730"/>
+<rect x="59.47" y="15.20" width="1.40" height="4.70" fill="#0f1730"/>
+<rect x="59.83" y="16.14" width="0.67" height="2.59" fill="#f1c27b" opacity="0.55"/>
+<rect x="61.13" y="12.34" width="1.40" height="7.56" fill="#0f1730"/>
+<rect x="61.50" y="13.85" width="0.67" height="4.16" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.80" y="16.37" width="1.40" height="3.53" fill="#0f1730"/>
+<rect x="64.47" y="16.88" width="1.40" height="3.02" fill="#0f1730"/>
+<rect x="64.83" y="17.48" width="0.67" height="1.66" fill="#f1c27b" opacity="0.55"/>
+<rect x="66.13" y="14.36" width="1.40" height="5.54" fill="#0f1730"/>
+<rect x="66.50" y="15.46" width="0.67" height="3.05" fill="#f1c27b" opacity="0.55"/>
+<rect x="67.80" y="17.30" width="1.40" height="2.60" fill="#0f1730"/>
+<rect x="69.47" y="15.87" width="1.40" height="4.03" fill="#0f1730"/>
+<rect x="69.83" y="16.67" width="0.67" height="2.22" fill="#f1c27b" opacity="0.55"/>
+<rect x="71.13" y="15.03" width="1.40" height="4.87" fill="#0f1730"/>
+<rect x="71.50" y="16.00" width="0.67" height="2.68" fill="#f1c27b" opacity="0.55"/>
+<rect x="72.80" y="17.46" width="1.40" height="2.44" fill="#0f1730"/>
+<rect x="74.47" y="16.54" width="1.40" height="3.36" fill="#0f1730"/>
+<rect x="74.83" y="17.21" width="0.67" height="1.85" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.05" y="6.60" width="0.36" height="6.00" fill="#f1c27b" opacity="0.5"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="600" fill="#0F0E0E">上层</text>
+<text x="365.00" y="19.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#0F0E0E" text-anchor="end" style="font-variant-numeric: tabular-nums" opacity="0.85">60 %</text>
+</g>
+<text x="856.00" y="376.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">选中并单独查看</text>
+<g transform="translate(64,414) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<use href="#s7adb23bdc5" x="23.50" y="8.00"/>
+<g opacity="0.38">
+<g clip-path="url(#c11)">
+<rect x="46.00" y="5.00" width="30.00" height="20.00" fill="url(#g12)"/>
+<circle cx="61.00" cy="12.20" r="3.80" fill="#1d1a18"/>
+<path d="M52.3,25.0 C52.6,17.4 56.8,16.4 61.0,16.4 C65.2,16.4 69.4,17.4 69.7,25.0 Z" fill="#1d1a18"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">下层</text>
+</g>
+<text x="365.00" y="19.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#898989" text-anchor="end" style="font-variant-numeric: tabular-nums">40 %</text>
+</g>
+<text x="856.00" y="448.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">另一层被单独查看：眼睛划掉，行变暗</text>
+<g transform="translate(64,486) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="18.00" y="1.00" width="357.00" height="28.00" fill="#FFFFFF" rx="6.00"/>
+<use href="#s23ebf56a9f" x="23.50" y="8.00" opacity="0.8"/>
+<g clip-path="url(#c13)">
+<rect x="46.00" y="5.00" width="30.00" height="20.00" fill="url(#g14)"/>
+<circle cx="61.00" cy="12.20" r="3.80" fill="#1d1a18"/>
+<path d="M52.3,25.0 C52.6,17.4 56.8,16.4 61.0,16.4 C65.2,16.4 69.4,17.4 69.7,25.0 Z" fill="#1d1a18"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="600" fill="#0F0E0E">下层</text>
+<text x="365.00" y="19.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#0F0E0E" text-anchor="end" style="font-variant-numeric: tabular-nums" opacity="0.85">40 %</text>
+</g>
+<text x="856.00" y="520.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">同上，且被选中：保持可读</text>
+<g transform="translate(64,558) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="46.50" y="5.50" width="29.00" height="19.00" fill="none" rx="3.00" stroke="#898989" stroke-width="1" stroke-dasharray="3 2.5"/>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#898989">上层</text>
+<text x="117.80" y="19.02" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="500" fill="#898989">空</text>
+<circle cx="356.00" cy="15.00" r="11.00" fill="#30343B"/>
+<use href="#sd84432707a" x="350.50" y="9.50"/>
+</g>
+<text x="856.00" y="592.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">空：虚线框、「空」、右端 + 添加</text>
+<g transform="translate(64,630) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="18.00" y="1.00" width="357.00" height="28.00" fill="#FFFFFF" rx="6.00"/>
+<rect x="46.50" y="5.50" width="29.00" height="19.00" fill="none" rx="3.00" stroke="#0F0E0E" stroke-width="1" stroke-dasharray="3 2.5" opacity="0.7"/>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="600" fill="#0F0E0E">上层</text>
+<text x="117.80" y="19.02" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="500" fill="#0F0E0E" opacity="0.8">空</text>
+<circle cx="356.00" cy="15.00" r="11.00" fill="#E7E5E0"/>
+<use href="#sa83e27f86a" x="350.50" y="9.50"/>
+</g>
+<text x="856.00" y="664.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">空，被选中</text>
+<g transform="translate(64,702) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<g opacity="0.38">
+<use href="#s8cf6317af6" x="51.50" y="8.00"/>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">胶片</text>
+</g>
+</g>
+<text x="856.00" y="736.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">退下（摆放时的「胶片」）：0.38，不接受点击</text>
+<g transform="translate(64,774) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<rect x="18.00" y="1.00" width="357.00" height="28.00" fill="#FFFFFF" rx="6.00"/>
+<use href="#se58b0cb7f0" x="51.50" y="8.00"/>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="600" fill="#0F0E0E">胶片</text>
+</g>
+<text x="856.00" y="808.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">「胶片」，被选中</text>
+<g transform="translate(64,846) scale(2)">
+<rect x="12.00" y="0.00" width="369.00" height="30.00" fill="#22262C"/>
+<g clip-path="url(#c15)">
+<rect x="53.50" y="5.00" width="15.00" height="20.00" fill="url(#g16)"/>
+<circle cx="64.30" cy="11.00" r="1.35" fill="#fbeecf"/>
+<path d="M53.5,25.0 L53.5,19.0 L57.7,13.4 L61.0,18.2 L64.0,15.0 L68.5,19.8 L68.5,25.0 Z" fill="#4d6076"/>
+<path d="M53.5,25.0 L53.5,22.2 L59.5,19.0 L68.5,23.0 L68.5,25.0 Z" fill="#2f3d4f"/>
+</g>
+<text x="84.00" y="19.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">左格</text>
+</g>
+<text x="856.00" y="880.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#DAD8D4">半格组的一格：没有眼睛，没有占比</text>
+</svg>

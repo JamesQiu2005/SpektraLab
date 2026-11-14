@@ -17,8 +17,9 @@
 //  4. the fourth (upright) opened in 冲洗, the second's settings copied in 图库 first: ⌘V reaches the open
 //     page's session (Undo can take it back) and the film runs down it;
 //  5. while a field is being edited Edit's Copy and Paste are not the settings';
-//  6. two more wide pictures, never opened, pasted onto twice at once (⌘V again while the first paste
-//     makes their frames): one frame each, not two (the review, 2026-11-05);
+//  6. two more wide pictures, never opened, the first given a second variant (PRD-G, 2026-11-13), pasted onto
+//     twice at once (⌘V again while the first paste makes their frames): one frame per (file, variant), not two
+//     (the review, 2026-11-05; per file before variants);
 //  7. what a paste onto pictures not open says (`MacLibraryActions.notice`), that each one's preview is
 //     developed again of the pasted edit with nothing opened, and none for the frame open in 冲洗 (2026-11-05),
 //     and that ⌘C in 冲洗 copies the page's settings with the picture's shape;
@@ -277,19 +278,35 @@ enum MacClipboardCheck {
             // 6. Two pastes at once onto two pictures that have no frame: one frame each.
             library.clipboard = SettingsClip(groups: [.light], settings: { var s = FrameEdit.default; s.adjustments.exposure = 0.7; return s }(),
                                              sourceName: "check", sourceAspect: 1.5)
-            let pair = extra.compactMap { n in store.images.first { $0.fileName == n } }
-            r.check(pair.count == 2 && pair.allSatisfy { $0.develop == nil }, "two more pictures, no frame")
+            let two = extra.compactMap { n in store.images.first { $0.fileName == n } }
+            r.check(two.count == 2 && two.allSatisfy { $0.develop == nil }, "two more pictures, no frame")
+            // The first given a second variant (the helper's `variant.create`, PRD-G): its two cells race the same file.
+            if let first = two.first, let source = store.sources.first(where: { $0.id == first.id.source }) {
+                _ = try await store.client.newVariant(try await store.handle(source), image: first.id.image, from: nil)
+                await store.reload(keepingRows: true)
+            }
+            let pair = store.images.filter { extra.contains($0.fileName) }
+            r.check(pair.count == 3 && pair.allSatisfy { $0.develop == nil }, "three cells: the first picture's two variants and the second (\(pair.count))")
             MacLibraryActions.shared.pasteSettings(onto: pair, store: store, model: model)
             MacLibraryActions.shared.pasteSettings(onto: pair, store: store, model: model)
             _ = await wait(20) { store.images.filter { extra.contains($0.fileName) }.allSatisfy { $0.develop != nil } }
             await MacLibraryActions.shared.pastesLanded()
             await settle(1)
-            let framesPerFile = pair.map { row in library.frames.filter { $0.picture.fileURL.map { FolderReach.same($0, row.url) } ?? false }.count }
-            let exposures = pair.compactMap { row in library.frames.first { $0.picture.fileURL.map { FolderReach.same($0, row.url) } ?? false }?.edit.adjustments.exposure }
-            r.note("two pastes at once onto two pictures with no frame", ["frames_per_file": framesPerFile, "exposure": exposures,
-                                                                          "notice": MacLibraryActions.shared.notice?.said ?? "-"])
-            r.check(framesPerFile == [1, 1], "two pastes at once make one frame per file (\(framesPerFile))")
-            r.check(exposures == [0.7, 0.7], "and both were pasted onto")
+            func readsFile(_ f: LibraryFrame, _ row: MacImage) -> Bool { f.picture.fileURL.map { FolderReach.same($0, row.url) } ?? false }
+            // One frame per (file, variant): the primary's has no variant, the other's has its uuid.
+            let framesPerVariant = pair.map { row in
+                library.frames.filter { readsFile($0, row) && $0.variant == (row.isPrimaryVariant ? nil : row.variant) }.count
+            }
+            let framesPerFile = two.map { row in library.frames.filter { readsFile($0, row) }.count }
+            let landed = store.images.filter { extra.contains($0.fileName) }
+            let exposures = landed.compactMap { $0.develop.flatMap { library.frame($0.frameID)?.edit.adjustments.exposure } }
+            r.note("two pastes at once onto three cells with no frame", ["frames_per_variant": framesPerVariant, "frames_per_file": framesPerFile,
+                                                                         "exposure": exposures, "distinct_frames": Set(landed.compactMap(\.develop?.frameID)).count,
+                                                                         "notice": MacLibraryActions.shared.notice?.said ?? "-"])
+            r.check(framesPerVariant == [1, 1, 1], "two pastes at once make one frame per (file, variant) (\(framesPerVariant))")
+            r.check(framesPerFile == [2, 1] && Set(landed.compactMap(\.develop?.frameID)).count == 3,
+                    "the first file has a frame for each of its variants, the second one (\(framesPerFile))")
+            r.check(exposures == [0.7, 0.7, 0.7], "and every one was pasted onto (\(exposures))")
 
             // 8. Selectable text: Info's rows on the first picture.
             choose([store.images.first { $0.id == upright.id } ?? upright])

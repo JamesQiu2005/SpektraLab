@@ -91,8 +91,8 @@ struct HSLTool: View {
                 .accessibilityIdentifier("adjust.hsl.rings")
             ForEach(HSLBand.Component.allCases) { component in
                 EditSlider(title: component.title, value: Binding(
-                    get: { session.adjustments.hsl[hue][component] },
-                    set: { v in session.changeEdit { $0.hsl[hue][component] = v } }),
+                    get: { session.shownAdjustments.hsl[hue][component] },
+                    set: { v in session.moveEdit { $0.hsl[hue][component] = v } }),
                     range: HSLSet.range, track: hue.track(component), detentAtRest: true,
                     editing: { $0 ? session.beganEdit() : session.endedEdit() })
                 .accessibilityIdentifier("adjust.hsl.\(component.rawValue)")
@@ -116,8 +116,8 @@ struct ChannelMixerTool: View {
                 .accessibilityIdentifier("adjust.channel.rings")
             ForEach(ChannelMixer.Channel.allCases) { input in
                 EditSlider(title: input.title, value: Binding(
-                    get: { session.adjustments.channelMixer[output][input] + (input == output ? 100 : 0) },
-                    set: { v in session.changeEdit { $0.channelMixer[output][input] = v - (input == output ? 100 : 0) } }),
+                    get: { session.shownAdjustments.channelMixer[output][input] + (input == output ? 100 : 0) },
+                    set: { v in session.moveEdit { $0.channelMixer[output][input] = v - (input == output ? 100 : 0) } }),
                     range: input == output ? 0...200 : ChannelMixer.range, rest: input == output ? 100 : 0,
                     text: { String(format: "%.0f%%", $0) }, track: [Color(hex: 0x101010), input.swatch], detentAtRest: true,
                     editing: { $0 ? session.beganEdit() : session.endedEdit() })

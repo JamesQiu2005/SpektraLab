@@ -24,9 +24,10 @@
 //  **Which library**: the one the frame was last carried from (`house`, from the Mac library's
 //  `frames(for:)`, which Develop, Export and the carried filmstrip all pass through); else the one its
 //  develop already lies in (`remember`, from the frames' paths at launch); else the app's `Previews`. A
-//  frame is the app's, one per file, so a file two catalogs reference has one develop: a new one is
-//  written where the frame was last carried from and replaces the old wherever that was
-//  (`ImportService.discard`, which takes a library's preview file too).
+//  frame is the app's, one per (file, variant) (PRD-G, 2026-11-13: an image's primary variant's frame is the
+//  file's own, another variant's is that library's), so a file two catalogs reference has one primary develop: a
+//  new one is written where the frame was last carried from and replaces the old wherever that was
+//  (`ImportService.discard`, which takes a library's preview file too). Each variant's develop is its own frame's.
 //
 //  **Only into a library that is there** (`PreviewHome.isThere`: a catalog's `Library.spkdb`, a session's
 //  `.spksession`): a disk away, or a catalog moved since, is never written to — `createDirectory` would

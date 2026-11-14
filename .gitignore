@@ -372,3 +372,10 @@ desktop/src-tauri/tauri.bundle.json
 
 # Native Metal pipelines are built for the build host; portable IR remains bundled.
 *.metalar
+
+# The owner's private working folders (2026-11-13): never tracked.
+Apple-ICP-Exception-Letter/
+Capture_One_UX/
+
+# RAW samples for the decode and lens-correction checks (2026-11-13): local only, 1.4 GB.
+/RAW_decode_tests/

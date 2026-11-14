@@ -129,6 +129,12 @@ struct Rules {
         rule("a size card that takes the frame's own long side, whatever the photograph's shape") { r in
             r.takeSize = { p, f, _ in p.filmFrame = f.id; p.sideLengthMM = f.short; p.filmFormatMM = max(f.long, f.short) }
         }
+        rule("a sheet laid as a roll: its short side times the photograph's shape, past the sheet's edge") { r in
+            r.takeSize = { p, f, photo in
+                p.filmFrame = f.id; p.sideLengthMM = f.short
+                p.filmFormatMM = FilmParams.longEdgeMM(side: .short, length: f.short, photo: photo)
+            }
+        }
         rule("a film's length kept as another photograph made it (a new frame's 36 mm, a paste)") { r in r.heldToPhoto = { p, _ in p } }
         rule("a Custom frame's own length overwritten") { r in
             r.heldToPhoto = { p, photo in
@@ -192,6 +198,9 @@ struct Rules {
         }
         rule("a black-and-white film's own grain forgotten: the engine's 1 for all four") { r in
             r.wire = wire { w, held, c in if c.isMonochrome(held.filmStock) { w["grain_amount"] = held.fullDelta["grain_amount"] } }
+        }
+        rule("a colour film's own grain forgotten: the engine's 1 for every colour film") { r in
+            r.wire = wire { w, held, c in if !c.isMonochrome(held.filmStock) { w["grain_amount"] = held.fullDelta["grain_amount"] } }
         }
         rule("Extended Dynamic Range sent for a silver paper, which the engine refuses") { r in
             r.wire = wire { w, held, c in if c.isMonochrome(held.printStock) { w["extended_dynamic_range"] = held.fullDelta["extended_dynamic_range"] } }
@@ -315,11 +324,20 @@ func noteChecks(_ c: inout Checker, _ rules: Rules, catalog: StockCatalog) {
 func sizeChecks(_ c: inout Checker, _ rules: Rules) {
     let landscape = PixelSize(width: 6000, height: 4000), upright = PixelSize(width: 4000, height: 6000)
     let phone = PixelSize(width: 4032, height: 3024), square = PixelSize(width: 4000, height: 4000)
+    let fiveFour = PixelSize(width: 5000, height: 4000)
     // The frame, the photograph, and the long edge the wire carries, in millimetres.
     let cases: [(String, PixelSize, Double, Double)] = [
         ("135", landscape, 24, 36), ("135", upright, 24, 36), ("135", phone, 24, 32), ("135", square, 24, 24),
         ("120", landscape, 56, 84), ("120", phone, 56, 56.0 * 4 / 3), ("120", square, 56, 56),
         ("110", landscape, 13, 19.5), ("APS", landscape, 16.7, 25.05),
+        // Sheet film (2026-11-11, the Mac's 4×5, 5×7 and 8×10): a sheet is a rectangle both ways, so the
+        // picture is the largest cut of its own shape inside the sheet's image area — a 3:2 picture on
+        // 4×5 is 120 mm long, not 96 × 1.5 = 144 past the sheet's edge.
+        ("4x5", fiveFour, 96, 120), ("4x5", landscape, 96, 120), ("4x5", square, 96, 96),
+        ("5x7", landscape, 120, 170), ("5x7", fiveFour, 120, 150),
+        ("8x10", fiveFour, 194, 242.5), ("8x10", landscape, 194, 245), ("8x10", upright, 194, 245),
+        // 8mm's gate is fixed as a sheet is: a square picture on it is 3.68 mm, under the engine's old 4.
+        ("8mm", landscape, 3.68, 4.88), ("8mm", square, 3.68, 3.68), ("8mm", phone, 3.68, 4.88),
     ]
     for (id, photo, side, long) in cases {
         var p = FilmParams()
@@ -366,6 +384,41 @@ func sizeChecks(_ c: inout Checker, _ rules: Rules) {
     c.expect(rules.heldToPhoto(fresh, PixelSize(width: 0, height: 0)) == fresh, "with no photograph to measure, nothing is changed")
     // Every size the page offers is one the catalogue of frames has.
     for id in ["110", "APS", "135", "120"] { c.expect(FilmFrame.named(id).id == id, "\(id) is a still frame the page can offer") }
+    for id in ["4x5", "5x7", "8x10"] {
+        c.expect(FilmFrame.named(id).id == id && FilmFrame.named(id).isSheet, "\(id) is a sheet the Mac's page can offer")
+    }
+    c.expect(FilmFrame.sheet.map(\.title) == ["4×5", "5×7", "8×10"], "the sheets are titled as they are sold: \(FilmFrame.sheet.map(\.title))")
+    c.expect(FilmFrame.presets.map(\.id) == ["8mm", "110", "APS", "135", "120", "4x5", "5x7", "8x10"],
+             "the cards in the owner's order: \(FilmFrame.presets.map(\.id))")
+    c.expect(!FilmFrame.presets.contains { $0.id == FilmFrame.custom.id }, "Custom is not a card: it is the rows under the strip")
+    // The fixed frames fit the engine: whatever a picture's shape, what they send is inside its range.
+    for sheet in FilmFrame.presets where sheet.isFixed {
+        for photo in [landscape, upright, fiveFour, square, PixelSize(width: 8000, height: 2000)] {
+            var p = FilmParams()
+            rules.takeSize(&p, sheet, photo)
+            c.expect(FilmParams.filmFormatRange.contains(p.filmFormatMM) && p.filmFormatMM <= sheet.long + 1e-9,
+                     "\(sheet.id) on \(photo.width) × \(photo.height) sends \(p.filmFormatMM) mm: inside the sheet and the engine's range")
+        }
+    }
+    c.expect(FilmParams.filmFormatRange.upperBound >= FilmFrame.named("8x10").long,
+             "the engine's range reaches 8×10's \(FilmFrame.named("8x10").long) mm")
+    // A sheet pasted onto another photograph is held to it, as a roll's frame is.
+    var sheet = FilmParams()
+    rules.takeSize(&sheet, .named("4x5"), fiveFour)
+    c.expect(rules.heldToPhoto(sheet, square).filmFormatMM == 96, "4×5 from a 5:4 picture onto a square one is 96 mm long there")
+    // Custom, as 1.3.x typed it: a side, its length, the unit only for reading.
+    c.expect(abs(SideUnit.inch.toMM(0.945) - 24.003) < 1e-9 && abs(SideUnit.inch.fromMM(25.4) - 1) < 1e-12,
+             "an inch is 25.4 mm both ways")
+    var typed = FilmParams()
+    typed.take(customSide: .short, lengthMM: SideUnit.inch.toMM(0.945), photo: landscape)
+    c.expect(typed.filmFrame == FilmFrame.custom.id && typed.filmSide == "short" && abs(typed.sideLengthMM - 24.003) < 1e-9
+             && abs(typed.filmFormatMM - 36.0045) < 1e-9, "Custom 0.945 in on the short side of a 3:2 picture sends 36.0045 mm")
+    typed.take(customSide: .long, lengthMM: 60, photo: landscape)
+    c.expect(typed.filmSide == "long" && typed.filmFormatMM == 60, "Custom 60 mm on the long side sends 60 mm")
+    typed.take(customSide: .short, lengthMM: SideUnit.inch.toMM(8), photo: landscape)
+    c.expect(typed.filmFormatMM == FilmParams.filmFormatRange.upperBound && typed.sideLengthMM == SideUnit.inch.toMM(8),
+             "Custom 8 in short on 3:2 is held at the engine's ceiling, the typed length kept")
+    c.expect(rules.heldToPhoto(typed, square) == typed, "a Custom frame is not re-derived by a paste")
 }
 
 // MARK: - a slide is scanned
@@ -495,9 +548,23 @@ func silverChecks(_ c: inout Checker, _ rules: Rules, catalog: StockCatalog) {
                  "\(film.shortName) has a grain of its own, inside the wire's range: \(film.grain.map { "\($0)" } ?? "none")")
     }
     for stock in colourFilms + colourPapers {
-        c.expect(stock.monochrome == nil && stock.grain == nil && stock.neutralPack == nil,
+        c.expect(stock.monochrome == nil && stock.neutralPack == nil,
                  "\(stock.shortName), a colour stock, carries nothing of black and white's")
     }
+    // Every colour film's own grain (2026-11-11, `COLOUR_GRAIN`): one of its own, inside the wire's range and
+    // near the engine's 1 (the datasheets and the speed fit put every one within 0.6–1.3); a paper has none.
+    for film in colourFilms {
+        c.expect(film.grain.map { (0.6...1.3).contains($0) } == true,
+                 "\(film.shortName) has a grain of its own near the engine's 1: \(film.grain.map { "\($0)" } ?? "none")")
+    }
+    for paper in colourPapers { c.expect(paper.grain == nil, "\(paper.shortName), a paper, has no grain of its own") }
+    // The speed tells the films apart where only the speed is known: faster is grainier, within a maker's line.
+    let own = { (id: String) in catalog.stock(id)?.grain ?? 0 }
+    c.expect(own("kodak_ektar_100") < own("kodak_portra_160") && own("kodak_portra_160") < own("kodak_portra_400")
+             && own("kodak_portra_400") < own("kodak_portra_800"),
+             "Kodak's still negatives: Ektar 100 < Portra 160 < Portra 400 < Portra 800")
+    c.expect(own("kodak_vision3_50d") < own("kodak_vision3_250d") && own("kodak_vision3_250d") <= own("kodak_vision3_500t"),
+             "Vision3, from its sheets: 50D < 250D ≤ 500T")
 
     // 1. The pick.
     for film in silverFilms {
@@ -620,7 +687,7 @@ func silverChecks(_ c: inout Checker, _ rules: Rules, catalog: StockCatalog) {
         c.expect(flag(ws, "scan_film") == true && flag(ws, "grain_sublayers_active") == false && number(ws, "grain_amount") == number(w, "grain_amount"),
                  "\(film.shortName), scanned by a desktop edit: carried so, with its grain as one layer")
     }
-    // No colour frame's wire moves: each is `fullDelta` of the frame, field for field, as before black and white.
+    // A colour frame's wire is `fullDelta` of the frame, field for field, but for its film's own grain.
     for film in colourFilms {
         for paper in colourPapers {
             var p = FilmParams()
@@ -633,7 +700,11 @@ func silverChecks(_ c: inout Checker, _ rules: Rules, catalog: StockCatalog) {
             p.extendedDynamicRange = true
             p.yFilterShift = 0.25
             p.mFilterShift = -0.5
-            c.expect(rules.wire(p, catalog) == p.fullDelta, "\(film.shortName) on \(paper.shortName): the wire is the frame's own, field for field")
+            // The frame's own, field for field, but for the grain: the strength times the film's own (2026-11-11).
+            var want = p.fullDelta
+            want["grain_amount"] = .double((1.5 * (film.grain ?? 1)).clamped(to: EffectStrengths.grainRange))
+            c.expect(rules.wire(p, catalog) == want,
+                     "\(film.shortName) on \(paper.shortName): the wire is the frame's own, field for field, with the film's own grain")
         }
         var p = FilmParams()
         p.filmStock = film.id

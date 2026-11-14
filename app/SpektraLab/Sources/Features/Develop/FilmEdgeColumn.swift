@@ -36,42 +36,45 @@
 
 import SwiftUI
 
-/// A section's title line in the column: its name, what the section switches (a toggle), and at the right the bare chevron that folds it — the strips' fold
-/// (`StockPreviewPanel(foldable:)`): down while it shows, right when folded.
+/// A section's header in Develop's column: Edit › Adjust's folding header (`FoldHeader`, 2026-11-11: "match Edit's
+/// collapse style") under the column's hairline — the chevron at the left, the name, and at the right what the
+/// section switches (a small switch) or chooses (a shelf's pill). Decode, the Film and Paper strips, 片边, 日期后背 and
+/// Format's Effects wear it; Decode's Enlarger and High Dynamic Range wear it indented, with no hairline.
 struct ColumnSectionHeader<Accessory: View>: View {
     let title: String
     let folded: Bool
     /// The fold's accessibility identifier's tail (`v5.develop.fold.<id>`).
     let id: String
+    /// The hairline above it; a section folding inside another has none.
+    var rule = true
+    var indent: CGFloat = 0
     let toggleFold: () -> Void
     @ViewBuilder var accessory: () -> Accessory
 
+    /// Its hairline and its line.
+    static var height: CGFloat { FoldRule.height + FoldHeader<EmptyView, EmptyView>.height }
+
     var body: some View {
-        HStack(spacing: 8) {
-            Text(title).font(Theme.Font.ui(13, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            accessory()
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { toggleFold() }
-            } label: {
-                Icon(.chevronDown, size: 13, color: Theme.secondaryText)
-                    .rotationEffect(.degrees(folded ? -90 : 0))
-                    .frame(width: 32, height: 44).contentShape(Rectangle())
+        VStack(spacing: 0) {
+            if rule { FoldRule() }
+            FoldHeader(open: !folded, indent: indent, toggle: fold) {
+                FoldTitle(title, open: !folded)
+            } accessory: {
+                accessory()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(folded ? L("Show the controls") : L("Fold the controls away"))
-            .accessibilityValue(title)
+            .help(folded ? L("Show the controls") : L("Fold the controls away"))
+            .accessibilityElement(children: .contain)
+            .accessibilityAction(named: folded ? L("Show the controls") : L("Fold the controls away"), fold)
             .accessibilityIdentifier("v5.develop.fold." + id)
         }
-        .padding(.leading, 16).padding(.trailing, 8)
-        .frame(height: 44)
     }
+
+    private func fold() { withAnimation(.easeOut(duration: 0.18)) { toggleFold() } }
 }
 
 extension ColumnSectionHeader where Accessory == EmptyView {
-    init(title: String, folded: Bool, id: String, toggleFold: @escaping () -> Void) {
-        self.init(title: title, folded: folded, id: id, toggleFold: toggleFold) { EmptyView() }
+    init(title: String, folded: Bool, id: String, rule: Bool = true, indent: CGFloat = 0, toggleFold: @escaping () -> Void) {
+        self.init(title: title, folded: folded, id: id, rule: rule, indent: indent, toggleFold: toggleFold) { EmptyView() }
     }
 }
 
@@ -127,10 +130,9 @@ struct FilmEdgeColumn: View {
 
     private var filmEdgeSection: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(Theme.rule).frame(height: Theme.Metric.rule).padding(.horizontal, Theme.Metric.margin)
             ColumnSectionHeader(title: L("Film Edge"), folded: prefs.filmEdgeCollapsed,
                                 id: "film-edge", toggleFold: { prefs.filmEdgeCollapsed.toggle() }) {
-                SpkToggle(isOn: Binding(get: { edge.active }, set: { setFilmEdge($0) }))
+                SpkToggle(isOn: Binding(get: { edge.active }, set: { setFilmEdge($0) }), size: .compact)
                     .rowEnabled(appliesFilm)
                     .accessibilityLabel(L("Film Edge"))
                     .accessibilityIdentifier("v5.develop.film-edge")
@@ -164,6 +166,7 @@ struct FilmEdgeColumn: View {
             if on, e.filmEdge.cameraSeed == 0 {
                 e.filmEdge.turn = e.filmEdge.format.defaultTurn(pictureAspect: aspect)
                 e.filmEdge.cameraSeed = body
+                if e.filmEdge.format.is120 { e.filmEdge.perforation = FilmEdgePerforation.starting(stockID: e.params.filmStock) }
             }
             e.filmEdge.active = on
         }
@@ -178,10 +181,11 @@ struct FilmEdgeColumn: View {
         withAnimation(.easeOut(duration: 0.18)) {
             session.change { e in
                 let wasHalfTurned = e.filmEdge.turn >= 2
-                e.filmEdge.format = format
+                // The format and what it starts with: 135 Full Width's black holes, a Vision3 film's keyholes on 120.
+                e.filmEdge.take(format: format, stockID: e.params.filmStock)
                 e.filmEdge.turn = format.defaultTurn(pictureAspect: aspect) + (wasHalfTurned ? 2 : 0)
                 e.filmEdge.framing = nil
-                if !format.draws(e.dateBack.style), let face = DateBackFace.allCases.first(where: format.draws) {
+                if !format.draws(e.dateBack.style), let face = DateBackFace.offered.first(where: format.draws) {
                     e.dateBack.style = face
                 }
             }
@@ -197,10 +201,9 @@ struct FilmEdgeColumn: View {
 
     private var dateBackSection: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(Theme.rule).frame(height: Theme.Metric.rule).padding(.horizontal, Theme.Metric.margin)
             ColumnSectionHeader(title: L("Date Back"), folded: prefs.dateBackCollapsed,
                                 id: "date-back", toggleFold: { prefs.dateBackCollapsed.toggle() }) {
-                SpkToggle(isOn: Binding(get: { back.active && !printsNothing }, set: { setDate($0) }))
+                SpkToggle(isOn: Binding(get: { back.active && !printsNothing }, set: { setDate($0) }), size: .compact)
                     .rowEnabled(appliesFilm && !printsNothing)
                     .accessibilityLabel(L("Date Back"))
                     .accessibilityIdentifier("v5.develop.date-back")
@@ -220,7 +223,7 @@ struct FilmEdgeColumn: View {
         session.change { e in
             e.dateBack.active = on
             if on, !e.dateBack.prints(e.dateBack.style, filmEdge: e.filmEdge),
-               let face = DateBackFace.allCases.first(where: { e.dateBack.prints($0, filmEdge: e.filmEdge) }) {
+               let face = DateBackFace.offered.first(where: { e.dateBack.prints($0, filmEdge: e.filmEdge) }) {
                 e.dateBack.style = face
             }
         }

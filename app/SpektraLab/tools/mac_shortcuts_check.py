@@ -31,6 +31,14 @@ if '--negative-controls' in sys.argv:
     standard = '        MacKeySpec(input: "c", flags: .command): #selector(UIResponder.copy(_:)),\n'
     assert standard in source
     variants.append(('broken-copy-not-standard', source.replace(standard, ''), 1))
+    # ⇧[ registered only as `[` with ⇧: a US layout's `{` would reach nothing (MASKS-SPEC §8's caution).
+    softer = '        case .softer: return [k("[", .shift), k("{", .shift), k("{")]'
+    assert softer in source
+    variants.append(('broken-shifted-bracket', source.replace(softer, '        case .softer: return [k("[", .shift)]'), 1))
+    # ⌥M left as M's alias: the two would be one key.
+    alone = '        case .maskAlone: return [k("m", .alternate), k("µ", .alternate)]'
+    assert alone in source
+    variants.append(('broken-option-m', source.replace(alone, '        case .maskAlone: return [k("m")]'), 1))
 with tempfile.TemporaryDirectory(prefix='spk-shortcut-check-') as temporary:
     folder = Path(temporary)
     for name, swift, expected in variants:

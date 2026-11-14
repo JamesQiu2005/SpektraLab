@@ -49,6 +49,8 @@ struct Rules {
     var written: (FrameEdit, Int, Geometry?) -> FrameEdit = { FilmEdgeJourney.written($0, bodySeed: $1, framing: $2) }
     var frameNumber: (FilmEdgeSettings, String) -> Bool = { FilmEdgeOptions.frameNumber($0, stockID: $1) }
     var face: (DateBackFace, DateBackSettings, FilmEdgeSettings) -> Bool = { FilmEdgeOptions.face($0, $1, $2) }
+    var holesRow: (FilmEdgeSettings) -> FilmEdgeOptions.HolesRow = { FilmEdgeOptions.holesRow($0) }
+    var view: (FilmEdgeSettings) -> Bool = { FilmEdgeOptions.view($0) }
 
     static var broken: [Rules] {
         var gated = Rules(name: "a step waits for Next (the tester's report)")
@@ -77,7 +79,18 @@ struct Rules {
         unnumbered.frameNumber = { e, s in FilmEdgeOptions.frameNumber(e, stockID: s) && e.mode == .strip }
         var faces = Rules(name: "a face is open while the date is off")
         faces.face = { f, b, e in var on = b; on.active = true; return FilmEdgeOptions.face(f, on, e) }
-        return [gated, silent, bodiless, reseeded, numbered, unnumbered, faces]
+        var colourOff = Rules(name: "120's hole colour shown with the keyholes off")
+        colourOff.holesRow = { e in
+            if case .perforations = FilmEdgeOptions.holesRow(e) { return .perforations(showsColour: true) }
+            return FilmEdgeOptions.holesRow(e)
+        }
+        var switched135 = Rules(name: "135 given the keyholes' switch")
+        switched135.holesRow = { e in e.format.isPerforated ? .perforations(showsColour: true) : FilmEdgeOptions.holesRow(e) }
+        var viewOpen = Rules(name: "View open on 135 Full Width (the owner, 2026-11-11)")
+        viewOpen.view = { _ in true }
+        var viewShut = Rules(name: "View greyed on every panoramic format")
+        viewShut.view = { e in e.format.group != .panoramic }
+        return [gated, silent, bodiless, reseeded, numbered, unnumbered, faces, colourOff, switched135, viewOpen, viewShut]
     }
 }
 
@@ -312,14 +325,63 @@ func frameNumberChecks(_ c: inout Checker, _ r: Rules) {
     c.expect(cases >= 200, "only \(cases) layouts held the frame number")
 }
 
+// MARK: - View
+
+/// View (Strip · Filed) is open exactly where the View kept changes what the engine is told and what is laid out:
+/// greyed on 135 Full Width, whose picture is the film's whole width (the owner, 2026-11-11), open on every other.
+func viewChecks(_ c: inout Checker, _ r: Rules) {
+    for format in FilmEdgeFormat.allCases {
+        var strip = FilmEdgeSettings(); strip.active = true; strip.format = format
+        var filed = strip; filed.mode = .filed
+        func sent(_ e: FilmEdgeSettings) -> String? {
+            e.wire(edgeText: "", frameSeed: 1, fNumber: 0).first { $0.name == "overscan_mode" }.map { "\($0.value)" }
+        }
+        func canvas(_ e: FilmEdgeSettings) -> PixelSize? {
+            var q = FilmEdgeRequest(); q.format = format; q.mode = e.view; q.cameraSeed = 19; q.frameSeed = 5
+            q.frame = PixelSize(width: 3600, height: Int((3600 * format.acrossMM / format.alongMM).rounded()))
+            return FilmLayout.layout(q)?.canvas
+        }
+        let changes = sent(strip) != sent(filed) || canvas(strip) != canvas(filed)
+        c.expect(r.view(strip) == changes && r.view(filed) == changes,
+                 "\(format.label): View is " + (r.view(filed) ? "open" : "greyed") + " but the View kept " + (changes ? "changes" : "changes nothing"))
+    }
+}
+
 // MARK: - the holes and the date
+
+/// 齿孔, one row (the owner, 2026-11-11): 135 and its wide formats keep their colour row with no switch; a 120 format
+/// on an engine with the keyholes has the switch, with the colour under it only while it is on; without such an
+/// engine, 120 has nothing to choose.
+func holesRowChecks(_ c: inout Checker, _ r: Rules) {
+    EngineFeatures.publish(Set(EngineFeatures.Feature.allCases.map(\.rawValue)))
+    for format in FilmEdgeFormat.allCases {
+        var e = FilmEdgeSettings()
+        e.format = format
+        for p in FilmEdgePerforation.allCases {
+            e.perforation = p
+            let want: FilmEdgeOptions.HolesRow = format.isPerforated ? .colour : .perforations(showsColour: p == .ks65)
+            c.expect(r.holesRow(e) == want, "\(format.label), keyholes \(p.rawValue): the holes row is \(r.holesRow(e)), not \(want)")
+        }
+    }
+    EngineFeatures.publish([])
+    var e = FilmEdgeSettings()
+    e.format = .f6x7
+    e.perforation = .ks65
+    c.expect(r.holesRow(e) == .none, "120 on an engine without the keyholes has nothing to choose")
+    e.format = .f135
+    c.expect(r.holesRow(e) == .colour, "135 keeps its colour on any engine")
+}
 
 func optionChecks(_ c: inout Checker, _ r: Rules) {
     for format in FilmEdgeFormat.allCases {
         var e = FilmEdgeSettings()
         e.format = format
-        c.expect(FilmEdgeOptions.holes(e) == (format == .f135 || format == .half || format == .xpan),
+        c.expect(FilmEdgeOptions.holes(e) == (format == .f135 || format == .half || format == .xpan || format == .sprocket135),
                  "holes on \(format.label) are " + (FilmEdgeOptions.holes(e) ? "open" : "greyed"))
+        // 120 with the keyholes has holes to see through (PRD-D §3.2); 135's own are the format's.
+        e.perforation = .ks65
+        c.expect(FilmEdgeOptions.holes(e) == (format.isPerforated || format.is120),
+                 "holes on \(format.label) with the keyholes are " + (FilmEdgeOptions.holes(e) ? "open" : "greyed"))
     }
 
     var edge = FilmEdgeSettings()
@@ -331,7 +393,9 @@ func optionChecks(_ c: inout Checker, _ r: Rules) {
     c.expect(!FilmEdgeOptions.size(back, edge), "the size is open with the date off")
     // On, on 135 with a film edge: every face, the corner, the size.
     back.active = true
-    for f in DateBackFace.allCases { c.expect(r.face(f, back, edge), "\(f.label) is greyed on 135 with the date on") }
+    // (Perforation Data waits for an engine that draws it, which this check has none of: tools/lens_edge_selftest.swift.)
+    for f in DateBackFace.dateFaces { c.expect(r.face(f, back, edge), "\(f.label) is greyed on 135 with the date on") }
+    c.expect(!r.face(.perfs, back, edge), "Perforation Data is open on an engine without it")
     c.expect(FilmEdgeOptions.corner(back, edge) && FilmEdgeOptions.size(back, edge), "the corner or the size is greyed on 135")
     // The data face goes beside the frame: no corner, a size.
     back.style = .data
@@ -362,6 +426,8 @@ enum Main {
             jumpChecks(&c, rules)
             frameNumberChecks(&c, rules)
             optionChecks(&c, rules)
+            holesRowChecks(&c, rules)
+            viewChecks(&c, rules)
             return c
         }
         if CommandLine.arguments.contains("--self-test") {

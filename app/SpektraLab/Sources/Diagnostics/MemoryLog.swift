@@ -150,7 +150,7 @@ final class MemoryLog: @unchecked Sendable {
 
     /// One of the four readings a second: written where `MemoryTrace` says so.
     private func read() {
-        let footprint = MemoryProbe.footprint(), left = MemoryProbe.appAvailable()
+        let footprint = MemoryProbe.footprint(), left = MemoryProbe.read().appAvailable
         let (notes, doing) = lock.withLock { (trace.take(footprint: footprint, left: left, during: self.doing.text), self.doing) }
         for note in notes {
             var fields = Self.fields(MemoryProbe.read(), doing)

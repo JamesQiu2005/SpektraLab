@@ -33,10 +33,12 @@ struct SpektraLabApp: App {
             AppMenuCommands(model: model)
             // The develop page's Undo and Redo in the Edit menu (DevelopMenuCommands.swift): the operating system 26's
             // menu bar takes ⌘Z before any button on a page.
-            DevelopMenuCommands()
+            DevelopMenuCommands(model: model)
             // The Mac's Edit menu: ⌘C and ⌘V are Copy and Paste Settings where no field has the keys
             // (MacEditCommands.swift).
             MacEditCommands()
+            // The Image menu: New, Clone and Delete Variant (Mac/LibraryUI/MacVariantActions.swift).
+            MacImageMenu(model: model)
         }
     }
 }

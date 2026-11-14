@@ -80,6 +80,18 @@ OVERRIDES: dict[str, object] = {
     "camera_filter": "w8",
     # Five sampled rows: lift RGB while keeping the other four identities.
     "scene_curve": "0.0625,0.5625,1,0,0.5,1,0,0.5,1,0,0.5,1,0,0.5,1",
+    # API-SPEC §21's enumerated strings, each off its default. By the time they
+    # land the walk's film is 120_6x9 with overscan on: a spot leak and ks65 are
+    # 120's, and `perfs` is accepted there (and draws nothing, as on any 120).
+    "diffusion_filter_family": "cinebloom",
+    "lens_loca_sign": "green",
+    "leak_kind": "spot",
+    "date_imprint_data_placement": "perfs",
+    "date_imprint_data_leader": "NO.012|ISO 200",
+    "overscan_perforation": "ks65",
+    # RFC-052 §6.4: a stamp, which this walk cannot back with a set (the planes
+    # are MTLBuffers, `spk_set_scene_layers`); refused below, by name.
+    "scene_layers": "walk",
 }
 
 # Print-layer fields that nevertheless invalidate cached work. The walk below
@@ -100,7 +112,9 @@ REVERT_AFTER = {"striped"}
 # refusal. A half-frame pair is two frames on 135_half, and the walk's film is
 # 120_6x9 by then: the pair is refused by name and put back. (That it renders
 # is `overscan_checks.py`'s to show.)
-REFUSED_HERE = {"overscan_pair": "pair"}
+REFUSED_HERE = {"overscan_pair": "pair",
+                # A stamp with no set held: the session refuses to develop on masks it does not have.
+                "scene_layers": "holds no set"}
 
 
 def value_for(field: dict):

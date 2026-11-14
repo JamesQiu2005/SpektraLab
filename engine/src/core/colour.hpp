@@ -72,6 +72,9 @@ public:
     // the 3x3 per pixel (`fused_tc_b.tc_b_matrix`,
     // `ScanningStage._xyz_to_rgb_matrix`). Same construction, no per-pixel
     // colour call, and numerically equivalent rather than merely close.
+    // A baked chromatic adaptation transform's own matrix (`colour/cat/<name>`:
+    // CAT02, CAT16, Bradford, ...), XYZ -> its cone-like responses.
+    bool cat_matrix(const std::string& name, Mat3& out, std::string& error) const;
     bool matrix_RGB_to_XYZ(const std::string& cs, const double* illuminant_xy,
                            const std::string& cat, Mat3& out, std::string& error) const;
     bool matrix_XYZ_to_RGB(const std::string& cs, const double* illuminant_xy,

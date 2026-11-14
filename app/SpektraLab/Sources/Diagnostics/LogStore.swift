@@ -67,6 +67,8 @@ enum LogCategory: String, Sendable {
     /// The light table: one record a gesture (what the fingers did, the zoom, the largest jump, the
     /// frame rate meanwhile), never a frame at a time, never a picture or a path.
     case lighttable
+    /// A double exposure (RFC-047 §8): made, a layer picked, swapped, Balance on release, an exposure placed.
+    case double
 }
 
 final class LogStore: @unchecked Sendable {

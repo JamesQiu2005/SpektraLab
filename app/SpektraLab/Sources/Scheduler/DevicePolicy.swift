@@ -24,6 +24,22 @@ struct DevicePolicy: Sendable {
     /// headroom. A product size target, not a latency/device qualification.
     /// Cards use their separate 800 px live rendition; export remains native.
     var previewLongEdge: Int = 1920
+    /// Settings › Develop › *Preview size*'s choices (`MacSettingsDevelop`). 3,200 and 3,840 px (4K's long edge) since
+    /// 2.4.0 (the owner, 2026-11-13: "we're supporting preview of up to 3840px long edge"). Nothing on the way caps a
+    /// preview below them: the wire takes 800…8192 (`EngineWire`), a RAW's proxy is the whole decode made smaller by
+    /// Lanczos at the frame's own preview size (`RawExposure.scaled`, never `scaleFactor`), and the canvas's cost is
+    /// priced by its pixels (`CostModel.seed`), so a 3,840 px develop is forecast at 2.25x a 2,560 px one of the same
+    /// shape (a RAW's first open: its decode's price and that growth over 2,560 px, `CostModel`).
+    ///
+    /// Measured on this Mac (M3 Max, 36 GB, 2026-11-13, `tools/memory_check.sh --preview-edge`, two runs a size,
+    /// interleaved, load 6-8 with another build beside it), a fresh RAW's develop, the page's job with its strip,
+    /// 2,560 → 3,840 px: a 24 MP ARW shown in 1.7-1.9 → 2.0-2.1 s, its peak over the footprint before it 1.46 → 2.05 GB;
+    /// a 45 MP NEF 1.9 → 2.1 s, 1.85 → 2.48 GB — about 0.6 GB more, not 2.25x (the decode of the original does not
+    /// grow), and the app ~150 MB larger at rest after it. Safe on a 16 GB Mac (the app peaks at ~2.9 GB browsing), so
+    /// nothing is hidden there; the row's caption says what it costs. A 3,840 px develop of the NEF is not an enlarged
+    /// one: grain and glare off, its detail above a 2,560 px picture's Nyquist correlates 0.95 with the full render made
+    /// 3,840 px (a 2,560 px develop enlarged: 0.34). `tools/scheduler_selftest.swift` fails if 3,840 leaves the list.
+    static let previewEdges = [1600, 1920, 2400, 2560, 3200, 3840]
     /// Exposure is metered once per session at this size and applied to every
     /// tier. A preview size must not change the meter (AGENTS.md).
     let meterLongEdge = 1600

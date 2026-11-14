@@ -85,11 +85,10 @@ extension EnlargerTool {
 }
 
 enum SceneTool: String, CaseIterable, Identifiable, Sendable {
-    case whiteBalance, lens, placement
+    case whiteBalance, placement
     var id: String { rawValue }
-    /// The tools the Scene page offers. Lens correction is Settings' for the whole library since
-    /// 2026-10-21 (the owner: "we put 'use lens correction' in settings, not edit"); its panel is
-    /// kept, and offered nowhere.
+    /// The tools the Scene page offers. Lens correction is 编辑 › 镜头's since 2.4.0 (`LensCorrectionPart`); the
+    /// Scene page's own Lens panel, offered nowhere since 2026-10-21, is gone with it (nothing kept named it).
     static let shown: [SceneTool] = [.whiteBalance]
     /// Edit › EngineRouter's Decode tile (2026-10-22): White Balance, and Scene Placement beside it —
     /// what is solved before the film, which edit_v2's pro-control had under Effects.
@@ -97,7 +96,6 @@ enum SceneTool: String, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .whiteBalance: L("White Balance")
-        case .lens: L("Lens")
         case .placement: L("Scene Placement")
         }
     }
@@ -227,9 +225,6 @@ enum PanelY {
         static let first: CGFloat = 68
         static let second: CGFloat = 120
         static let note: CGFloat = 178
-        /// Lens: its switch's top beside the label at `first`.
-        static let lensSwitch: CGFloat = 48
-        static let lensNote: CGFloat = 92
     }
 }
 
@@ -294,15 +289,6 @@ enum PanelNotes {
         }
     }
 
-    static func lens(_ reach: SceneReach) -> [String] {
-        switch reach {
-        case .raw: [L("The RAW file's own lens correction: distortion and vignetting."), L("RAW files only.")]
-        case .notRAW: [L("This frame is not a RAW file: it has no lens correction to apply."), L("RAW files only.")]
-        case .previewCopy: [L("This frame's RAW is in Photos: its preview copy is developed."), L("RAW files only.")]
-        case .rawInPair: [L("This frame's own lens correction: distortion and vignetting."), L("The photograph by itself changes with it.")]
-        case .gone: [L("This frame is no longer in the library."), L("Replace or remove it under Frame.")]
-        }
-    }
 
     /// Grain's Sub-layers, beside its name: what the switch holds. On a
     /// black-and-white film the grain is one layer whatever the frame says
@@ -342,7 +328,7 @@ enum PanelNotes {
     static func all(film: String, paper: String, size: String) -> [String] {
         var out = filmSize(edge: nil) + filmSize(edge: size) + [slideTitle(film)] + slide + [scannedTitle] + scanned
         out += brightness + preflash
-        out += SceneReach.allCases.flatMap { whiteBalance($0) + lens($0) }
+        out += SceneReach.allCases.flatMap { whiteBalance($0) }
         out += grain(film: film, size: size) + halation + glare(paper: paper) + glare(paper: nil) + couplers(film: film)
         out += placement(film: film, pro: false) + placement(film: film, pro: true)
         return out
@@ -511,11 +497,6 @@ enum PanelState: Hashable, Sendable {
                 out += B.ruler("Temperature", PanelY.Scene.first) + B.ruler("Tint", PanelY.Scene.second)
                 out.append(B.note("White Balance's note", PanelY.Scene.note,
                                   lines: PanelNotes.SceneReach.allCases.map { PanelNotes.whiteBalance($0).count }.max() ?? 2))
-            case .lens:
-                out.append(B.label("Lens correction", PanelY.Scene.first, lane: "lens"))
-                out.append(B.box("the switch", top: PanelY.Scene.lensSwitch, height: PanelY.Effects.switchHeight, lane: "lens"))
-                out.append(B.note("Lens's note", PanelY.Scene.lensNote,
-                                  lines: PanelNotes.SceneReach.allCases.map { PanelNotes.lens($0).count }.max() ?? 2))
             case .placement:
                 // Edit › EngineRouter › Decode's second pill: pro-control's Scene Placement page, at the Scene page's rows.
                 out += B.ruler("Highlight", PanelY.Scene.first) + B.ruler("Shadow", PanelY.Scene.second)

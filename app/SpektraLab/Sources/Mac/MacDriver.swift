@@ -42,6 +42,7 @@
 //      notifyutil -p com.spektralab.mac.drive.settings.appearance  # Settings on Appearance (.appearance.picker: its
 //                                                         Background picker; .bg.black, .bg.warm, .bg.red, .bg.paper,
 //.bg.blue, .bg.default: a ground; .scale.80 … .150)
+//      notifyutil -p com.spektralab.mac.drive.view.filed  # the open frame's kept View: Filed (.view.strip)
 //      notifyutil -p com.spektralab.mac.drive.flow.film   # the film-edge flow at a step (.flow.frame, .flow.edge, .flow.date)
 //      notifyutil -p com.spektralab.mac.drive.decode.curve  # Film & Paper's Decode on a part (.decode.exposure, .decode.wb)
 //      notifyutil -p com.spektralab.mac.drive.scenecurve.s  # the selected frame's Decode curve: an S on RGB (.scenecurve.0: none;
@@ -50,7 +51,7 @@
 //      notifyutil -p com.spektralab.mac.drive.histogram.fold  # the histogram folded (.histogram.open)
 //      notifyutil -p com.spektralab.mac.drive.rows.film.fold  # the Film strip folded (.rows.paper.fold; .rows.open: both open)
 //      notifyutil -p com.spektralab.mac.drive.fold.filmedge  # Format's 片边 folded (.fold.dateback, .fold.decode;
-//.fold.open: all three open)
+//.fold.effects; .fold.open: all four open)
 //      notifyutil -p com.spektralab.mac.drive.applyfilm.off   # the open page's Apply Film Emulation (.applyfilm.on)
 //      notifyutil -p com.spektralab.mac.drive.hdr.on     # the open page's Enable HDR (.hdr.off), through its session
 //      notifyutil -p com.spektralab.mac.drive.edr.on     # …its print's EDR (.edr.off); .hdr.peak.1/.2/.3: HDR Peak Brightness;
@@ -83,6 +84,15 @@ enum MacDriver {
     static let cropRotate = Notification.Name("spk.drive.crop.rotate")
     /// `crop.flip`: …its Flip.
     static let cropFlip = Notification.Name("spk.drive.crop.flip")
+    /// `crop.done` on a crop page that is a cover (no develop page under it): its Done pressed.
+    static let cropDone = Notification.Name("spk.drive.crop.done")
+    /// The Film Edge flow's Edge step: its Edge fog ruler dragged to the value (the notification's object), as the
+    /// ruler's own drag does it (`EdgeStepPanel`: down, the value, its commit, up).
+    static let flowFog = Notification.Name("spk.drive.flow.fog")
+    /// `flow.next`: the Film Edge flow's Next (Develop on its last step) pressed.
+    static let flowNext = Notification.Name("spk.drive.flow.next")
+    /// The Presets sheet's preset of this name (the notification's object) pressed.
+    static let presetApply = Notification.Name("spk.drive.preset.apply")
     /// `crop.line.<deg>`: a ⌘-drag's line drawn at that angle on the screen, then levelled (its object the angle).
     static let cropLine = Notification.Name("spk.drive.crop.line")
     /// `crop.place.<n>`: under a film edge, the picture placed under the gate (its object [dx, dy, scale]).
@@ -142,7 +152,7 @@ enum MacDriver {
             } }),
             ("dateonly", { m in edit(m) { e, _ in e.filmEdge.active = false; e.dateBack.active = true } }),
             // The film on the frame (a negative: its paper stays), and the film edge's format.
-            ("film.gold200", { m in edit(m) { e, _ in e.params.filmStock = "kodak_gold_200" } }),
+            ("film.gold200", { m in edit(m) { e, _ in e.params.filmStock = "kodak_gold_200"; e.params.printStock = "kodak_supra_endura" } }),
             ("film.provia", { m in edit(m) { e, _ in e.params.filmStock = "fujifilm_provia_100f" } }),
             // The Digital Intermediate in the paper's place, as its card chooses it (.di.off: printed again).
             ("di.on", { m in edit(m) { e, _ in e.params.scanFilm = false; e.params.digitalIntermediate = true } }),
@@ -211,7 +221,12 @@ enum MacDriver {
             // A step along the develop page's filmstrip, as → and ← do (2026-11-09: a prefetched render's reuse).
             ("strip.next", { _ in NotificationCenter.default.post(name: .spkCheckStep, object: 1) }),
             ("strip.prev", { _ in NotificationCenter.default.post(name: .spkCheckStep, object: -1) }),
-            ("crop.done", { m in m.router.inlineCrop?.finishes += 1 }),
+            // In the page, the header's Crop (`finishes`); a cover's, its Done.
+            ("crop.done", { m in
+                if m.router.inlineCrop != nil { m.router.inlineCrop?.finishes += 1 }
+                else { NotificationCenter.default.post(name: cropDone, object: nil) }
+            }),
+            ("flow.next", { _ in NotificationCenter.default.post(name: flowNext, object: nil) }),
             ("crop.cancel", { m in m.router.inlineCrop = nil }),
             ("crop.rotate", { _ in NotificationCenter.default.post(name: cropRotate, object: nil) }),
             ("crop.flip", { _ in NotificationCenter.default.post(name: cropFlip, object: nil) }),
@@ -291,15 +306,62 @@ enum MacDriver {
             ("fold.filmedge", { _ in DevelopPanelPrefs.shared.filmEdgeCollapsed = true }),
             ("fold.dateback", { _ in DevelopPanelPrefs.shared.dateBackCollapsed = true }),
             ("fold.decode", { _ in DevelopPanelPrefs.shared.decodeCollapsed = true }),
+            ("fold.effects", { _ in DevelopPanelPrefs.shared.effectsCollapsed = true }),
             ("fold.open", { _ in
                 let p = DevelopPanelPrefs.shared
-                p.filmEdgeCollapsed = false; p.dateBackCollapsed = false; p.decodeCollapsed = false
+                p.filmEdgeCollapsed = false; p.dateBackCollapsed = false; p.decodeCollapsed = false; p.effectsCollapsed = false
+            }),
+            // PRD-D (2026-11-11): 片幅's filter, 135 Full Width, the 120 keyholes, 漏光, 镜头, 孔间数据 — each through the
+            // open page's session (one step of Undo), as its control makes it.
+            ("filmformat.all", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .all }),
+            ("filmformat.135", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .film135 }),
+            ("filmformat.120", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .film120 }),
+            ("filmformat.wide", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .panoramic }),
+            ("format.sprocket", { m in page(m) { s in let a = s.frame?.originalSize.aspect ?? 1.5
+                s.change { $0.filmEdge.take(format: .sprocket135, stockID: $0.params.filmStock); $0.filmEdge.framing = nil
+                           $0.filmEdge.turn = FilmEdgeFormat.sprocket135.defaultTurn(pictureAspect: a) } } }),
+            ("format.6x7.keyhole", { m in page(m) { s in let a = s.frame?.originalSize.aspect ?? 1.5
+                s.change { $0.filmEdge.take(format: .f6x7, stockID: $0.params.filmStock); $0.filmEdge.perforation = .ks65
+                           $0.filmEdge.framing = nil; $0.filmEdge.turn = FilmEdgeFormat.f6x7.defaultTurn(pictureAspect: a) } } }),
+            ("format.135", { m in page(m) { s in let a = s.frame?.originalSize.aspect ?? 1.5
+                s.change { $0.filmEdge.take(format: .f135, stockID: $0.params.filmStock); $0.filmEdge.framing = nil
+                           $0.filmEdge.turn = FilmEdgeFormat.f135.defaultTurn(pictureAspect: a) } } }),
+            // The View kept (片条 / 锉边), written as the row writes it on a format where it is open -- and also on 135
+            // Full Width, whose row is greyed, to see that it is kept and not drawn (`FilmEdgeSettings.view`).
+            ("view.filed", { m in page(m) { $0.change { $0.filmEdge.mode = .filed } } }),
+            ("view.strip", { m in page(m) { $0.change { $0.filmEdge.mode = .strip } } }),
+            ("fold.dateonly", { _ in
+                let p = DevelopPanelPrefs.shared
+                p.filmEdgeCollapsed = true; p.dateBackCollapsed = false; p.filmSizeCollapsed = true; p.histogramCollapsed = true
+            }),
+            ("film.xtra400", { m in edit(m) { e, _ in e.params.filmStock = "fujifilm_xtra_400"; e.params.printStock = "kodak_supra_endura" } }),
+            ("film.vision250d", { m in edit(m) { e, _ in e.params.filmStock = "kodak_vision3_250d"; e.params.printStock = "kodak_2383" } }),
+            ("film.portra400", { m in edit(m) { e, _ in e.params.filmStock = "kodak_portra_400"; e.params.printStock = "kodak_supra_endura" } }),
+            ("leak.wash", { m in page(m) { $0.change { $0.leak.kind = .wash } } }),
+            ("leak.auto", { m in page(m) { $0.change { $0.leak.kind = .auto } } }),
+            ("leak.spot", { m in page(m) { $0.change { $0.leak.kind = .spot } } }),
+            ("softfilter.half", { m in page(m) { $0.change { $0.lens.filter = .blackMist; $0.lens.strength = 0.5 } } }),
+            ("softfilter.2", { m in page(m) { $0.change { $0.lens.filter = .blackMist; $0.lens.strength = 2 } } }),
+            ("leak.band", { m in page(m) { $0.change { $0.leak.kind = .band } } }),
+            ("leak.off", { m in page(m) { $0.change { $0.leak.kind = .off } } }),
+            ("lens.open", { m in page(m) { $0.show(.edit) }; AdjustLayout.shared.show(.lens) }),
+            ("softfilter.blackmist", { m in page(m) { $0.change { $0.lens.filter = .blackMist } } }),
+            ("softfilter.off", { m in page(m) { $0.change { $0.lens.filter = nil } } }),
+            ("date.lcd", { m in page(m) { $0.change { $0.dateBack.active = true; $0.dateBack.style = .lcd; $0.dateBack.alsoData = false } } }),
+            ("date.perfs", { m in page(m) { $0.change { $0.dateBack.active = true; $0.dateBack.tap(.perfs) } } }),
+            ("fold.top", { _ in
+                let p = DevelopPanelPrefs.shared
+                p.filmSizeCollapsed = true; p.histogramCollapsed = true
+            }),
+            ("fold.edge.only", { _ in
+                let p = DevelopPanelPrefs.shared
+                p.filmEdgeCollapsed = true; p.dateBackCollapsed = true; p.filmSizeCollapsed = true; p.histogramCollapsed = true
             }),
             ("applyfilm.off", { m in page(m) { $0.change { $0.setAppliesFilm(false) } } }),
             ("applyfilm.on", { m in page(m) { $0.change { $0.setAppliesFilm(true) } } }),
             // Enable HDR (StockPreviewPanel's row under it, 2026-11-06): an undo step of the page's, as the row's.
-            ("hdr.on", { m in page(m) { $0.change { $0.hdr = true } } }),
-            ("hdr.off", { m in page(m) { $0.change { $0.hdr = false } } }),
+            ("hdr.on", { m in page(m) { $0.switchHDR(true) } }),
+            ("hdr.off", { m in page(m) { $0.switchHDR(false) } }),
             // 解码 › 高动态范围 (PRD-B): the print's EDR, and HDR Peak Brightness at 1, 3 stops and back to 2.
             ("edr.on", { m in page(m) { $0.change { $0.params.extendedDynamicRange = true } } }),
             ("edr.off", { m in page(m) { $0.change { $0.params.extendedDynamicRange = false } } }),

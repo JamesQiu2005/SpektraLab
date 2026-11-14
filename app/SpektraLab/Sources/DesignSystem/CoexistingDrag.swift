@@ -12,7 +12,8 @@
 //  the scroll view's pan then obeys.
 //
 //  `dragBesideScroll` is that recogniser. `onChanged` receives the drag from where it
-//  began — the shape the callers already kept for `DragGesture` — and `beginsOn` may
+//  began — the shape the callers already kept for `DragGesture`, in the control's own points — whether it is a
+//  pointer's (the Mac's mouse or trackpad) or a finger's, and the keys held; `beginsOn` may
 //  refuse a touch by where it starts: the curve takes a finger only in point mode, and
 //  every other finger scrolls the panel.
 //
@@ -22,12 +23,36 @@
 
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /// The drag's life as the callers knew it from `DragGesture`.
 struct CoexistingDragValue {
     var start: CGPoint
     var location: CGPoint
     var translation: CGSize
+    /// When the system received the pointer event this value is of (`UIEvent.timestamp`, the uptime clock that
+    /// `CACurrentMediaTime` reads); nil where it is not known.
+    var eventTime: TimeInterval? = nil
+    /// A mouse or a trackpad's pointer (`UITouch.TouchType.indirectPointer`), not a finger: on the Mac a pointer's
+    /// drag is never a scroll (a scroll is the wheel's), so a control may take it from the first point.
+    var pointer = false
+    /// The keys held (⇧ ⌥ ⌘) as the event came: a number box's drag is coarse or fine by them.
+    var modifiers: UIKeyModifierFlags = []
+}
+
+/// The press, keeping each event's time and what kind of touch it is (a delegate sees only the first).
+final class TimedPress: UILongPressGestureRecognizer {
+    private(set) var eventTime: TimeInterval?
+    private(set) var pointer = false
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        eventTime = event.timestamp
+        pointer = touches.first?.type == .indirectPointer
+        super.touchesBegan(touches, with: event)
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        eventTime = event.timestamp
+        super.touchesMoved(touches, with: event)
+    }
 }
 
 @available(iOS 18.0, *)
@@ -39,10 +64,15 @@ struct CoexistingDrag: UIGestureRecognizerRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var beginsOn: ((CGPoint) -> Bool)?
         var start: CGPoint?
+        /// The recogniser's view is the hosting view, not the control: its points are the window's (measured
+        /// 2026-11-11: a press 96.5 pt into a slider's track read 265.7 there). The converter's are the control's
+        /// own, which a caller that reads `location` — where on the track — needs.
+        let converter: CoordinateSpaceConverter
+        init(converter: CoordinateSpaceConverter) { self.converter = converter }
 
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-            guard let beginsOn, let view = recognizer.view else { return true }
-            return beginsOn(recognizer.location(in: view))
+            guard let beginsOn else { return true }
+            return beginsOn(converter.localLocation)
         }
 
         /// The whole point: the scroll view's pan keeps working beside this.
@@ -50,10 +80,10 @@ struct CoexistingDrag: UIGestureRecognizerRepresentable {
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
     }
 
-    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator(converter: converter) }
 
-    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
-        let recognizer = UILongPressGestureRecognizer()
+    func makeUIGestureRecognizer(context: Context) -> TimedPress {
+        let recognizer = TimedPress()
         recognizer.minimumPressDuration = 0
         recognizer.allowableMovement = .greatestFiniteMagnitude
         recognizer.delegate = context.coordinator
@@ -61,48 +91,56 @@ struct CoexistingDrag: UIGestureRecognizerRepresentable {
         return recognizer
     }
 
-    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+    func updateUIGestureRecognizer(_ recognizer: TimedPress, context: Context) {
         context.coordinator.beginsOn = beginsOn
     }
 
-    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        guard let view = recognizer.view else { return }
-        let at = recognizer.location(in: view)
+    func handleUIGestureRecognizerAction(_ recognizer: TimedPress, context: Context) {
+        let at = context.converter.localLocation
         switch recognizer.state {
         case .began:
             context.coordinator.start = at
-            onChanged(value(at: at, from: at))
+            onChanged(value(at: at, from: at, of: recognizer))
         case .changed:
             guard let start = context.coordinator.start else { return }
-            onChanged(value(at: at, from: start))
+            onChanged(value(at: at, from: start, of: recognizer))
         case .ended, .cancelled, .failed:
             let start = context.coordinator.start ?? at
             context.coordinator.start = nil
-            onEnded(value(at: at, from: start))
+            onEnded(value(at: at, from: start, of: recognizer))
         default:
             break
         }
     }
 
-    private func value(at: CGPoint, from start: CGPoint) -> CoexistingDragValue {
+    private func value(at: CGPoint, from start: CGPoint, of recognizer: TimedPress) -> CoexistingDragValue {
         CoexistingDragValue(start: start, location: at,
-                            translation: CGSize(width: at.x - start.x, height: at.y - start.y))
+                            translation: CGSize(width: at.x - start.x, height: at.y - start.y),
+                            eventTime: recognizer.eventTime, pointer: recognizer.pointer, modifiers: recognizer.modifierFlags)
     }
 }
 
 extension View {
     /// The drag above; on the operating system 17 the `simultaneousGesture` this replaces.
-    @ViewBuilder
     func dragBesideScroll(beginsOn: ((CGPoint) -> Bool)? = nil,
                           onChanged: @escaping (CoexistingDragValue) -> Void,
                           onEnded: @escaping () -> Void = {}) -> some View {
+        dragBesideScroll(beginsOn: beginsOn, onChanged: onChanged, onEnd: { _ in onEnded() })
+    }
+
+    /// The same, told at the end how the drag ended (where, and whether it was a pointer's).
+    @ViewBuilder
+    func dragBesideScroll(beginsOn: ((CGPoint) -> Bool)? = nil,
+                          onChanged: @escaping (CoexistingDragValue) -> Void,
+                          onEnd: @escaping (CoexistingDragValue) -> Void) -> some View {
         if #available(iOS 18.0, *) {
-            gesture(CoexistingDrag(beginsOn: beginsOn, onChanged: onChanged, onEnded: { _ in onEnded() }))
+            gesture(CoexistingDrag(beginsOn: beginsOn, onChanged: onChanged, onEnded: onEnd))
         } else {
             simultaneousGesture(DragGesture(minimumDistance: 8)
                 .onChanged { v in onChanged(CoexistingDragValue(start: v.startLocation, location: v.location,
                                                                 translation: v.translation)) }
-                .onEnded { _ in onEnded() })
+                .onEnded { v in onEnd(CoexistingDragValue(start: v.startLocation, location: v.location,
+                                                          translation: v.translation)) })
         }
     }
 }

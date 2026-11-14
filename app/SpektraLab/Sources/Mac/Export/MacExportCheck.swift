@@ -21,6 +21,9 @@
 //     router's `.export`, which on the Mac is this page), pressed with the same recipe: same container,
 //     pixels and space, and the pixels compared.
 //
+//  D. **The estimate and the name** (2026-11-11): every format at full size and a small JPEG, each file
+//     against the page's estimate of it (`ExportEstimate`), and 1.x's naming on the first (issue #111).
+//
 //  The page is drawn to `<dir>/page-*.png` at each step (its own view, as the window holds it: a presented
 //  page is not in `--capture-window`'s picture). Pictures are only read from where they are; every file
 //  written is under `<dir>`. Not in a release build.
@@ -390,6 +393,57 @@ enum MacExportCheck {
         r.step("C: Develop's one picture, old path and page", oldMS + newMS, ["old_ms": round3(oldMS), "page_ms": round3(newMS), "compare": compare])
         model.router.dismissAllSheets()
         try? await Task.sleep(for: .milliseconds(500))
+
+        // ---- D. The estimate and the name (2026-11-11): every format at full size, each file against what the
+        //      page estimated for it (`ExportEstimate`), and 1.x's naming on the JPEG (issue #111). ----
+        var naming = ExportRecipe.Naming.withStocks
+        naming.toggle(.date)
+        var recipesD = [ExportRecipe(format: .jpeg, size: .full, colour: .displayP3, destination: .files),
+                        ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files),
+                        ExportRecipe(format: .png, size: .full, colour: .sRGB, destination: .files),
+                        ExportRecipe(format: .tiff, size: .full, colour: .proPhoto, destination: .files),
+                        ExportRecipe(format: .jpeg, size: .longEdge(2048), colour: .sRGB, destination: .files),
+                        ExportRecipe(format: .jpeg, size: .full, colour: .sRGB, destination: .files),
+                        ExportRecipe(format: .jpeg, size: .full, colour: .sRGB, destination: .files),
+                        ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files),
+                        ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files)]
+        recipesD[0].quality = 95; recipesD[0].naming = naming
+        recipesD[1].quality = 80
+        recipesD[4].quality = 70
+        // The rest are the estimate's: lossy files at full size over the quality range.
+        recipesD[5].quality = 80
+        recipesD[6].quality = 60
+        recipesD[7].quality = 95
+        recipesD[8].quality = 60
+        var estimates: [[String: Any]] = []
+        for (i, recipe) in recipesD.enumerated() {
+            let folder = out.appending(path: "exports-D\(i)-\(recipe.format.rawValue)")
+            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            t0 = ContinuousClock.now
+            let begun = run.start(readable, recipe: recipe, folder: folder, exporter: model.exporter)
+            r.check(begun, "D\(i): a \(recipe.format.rawValue) batch begins")
+            _ = await watched(model)
+            for line in run.lines {
+                guard case .saved(let url) = line.state, let id = line.frameID, let f = model.library.frame(id),
+                      let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { continue }
+                let made = model.exporter.outputSize(f, recipe)
+                let actual = (try? fm.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+                let guess = await ExportEstimate.bytes(source: source, format: recipe.format, quality: recipe.quality,
+                                                       pixels: made.width * made.height) ?? 0
+                let ratio = actual > 0 ? Double(guess) / Double(actual) : 0
+                estimates.append(["recipe": "\(recipe.format.rawValue) \(recipe.size.title) q\(recipe.quality)", "file": url.lastPathComponent,
+                                  "pixels": made.width * made.height, "actual": actual, "estimate": guess, "ratio": round3(ratio)])
+                NSLog("[estimate] %@ %@ q%d %dx%d actual %d estimate %lld ratio %.3f", recipe.format.rawValue, recipe.size.title,
+                      recipe.quality, made.width, made.height, actual, guess, ratio)
+                r.check(ratio > 0.75 && ratio < 1.25, "D\(i): \(url.lastPathComponent): the estimate within the page's \"about\" (\(round3(ratio))× the file)")
+                if i == 0 {
+                    let want = recipe.fileName(StockCatalog.shared.namingContext(originalName: f.stem, params: f.edit.params))
+                    r.check(url.lastPathComponent == want, "D0: the file is named as the recipe's naming makes it (\(url.lastPathComponent) / \(want))")
+                }
+            }
+            r.step("D\(i): \(recipe.format.rawValue) at \(recipe.size.title)", ms(since: t0), ["lines": run.lines.map { "\($0.name): \($0.state)" }])
+        }
+        r.step("D: estimates", 0, ["files": estimates])
 
         r.step("pages", 0, ["shown": pagesShown])
         return ["steps": r.steps, "failures": r.failures, "passed": r.failures.isEmpty,

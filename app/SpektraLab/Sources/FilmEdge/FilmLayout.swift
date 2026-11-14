@@ -92,6 +92,24 @@ enum FilmLayout {
         // --- perforations: the frame's place on the grid is the camera's
         if L.perforated {
             L.perfPhase = min(max(-3.3 + rc.uni(-0.7, 0.7) + rf.normal() * 0.08, -4.1), -2.6)
+            // 135 Full Width (API-SPEC §21.4): the camera winds to a dot in a window, not to a pawl, so
+            // where its frame lands on the perforations is the frame's, over the whole pitch. Its own stream; the
+            // draws above are made all the same.
+            if fmt == .sprocket135 {
+                var rs = Rng(Rng.stream(frm ^ (cam << 32), .frame, 26))
+                L.perfPhase = -rs.uni(0.0, FilmGeometry.perfPitch)
+            }
+        }
+        L.holed = L.perforated
+        if r.perforation.on(fmt) == .ks65 {
+            // 120 cut from 65 mm cine film (API-SPEC §21.3): the KS holes, whole, on both edges of the slit film. Not
+            // sprocket-locked, so the phase is the frame's; the slitter's wander is the camera's, both rows alike.
+            // Streams of their own, so every draw a 120 frame already makes stays where it is.
+            L.holed = true
+            L.perf = .ks65
+            var rk = Rng(Rng.stream(cam, .camera, 23)), rp = Rng(Rng.stream(frm ^ (cam << 32), .frame, 24))
+            L.perfDT = rk.uni(-0.25, 0.25)
+            L.perfPhase = -rp.uni(0.0, FilmGeometry.Perf.ks65.pitch)
         }
 
         // --- canvas
@@ -501,7 +519,29 @@ enum FilmLayout {
                     }
                 }
             }
-        } else {
+            // Fujifilm's edge stripes, on every 135-gauge format for a Fujifilm negative's edge (API-SPEC §21.4;
+            // `EdgeLook.stripes135`, the engine's `edge_stripes_135` and `L.stripes`): on both edges in
+            // the perforation rows, a solid green line 2.83 mm in (0.33 wide) and a red one 3.73 mm in (0.65 wide)
+            // broken every half of 38 mm on the print's own grid. Factory print.
+            if look.stripes135 {
+                let period = 38.0
+                for side in 0..<2 {
+                    func band(_ fromEdge: Double, _ width: Double) -> (Double, Double) {
+                        let c = side == 0 ? fromEdge : W - fromEdge
+                        return (c - 0.5 * width, c + 0.5 * width)
+                    }
+                    let (g0, g1) = band(2.83, 0.33)
+                    top.append(rect(sMin, g0, sMax, g1))
+                    let (r0, r1) = band(3.73, 0.65)
+                    let kLo = Int(floor((sMin - grid0) / period)) - 1, kHi = Int(ceil((sMax - grid0) / period)) + 1
+                    for k in kLo...kHi {
+                        let a = grid0 + Double(k) * period
+                        top.append(rect(a, r0, a + 0.5 * period, r1))
+                    }
+                }
+            }
+        } else if !L.holed {
+            // (ks65: 65 mm cine film slit to 120 carries no 120 print, on any stock; API-SPEC §21.3.)
             // 120. Not sprocket-locked, so where the marks land relative to
             // the frame is the frame's draw.
             if look.k120 == .fuji {

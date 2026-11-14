@@ -106,13 +106,13 @@ struct CurveTool: View {
 
     /// The curves this tool edits, as they stand.
     private var curves: CurveSet {
-        target == .adjust ? session.adjustments.curves : session.edit.params.sceneCurve
+        target == .adjust ? session.shownAdjustments.curves : session.edit.params.sceneCurve
     }
 
     /// An edit of them: Layer 2's at once, never a develop; Decode's a change of the develop.
     private func changeCurves(_ mutate: (inout CurveSet) -> Void) {
         switch target {
-        case .adjust: session.changeEdit { mutate(&$0.curves) }
+        case .adjust: session.moveEdit { mutate(&$0.curves) }
         case .decode: session.change { mutate(&$0.params.sceneCurve) }
         }
     }
@@ -144,6 +144,12 @@ struct CurveTool: View {
         .onChange(of: channel) { _, _ in letGo() }
         .onChange(of: mode) { _, _ in letGo() }
         .onAppear { if target == .adjust { session.layer2.holdHistogram("curve") } }
+        // Another frame on the kept page (2.4.0 A2b): its points are not the last frame's (a chosen point is an index
+        // into the last curve), and its session is asked for the histogram (the last one's let it go as it closed).
+        .onChange(of: session.frameID) { _, _ in
+            letGo(); hovered = nil; holding = false
+            if target == .adjust { session.layer2.holdHistogram("curve") }
+        }
         .onDisappear {
             if target == .adjust { session.layer2.releaseHistogram("curve") }
             endEditing()

@@ -5,7 +5,8 @@
 //  photos goes back to apple stock decode" — "we're already a very good photo editor".
 //
 //  - **Apple's stock decode**: a RAW through `CIRAWFilter` as Apple sets it (its boost, its tone map, its
-//    gamut mapping), with only the frame's white balance and Settings' lens correction asked of it; a
+//    gamut mapping), with only the frame's white balance and its lens correction asked of it (Core Image's, or where it has none the app's
+//    profile of the file, `LensCorrection`); a
 //    JPEG or HEIC as its file is, turned upright. Not the engine's linear decode (`RawExposure`), which
 //    is made for the film and looks flat without one.
 //  - **Cut by the frame's own geometry** (`HostCut`: crop, straighten, turns, flips, Vertical and
@@ -23,10 +24,13 @@ enum DigitalDecode {
     static let word = "apple " + ProcessInfo.processInfo.operatingSystemVersionString
 
     /// The file as Apple decodes it, upright: nil where it cannot be read.
-    static func image(_ url: URL, isRAW: Bool, decode: DecodeSettings) -> CIImage? {
+    /// `lens`: the frame's lens correction as resolved; nil asks the resolver (`LensResolver.current`).
+    static func image(_ url: URL, isRAW: Bool, decode: DecodeSettings, lens: LensResolution? = nil) -> CIImage? {
         guard isRAW else { return CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) }
         guard let filter = CIRAWFilter(imageURL: url) else { return nil }
-        if filter.isLensCorrectionSupported { filter.isLensCorrectionEnabled = decode.lensCorrection }
+        // Core Image's own where it has one, else the app's profile of the file, in linear light before Apple's tone
+        // curve (`LensCorrection`).
+        LensCorrection.prepare(filter, url: url, decode: decode, coreImageAlways: false, resolution: lens)
         switch decode.whiteBalance {
         case .asShot: break
         case .custom:
@@ -39,10 +43,15 @@ enum DigitalDecode {
     }
 
     #if SPK_ENGINE
-    /// The frame, cut by `geometry` and scaled to `canvas`, in the engine's result's encoding.
+    /// The frame's 场景 layers, applied in place to the cut frame: RGBA float, linear ProPhoto (ROMM's primaries), rows
+    /// tight, `width × height` (`SceneLayerHost.apply`).
+    typealias Layers = (_ pixels: MTLBuffer, _ width: Int, _ height: Int) throws -> Void
+
+    /// The frame, cut by `geometry` and scaled to `canvas`, in the engine's result's encoding. With `layers` the cut
+    /// frame is made linear first, the layers applied to it, and then encoded as without them.
     static func render(_ url: URL, isRAW: Bool, decode: DecodeSettings, geometry: Geometry, canvas: PixelSize,
-                       device: MTLDevice) throws -> RenderedPixels {
-        guard let decoded = image(url, isRAW: isRAW, decode: decode) else {
+                       device: MTLDevice, layers: Layers? = nil, lens: LensResolution? = nil) throws -> RenderedPixels {
+        guard let decoded = image(url, isRAW: isRAW, decode: decode, lens: lens) else {
             throw EngineError.failed("Apple's decoder could not read \(url.lastPathComponent)")
         }
         let whole = decoded.extent.integral
@@ -74,6 +83,22 @@ enum DigitalDecode {
         // own pool (`FrameDecoder.render`): Core Image's y runs upward, so band b (rows r0..<r1) is the
         // image's rows h-r1..<h-r0.
         let romm = CGColorSpace(name: CGColorSpace.rommrgb)!
+        // The layers' linear frame, held until the encode below has read it (the picture is made over its bytes).
+        var linearFrame: MTLBuffer?
+        if let layers {
+            // Linear ProPhoto in float, the layers on it, and that picture encoded below as the frame itself would be.
+            // 16 B a pixel of the canvas for the while (a 45 MP export: 720 MB), only where a 场景 layer acts.
+            guard let linear = CGColorSpaceCreateLinearized(romm),
+                  let floats = device.makeBuffer(length: w * h * 16, options: .storageModeShared) else {
+                throw EngineError.resource("no \((w * h * 16) >> 20) MB for the scene layers on Apple's decode")
+            }
+            context.render(cut, toBitmap: floats.contents(), rowBytes: w * 16,
+                           bounds: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBAf, colorSpace: linear)
+            try layers(floats, w, h)
+            let data = Data(bytesNoCopy: floats.contents(), count: w * h * 16, deallocator: .none)
+            cut = CIImage(bitmapData: data, bytesPerRow: w * 16, size: CGSize(width: w, height: h), format: .RGBAf, colorSpace: linear)
+            linearFrame = floats
+        }
         let bands = max(1, Int((Double(w) * Double(h) / 4_000_000).rounded(.up)))
         for b in 0..<bands {
             autoreleasepool {
@@ -83,6 +108,7 @@ enum DigitalDecode {
             }
         }
         context.clearCaches()
+        withExtendedLifetime(linearFrame) {}
         let base = buffer.contents().assumingMemoryBound(to: UInt16.self)
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Unorm, width: w, height: h, mipmapped: false)
         d.usage = [.shaderRead]

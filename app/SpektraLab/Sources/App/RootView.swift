@@ -44,8 +44,11 @@ struct RootView: View {
         .onAppear { MacExportCheck.startIfAsked(model: model) }          // the Mac: `--export-check <dir>` (Sources/Mac/Export)
         .onAppear { MacExportHDRCheck.startIfAsked(model: model) }       // the Mac: `--export-hdr-check <dir>` (Enable HDR's files)
         .onAppear { MacRenderCheck.startIfAsked(model: model) }          // the Mac: `--render-check <dir>` (Sources/Mac/Render)
+        .onAppear { MacMemoryCheck.startIfAsked(model: model) }          // the Mac: `--memory-check <dir>` (Sources/Mac/Render)
         .onAppear { MacSettingsCheck.startIfAsked(model: model) }        // the Mac: `--settings-check <dir>` (Sources/Mac/Settings)
         .onAppear { MacLightTableCheck.startIfAsked(model: model) }      // the Mac: `--lighttable-check <dir>` (Sources/Mac/LightTable)
+        .onAppear { MacHistoryCheck.startIfAsked(model: model) }         // the Mac: `--history-check <dir>` (Sources/Mac/History)
+        .onAppear { MacHDRChoiceCheck.startIfAsked(model: model) }       // the Mac: `--hdr-choice-check <dir>` (Enable HDR remembered)
         #endif
         #if SPK_LOG_UPLOAD
         .modifier(ShareLogAsk())                                          // the log: may it be shared? (a testers' build's)

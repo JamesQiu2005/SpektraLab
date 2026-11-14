@@ -34,6 +34,7 @@ final class HDRZoneModel {
         var weight: Double
         var picture: PictureRef?
         var adjustments: Adjustments
+        var layers: FinishedLayers?
         var histogram: Layer2Histogram?
     }
     @ObservationIgnored private var lastAsk: Ask?
@@ -41,12 +42,14 @@ final class HDRZoneModel {
     /// started a detached pass a step, ~20 at once, each waiting on `HDRRendition.gate` — 233 ms became 1,000 ms,
     /// and the canvas's own rendition queued behind them for 1.4 s: the "unresponsive" canvas and Decode curve).
     @ObservationIgnored private var running = false
-    @ObservationIgnored private var waiting: (look: HDRLook, weight: Double, picture: PictureRef, adjustments: Adjustments, mine: Int)?
+    @ObservationIgnored private var waiting: (look: HDRLook, weight: Double, picture: PictureRef, adjustments: Adjustments,
+                                              layers: FinishedLayers?, mine: Int)?
 
     /// Makes the counts of the picture the histogram reads, off the main thread; the latest ask wins. No `look`,
     /// or no histogram (not asked for, or folded), takes them away at once.
     func refresh(layer2: Layer2Live, look: HDRLook?, weight: Double) {
-        let ask = Ask(look: look, weight: weight, picture: layer2.picture, adjustments: layer2.adjustments, histogram: layer2.histogram)
+        let ask = Ask(look: look, weight: weight, picture: layer2.picture, adjustments: layer2.adjustments, layers: layer2.layers,
+                      histogram: layer2.histogram)
         guard ask != lastAsk else { return }
         lastAsk = ask
         generation += 1
@@ -60,8 +63,8 @@ final class HDRZoneModel {
             if zone != nil { zone = nil }
             return
         }
-        let mine = generation, adjustments = layer2.adjustments
-        waiting = (look, weight, picture, adjustments, mine)
+        let mine = generation, adjustments = layer2.adjustments, layers = layer2.layers
+        waiting = (look, weight, picture, adjustments, layers, mine)
         startNext()
     }
 
@@ -70,7 +73,7 @@ final class HDRZoneModel {
         guard !running, let next = waiting else { return }
         waiting = nil
         running = true
-        let (look, weight, picture, adjustments, mine) = next
+        let (look, weight, picture, adjustments, layers, mine) = next
         Task.detached(priority: .userInitiated) { [weak self] in
             var made: HDRZone?
             let started = Date()
@@ -81,7 +84,12 @@ final class HDRZoneModel {
                       let full = Layer2Work.image(of: picture, maxPixel: Layer2Work.histogramPixel),
                       let source = try? renderer.source(full, maxPixel: Layer2Work.histogramPixel) else { return }
                 let image: CGImage?
-                if adjustments.isActive { image = (try? renderer.image(source, adjustments))?.0 }
+                // With its 成片 layers, as the SDR histogram beside it counts them (`Layer2Work.local`, this task's thread
+                // waiting on their planes; none is drawn without its plane).
+                if Layer2Local.acts(adjustments, layers) {
+                    guard let local = Result(catching: { try Layer2Work.local(layers, adjustments, renderer) }).succeeded else { return }
+                    image = (try? renderer.image(source, adjustments, local: local))?.0
+                }
                 else { image = try? Layer2Renderer.image(over: source.buffer, width: source.width, height: source.height, pool: nil) }
                 // The page's own HDR picture of it (the canvas's kernels, on the GPU), binned as it is.
                 if let image, let edr = try? HDRRendition.make(image, look: look, weight: weight) {

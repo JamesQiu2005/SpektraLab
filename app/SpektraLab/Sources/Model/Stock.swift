@@ -27,9 +27,12 @@ struct Stock: Codable, Identifiable, Hashable, Sendable {
     /// A black-and-white stock: a film with one silver emulsion, or a silver
     /// paper (the profile's `channel_model` is `bw`). Absent on a colour stock.
     let monochrome: Bool?
-    /// A black-and-white film's own grain: what the Grain strength's 1 is on
-    /// it, as the `grain_amount` at which the engine renders the granularity
-    /// its maker publishes. Absent on every other stock, where it is 1.
+    /// A film's own grain: what the Grain strength's 1 is on it, as the
+    /// `grain_amount` at which the engine renders the granularity its maker
+    /// publishes — or, for a colour film with no comparable figure, the one a
+    /// film of its speed has (`tools/gen_catalog.py`, `COLOUR_GRAIN`; every
+    /// colour film since 2026-11-11, the black-and-white ones since 2.0).
+    /// Absent on a paper, where it is 1.
     let grain: Double?
     /// A silver paper's filter pack — the enlarger's C, M, Y — which the host
     /// sends because the engine's own table has no row for the paper.
@@ -214,9 +217,10 @@ extension StockCatalog {
     ///
     /// - **the grain is one layer** on a black-and-white film, whatever the
     ///   setting: the three sub-layers are the colour films' model;
-    /// - **the film's own grain**: the Grain strength multiplies the amount at
-    ///   which the engine renders the film's published granularity, clamped to
-    ///   the wire's range — Tri-Ex's ruler is at its end from 1.18;
+    /// - **the film's own grain** — on every film, colour ones too since
+    ///   2026-11-11: the Grain strength multiplies the amount at which the
+    ///   engine renders the film's published granularity, clamped to the wire's
+    ///   range — Tri-Ex's ruler is at its end from 1.18;
     /// - **no Extended Dynamic Range on a silver paper**, which has no
     ///   calibration for it: the engine refuses the open by name;
     /// - **the paper's filter pack** for a silver pair, and only then: the
@@ -233,12 +237,15 @@ extension StockCatalog {
     /// throughout. So the Print tab's rulers say that there (`PrintPanel`),
     /// and not "→ blue".
     ///
-    /// No colour frame's wire moves: every line is conditional on a stock the
-    /// catalogue marks `monochrome`.
+    /// A colour frame's wire moves only by its film's grain amount; every other
+    /// line is conditional on a stock the catalogue marks `monochrome`.
     func silver(_ held: FilmParams, into wire: inout [String: ParamValue]) {
-        if let film = stock(held.filmStock), film.isMonochrome {
-            wire["grain_sublayers_active"] = .bool(false)
-            wire["grain_amount"] = .double((held.effects.grain * (film.grain ?? 1)).clamped(to: EffectStrengths.grainRange))
+        if let film = stock(held.filmStock) {
+            if film.isMonochrome { wire["grain_sublayers_active"] = .bool(false) }
+            // Every film's own grain (colour ones since 2026-11-11): the Grain strength's 1 is the film's.
+            if let own = film.grain {
+                wire["grain_amount"] = .double((held.effects.grain * own).clamped(to: EffectStrengths.grainRange))
+            }
         }
         guard let paper = stock(held.printStock), paper.isMonochrome else { return }
         wire["extended_dynamic_range"] = .bool(false)

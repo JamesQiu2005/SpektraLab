@@ -4,7 +4,7 @@
 //
 //  - **Pushed** (a page with a way back to the Library): Develop.
 //  - **Sheets** (over a page, on a scrim): Import, Info, Original missing,
-//    Copy Settings, Export, Exporting. A sheet may present one over
+//    Copy Settings, Export, Exporting, Edit History. A sheet may present one over
 //    itself, so sheets are a stack.
 //  - **Covers** (a full page of its own, with Cancel or Done): Settings, Crop.
 //
@@ -32,6 +32,8 @@ enum SheetRoute: Equatable, Identifiable, Sendable {
     /// with this one. `keepFilmEdge`: from a half frame's Film Edge, whose
     /// framing and film edge the pair takes (the desktop's *Enter Half-Frame Pair*).
     case pairWith(LibraryFrame.ID, keepFilmEdge: Bool)
+    /// 编辑历史 (PRD-F §4): a frame's edit history, presented as Info is (`MacHistoryPage`).
+    case history(LibraryFrame.ID)
 
     /// The sheet's slot, not its content: Export becoming Exporting is one
     /// sheet changing height, not one closing and another opening.
@@ -43,6 +45,7 @@ enum SheetRoute: Equatable, Identifiable, Sendable {
         case .copySettings: "copy"
         case .export, .exporting: "export"
         case .pairWith: "pairWith"
+        case .history: "history"
         }
     }
 
@@ -58,6 +61,8 @@ enum SheetRoute: Equatable, Identifiable, Sendable {
         case .export: 128
         case .exporting: 380
         case .pairWith: 232
+        // As tall as Info: up to 256 rows scroll in it.
+        case .history: 112
         }
     }
 

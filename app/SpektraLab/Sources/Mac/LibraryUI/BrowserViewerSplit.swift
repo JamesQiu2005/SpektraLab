@@ -90,7 +90,7 @@ struct BrowserViewerSplit: View {
 @MainActor
 enum MacShownFrame {
     static func of(_ frame: LibraryFrame, model: AppServices) -> LibraryFrame {
-        guard !frame.isPair, let session = model.openSession(frame.id), let developed = session.developed else { return frame }
+        guard !frame.isComposite, let session = model.openSession(frame.id), let developed = session.developed else { return frame }
         var f = frame
         f.developed = developed
         f.edit = session.edit
@@ -101,7 +101,7 @@ enum MacShownFrame {
     /// a film edge's canvas (`LibraryFrame.displaySize` is the cut picture's) — through Edit's crop; with no
     /// develop, the picture's.
     static func aspect(_ frame: LibraryFrame) -> CGFloat {
-        guard !frame.isPair, let d = frame.developed, d.size.width > 0, d.size.height > 0 else {
+        guard !frame.isComposite, let d = frame.developed, d.size.width > 0, d.size.height > 0 else {
             return CGFloat(max(frame.displayAspect, 0.05))
         }
         let base = CGSize(width: d.size.width, height: d.size.height)
@@ -164,7 +164,7 @@ enum MacPreviewStaleness {
         let body = d.bodySeed()     // read every time: the view then follows a change of it
         guard !f.develop.isBusy, let kept = f.shownDevelop, d.makesPictures, model.openSession(f.id) == nil else { return false }
         // A pair's stamp is of its two frames as well: not kept (there are few, and its key would need both).
-        if f.isPair { return d.needsDevelop(f) }
+        if f.isComposite { return d.needsDevelop(f) }
         let key = Key(edit: f.edit, kept: kept.stamp, longEdge: f.previewDevelopLongEdge(f.edit), cropIsFrame: d.cropIsFrame(),
                       engine: d.identity, source: f.picture.fileURL, size: f.originalSize, bodySeed: body)
         if let m = memo[f.id], m.key == key { return m.stale }

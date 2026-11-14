@@ -104,6 +104,8 @@ struct FilmEdgeRequest: Equatable, Sendable {
     var edgeText = ""
     var fNumber = 0.0
     var date: DateRequest? = nil
+    /// `overscan_perforation`: the keyholes on a 120 film edge (sent `none` on any other format).
+    var perforation = FilmEdgePerforation.none
 }
 
 /// One mark exposed onto the film, in film millimetres: `s` along the film,
@@ -174,9 +176,22 @@ struct FilmGeometry: Equatable, Sendable {
     var topRecess = 0.0
     var penumbra = 0.0
 
+    /// A 135 layout (its fog, its edge print).
     var perforated = false
+    /// The film has holes: a 135 layout's, or a 120's keyholes (`ks65`). The engine split the two (API-SPEC §21.3).
+    var holed = false
     var perfPhase = 0.0
     static let perfPitch = 4.75, perfW = 1.98, perfH = 2.80, perfEdge = 2.00, perfR = 0.50
+
+    /// The holes' shape: 135's (ISO 1007's BH) or the 65 mm film's KS (SMPTE 145, slit to 120's 61 mm).
+    struct Perf: Equatable, Sendable {
+        var pitch: Double, along: Double, across: Double, edge: Double, radius: Double
+        static let p135 = Perf(pitch: 4.75, along: 1.98, across: 2.80, edge: 2.00, radius: 0.50)
+        static let ks65 = Perf(pitch: 4.75, along: 1.981, across: 2.794, edge: 2.97 - (64.97 - 61.0) / 2.0, radius: 0.51)
+    }
+    var perf = Perf.p135
+    /// The slitter's shift of both rows across the film (ks65; 0 elsewhere).
+    var perfDT = 0.0
 
     /// canvas (u, v) → film (s, t): `(s, t) = A (u − cu, v − cv) + (cs, ct)`.
     var A = [1.0, 0.0, 0.0, 1.0]
@@ -293,13 +308,13 @@ struct FilmGeometry: Equatable, Sendable {
 
     /// The perforations on this piece of film, both rows.
     var holes: [CGRect] {
-        guard perforated else { return [] }
+        guard holed else { return [] }
         var out: [CGRect] = []
-        var k = Int(floor((sLo - 6 - perfPhase) / Self.perfPitch))
-        while perfPhase + Double(k) * Self.perfPitch < sHi + 6 {
-            let s = perfPhase + Double(k) * Self.perfPitch
-            for t in [Self.perfEdge, filmW - Self.perfEdge - Self.perfH] {
-                out.append(CGRect(x: s, y: t, width: Self.perfW, height: Self.perfH))
+        var k = Int(floor((sLo - 6 - perfPhase) / perf.pitch))
+        while perfPhase + Double(k) * perf.pitch < sHi + 6 {
+            let s = perfPhase + Double(k) * perf.pitch
+            for t in [perf.edge + perfDT, filmW - perf.edge - perf.across + perfDT] {
+                out.append(CGRect(x: s, y: t, width: perf.along, height: perf.across))
             }
             k += 1
         }
@@ -308,7 +323,7 @@ struct FilmGeometry: Equatable, Sendable {
 
     var holesPath: Path {
         var p = Path()
-        for r in holes { p.addRoundedRect(in: r, cornerSize: CGSize(width: Self.perfR, height: Self.perfR)) }
+        for r in holes { p.addRoundedRect(in: r, cornerSize: CGSize(width: perf.radius, height: perf.radius)) }
         return p
     }
 

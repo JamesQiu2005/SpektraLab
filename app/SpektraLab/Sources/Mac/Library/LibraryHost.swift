@@ -33,6 +33,8 @@ struct LibraryError: Error, Equatable, Sendable, LocalizedError {
             inUse = "in_use"
         case ambiguous = "ambiguous", crossVolume = "cross_volume", io = "io", internalError = "internal"
         case unknownMethod = "unknown_method"
+        /// `variant.delete` of an image's last present variant (spklib 0.4.0).
+        case lastVariant = "last_variant"
         /// Not the helper's own: it could not be started, it stopped, or a
         /// reply could not be read. A call that fails this way may be retried
         /// once the helper is running again.

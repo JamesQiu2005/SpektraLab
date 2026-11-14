@@ -6,8 +6,8 @@
 //    row shows that recipe in the group under the list.
 //  - **The recipe**: its name (empty names it for what it makes), and the Export page's own choices —
 //    Format, Size (Full, 12 MP, or a long or short edge typed in pixels, never under 16), Colour,
-//    Quality, Save to. Each change is kept as it is made (`ExportRecipeStore.update`), and Export follows
-//    it when the recipe is the one it opens with (the window page's `follow`).
+//    Quality, Naming (the file's name, issue #111), Save to. Each change is kept as it is made
+//    (`ExportRecipeStore.update`), and Export follows it when the recipe is the one it opens with (the window page's `follow`).
 //  - **New Recipe** saves what Export would open with now as a recipe of its own and shows it (the window
 //    makes a draft first and saves it with *Add Recipe*; a Mac list adds the row at once). **Delete
 //    Recipe…** asks first; the last recipe stays.
@@ -133,6 +133,10 @@ struct MacSettingsRecipes: View {
                 }
             }
             .macSettingsItem("Quality")
+            MacSettingsRow(label: L("Naming"), caption: L("For example: \(draft.wrappedValue.fileName(Self.sampleContext))")) {
+                naming(draft)
+            }
+            .macSettingsItem("Naming")
             MacSettingsRow(label: L("Save to"), last: true) {
                 MacSettingsPopUp(label: L("Save to"), options: ExportRecipe.Destination.allCases.map { ($0, $0.shownTitle) },
                                  selection: draft.destination)
@@ -141,7 +145,34 @@ struct MacSettingsRecipes: View {
         }
     }
 
-    /// The Export sheet's Quality steps (`QualityRow`).
+    /// The name the Naming row's example is made from: 1.x's model frame.
+    static let sampleContext = ExportRecipe.Naming.Context(originalName: "_DSC4037", filmStock: "Portra_400",
+                                                           printStock: "Portra_Endura", date: Date())
+
+    /// The file's name (issue #111): the four parts, lit when on, and the separator. The order is the Export
+    /// page's to change (its chips are dragged); here a part is put in or left out.
+    private func naming(_ draft: Binding<ExportRecipe>) -> some View {
+        HStack(spacing: MacMetric.pt(6)) {
+            ForEach(draft.wrappedValue.naming.order) { t in
+                let on = draft.wrappedValue.naming.isOn(t)
+                Button { draft.wrappedValue.naming.toggle(t) } label: {
+                    Text(t.title).font(MacMetric.font(11.5, on ? .semibold : .medium))
+                        .foregroundStyle(on ? Theme.onSelection : Theme.secondaryText)
+                        .padding(.horizontal, MacMetric.pt(8))
+                        .frame(height: MacMetric.pt(20))
+                        .background(Capsule().fill(on ? Theme.selection : Theme.field))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+            MacSettingsPopUp(label: L("Separator"), options: ExportRecipe.Naming.separators.map { ($0, $0 == " " ? L("Space") : $0) },
+                             selection: draft.naming.separator)
+        }
+    }
+
+    /// The Quality steps the pop-up offers (the Export page's slider takes any of 1…100).
     static let qualities = [100, 95, 90, 85, 80, 75]
 
     private enum SizeKind: Hashable { case full, twelve, long, short }

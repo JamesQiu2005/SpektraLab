@@ -1,5 +1,6 @@
 //  MacSettingsGeneral.swift — Settings › General on the Mac: the language, agents, and about.
 //
+//  - **Keyboard** (2026-11-11): Space held shows the original, or each press switches (`AppSettings.spaceOriginal`).
 //  - **Language**: the app's four, each in itself (`AppLanguage.ownName`), changed at once
 //    (`Language.choose`), as the window's page does.
 //  - **About**: this build's version, and the licences and credits in full: first the engine's, the
@@ -32,6 +33,15 @@ struct MacSettingsGeneral: View {
                                      selection: Binding(get: { Language.shared.current }, set: { Language.shared.choose($0) }))
                 }
                 .macSettingsItem("Language")
+            }
+            MacSettingsGroup(title: L("Keyboard")) {
+                MacSettingsRow(label: L("Space bar"),
+                               caption: L("In Develop and Edit, Space shows the original: while it is held, or each press switching between the original and the develop."),
+                               last: true) {
+                    MacSettingsPopUp(label: L("Space bar"), options: AppSettings.SpaceOriginal.allCases.map { ($0, $0.title) },
+                                     selection: Binding(get: { settings.spaceOriginal }, set: { settings.spaceOriginal = $0 }))
+                }
+                .macSettingsItem("Keyboard", "Space bar")
             }
             agents
             updates

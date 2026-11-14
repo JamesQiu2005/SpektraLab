@@ -31,8 +31,8 @@ struct AdjustSliders: View {
         VStack(spacing: 2) {
             ForEach(controls) { control in
                 EditSlider(title: control.title(in: tool), value: Binding(
-                    get: { session.adjustments[control] },
-                    set: { v in session.changeEdit { $0[control] = v } }),
+                    get: { session.shownAdjustments[control] },
+                    set: { v in session.moveEdit { $0[control] = v } }),
                     range: control.range, rest: control.rest,
                     text: { control.text($0) + (control == .exposure ? " EV" : "") },
                     track: control.track, detentAtRest: true,

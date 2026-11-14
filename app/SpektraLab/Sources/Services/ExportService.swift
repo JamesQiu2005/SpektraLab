@@ -136,6 +136,13 @@ final class ExportService {
     /// The film a frame is exported in, when it wears a film edge. Set by the
     /// app's model.
     @ObservationIgnored var film: (LibraryFrame) -> Film? = { _ in nil }
+    /// A frame's 成片 layers (`AppServices.finishedLayers`), captured into its order at submit: the file is the page's
+    /// picture, layers and all (PRD-E). Set by the app's model.
+    @ObservationIgnored var finishedLayers: (LibraryFrame) -> FinishedLayers? = { _ in nil }
+
+    /// A frame's number among its image's variants (PRD-G §3), for its file's name (`Naming.Context.variant`). Set by
+    /// the app's model: the library knows it, a frame does not.
+    @ObservationIgnored var variantNumber: (LibraryFrame.ID) -> Int? = { _ in nil }
 
     // MARK: what an export will make
 
@@ -174,7 +181,8 @@ final class ExportService {
         // A pair is exported from its two frames' own files (`EngineRouter.exportSource`); a photograph
         // from its original — a Photos frame's working copy, where that has been brought (`run`) —
         // or, while the original is away, from the picture the frame keeps.
-        let source = frame.isPair ? darkroom?.exportSource(frame)
+        // A double exposure is made of photographs as a pair is, and asks the router too — never its guide's file.
+        let source = frame.isComposite ? darkroom?.exportSource(frame)
             : frame.isDemo ? nil : (fromPreview ? nil : frame.developSource) ?? frame.picture.fileURL
         let made = Prepared(plan: ExportPlan.make(ask, canvas: canvas), size: size,
                             source: source.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil },
@@ -205,13 +213,17 @@ final class ExportService {
         stop()
         discardFiles()
         var taken = Set<String>()
+        // One date for the batch: a batch that runs past midnight names its files alike (issue #111).
+        let today = Date()
         let items: [Item] = frameIDs.compactMap { id in
             guard let f = library.frame(id) else { return nil }
             let made = prepared(f, recipe)
             // An original that cannot be read exports at the preview size, named as such.
             var r = recipe
             r.size = made.size
-            return Item(id: id, fileName: Self.free(r.fileName(stem: f.stem), among: &taken), size: made.plan.output, picture: f.picture,
+            let name = r.fileName(StockCatalog.shared.namingContext(originalName: f.stem, params: f.edit.params, date: today,
+                                                                    variant: variantNumber(id)))
+            return Item(id: id, fileName: Self.free(name, among: &taken), size: made.plan.output, picture: f.picture,
                         cappedFrom: made.plan.isCapped ? f.originalSize : nil, limit: limit(f, r))
         }
         guard !items.isEmpty else { return }
@@ -288,6 +300,9 @@ final class ExportService {
                 guard !Task.isCancelled else { return }
                 if let now = library.frame(item.id) { frame = now }
             }
+            // Its lens correction resolved, as its page resolves it (`LensResolver`), so the file is the canvas's picture.
+            if let darkroom { _ = await darkroom.resolveLens(frame) }
+            guard !Task.isCancelled else { return }
             // Planned afresh: what the sheet planned may be of a file that was not here then.
             planned = nil
             let made = prepared(frame, recipe)
@@ -309,13 +324,19 @@ final class ExportService {
                                 canvas: made.plan.engineCanvas, what: item.fileName, decodesOriginal: true,
                                 bandable: !made.plan.engineCuts, original: made.plan.decoded,
                                 printLayers: darkroom?.printLayers(frame, edit: frame.edit) ?? 0,
+                                // 135 Full Width's frame has more pixels than its film (`ExportPlan.opens`).
+                                opens: made.plan.opens,
                                 gainMap: hdr.map, gainMaps: recipe.hdrLayoutInEffect == .iso ? 1 : 2,
-                                hdrRendition: slideHeadroom != nil)
+                                hdrRendition: slideHeadroom != nil,
+                                scenePlanes: frame.isComposite ? 0 : SceneLayerWire.priced(frame.edit.layers, source: frame.originalSize).planes,
+                                scenePlaneBytes: frame.isComposite ? 0 : SceneLayerWire.priced(frame.edit.layers, source: frame.originalSize).bytes)
             if let folder {
                 guard let source = made.source, let darkroom else {
                     // A pair with an empty hole, or one whose frame has left the library, is
                     // not exported (the desktop's answer B9), and says which it is.
+                    // A double exposure with a layer empty, or its photographs gone, the same (R10, gap G2).
                     let why = frame.pair.flatMap { PairWords.exportRefusal($0) { [library] in library.frame($0.frame) != nil } }
+                        ?? frame.double.flatMap { DoubleWords.exportRefusal($0) { [library] in library.frame($0) != nil } }
                     set(i, .notSaved(why ?? "Nothing to develop it from"))
                     noted("not saved", why ?? "Nothing to develop it from")
                     continue
@@ -323,7 +344,8 @@ final class ExportService {
                 // Every export bakes Edit's Light, Curve and Colour (design/v5 §3.5): the frame's layer as it stands.
                 let order = ExportOrder(format: recipe.format, colour: recipe.colour, quality: recipe.quality,
                                         url: folder.appendingPathComponent(item.fileName), metadataFrom: source,
-                                        adjustments: frame.edit.adjustments.isActive ? frame.edit.adjustments : nil,
+                                        adjustments: frame.edit.editPassActs ? frame.edit.adjustments : nil,
+                                        layers: frame.edit.editPassActs ? finishedLayers(frame) : nil,
                                         printCrop: made.plan.printCrop, gainMap: hdr.map, slideHeadroom: slideHeadroom,
                                         hdrLayout: recipe.hdrLayoutInEffect)
                 darkroom.prepareExport(job, frame: frame, source: source, isRAW: made.isRAW, plan: made.plan, order: order)

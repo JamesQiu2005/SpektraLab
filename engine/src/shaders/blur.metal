@@ -28,7 +28,7 @@ kernel void spk_sep_fir_acc(device const float* img [[buffer(0)]],
     if (gid >= H * W) return;
     int R = (int)meta[2];          // padded half-width shared by the 3 channels
     uint axis = meta[3];
-    uint accumulate = meta[4];     // out = acc + wt * conv (fuses the mixture's multiply-add)
+    uint accumulate = meta[4];     // 1: out = acc + wt * conv (fuses the mixture's multiply-add); 2: the same with acc = 0
     uint mirror = meta[5];         // 0: scipy 'reflect' (d c b a | a b c d), 1: scipy 'mirror' (d c b | a b c d | c b a)
     uint y = gid / W, x = gid % W;
     int nlim = (axis == 0u) ? (int)H : (int)W;
@@ -41,8 +41,12 @@ kernel void spk_sep_fir_acc(device const float* img [[buffer(0)]],
         float3 wv = float3(w[wi], w[(2u * (uint)R + 1u) + wi], w[2u * (2u * (uint)R + 1u) + wi]);
         acc += float3(img[3u * src], img[3u * src + 1u], img[3u * src + 2u]) * wv;
     }
-    if (accumulate != 0u) {
+    if (accumulate == 1u) {
         acc = float3(accin[3u * gid], accin[3u * gid + 1u], accin[3u * gid + 2u]) + acc * float3(wt[0], wt[1], wt[2]);
+    } else if (accumulate == 2u) {
+        // A mixture's first component: the sum so far is zero, and `0 + x` is `x` (a zero keeps its
+        // value, at worst its sign), so the plane of zeros the first pass used to read is not needed.
+        acc = acc * float3(wt[0], wt[1], wt[2]);
     }
     out[3u * gid] = acc.x; out[3u * gid + 1u] = acc.y; out[3u * gid + 2u] = acc.z;
 }
@@ -60,7 +64,7 @@ kernel void spk_sep_fir_acc(device const float* img [[buffer(0)]],
 // stream is identical either way and only the addresses differ, which is why
 // the untransposed pass is bit-identical rather than merely close.
 //
-// meta: {H, W, accumulate, axis}
+// meta: {H, W, accumulate, axis}; accumulate 2 is `acc = 0`, as in `spk_sep_fir_acc`
 kernel void spk_iir_df_acc(device const float* img [[buffer(0)]],
                            device const float* coef [[buffer(1)]],
                            device const uint* act [[buffer(2)]],
@@ -84,7 +88,8 @@ kernel void spk_iir_df_acc(device const float* img [[buffer(0)]],
     if (act[c] == 0u) {
         for (uint i = 0u; i < n; ++i) {
             uint idx = base + i * stride;
-            out[idx] = accumulate != 0u ? accin[idx] + wt[c] * img[idx] : img[idx];
+            out[idx] = accumulate == 1u ? accin[idx] + wt[c] * img[idx]
+                     : (accumulate == 2u ? wt[c] * img[idx] : img[idx]);
         }
         return;
     }
@@ -106,7 +111,118 @@ kernel void spk_iir_df_acc(device const float* img [[buffer(0)]],
         v = df_add(v, df_mul(B1, y1));
         v = df_add(v, df_mul(B2, y2));
         v = df_add(v, df_mul(B3, y3));
-        out[idx] = accumulate != 0u ? accin[idx] + wt[c] * v.hi : v.hi;
+        out[idx] = accumulate == 1u ? accin[idx] + wt[c] * v.hi
+                 : (accumulate == 2u ? wt[c] * v.hi : v.hi);
+        y3 = y2; y2 = y1; y1 = v;
+    }
+}
+
+// `spk_sep_fir_acc`'s second pass with the mix that used to follow it folded in: where a blur's
+// result was only ever read by `spk_lincomb3` (`a * x + b * blurred` -- halation's two mixes, the
+// unsharp mask), the blurred plane was written, read back and thrown away, 4.5 ms and a plane at
+// 45 MP. Here the pass's own value is formed exactly as before, to float32, and mixed in place:
+// the same two operations on the same values, and one plane that never exists.
+//
+// A kernel of its own, so the one above -- which the Vulkan backend mirrors -- is not touched.
+//
+// **The mix is as much as these passes should carry.** The couplers' curve was folded in here
+// too (2026-11-11) and bought nothing: a recursive pass is a few thousand long serial threads,
+// and a table search inside that loop costs what the separate, fully parallel pass saved
+// (120 -> 122 ms at 45 MP). `spk_dir_finish` stays a pass of its own.
+// meta: {H, W, R, axis, accumulate, mirror}; ab: a (3) then b (3).
+kernel void spk_sep_fir_fin(device const float* img [[buffer(0)]],
+                            device const float* w [[buffer(1)]],
+                            device const float* accin [[buffer(2)]],
+                            device const float* wt [[buffer(3)]],
+                            device const uint* meta [[buffer(4)]],
+                            device float* out [[buffer(5)]],
+                            device const float* xin [[buffer(6)]],
+                            device const float* ab [[buffer(7)]],
+                            uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint gid = thread_position_in_grid.x;
+    uint H = meta[0], W = meta[1];
+    if (gid >= H * W) return;
+    int R = (int)meta[2];
+    uint axis = meta[3];
+    uint accumulate = meta[4];
+    uint mirror = meta[5];
+    uint y = gid / W, x = gid % W;
+    int nlim = (axis == 0u) ? (int)H : (int)W;
+    int base = (axis == 0u) ? (int)y : (int)x;
+    float3 acc = float3(0.0f);
+    for (int k = -R; k <= R; ++k) {
+        int j = mirror != 0u ? mirror_index(base + k, nlim) : reflect_index(base + k, nlim);
+        uint src = (axis == 0u) ? ((uint)j * W + x) : (y * W + (uint)j);
+        uint wi = (uint)(k + R);
+        float3 wv = float3(w[wi], w[(2u * (uint)R + 1u) + wi], w[2u * (2u * (uint)R + 1u) + wi]);
+        acc += float3(img[3u * src], img[3u * src + 1u], img[3u * src + 2u]) * wv;
+    }
+    if (accumulate == 1u) {
+        acc = float3(accin[3u * gid], accin[3u * gid + 1u], accin[3u * gid + 2u]) + acc * float3(wt[0], wt[1], wt[2]);
+    } else if (accumulate == 2u) {
+        acc = acc * float3(wt[0], wt[1], wt[2]);
+    }
+    // spk_lincomb3: a[c] * x[i] + b[c] * y[i]
+    float3 xv = float3(xin[3u * gid], xin[3u * gid + 1u], xin[3u * gid + 2u]);
+    acc = float3(ab[0], ab[1], ab[2]) * xv + float3(ab[3], ab[4], ab[5]) * acc;
+    out[3u * gid] = acc.x; out[3u * gid + 1u] = acc.y; out[3u * gid + 2u] = acc.z;
+}
+
+// `spk_iir_df_acc`'s last (vertical) pass with the following `spk_lincomb3` folded in, as
+// `spk_sep_fir_fin` folds it into the FIR's. The recurrence is the one above, line for line.
+// meta: {H, W, accumulate, axis}; ab: a (3) then b (3).
+kernel void spk_iir_df_fin(device const float* img [[buffer(0)]],
+                           device const float* coef [[buffer(1)]],
+                           device const uint* act [[buffer(2)]],
+                           device const float* accin [[buffer(3)]],
+                           device const float* wt [[buffer(4)]],
+                           device const uint* meta [[buffer(5)]],
+                           device float* out [[buffer(6)]],
+                           device const float* xin [[buffer(7)]],
+                           device const float* ab [[buffer(8)]],
+                           uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint t = thread_position_in_grid.x;
+    uint H = meta[0], W = meta[1], accumulate = meta[2], axis = meta[3];
+    uint threads = (axis == 0u) ? W * 3u : H * 3u;
+    if (t >= threads) return;
+    uint c = t % 3u, k = t / 3u;
+    uint n = (axis == 0u) ? H : W;              // the recurrence's length
+    uint stride = (axis == 0u) ? W * 3u : 3u;
+    uint base = (axis == 0u) ? (k * 3u + c) : (k * W * 3u + c);
+    df B  = df{coef[8u * c + 0u], coef[8u * c + 1u]};
+    df B1 = df{coef[8u * c + 2u], coef[8u * c + 3u]};
+    df B2 = df{coef[8u * c + 4u], coef[8u * c + 5u]};
+    df B3 = df{coef[8u * c + 6u], coef[8u * c + 7u]};
+    if (act[c] == 0u) {
+        for (uint i = 0u; i < n; ++i) {
+            uint idx = base + i * stride;
+            float m = accumulate == 1u ? accin[idx] + wt[c] * img[idx]
+                    : (accumulate == 2u ? wt[c] * img[idx] : img[idx]);
+            out[idx] = ab[c] * xin[idx] + ab[3u + c] * m;
+        }
+        return;
+    }
+    float x0 = img[base];
+    df w1 = df{x0, 0.0f}, w2 = w1, w3 = w1;
+    for (uint i = 0u; i < n; ++i) {
+        df v = df_mul_f(B, img[base + i * stride]);
+        v = df_add(v, df_mul(B1, w1));
+        v = df_add(v, df_mul(B2, w2));
+        v = df_add(v, df_mul(B3, w3));
+        out[base + i * stride] = v.hi;
+        w3 = w2; w2 = w1; w1 = v;
+    }
+    float xn = out[base + (n - 1u) * stride];
+    df y1 = df{xn, 0.0f}, y2 = y1, y3 = y1;
+    for (int i = (int)n - 1; i >= 0; --i) {
+        uint idx = base + (uint)i * stride;
+        df v = df_mul_f(B, out[idx]);
+        v = df_add(v, df_mul(B1, y1));
+        v = df_add(v, df_mul(B2, y2));
+        v = df_add(v, df_mul(B3, y3));
+        float m = accumulate == 1u ? accin[idx] + wt[c] * v.hi
+                : (accumulate == 2u ? wt[c] * v.hi : v.hi);
+        out[idx] = ab[c] * xin[idx] + ab[3u + c] * m;
         y3 = y2; y2 = y1; y1 = v;
     }
 }

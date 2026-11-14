@@ -44,6 +44,11 @@ enum Persisted {
     static let retired: [(key: String, kept: String, readAs: String)] = [
         ("destination", "Photos", "Files"),
     ]
+    /// Numbers read as another: the date back's base before the LED glow, 3.5 EV, is the glow's 5.5 (the owner,
+    /// 2026-11-11, PRD-D §6 q2: `DateBackSettings.init(from:)`). Any other base is kept as it was.
+    static let retiredNumbers: [(key: String, kept: Double, readAs: Double)] = [
+        ("brightnessEV", 3.5, 5.5),
+    ]
 
     static func canonical(_ v: Any) -> Any {
         if let d = v as? [String: Any] { return d.mapValues(canonical) }
@@ -61,6 +66,9 @@ enum Persisted {
             for (k, x) in d {
                 if let s = x as? String, let r = retired.first(where: { $0.key == k && $0.kept == s }) {
                     out[k] = r.readAs
+                } else if let n = x as? NSNumber, !(x is Bool),
+                          let r = retiredNumbers.first(where: { $0.key == k && $0.kept == n.doubleValue }) {
+                    out[k] = NSNumber(value: r.readAs)
                 } else {
                     out[k] = retiring(x)
                 }

@@ -36,7 +36,9 @@ struct DevelopStatus: Equatable, Sendable {
         // camera's own preview. Nothing reduced is passed off as the real thing.
         // (A half-frame pair has no camera's preview: until it is developed it
         // shows a guide made of its two frames' own, `PairGuide`.)
-        let shown = frame.isPair ? L("A guide of its two frames") : L("The camera's own preview")
+        // A double exposure's guide is its two exposures' own previews, added (`DoubleGuide`).
+        let shown = frame.isDouble ? L("A guide of its two exposures")
+            : frame.isComposite ? L("A guide of its two frames") : L("The camera's own preview")
         if engineIsSimulated && !frame.isDemo, atRest {
             return DevelopStatus(text: shown + Fmt.dot + (engineFailure == nil ? L("no engine in this build") : L("the engine is not running")),
                                  busy: false, progress: nil)
@@ -57,7 +59,7 @@ struct DevelopStatus: Equatable, Sendable {
         // A HEIF or a JPEG comes in already developed by its camera: the film
         // starts from that picture, not from RAW — and the line says so.
         // A pair is a piece of film the app laid out: there is no camera's picture of it.
-        let done = frame.isDemo || frame.developsFromRAW || frame.isPair ? L("Developed") : L("From the camera's picture")
+        let done = frame.isDemo || frame.developsFromRAW || frame.isComposite ? L("Developed") : L("From the camera's picture")
         guard let snapshot else {
             return DevelopStatus(text: done + Fmt.dot + rest, busy: false, progress: nil)
         }
@@ -117,7 +119,7 @@ enum ChangeDescriber {
         if old.decode.temperature != new.decode.temperature { return L("Temperature \(Int(new.decode.temperature.rounded())) K") }
         if old.decode.tint != new.decode.tint { return L("Tint ") + Fmt.signed(new.decode.tint, decimals: 0) }
         if old.decode.whiteBalance != new.decode.whiteBalance { return L("White balance") }
-        if old.decode.lensCorrection != new.decode.lensCorrection { return L("Lens correction") }
+        if old.decode.lensFields != new.decode.lensFields { return L("Lens correction") }
         if a.filmFrame != b.filmFrame || a.filmFormatMM != b.filmFormatMM { return L("Film size \(b.filmFrame)") }
         if a.effects.grain != b.effects.grain || a.grainActive != b.grainActive { return L("Grain ") + Fmt.times(b.effects.grain) }
         if a.effects.grainLayered != b.effects.grainLayered { return b.effects.grainLayered ? L("Grain in three layers") : L("Grain in one layer") }
@@ -145,8 +147,41 @@ enum ChangeDescriber {
         if FeatureFlags.dateBack, old.dateBack != new.dateBack {
             return new.dateBack.active ? L("Date back \(new.dateBack.style.label)") : L("Date back off")
         }
+        if old.leak != new.leak {
+            return new.leak.kind == .off ? L("Light leak off") : L("Light Leak") + " " + new.leak.kind.label
+        }
+        if old.lens.filter != new.lens.filter || old.lens.strength != new.lens.strength {
+            guard let f = new.lens.filter else { return L("Soft filter off") }
+            return f.label + " " + SoftFilter.strengthText(new.lens.strength)
+        }
+        if old.lens.character != new.lens.character || old.lens.amount != new.lens.amount {
+            return new.lens.character?.label ?? L("Lens character off")
+        }
         if old.frameSeed != new.frameSeed { return L("Another frame") }
+        // A 场景 mask layer: named by the layer that moved (PRD-E), or the set's word where one came or went.
+        if sceneLayers(old) != sceneLayers(new) {
+            let before = Dictionary((old.layers?.items ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let moved = (new.layers?.items ?? []).first { l in before[l.id].map { $0 != l } ?? false }
+            return moved.map { $0.name.isEmpty ? L("Layers") : $0.name } ?? L("Layers")
+        }
         return ""
+    }
+
+    /// What of an edit's mask layers the 场景 stage's develop is made from: each acting layer's mask (its parts that
+    /// are on, the feather, the invert), its deltas and its coverage, in order — what the wire's `scene_layers` stamp
+    /// hashes (`SceneLayerWire.ask`). A name, a part switched off and on again, a 成片 layer: none of it.
+    struct SceneLayerKey: Equatable {
+        var parts: [MaskPart]
+        var feather: Double
+        var invert: Bool
+        var deltas: SceneDeltas?
+        var coverage: Double
+    }
+
+    static func sceneLayers(_ e: FrameEdit) -> [SceneLayerKey] {
+        (e.layers?.active(.scene) ?? []).prefix(LocalLayers.perStage).map {
+            SceneLayerKey(parts: $0.foldOrder, feather: $0.feather, invert: $0.invert, deltas: $0.scene, coverage: $0.coverage)
+        }
     }
 
     /// Which layers an edit touches. Anything outside `FilmParams` — the
@@ -159,10 +194,15 @@ enum ChangeDescriber {
         if FeatureFlags.filmEdge && old.filmEdge != new.filmEdge { layers.insert(.shoot) }
         if FeatureFlags.dateBack && old.dateBack != new.dateBack { layers.insert(.shoot) }
         // The advance and the scan: only a film edge shows them.
-        if old.frameSeed != new.frameSeed && new.filmEdge.effective { layers.insert(.shoot) }
+        if old.frameSeed != new.frameSeed && (new.filmEdge.effective || new.leak.kind != .off) { layers.insert(.shoot) }
+        // A leak is light on the film, the lens is in front of it (PRD-D): both develop again.
+        if old.leak != new.leak || old.lens != new.lens { layers.insert(.shoot) }
         // Enable HDR on a slide: its develop is the stretched scan, with the frame's one grain (`HDRGain.sdrWire`).
         // A print's is no layer at all (D3: its SDR picture is the same to the bit).
         if HDRGain.sdrWire(for: old) != HDRGain.sdrWire(for: new) { layers.insert(.shoot) }
+        // A 场景 mask layer is light before the film (PRD-E, RFC-052 §6): it develops again, as Film Exposure does.
+        // A 成片 layer is Edit's pass, no develop (its fields are not here).
+        if sceneLayers(old) != sceneLayers(new) { layers.insert(.shoot) }
         return layers
     }
 }

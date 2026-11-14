@@ -224,10 +224,21 @@ struct spk_session {
         uint32_t image_long_edge = 0;
         Image negative;   // Tap.CMY_FILM
         bool has_negative = false;
+        /// A retired negative's plane, for the next film run to write into
+        /// (`retire_negative`). Never read: its pixels are the old picture's.
+        Image spare;
         /// RFC-032 §27: the frame `negative`'s film canvas was laid out for,
         /// so a reprint can lay it out again. Zero without overscan.
         uint32_t overscan_frame_w = 0, overscan_frame_h = 0;
         std::optional<double> applied_ev;   // what the node applied to `negative`
+        /// API-SPEC §21.5-§21.6 (the owner 2026-11-10): `image`
+        /// through the lens -- the diffusion filter and the aberrations, a
+        /// pass on the source before the film chain (`Pipeline::lens_source`)
+        /// -- and the lens fields it was made with (`lens_key`). Every develop,
+        /// reprint and strip of this tier reads it; empty while the lens is
+        /// off. The full tier's is file-backed, as the source is.
+        Image lensed;
+        std::string lens_key;
     };
     std::unordered_map<std::string, TierState> tiers;
 
@@ -266,6 +277,12 @@ struct spk_session {
     // RFC-024: the last field `spk_contrast_mask_field` returned. The caller's
     // pointer is into this, valid until the next call on the session.
     std::vector<float> mask_field;
+
+    // RFC-052 §6.4: the scene layers `spk_set_scene_layers` handed over -- the
+    // planes (the host's buffers, retained), the gains, the matrix to S and the
+    // stamp the wire must name. Replaced whole by the next call, never edited;
+    // null before the first. Handed to the pipeline before every film run.
+    std::shared_ptr<const SceneLayerSet> scene_layers;
 
     std::mutex lock;
     Progress progress;
@@ -439,9 +456,16 @@ struct spk_engine {
         for (spk_session* s : sessions) {
             size_t source = 0;
             if (gpu && s->source.buf) source = gpu->size_bytes(s->source.buf.get());
-            size_t negatives = 0;
+            size_t negatives = 0, lensed = 0;
             int count = 0;
             for (const auto& kv : s->tiers) {
+                // API-SPEC §21.5: a tier's source through the lens, when it is
+                // a copy of its own (not the source itself: the lens on with
+                // every size 0).
+                const Image& l = kv.second.lensed;
+                if (gpu && l.buf && l.buf.get() != kv.second.image.buf.get()) lensed += gpu->size_bytes(l.buf.get());
+                // A retired negative's plane is still held, so it is still reported.
+                if (gpu && kv.second.spare.buf) negatives += gpu->size_bytes(kv.second.spare.buf.get());
                 if (!kv.second.has_negative || !kv.second.negative.buf || !gpu) continue;
                 negatives += gpu->size_bytes(kv.second.negative.buf.get());
                 ++count;
@@ -453,6 +477,7 @@ struct spk_engine {
             row.set("session_id", Json(s->session_id));
             row.set("source_bytes", Json(double(source)));
             row.set("cached_negative_bytes", Json(double(negatives)));
+            row.set("lensed_source_bytes", Json(double(lensed)));
             // A session caches a negative per tier it has rendered, so this
             // is 0, 1 or 3 -- and 3 is three full planes, which is worth
             // seeing next to the byte count rather than dividing by it.
@@ -561,11 +586,12 @@ const char* spk_build_info(void) {
     // things that decide whether two builds render the same picture: the
     // engine's own version, the compiler date, and the backend math probe.
 #ifndef __APPLE__
-    static const std::string info =
-        std::string("spektralab-engine 2.0.0 (") + __DATE__ " " __TIME__ ", math=probed)";
+    static const std::string& info =
+        *new std::string(std::string("spektralab-engine 2.0.0 (") + __DATE__ " " __TIME__ ", math=probed)");
 #else
-    static const std::string info =
-        std::string("spektralab-engine 2.0.0 (") + __DATE__ " " __TIME__ ", math=safe)";
+    // Never destroyed: a log line may ask for it while `exit()` tears the statics down (colour.cpp).
+    static const std::string& info =
+        *new std::string(std::string("spektralab-engine 2.0.0 (") + __DATE__ " " __TIME__ ", math=safe)");
 #endif
     return info.c_str();
 }
@@ -653,6 +679,13 @@ const char* spk_memory_report(spk_engine* engine) {
     std::lock_guard<std::mutex> guard(engine->lock);
     engine->cached_memory_report = engine->memory_report_json().dump();
     return engine->cached_memory_report.c_str();
+}
+
+size_t spk_trim_pool(spk_engine* engine, size_t keep_bytes) {
+    // `trim_pool` takes the pool's own lock and frees only what nothing holds: the engine's lock is not
+    // taken, so a render on another thread is never waited on (spk_engine.h).
+    if (!engine || !engine->gpu) return 0;
+    return engine->gpu->trim_pool(keep_bytes);
 }
 
 spk_status spk_warm_up(spk_engine* engine, const char* film_stock, const char* print_stock,
@@ -1008,14 +1041,73 @@ spk_session* spk_open_device(spk_engine* engine, const spk_device_image* input,
 
 namespace {
 
-// The source at a tier's resolution, built on first use. `open` needs the live
-// tier and nothing else; the preview tier is needed only if the user zooms
-// past 100 %, and building both eagerly put two full-resolution anti-aliased
-// downscales of a 45 MP frame inside every open.
+// API-SPEC §21.5-§21.6: the wire fields the lens pass reads -- its own, what sets its
+// pitch (`Pipeline::lens_pitch_um`: the format, or the overscan gate's), the
+// input's transfer function it lenses through, and the highlight boost its
+// scatter source takes while that is on. "" while the lens is off.
+static std::string lens_key(const Params& params) {
+    if (!params.camera.diffusion_filter.active && !params.camera.lens_aberrations.active) return "";
+    const bool boost = params.film_render.halation.boost_ev != 0.0;
+    const Json values = read_params(params);
+    std::string key = "lens:";
+    for (const auto& kv : values.fields()) {
+        const std::string& n = kv.first;
+        const bool take = n.rfind("diffusion_filter_", 0) == 0 ||
+                          (n.rfind("lens_", 0) == 0 && n != "lens_blur_um") ||
+                          n == "film_format_mm" || n == "overscan_active" || n == "overscan_format" ||
+                          n == "overscan_pair" || n == "input_color_space" || n == "input_cctf_decoding" ||
+                          (boost && (n == "halation_boost_ev" || n == "exposure_compensation_ev"));
+        if (take) key += n + "=" + kv.second.dump() + ";";
+    }
+    return key;
+}
+
+// `image` through the lens, on a pipeline of its own (the pass sets its params
+// to the session's, and the session's pipeline may be built for another tier's
+// render). `file_backed`: the full tier's copy.
+bool lens_image(spk_session* session, const Image& image, bool file_backed, Image& out, std::string& error,
+                const Image* reuse = nullptr) {
+    Pipeline pl(session->engine->gpu, nullptr, nullptr, nullptr);
+    return pl.lens_source(session->params, image, file_backed, out, error, false, reuse);
+}
+
+// The tier's source as the film sees it: through the lens when it is on, made
+// once per lens setting and kept (`TierState::lensed`).
+bool lensed_tier(spk_session* session, spk_session::TierState& state, Image& out, std::string& error) {
+    const std::string key = lens_key(session->params);
+    if (key.empty()) {
+        state.lensed = Image{};
+        state.lens_key.clear();
+        out = state.image;
+        return true;
+    }
+    if (!(state.lensed.valid() && state.lens_key == key)) {
+        // Written over the old setting's copy (one full-tier copy, not two:
+        // 585 MB each at 48 MP, and no new pages to fault in on a drag).
+        const Image old = state.lensed;
+        state.lensed = Image{};
+        state.lens_key.clear();
+        Image lensed;
+        const bool full = state.image.buf.get() == session->source.buf.get();
+        if (!lens_image(session, state.image, full, lensed, error, &old)) return false;
+        state.lensed = lensed;
+        state.lens_key = key;
+    }
+    out = state.lensed;
+    return true;
+}
+
+// The source at a tier's resolution, built on first use (and through the lens,
+// `lensed_tier`). `open` needs the live tier and nothing else; the preview
+// tier is needed only if the user zooms past 100 %, and building both eagerly
+// put two full-resolution anti-aliased downscales of a 45 MP frame inside
+// every open.
 bool tier_image(spk_session* session, const Tier& tier, Image& out, std::string& error) {
     const uint32_t edge = tier_long_edge(session->params, tier);
     spk_session::TierState& state = session->tiers[tier.name];
-    if (state.image.valid() && state.image_long_edge == edge) { out = state.image; return true; }
+    if (state.image.valid() && state.image_long_edge == edge) return lensed_tier(session, state, out, error);
+    state.lensed = Image{};
+    state.lens_key.clear();
     gpu::Gpu* gpu = session->engine->gpu;
     // Already on the device, three channels, from `spk_open`.
     const Image& full = session->source;
@@ -1038,8 +1130,7 @@ bool tier_image(spk_session* session, const Tier& tier, Image& out, std::string&
         state.image = kept;
     }
     state.image_long_edge = edge;
-    out = state.image;
-    return true;
+    return lensed_tier(session, state, out, error);
 }
 
 // `static`, because this sits inside the `extern "C"` block with the entry
@@ -1049,7 +1140,8 @@ static std::string meter_key(const Params& params) {
     const Json values = read_params(params);
     std::string key;
     for (const char* name : kMeterKeyFields) key += values.at(name).dump() + ";";
-    return key;
+    // API-SPEC §21.5: the meter reads the lensed light.
+    return key + lens_key(params);
 }
 
 // The frame at the meter's own resolution: what the meter reads, and what
@@ -1063,9 +1155,12 @@ bool meter_frame(spk_session* session, Image& small, std::string& error) {
     // `meter_key` already stops it re-firing for a film, exposure or method
     // change. See the note in `params.hpp`: the meter must not follow the
     // preview size, which is the whole reason it has its own constant.
-    return tier_long_edge(session->params, kTiers[0]) == kMeterLongEdge
-        ? tier_image(session, kTiers[0], small, error)
-        : downscale(session->engine->gpu, session->source, kMeterLongEdge, small, error);
+    // Through the lens (API-SPEC §21.5), as every tier's source is: the live
+    // tier's own lensed image, or this downscale's.
+    if (tier_long_edge(session->params, kTiers[0]) == kMeterLongEdge) return tier_image(session, kTiers[0], small, error);
+    Image scaled;
+    return downscale(session->engine->gpu, session->source, kMeterLongEdge, scaled, error) &&
+           lens_image(session, scaled, false, small, error);
 }
 
 // The session's meter, computed on demand -- whichever render or solve needs
@@ -1103,8 +1198,36 @@ bool run_print_for(spk_session* session, const Image& negative, Image& rgb,
     return session->pipeline->run_print(negative, rgb, progress, error);
 }
 
+// A negative that is about to be re-made gives up its pixels and keeps its plane.
+//
+// The film side ends by copying the negative into a file-backed plane the session
+// holds (RFC-020 §4.7). Freeing the old plane and mapping a new one of the same size
+// on every film render cost 45.6 ms at 45 MP -- 7.5 % of the render, in page faults
+// on a mapping the previous render had just filled (measured 2026-11-11,
+// `engine.keep_negative` under `SPEKTRALAB_NODE_TIMINGS`). The plane is the same
+// plane; only the pixels change.
+//
+// Safe to write into because nothing else names it: a negative lives in its
+// `TierState` and in locals of calls that hold the session's lock, and both the
+// places that retire one hold that lock. Bounded, because the old plane now stays
+// mapped while the film side runs: above `kSpareNegativeMaxBytes` (a 61 MP frame is
+// 733 MB) the plane is released as before, so RFC-020's 102 MP peak does not grow.
+constexpr size_t kSpareNegativeMaxBytes = size_t(1) << 30;
+
+void retire_negative(spk_session::TierState& state) {
+    if (state.negative.buf && state.negative.bytes() <= kSpareNegativeMaxBytes && !std::getenv("SPK_NO_SPARE_NEGATIVE"))
+        state.spare = std::move(state.negative);
+    state.negative = Image{};
+    state.has_negative = false;
+}
+
 bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Image& out,
                   std::string& error) {
+    // RFC-052 §6.4, for every caller of the negative (a render, the LUT flips,
+    // the Digital Intermediate): a wire that names a set the session does not
+    // hold develops nothing, cached or not.
+    error = scene_layers_mismatch(session->params.camera.scene_layers, session->scene_layers.get());
+    if (!error.empty()) return false;
     spk_session::TierState& state = session->tiers[tier.name];
     if (state.has_negative) {
         if (progress) progress->auto_exposure_ev = state.applied_ev;
@@ -1119,6 +1242,7 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     session->pipeline->set_auto_exposure_ev(
         camera.auto_exposure ? std::optional<double>(session->meter.evs.of(camera.auto_exposure_method))
                              : std::nullopt);
+    session->pipeline->set_scene_layers(session->scene_layers);
     Image negative;
 #ifdef __APPLE__
     const char* checkpoint_mode = std::getenv("SPK_CHECKPOINT_MODE");
@@ -1177,14 +1301,23 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
     // never redrawn.
     gpu::Gpu* gpu = session->engine->gpu;
     if (!gpu->flush(error)) return false;
+    // What no node's timer sees (`SPEKTRALAB_NODE_TIMINGS`): the copy that keeps the negative.
+    const auto keep_started = std::chrono::steady_clock::now();
     Image kept;
     kept.h = negative.h; kept.w = negative.w; kept.c = 3;
     // The cached negative is the other holding RFC-020 §4.7 names: every
     // reprint reads it, it lives as long as the session, and at the full
     // tier it is the second 1.22 GB plane.
-    kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
+    if (state.spare.buf && state.spare.bytes() == negative.bytes()) kept.buf = std::move(state.spare.buf);
+    else kept.buf = gpu->alloc_file_backed(negative.bytes(), error);
+    state.spare = Image{};
     if (!kept.buf || !gpu->copy(kept.buf.get(), 0, negative.buf.get(), 0,
                                 negative.bytes(), error)) return false;
+    if (progress && progress->detailed) {
+        if (!gpu->flush(error)) return false;
+        progress->node_ms["engine.keep_negative"] += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - keep_started).count();
+    }
     state.negative = kept;
     state.has_negative = true;
     out = kept;
@@ -1222,7 +1355,8 @@ void note_timing(spk_session* session, gpu::Gpu* gpu, uint64_t awake_started) {
     session->progress.gpu = gpu->frame_stats();
 }
 
-bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::string& error) {
+bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::string& error,
+                 Pipeline* encoder = nullptr) {
     gpu::Gpu* gpu = session->engine->gpu;
     const uint32_t align = gpu->texture_row_alignment_px();
     const uint32_t stride = ((rgb.w + align - 1) / align) * align;
@@ -1231,10 +1365,23 @@ bool materialise(spk_session* session, const Image& rgb, spk_result* out, std::s
     if (!buffer) return false;
 
     const uint32_t meta[3] = {uint32_t(rgb.pixels()), rgb.w, stride};
-    bool ok = gpu->dispatch("spk_to_rgba16",
-                            {gpu::Arg::buf(rgb.buf), gpu::Arg::inline_bytes(meta, 3),
-                             gpu::Arg::buf(buffer)},
-                            rgb.pixels(), error) && gpu->flush(error);
+    // `encoder` is the pipeline that made `rgb` with its encode deferred (`set_defer_encode`):
+    // if it left one pending, this pass does it on the way to 16 bits.
+    gpu::BufferRef matrix;
+    uint32_t mode = 0;
+    bool ok;
+    if (encoder && encoder->take_pending_encode(matrix, mode)) {
+        const uint32_t meta_e[4] = {meta[0], meta[1], meta[2], mode};
+        ok = gpu->dispatch("spk_cctf_to_rgba16",
+                           {gpu::Arg::buf(rgb.buf), gpu::Arg::buf(matrix), gpu::Arg::inline_bytes(meta_e, 4),
+                            gpu::Arg::buf(buffer)},
+                           rgb.pixels(), error) && gpu->flush(error);
+    } else {
+        ok = gpu->dispatch("spk_to_rgba16",
+                           {gpu::Arg::buf(rgb.buf), gpu::Arg::inline_bytes(meta, 3),
+                            gpu::Arg::buf(buffer)},
+                           rgb.pixels(), error) && gpu->flush(error);
+    }
     if (ok) {
         out->width = rgb.w;
         out->height = rgb.h;
@@ -1268,6 +1415,14 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
     std::lock_guard<std::mutex> guard(session->lock);
     g_error.clear();
     std::memset(out, 0, sizeof *out);
+    // RFC-052 §6.4: refused before anything runs, reprint included, and as the
+    // caller's mistake rather than the GPU's.
+    if (std::string mismatch = scene_layers_mismatch(session->params.camera.scene_layers,
+                                                     session->scene_layers.get());
+        !mismatch.empty()) {
+        g_error = mismatch;
+        return SPK_ERR_USER;
+    }
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
@@ -1290,8 +1445,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
         // negative and was identical to `spk_reprint` in everything but the
         // flag it reported -- which happened to look right, because a
         // shoot-layer `set_params` drops the negative before this is reached.
-        session->tiers[tier->name].negative = Image{};
-        session->tiers[tier->name].has_negative = false;
+        retire_negative(session->tiers[tier->name]);
     }
     Image negative, rgb;
     // Before anything runs, and from the tier image rather than from whatever
@@ -1310,8 +1464,17 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
         const spk_session::TierState& state = session->tiers[tier->name];
         ok = session->pipeline->set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error);
     }
+#ifdef __APPLE__
+    // This frame goes nowhere but the canvas buffer, so its encode waits for that pass.
+    session->pipeline->set_defer_encode(!session->params.settings.striped);
+#endif
     if (ok) ok = run_print_for(session, negative, rgb, &session->progress, error);
-    if (ok) ok = materialise(session, rgb, out, error);
+    session->pipeline->set_defer_encode(false);
+    const auto materialise_started = std::chrono::steady_clock::now();
+    if (ok) ok = materialise(session, rgb, out, error, session->pipeline.get());
+    if (session->progress.detailed)
+        session->progress.node_ms["engine.materialise"] += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - materialise_started).count();
     gpu->end_frame();
 
     if (!ok) {
@@ -1787,6 +1950,114 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     return SPK_OK;
 }
 
+// RFC-052 §6.4, API-SPEC §23. The planes, gains and stamp of the session's
+// 场景 layers; the stamp the wire must then name is `scene_layers`.
+//
+// **What it drops is every tier's negative, and nothing else.** The decoded
+// source and the lens's kept copy (`TierState::lensed`) are before the node and
+// are not touched, nor is the meter, which must not see a layer (§6.2); so a
+// stroke costs a film run, never a decode or a lens pass. The pre-grain disk
+// checkpoint goes too: its key is the wire, and a host that handed a new plane
+// under a stamp it had used before would otherwise restore the old picture.
+spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* layers, uint32_t count,
+                                const float frame_to_source[9], const char* stamp, char** out_json) {
+    if (out_json) *out_json = nullptr;
+    if (!session) { g_error = "session is null"; return SPK_ERR_INVALID_ARG; }
+    if (count > SceneLayerSet::kMaxLayers) {
+        g_error = "spk_set_scene_layers: " + std::to_string(count) + " layers; at most " +
+                  std::to_string(SceneLayerSet::kMaxLayers);
+        return SPK_ERR_INVALID_ARG;
+    }
+    if (count > 0 && !layers) { g_error = "spk_set_scene_layers: layers is null"; return SPK_ERR_INVALID_ARG; }
+#ifndef __APPLE__
+    (void)frame_to_source; (void)stamp;
+    g_error = "scene layers are not implemented by the Windows Vulkan backend yet";
+    return SPK_ERR_UNSUPPORTED;
+#else
+    std::lock_guard<std::mutex> guard(session->lock);
+    g_error.clear();
+    spk_engine* engine = session->engine;
+    auto set = std::make_shared<SceneLayerSet>();
+    set->stamp = stamp ? stamp : "";
+    if (frame_to_source) {
+        for (int k = 0; k < 9; ++k) {
+            if (!std::isfinite(frame_to_source[k])) {
+                g_error = "spk_set_scene_layers: frame_to_source[" + std::to_string(k) + "] is not finite";
+                return SPK_ERR_INVALID_ARG;
+            }
+            set->frame_to_source[k] = double(frame_to_source[k]);
+        }
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        const spk_scene_layer& in = layers[i];
+        const std::string name = "spk_set_scene_layers: layer " + std::to_string(i) + ": ";
+        if (!in.plane) { g_error = name + "plane is null"; return SPK_ERR_INVALID_ARG; }
+        // 16384: past any plane §4.4's L_c (4096) or a raised one would make.
+        if (in.width == 0 || in.height == 0 || in.width > 16384 || in.height > 16384) {
+            g_error = name + std::to_string(in.width) + " x " + std::to_string(in.height) +
+                      " is not a plane (1 to 16384 a side)";
+            return SPK_ERR_INVALID_ARG;
+        }
+        if (!(std::isfinite(in.coverage) && in.coverage >= 0.0f && in.coverage <= 1.0f)) {
+            g_error = name + "coverage " + std::to_string(in.coverage) + " is outside [0, 1]";
+            return SPK_ERR_INVALID_ARG;
+        }
+        SceneLayerSet::Layer layer;
+        for (int c = 0; c < 3; ++c) {
+            if (!std::isfinite(in.log_gain[c])) { g_error = name + "log_gain is not finite"; return SPK_ERR_INVALID_ARG; }
+            layer.log_gain[c] = double(in.log_gain[c]);
+        }
+        std::string error;
+        const size_t bytes = size_t(in.width) * size_t(in.height) * sizeof(uint16_t);
+        layer.plane = engine->gpu->borrow(in.plane, bytes, error);
+        if (!layer.plane) { g_error = name + error; return SPK_ERR_INVALID_ARG; }
+        layer.width = in.width;
+        layer.height = in.height;
+        layer.coverage = double(in.coverage);
+        set->colour = set->colour || (layer.coverage > 0.0 && (layer.log_gain[0] != layer.log_gain[1] ||
+                                                               layer.log_gain[1] != layer.log_gain[2]));
+        set->plane_bytes += bytes;
+        set->layers.push_back(std::move(layer));
+    }
+    Mat3 cone;
+    std::string error;
+    if (!scene_layer_cone_matrix(engine->colour, session->params.io.input_color_space, cone, error)) {
+        g_error = error;
+        return SPK_ERR_INTERNAL;
+    }
+
+    // The old set's planes are given back here, by the session and by the
+    // pipeline both: "retained until the next call".
+    session->scene_layers = set;
+    session->pipeline->set_scene_layers(set);
+    for (auto& kv : session->tiers)
+        if (kv.second.has_negative) retire_negative(kv.second);
+    session->checkpoint_after_grain_edit = false;
+    session->observed_prefix_key.clear();
+    DiskCheckpoint::shared().release(session->session_id);
+
+    Json out = Json::object();
+    out.set("stamp", Json(set->stamp));
+    out.set("count", Json(double(count)));
+    out.set("colour", Json(set->colour));
+    out.set("plane_bytes", Json(double(set->plane_bytes)));
+    out.set("working_space", Json(session->params.io.input_color_space));
+    const auto row = [](const double m[9]) {
+        Json a = Json::array();
+        for (int k = 0; k < 9; ++k) a.push(Json(m[k]));
+        return a;
+    };
+    double cm[9], ci[9];
+    row_major(cone, cm);
+    row_major(cone.inverse(), ci);
+    out.set("rgb_to_cone", row(cm));
+    out.set("cone_to_rgb", row(ci));
+    out.set("frame_to_source", row(set->frame_to_source));
+    if (out_json) *out_json = dup_json(out);
+    return SPK_OK;
+#endif
+}
+
 spk_status spk_set_params(spk_session* session, const char* params_delta_json, char** out_json) {
     if (!session) { g_error = "session is null"; return SPK_ERR_INVALID_ARG; }
     g_error.clear();
@@ -1896,10 +2167,8 @@ spk_status spk_set_params(spk_session* session, const char* params_delta_json, c
     if (shoot || (stock_change && delta.has("film_stock"))) {
         for (auto& kv : session->tiers) {
             if (kv.second.has_negative) {
-                // Dropping the handle is the whole of it: the buffer goes back
-                // to the pool for the film side to reuse on the re-render.
-                kv.second.negative = Image{};
-                kv.second.has_negative = false;
+                // The pixels are stale; the plane is what the re-render writes into.
+                retire_negative(kv.second);
             }
         }
     }
@@ -1948,6 +2217,10 @@ Params medium_probe_params(const Params& session) {
     // The ramp is the medium, not a frame of film: no rebate, no date.
     p.film_render.overscan.active = false;
     p.film_render.date_imprint.active = false;
+    // Nor a leak or the lens in front of it (API-SPEC §21): the medium is the film's.
+    p.film_render.leak.kind = "off";
+    p.camera.diffusion_filter.active = false;
+    p.camera.lens_aberrations.active = false;
     p.print_render.glare.active = false;
     p.print_render.contrast_mask.active = false;
     p.print_render.edr_enabled = false;
@@ -1968,6 +2241,10 @@ Params medium_probe_params(const Params& session) {
     // changes the window's shape, not only its place (-4.63/+2.40 ->
     // -5.20/+2.37), so there the probe keeps c and the shift is 0.
     p.camera.scene_curve.clear();
+    // RFC-052 §6.2: nor through the person's 场景 layers, which are a local
+    // edit of the scene; the probe's pipeline holds none, so a stamp left on
+    // would refuse it.
+    p.camera.scene_layers.clear();
     if (!p.enlarger.print_exposure_compensation) p.camera.exposure_compensation_ev = 0.0;
     // A slide's HDR scan (API-SPEC §19.1) is an output choice made over the
     // film, not the film: the stretch puts the clear base at page white, the

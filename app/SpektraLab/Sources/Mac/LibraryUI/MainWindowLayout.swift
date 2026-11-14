@@ -25,6 +25,8 @@
 //
 //  Mac only. The window and the reference device keep their pages and their pushes.
 
+import Darwin
+import GameController
 import SwiftUI
 
 /// What the develop page in front gives the window's bar: its state, as values, and its acts, as closures.
@@ -49,6 +51,8 @@ struct MacDevelopBar {
     var paste: () -> Void
     var compareOn: Bool, compareEnabled: Bool, originalOn: Bool
     var compare: () -> Void, toggleOriginal: () -> Void
+    /// Space, down, repeated or up: the original (`DevelopWorkspace.spaceOriginal`). True where the page took it.
+    var space: (KeyPress.Phases) -> Bool
     var export: () -> Void
     /// Another frame on this page (`switchFrame`): what a browser row asks for in 冲洗/编辑.
     var open: (LibraryFrame.ID) -> Void
@@ -166,7 +170,10 @@ struct MainWindowLayout: View {
         let develop = MacShellPath.develop(router.path)
         let f = (InterfaceScale(rawValue: scaleChoice) ?? .standard).factor(.macPoints)
         VStack(spacing: 0) {
-            topBar(store, rows, inDevelop: develop != nil)
+            // The bar, the keys and the watches of the develop page's half read apart (`OwnReads`): the page republishes
+            // its half for every Undo that greys (each press and lift), and read here each re-made the whole window —
+            // its browser grid and the develop page under it (2.4.0 A2).
+            OwnReads { topBar(store, rows, inDevelop: develop != nil) }
                 .interfaceScaled(.macPoints)
                 .frame(height: WindowToolbar<EmptyView, EmptyView, EmptyView>.height * f)
                 #if DEBUG
@@ -197,8 +204,9 @@ struct MainWindowLayout: View {
             if dropWatch.shown { dropWatch.apply { $0.interrupted() } }
             return .ignored
         }
-        .background { shellKeys(store, rows) }
-        .background { ratingKeys(store, rows) }
+        .background { OwnReads { shellKeys(store, rows) } }
+        .background { OwnReads { ratingKeys(store, rows) } }
+        .background { OwnReads { developWatch(store, rows) } }
         // A click anywhere outside the field being edited ends its editing (the owner, 2026-10-26: the
         // search and filter fields "never leave their editing state … it blocks the keyboard").
         .modifier(MacEndEditingOnClick())
@@ -206,14 +214,21 @@ struct MainWindowLayout: View {
         // fields let go on. The field itself does not see it — a `UITextField` passes it up.
         .onKeyPress(.escape) {
             guard MacKeyFocus.editingField != nil else { return .ignored }
-            MacKeyFocus.endEditing()
+            MacKeyFocus.cancelEditing()
             return .handled
         }
         .background { MacKeyAnchorView() }
         .macLibraryDialogs()
+        // A double exposure's second exposure, asked for over the library (合成 with one picture chosen).
+        .spkSheet(item: Binding(get: { actions.secondExposure }, set: { actions.secondExposure = $0 }), detents: [.large]) { asking in
+            MacPhotoPicker(title: L("Double Exposure"), subtitle: L("Choose the second exposure, on the same frame of film"),
+                           marked: [asking.first], markedText: L("Same one, mirrored"), confirm: L("Create"),
+                           close: { actions.secondExposure = nil }) { second in
+                actions.makeDouble(from: asking.first, with: second, model: model)
+            }
+            .appEnvironment(model)
+        }
         .task { await store.start() }
-        // A frame made, developed or changed: the rows' develop column again.
-        .onChange(of: Self.signature(library.frames)) { _, _ in (store as? MacDevelopRefreshing)?.refreshDevelopInfo() }
         .onChange(of: store.selectedCollectionID) { _, _ in browser.collectionChanged() }
         .onChange(of: store.selectedSourceID) { _, _ in browser.collectionChanged() }
         // The pair's row has landed (`MacPairRows.swift`): chosen, and scrolled to.
@@ -230,19 +245,6 @@ struct MainWindowLayout: View {
             q.text = browser.search
             await store.apply(q)
         }
-        // 冲洗/编辑: the open frame's row is the chosen one — unless others are chosen beside it (the batch).
-        .onChange(of: bar.develop?.frameID, initial: true) { _, _ in markOpen(rows) }
-        .onChange(of: rows.count) { _, _ in markOpen(rows) }
-        // 冲洗/编辑: a click that leaves one row chosen opens it, as Capture One's browser does (the owner,
-        // 2026-10-26: the canvas must follow "when you click a new image"). A ⌘/⇧ batch leaves the open
-        // picture where it is, and `markOpen` choosing the open row is no new picture.
-        .onChange(of: browser.selection) { _, chosen in
-            guard let dev = bar.develop, MacShellPath.develop(router.path) != nil, !dev.inCrop,
-                  chosen.count == 1, let id = chosen.first,
-                  let row = rows.first(where: { $0.id == id }),
-                  row.develop?.frameID != dev.frameID else { return }
-            openRow(row, store: store)
-        }
         // Back in 图库: the window's own key chain takes hold again — the develop page had it while it was
         // in front (`DevelopWorkspace` is `.focusable`), and a page that comes back has no one to ask for it.
         .onChange(of: develop != nil) { _, isDevelop in
@@ -251,6 +253,29 @@ struct MainWindowLayout: View {
         #if DEBUG
         .onChange(of: develop != nil) { _, on in MacShellTrace.mode(on ? "develop" : "library") }
         #endif
+    }
+
+    /// What follows the library's frames, the develop page's half of the bar and the browser's choice, in a view of its
+    /// own (`OwnReads`): the rows' develop column, the open frame's row chosen, a row chosen opened.
+    private func developWatch(_ store: any MacLibraryData, _ rows: [MacImage]) -> some View {
+        Color.clear.frame(width: 0, height: 0)
+            // A frame made, developed or changed: the rows' develop column again. The library's frames are read here and
+            // not in the window's body: every step on the develop page writes its frame's edit (2.4.0 A2).
+            .onChange(of: Self.signature(library.frames)) { _, _ in (store as? MacDevelopRefreshing)?.refreshDevelopInfo() }
+            // 冲洗/编辑: the open frame's row is the chosen one — unless others are chosen beside it (the batch).
+            .onChange(of: bar.develop?.frameID, initial: true) { _, _ in markOpen(rows) }
+            .onChange(of: rows.count) { _, _ in markOpen(rows) }
+            // 冲洗/编辑: a click that leaves one row chosen opens it, as Capture One's browser does (the owner,
+            // 2026-10-26: the canvas must follow "when you click a new image"). A ⌘/⇧ batch leaves the open
+            // picture where it is, and `markOpen` choosing the open row is no new picture.
+            .onChange(of: browser.selection) { _, chosen in
+                guard let dev = bar.develop, MacShellPath.develop(router.path) != nil, !dev.inCrop,
+                      chosen.count == 1, let id = chosen.first,
+                      let row = rows.first(where: { $0.id == id }),
+                      row.develop?.frameID != dev.frameID else { return }
+                openRow(row, store: store)
+            }
+            .accessibilityHidden(true)
     }
 
     /// The mode's content: the library page (mounted always, hidden under 冲洗/编辑), and the develop page
@@ -270,10 +295,13 @@ struct MainWindowLayout: View {
     }
 
     /// Shell bindings are off under fields, presentations, stacked pages and inline crop.
-    private var shortcutsFree: Bool {
-        !browser.typing && !browser.modal && router.cover == nil && router.sheets.isEmpty
-            && MacShellPath.split(router.path).stacked.isEmpty && bar.develop?.inCrop != true
-            && !actions.confirmingRemoval && actions.refusal == nil
+    private var shortcutsFree: Bool { Self.shortcutsFree(router) }
+
+    private static func shortcutsFree(_ router: AppRouter) -> Bool {
+        let browser = MacLibraryBrowser.shared, actions = MacLibraryActions.shared
+        return !browser.typing && !browser.modal && router.cover == nil && router.sheets.isEmpty
+            && MacShellPath.split(router.path).stacked.isEmpty && MacShellBar.shared.develop?.inCrop != true
+            && !actions.confirmingRemoval && actions.refusal == nil && !MacVariantActions.shared.confirmingDelete
     }
 
     @ViewBuilder private func shellKeys(_ store: any MacLibraryData, _ rows: [MacImage]) -> some View {
@@ -300,6 +328,8 @@ struct MainWindowLayout: View {
         MacShortcutButton(.first, enabled: free && !rows.isEmpty) { if let row = rows.first { choose(row.id) } }
         MacShortcutButton(.last, enabled: free && !rows.isEmpty) { if let row = rows.last { choose(row.id) } }
         MacShortcutButton(.compare, enabled: free && dev?.compareEnabled == true) { dev?.compare() }
+        // Space: the original, held or switched (Settings › General › Keyboard; `MacSpaceKey`).
+        MacShortcutButton(.original, enabled: free && dev != nil) { if let dev { MacSpaceKey.pressed(dev) } }
         // ⌘C copies the open frame's settings (冲洗/编辑) or the chosen picture's (图库) with the groups last
         // ticked; ⇧⌘C asks on the sheet. ⌘V (⇧⌘V) pastes onto every chosen picture, or onto the open frame
         // when it is the only one or nothing is chosen (`pasteSettings`). Both arrive as Edit's Copy and
@@ -327,6 +357,19 @@ struct MainWindowLayout: View {
                     catch { actions.refusal = error.localizedDescription }
                 }
             }
+        }
+        // F2 New Variant, F3 Clone Variant (Capture One's keys on the Mac; PRD-G §3): the Image menu's acts, on the open
+        // frame in 冲洗/编辑, else on the chosen pictures (`MacVariantActions.menuCells`). Refused, the key does nothing
+        // and the Image menu says why.
+        let cells = MacVariantActions.menuCells(model)
+        let variantsFree = free && MacVariantActions.refusal(.new, cells, model: model) == nil
+        MacShortcutButton(.newVariant, enabled: variantsFree) {
+            if MacAppKitEdit.isKeyRepeat { return }
+            MacVariantActions.shared.perform(.new, MacVariantActions.menuCells(model), model: model)
+        }
+        MacShortcutButton(.cloneVariant, enabled: variantsFree) {
+            if MacAppKitEdit.isKeyRepeat { return }
+            MacVariantActions.shared.perform(.clone, MacVariantActions.menuCells(model), model: model)
         }
         MacShortcutButton(.fullScreen, enabled: free) {
             guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first?.keyWindow,
@@ -371,6 +414,12 @@ struct MainWindowLayout: View {
             modeSwitch(rows, dev, inDevelop: inDevelop)
         } actions: {
             if let dev, !dev.inCrop { MacDevelopActions(bar: dev) }
+            // 图库 only: 合成, of the pictures chosen (the owner's decision 10).
+            else if !inDevelop {
+                MacCombineMenu(chosen: browser.picked(in: rows),
+                               makeDouble: { images in actions.makeDouble(images, store: store, model: model) },
+                               makePair: { images in actions.makePair(images, store: store, model: model) })
+            }
         }
     }
 
@@ -440,6 +489,7 @@ struct MainWindowLayout: View {
                            open: { row in openRow(row, store: store) },
                            lightTable: { MacLibraryGo.putOnLightTable($0, model: model) },
                            makePair: { images in actions.makePair(images, store: store, model: model) },
+                           makeDouble: { images in actions.makeDouble(images, store: store, model: model) },
                            confirmRemoval: { ids in actions.ask(ids) },
                            // The thumbnails' size in 冲洗/编辑 too (the owner, 2026-10-26: the cells are
                            // squares sized by this slider, so the canvas's browser needs it as the
@@ -613,14 +663,25 @@ final class MacKeyFocus {
     struct Commit {
         let owner: UUID
         let finish: () -> Void
+        /// Esc: what is typed goes, and the field closes (a slider's number, 2026-11-11). Nil: Esc is `finish`.
+        var cancel: (() -> Void)? = nil
     }
     /// Numeric fields commit synchronously before a page's Return action reads their bound values.
-    static var commitEditing: Commit?
+    static var commitEditing: Commit? { didSet { MacShortcutRegistry.shared.typingMayHaveChanged() } }
+    /// A press on a slider's number is under way: if it is a click, it opens the number for typing, and the
+    /// click is the field's, not the page's (`MacEndEditingRecognizer`). Set at the press, let go a turn after.
+    static var fieldOpening = false
 
-    /// The field being edited, if any: the window's first responder when it is a text view.
+    /// The field being edited, if any: the window's first responder when it takes text.
+    ///
+    /// **Any `UITextInput`, not only `UITextField` and `UITextView`** (issue #112, 2.3.2): a SwiftUI
+    /// `TextField` on Catalyst is a text input without being a `UITextField`, so a number box with the
+    /// keys read as no field at all, `MacShortcutRegistry.typing` was false, and 0–5 went to the rating
+    /// instead of the box (6–9, which no shortcut takes, arrived). The click recogniser below already
+    /// used the wide test (`isEditingText`). The window's own anchor takes no text and is never one.
     static var editingField: UIView? {
-        guard let r = UIResponder.spkFirstResponder else { return nil }
-        return (r is UITextField || r is UITextView) ? r as? UIView : nil
+        guard let r = UIResponder.spkFirstResponder, !(r is MacKeyAnchor) else { return nil }
+        return (r is UITextField || r is UITextView || r is UITextInput) ? r as? UIView : nil
     }
 
     /// A page in front asks for the keys again (a click that is not on a field).
@@ -638,6 +699,13 @@ final class MacKeyFocus {
     /// window gives SwiftUI's key commands to the responder chain, and with nothing first the plain keys
     /// are dropped (measured 2026-10-26: ⌘-shortcuts worked, ← → and the digits did not).
     static weak var anchor: MacKeyAnchor?
+
+    /// Esc: a field that can put its text back does (a slider's number); any other ends as `endEditing`.
+    static func cancelEditing() {
+        guard let cancel = commitEditing?.cancel else { endEditing(); return }
+        cancel()
+        shared.takeKeys()
+    }
 
     /// Editing ends — the field keeps its text, it only stops taking the keys.
     static func endEditing() {
@@ -686,6 +754,9 @@ struct MacEndEditingRecognizer: UIGestureRecognizerRepresentable {
         let point = recognizer.location(in: window)
         // A click on a field is the field's — it puts the caret where it was clicked, and takes the keys.
         if let hit = window.hitTest(point, with: nil), Self.isEditingText(hit) { return }
+        // So is a click on a slider's number, which opens it for typing (`SliderField`): the box over the field
+        // is not the field, and the keys taken back here would close it again as it opens (2026-11-11).
+        if MacKeyFocus.fieldOpening { return }
         if MacKeyFocus.editingField != nil { MacKeyFocus.endEditing() }
         // The page in front has the keys again: a Catalyst window gives key commands only to a first
         // responder, and a click on a cell is the cell's, not the page's (measured 2026-10-26: ← → did
@@ -722,3 +793,58 @@ enum MacShellTrace {
     }
 }
 #endif
+
+/// Space on the Mac (2026-11-11): the develop page's original (`DevelopWorkspace.spaceOriginal`), from the window's
+/// key command — the one path a plain key reliably takes here (measured: with SwiftUI's hosting view first, a held
+/// Space reached neither `.onKeyPress` nor the anchor's `pressesBegan`, while the arrows' commands fired). A command
+/// hears the key go down, and again on each auto-repeat, but never come up; so while a press is watched, every
+/// further one is its repeat, and the release is read off the system's key state (`CGEventSourceKeyState`, which a
+/// Catalyst SDK does not declare and the process has: looked up by name). `GCKeyboard` was tried first and reads
+/// the physical keyboard alone; where neither answers, the repeats stopping is the release.
+@MainActor
+enum MacSpaceKey {
+    private static var watching: Task<Void, Never>?
+    /// When the last auto-repeat of the bar arrived: the last resort's sign that it is still held.
+    private static var lastRepeat = Date.distantPast
+    /// Longer than the system's first repeat delay at its slowest setting a person keeps (about half a second).
+    private static let repeatSilence: TimeInterval = 0.6
+    /// The spacebar's virtual key code.
+    private static let spaceKeyCode: UInt16 = 49
+
+    private typealias KeyState = @convention(c) (Int32, UInt16) -> Bool
+    /// `CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, key)`.
+    private static let keyState: KeyState? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGEventSourceKeyState")
+        .map { unsafeBitCast($0, to: KeyState.self) }
+
+    /// Whether the bar is down, if the system says.
+    private static var spaceDown: Bool? {
+        if let keyState { return keyState(0, spaceKeyCode) }
+        return GCKeyboard.coalesced?.keyboardInput?.button(forKeyCode: .spacebar)?.isPressed
+    }
+
+    static func pressed(_ dev: MacDevelopBar) {
+        // A press already watched: this is its auto-repeat.
+        if watching != nil || MacAppKitEdit.isKeyRepeat { lastRepeat = Date(); return }
+        let took = dev.space(.down)
+        #if DEBUG
+        NSLog("[space] down · taken %d · key state %@", took ? 1 : 0, keyState != nil ? "system" : "keyboard")
+        #endif
+        guard took else { return }
+        lastRepeat = Date()
+        watching = Task { @MainActor in
+            defer { watching = nil }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(30))
+                if let down = spaceDown {
+                    if !down { break }
+                } else if Date().timeIntervalSince(lastRepeat) > repeatSilence {
+                    break
+                }
+            }
+            #if DEBUG
+            NSLog("[space] up")
+            #endif
+            _ = MacShellBar.shared.develop?.space(.up)
+        }
+    }
+}

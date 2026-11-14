@@ -86,6 +86,17 @@ enum FullRenderJobs {
         return false
     }
 
+    /// The job a full render of `frame` is: an export at Full on this device (`EngineRouter.prepareFullView`).
+    static func job(_ frame: LibraryFrame, _ made: Made, kind: JobKind) -> RenderJob {
+        RenderJob(frameID: frame.id, kind: kind, tier: .full, canvas: made.plan.engineCanvas,
+                  what: L("Full size"), decodesOriginal: true, bandable: !made.plan.engineCuts,
+                  original: made.plan.decoded, printLayers: 0,
+                  // 135 Full Width's frame has more pixels than its film (`ExportPlan.opens`).
+                  opens: made.plan.opens,
+                  scenePlanes: frame.isComposite ? 0 : SceneLayerWire.priced(frame.edit.layers, source: frame.originalSize).planes,
+                  scenePlaneBytes: frame.isComposite ? 0 : SceneLayerWire.priced(frame.edit.layers, source: frame.originalSize).bytes)
+    }
+
     /// The frame's full render asked for: the job already making it, or a new one. Nil where it cannot
     /// be made from here (an original away, nothing for the engine to read).
     static func submit(_ frame: LibraryFrame, _ made: Made, kind: JobKind, asker: Asker,
@@ -93,9 +104,7 @@ enum FullRenderJobs {
         let name = made.ask.url.lastPathComponent
         if let f = flights[name], f.ask == made.ask { return f.id }
         guard !darkroom.isAway(frame) else { return nil }
-        let job = RenderJob(frameID: frame.id, kind: kind, tier: .full, canvas: made.plan.engineCanvas,
-                            what: L("Full size"), decodesOriginal: true, bandable: !made.plan.engineCuts,
-                            original: made.plan.decoded, printLayers: 0)
+        let job = job(frame, made, kind: kind)
         guard darkroom.prepareFullView(job, frame: frame, plan: made.plan, source: made.source, isRAW: made.isRAW, ask: made.ask) else {
             return nil
         }

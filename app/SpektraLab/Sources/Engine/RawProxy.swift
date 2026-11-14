@@ -20,14 +20,16 @@
 //    import's develop, a shot's, a page's, a card's — whichever comes first.
 //    That decode writes the proxy and the job reads its frame from it, so the
 //    first job and every later one see the same pixels.
-//  - **Named by what it is of** (`fileName`): the frame, the original's name,
-//    the decode's settings that change a RAW's pixels, the size, the decoder
-//    and the system's version (a new the operating system may decode a RAW differently). A
-//    white balance moved is another proxy; the old one stays until the
-//    shared limit takes it.
+//  - **Named by what it is of** (`fileName`, `RawProxyName`): the original's
+//    whole path, the decode's settings that change a RAW's pixels, the size,
+//    the decoder and the system's version (a new the operating system may decode a RAW
+//    differently) — **not the frame** (PRD-G §5, 2026-11-13): two frames of
+//    one file and one decode read one proxy. A white balance moved is another
+//    proxy; the old one stays until the shared limit takes it, or until no
+//    frame names it at the launch's tidy (`WorkingCopies.proxyNames`).
 //  - **Kept with the working copies, under their limit** (`WorkingCopies`,
 //    `.proxies` inside their folder): one book, the one read longest ago goes
-//    first, never one of a frame being read. Anything here can be made again
+//    first, never one a frame being read names. Anything here can be made again
 //    from the original, so nothing here is backed up.
 //  - **A job larger than the proxy decodes the RAW** — an export, a full-size
 //    develop: the proxy is never enlarged.
@@ -67,23 +69,18 @@ enum RawProxy {
         var facts: RawExposureFacts?
     }
 
-    /// Moved whenever the file's layout or what it holds changes.
-    static let version = "proxy.1"
+    /// Moved whenever the file's layout, what it holds or how it is named changes (`RawProxyName.version`).
+    static var version: String { RawProxyName.version }
     private static let magic = Array("SPKRAWP1".utf8)
     static let bytesPerPixel = 8
 
-    /// The proxy of `source` decoded with `decode` at `longEdge`, for `frame`:
-    /// `<frame>-<16 hex>.spkraw`. The frame's id first, so the book knows
-    /// whose it is from the name alone (`WorkingCopies`).
-    static func fileName(frame: UUID, source: URL, decode: DecodeSettings, longEdge: Int,
+    /// The proxy of `source` decoded with `decode` at `longEdge`: `raw-<32 hex>.spkraw`, whichever frame reads
+    /// it (`RawProxyName`). The book asks the app which frames name it (`WorkingCopies.proxyNames`).
+    /// `lens`: the answer the proxy is made with, where the caller has taken one (`EngineRouter.prepare`).
+    static func fileName(source: URL, decode: DecodeSettings, longEdge: Int, lens: LensResolution? = nil,
                          system: String = ProcessInfo.processInfo.operatingSystemVersionString) -> String {
-        let words = [version, DevelopStamp.decoder, system, source.lastPathComponent, decode.pixelsKey, "\(longEdge)"]
-        var h: UInt64 = 0xcbf29ce484222325           // FNV-1a: a name, not a secret
-        for byte in words.joined(separator: "|").utf8 {
-            h ^= UInt64(byte)
-            h = h &* 0x100000001b3
-        }
-        return frame.uuidString + "-" + String(format: "%016llx", h) + ".spkraw"
+        RawProxyName.of(sourcePath: source.standardizedFileURL.path, pixelsKey: decode.pixelsKey(source: source, lens: lens), longEdge: longEdge,
+                        decoder: DevelopStamp.decoder, system: system)
     }
 
     // MARK: the file

@@ -49,7 +49,7 @@ SRC = HERE / "Sources"
 TOOL = HERE / "build" / "tools" / "film_geometry_dump"
 PORT_SOURCES = [
     "Model/Format.swift", "Model/Localization.swift", "Model/FilmParams.swift", "Model/Geometry.swift", "Model/FeatureFlags.swift",
-    "Model/FilmEdge.swift", "Model/FrameEdit.swift", "Model/Adjustments.swift", "Model/CurveMath.swift", "Model/Stock.swift",
+    "Model/FilmEdge.swift", "Model/LensEdge.swift", "Model/FrameEdit.swift", "Model/LocalLayers.swift", "Model/Adjustments.swift", "Model/CurveMath.swift", "Model/Stock.swift",
     # Theme.swift imports UIKit, which a plain macOS swiftc has not: the swatch parse is the shim's
     "../tools/selftest_theme_shim.swift",
     "FilmEdge/FilmEdgeStock.swift", "FilmEdge/FilmGeometry.swift", "FilmEdge/FilmLayout.swift",
@@ -60,7 +60,9 @@ GATES = {
     "135": (36.25, 24.3), "135_half": (18.0, 24.0), "120_645": (41.5, 56.0), "120_6x6": (56.0, 56.0),
     "120_6x7": (69.5, 56.0), "120_6x8": (76.0, 56.0), "120_6x9": (84.0, 56.0),
     "135_xpan": (65.0, 24.0), "120_6x12": (112.0, 56.0), "120_6x17": (168.0, 56.0),
+    "135_sprocket": (72.0, 36.0),
 }
+FORMATS_120 = ("120_645", "120_6x6", "120_6x7", "120_6x8", "120_6x9", "120_6x12", "120_6x17")
 POSITIVE = {"fujifilm_provia_100f", "fujifilm_velvia_100", "kodak_ektachrome_100", "kodak_kodachrome_64"}
 # The black-and-white films, and the words each one's edge prints (the film's own, the same in
 # 135 and 120: `EdgeWords`). The app's own words are held to these.
@@ -78,6 +80,11 @@ def frame_size(fmt: str, along_is_width: bool) -> tuple[int, int]:
     long_px = max(1400, int(round(max(w_mm, h_mm) / 0.04)))
     k = long_px / max(w_mm, h_mm)
     return int(round(w_mm * k)), int(round(h_mm * k))
+
+
+# Fujifilm's colour negatives in the catalogue that carry its factory stripes on 135 (the owner, 2026-11-11). C200,
+# Fujicolor 200, is made by Kodak and printed with Kodak's edge (its 135 reference): no stripes.
+STRIPED = {"fujifilm_xtra_400", "fujifilm_pro_400h"}
 
 
 def cases() -> list[dict]:
@@ -121,6 +128,13 @@ def cases() -> list[dict]:
         add(f"135_{stock}", "135", True, stock=stock, text=text)
         add(f"120_6x7_{stock}", "120_6x7", True, stock=stock, text=text)
     add("135_xpan_fujifilm_xtra_400", "135_xpan", True, stock="fujifilm_xtra_400", text="FUJI S-400")
+    # Fujifilm's red and green factory stripes (the owner, 2026-11-11): every Fujifilm colour negative on every
+    # 135-gauge format, never a positive, never 120 -- each format with X-TRA 400, Pro 400H and a slide
+    for stock, text in (("fujifilm_xtra_400", "FUJI S-400"), ("fujifilm_pro_400h", "FUJI PRO400H"),
+                        ("fujifilm_velvia_100", "FUJI RVP100")):
+        for fmt in ("135_half", "135_xpan", "135_sprocket"):
+            if not any(c["id"] == f"{fmt}_{stock}" for c in out):
+                add(f"{fmt}_{stock}", fmt, True, stock=stock, text=text)
     add("135_half_fujifilm_provia_100f", "135_half", True, stock="fujifilm_provia_100f", text="FUJI RDPIII")
     # the frame's own number
     add("135_no12", "135", True, frame_number=12)
@@ -143,6 +157,29 @@ def cases() -> list[dict]:
     add("120_645_date_data", "120_645", True, date=dict(text="1/250 F5.6", style="data"))
     add("120_6x7_date_none", "120_6x7", True, date=dict(text="'26 10 1", style="lcd"))
     add("135_xpan_date_none", "135_xpan", True, date=dict(text="'26 10 1", style="lcd"))
+    # PRD-D (2026-11-11, API-SPEC §21): 135 Full Width -- across, down, other bodies and frames, black holes, the
+    # filed view, X-TRA 400's stripes -- and every 120 format with the keyholes, on a Vision3 and on Portra 400
+    # (no 120 edge print under them on any stock)
+    for stock, text in (("kodak_gold_200", "KODAK GB 200-7"), ("fujifilm_xtra_400", "S-400")):
+        add(f"135_sprocket_{stock}", "135_sprocket", True, stock=stock, text=text)
+        add(f"135_sprocket_down_{stock}", "135_sprocket", False, stock=stock, text=text)
+    for cam, frm in ((1, 1), (7, 263), (123, 217)):
+        add(f"135_sprocket_c{cam}_f{frm}", "135_sprocket", True, camera_seed=cam, frame_seed=frm)
+    add("135_sprocket_black_holes", "135_sprocket", True, holes="black")
+    add("135_sprocket_filed", "135_sprocket", True, mode="filed")
+    for stock, text in (("kodak_vision3_250d", "EASTMAN 5207"), ("kodak_portra_400", "KODAK PORTRA 400")):
+        for fmt in FORMATS_120:
+            add(f"{fmt}_ks65_{stock}", fmt, True, stock=stock, text=text, perforation="ks65")
+        add(f"120_6x7_ks65_down_{stock}", "120_6x7", False, stock=stock, text=text, perforation="ks65")
+    for cam, frm in ((1, 1), (7, 263)):
+        add(f"120_6x7_ks65_c{cam}_f{frm}", "120_6x7", True, stock="kodak_vision3_250d", text="EASTMAN 5207",
+            perforation="ks65", camera_seed=cam, frame_seed=frm)
+    # 漏光 (PRD-D §3.3), in the app's own leak wire: every kind on a 135 film edge and the same with the film edge
+    # off (the leak sends the overscan seeds itself), several bodies and frames; a spot on 120
+    for kind in ("band", "wash", "auto"):
+        for cam, frm in ((19, 5), (7, 263), (123, 217)):
+            add(f"leak_{kind}_c{cam}_f{frm}", "135", True, leak=kind, camera_seed=cam, frame_seed=frm)
+    add("leak_spot_120_6x7", "120_6x7", True, leak="spot", camera_seed=31, frame_seed=9)
     # the black-and-white films, in the app's own words (`text=None`): every format the Film step
     # offers, the film down, the filed view, a number of the frame's own, another body and frame
     for stock in SILVER:
@@ -290,8 +327,10 @@ def compare(c: dict, port: dict, mask: np.ndarray | None, rgba: np.ndarray, geo:
     e_gate = (lum > thr) if grey > rebate else (lum < thr)
     box = np.zeros_like(e_gate)
     box[max(gy0 - 12, 0): gy1 + 12, max(gx0 - 12, 0): gx1 + 12] = True
-    e_open = e_gate & box & ~dilate(p_hole | p_ink, 2)        # holes and marks are not the opening
-    p_open = (p_gate | p_date) & box
+    marks = dilate(p_hole | p_ink, 2)                         # holes and marks are not the opening, nor their edges
+    e_open = e_gate & box & ~marks
+    # (135 Full Width's holes and edge print lie in the picture: their 2 px rims are left out of both sides)
+    p_open = (p_gate | p_date) & box & ~marks
     v = iou(e_open, p_open)
     out.append(("gate opening", v > 0.995, f"IoU {v:.4f}"))
 
@@ -309,10 +348,59 @@ def compare(c: dict, port: dict, mask: np.ndarray | None, rgba: np.ndarray, geo:
     elif port["holes"] == 0:
         out.append(("perforations", True, "none on this film"))
 
+    # 4b. Fujifilm's factory stripes (the owner, 2026-11-11): a green line 2.83 mm and a red one 3.73 mm in from
+    # each edge on every Fujifilm colour negative's 135 edge, none on a positive or on 120 -- the engine's render,
+    # the app's layout and the owner's rule (`STRIPED`) all agree
+    if "film_edges" in port:
+        fe = np.array(port["film_edges"]).reshape(4, 2) * [W, H]
+        a0, a1, b0, b1 = fe[0], fe[1], fe[3], fe[2]         # t = 0 from s0 to s1, t = film_w from s0 to s1
+        u = (a1 - a0) / np.linalg.norm(a1 - a0)
+        nrm = np.array([-u[1], u[0]])
+        if np.dot(b0 - a0, nrm) < 0:
+            nrm = -nrm
+        yy, xx = np.mgrid[0:H, 0:W] + 0.5
+        t_mm = ((xx - a0[0]) * nrm[0] + (yy - a0[1]) * nrm[1]) * port["mm_per_px"]
+        fw = port["film_w"]
+        along = (xx - a0[0]) * u[0] + (yy - a0[1]) * u[1]
+        inside = (along > 0) & (along < np.linalg.norm(a1 - a0)) & ~dilate(p_hole, 2) & ~dilate(p_date, 3)
+        seen = []
+        for c_mm, ch in ((2.83, 1), (3.73, 0)):
+            for t_c in (c_mm, fw - c_mm):
+                rows = (np.abs(t_mm - t_c) < (0.08 if ch == 1 else 0.15)) & inside
+                if not rows.any():
+                    seen.append(0.0)
+                    continue
+                other = 1 - ch if ch == 0 else 0
+                seen.append(float(np.percentile((rgb[..., ch] - rgb[..., other])[rows], 75)) * 255)
+        engine_has = all(v > 20 for v in seen)
+        engine_none = all(v < 8 for v in seen)
+        want = c["stock"] in STRIPED and c["format"].startswith("135")
+        ok = (engine_has and port.get("stripes") is True) if want else (engine_none and port.get("stripes") is False)
+        out.append(("stripes", ok, f"{'wanted' if want else 'none wanted'}; engine green/red over the rest "
+                    + " ".join(f"{v:.0f}" for v in seen) + f"; app draws {port.get('stripes')}"))
+
     # 5. the edge print: ink against the rebate
     zone = ~dilate(p_gate, 6) & ~dilate(p_hole, 2)            # off the gate's penumbra and the holes' cut
+    # 135 Full Width: the gate is wider than the film, so the factory's print lies on the picture -- measured
+    # there against the picture's flat grey (no format has a falloff), off the holes and the date
+    covered = port["gate_mm"][1] > port["film_w"]
+    if covered:
+        # (the gate's own span along the film: past it are the strip's dark ends, which are no print; and the
+        # print told from the picture by its colour, not its brightness alone -- X-TRA 400's stripes are coloured
+        # lines about as bright as the grey they lie on)
+        span = np.zeros_like(p_gate)
+        span[max(gy0 + 3, 0): gy1 - 3, max(gx0 + 3, 0): gx1 - 3] = True
+        zone = ~dilate(p_hole, 2) & ~dilate(p_date, 3) & span
+        rebate = grey
     if (p_ink & zone).any():
         diff = np.abs(lum - rebate)
+        if port.get("stripes") and not covered:
+            # Fujifilm's stripes are coloured lines on the rebate, one layer each: told by their colour, not their
+            # brightness alone (the green line is no brighter than a dim glyph)
+            diff = np.abs(rgb - np.median(rgb[outside], axis=0)).max(-1)
+        if covered:
+            ref = np.median(rgb[gy0 + (gy1 - gy0) // 3: gy1 - (gy1 - gy0) // 3, gx0 + (gx1 - gx0) // 3: gx1 - (gx1 - gx0) // 3], axis=(0, 1))
+            diff = np.abs(rgb - ref).max(-1)
         level = float(np.percentile(diff[p_ink & zone], 60))
         e_ink = (diff > 0.35 * level) & zone if level > 0 else np.zeros_like(p_ink)
         recall = float((e_ink & p_ink & zone).sum()) / max(1.0, float((p_ink & zone).sum()))
@@ -376,6 +464,55 @@ def compare(c: dict, port: dict, mask: np.ndarray | None, rgba: np.ndarray, geo:
             turned = oc.decode_dx(flat[::-1, ::-1], port["mm_per_px"])
             out.append(("DX code", got is None and turned is None,
                         f"none on this film; read {got}" + ("" if turned is None else f", turned {turned}")))
+    return out
+
+
+def leak_compare(c: dict, port: dict, e) -> list[tuple[str, bool, str]]:
+    """A leak (PRD-D §3.3), as the app sends it: it moves nothing of the film's layout; it is light on the
+    picture; and -- the film edge off, the leak sending the overscan seeds itself -- the same leak falls in the
+    same place of the picture as with the film edge on, so it does not move when the film edge goes on."""
+    out: list[tuple[str, bool, str]] = []
+    img = np.full((c["frame_h"], c["frame_w"], 3), 0.184, np.float32)
+    wire = port.get("wire", {})
+
+    def render(w: dict) -> tuple[np.ndarray, dict | None]:
+        s = e.open(img, engine_params(c, w))
+        try:
+            rgba, _ = s.render("full")
+            geo = s.overscan_geometry() if w.get("overscan_active") else None
+        finally:
+            s.close()
+        return rgba[..., :3].astype(np.float64).mean(-1) / 65535.0, geo
+
+    no_leak = {k: v for k, v in wire.items() if not k.startswith("leak_")}
+    lit, geo = render(wire)
+    dark, geo0 = render(no_leak)
+    out.append(("leak layout", geo is not None and geo == geo0, "the gate and canvas with and without the leak"))
+    # the leak's own light: a stop over the frame's grey somewhere, and none of it negative
+    diff = lit - dark
+    out.append(("leak light", float(diff.max()) > 0.02, f"brightest {float(diff.max()):.3f} over {float(np.median(dark)):.3f}"))
+    if c["format"] != "135":
+        return out
+    # the film edge off: the picture the leak falls on, with the app's own seeds
+    app_off = port["wire_edge_off"]
+    same_seeds = all(app_off.get(k) == wire.get(k) for k in ("overscan_camera_seed", "overscan_frame_seed", "overscan_frame_number"))
+    out.append(("leak seeds", same_seeds and app_off.get("overscan_format") == "135",
+                f"film edge off sends {[app_off.get(k) for k in ('overscan_format', 'overscan_camera_seed', 'overscan_frame_seed')]}"))
+    lit_off, _ = render(app_off)
+    dark_off, _ = render({k: v for k, v in app_off.items() if not k.startswith("leak_")})
+    d_off = lit_off - dark_off
+    # the gate's box on the film edge's canvas, and the leak in it, at the bare frame's size
+    H, W = diff.shape
+    g = np.array(geo["gates"][0]).reshape(4, 2) * [W, H]
+    x0, x1, y0, y1 = int(round(g[:, 0].min())), int(round(g[:, 0].max())), int(round(g[:, 1].min())), int(round(g[:, 1].max()))
+    inside = diff[y0:y1, x0:x1]
+    ys = np.linspace(0, inside.shape[0] - 1, d_off.shape[0]).round().astype(int)
+    xs = np.linspace(0, inside.shape[1] - 1, d_off.shape[1]).round().astype(int)
+    on = inside[np.ix_(ys, xs)]
+    a, b = on.ravel() - on.mean(), d_off.ravel() - d_off.mean()
+    corr = float((a @ b) / max(1e-12, np.sqrt((a @ a) * (b @ b))))
+    out.append(("leak edge off", float(d_off.max()) > 0.02 and corr > 0.9,
+                f"film edge off: brightest {float(d_off.max()):.3f}; the same leak as on, correlation {corr:.3f}"))
     return out
 
 
@@ -443,8 +580,9 @@ def main() -> int:
 
     todo = cases()
     if a.self_test:
-        # a date on Kodak's layout, and Ilford's: the one layout whose code lies turned
-        todo = [c for c in todo if c["id"] in ("135_date_lcd_br", "135_ilford_hp5_plus_400")]
+        # a date on Kodak's layout, and Ilford's: the one layout whose code lies turned; and 135 Full Width, whose
+        # holes and edge print lie in the picture (a keyholed 120 has no print or code for most of the trials)
+        todo = [c for c in todo if c["id"] in ("135_date_lcd_br", "135_ilford_hp5_plus_400", "135_sprocket_kodak_gold_200")]
     elif a.only:
         want = set(a.only.split(","))
         todo = [c for c in todo if c["id"] in want]
@@ -464,13 +602,40 @@ def main() -> int:
         for c in todo:
             cid = c["id"]
             port = json.loads((a.out / "port" / f"{cid}.json").read_text())
+            if c.get("leak"):
+                if not a.self_test:
+                    for name, ok, detail in leak_compare(c, port, e):
+                        failures += 0 if ok else 1
+                        rows.append(f"{'PASS' if ok else 'FAIL'}  {cid:34s} {name:14s} {detail}")
+                continue
             img = np.full((c["frame_h"], c["frame_w"], 3), 0.184, np.float32)
-            s = e.open(img, engine_params(c, port.get("wire", {})))
+            wire = port.get("wire", {})
+            # No lens falloff on any format (the owner, 2026-11-11: "the default vignette is too much" -- Edit ›
+            # 镜头 › 暗角 is the only vignette): the app sends `overscan_falloff` with every film edge, at 0, so an
+            # engine's default never leaks in. Rendered on the app's own wire, and on 135 Full Width -- where it was
+            # 1, ~2.6 EV at the ends -- the flat grey picture is as bright near its ends as in its middle.
+            falloff = wire.get("overscan_falloff")
+            s = e.open(img, engine_params(c, wire))
             try:
                 rgba, _ = s.render("full")           # the frame as given: the live tier would scale it
                 geo = s.overscan_geometry()
             finally:
                 s.close()
+            if not a.self_test and falloff is not None:
+                ok = float(falloff) == 0.0
+                detail = f"sent {float(falloff):g}"
+                if ok and c["format"] == "135_sprocket":
+                    lum = rgba[..., :3].mean(-1) / 65535.0
+                    H0, W0 = lum.shape
+                    mid = (slice(H0 // 2 - 8, H0 // 2 + 8), slice(W0 // 2 - 8, W0 // 2 + 8))
+                    ends = [(slice(H0 // 2 - 8, H0 // 2 + 8), slice(int(W0 * f), int(W0 * f) + 16)) for f in (0.06, 0.93)] \
+                        if W0 >= H0 else [(slice(int(H0 * f), int(H0 * f) + 16), slice(W0 // 2 - 8, W0 // 2 + 8)) for f in (0.06, 0.93)]
+                    centre = float(lum[mid].mean())
+                    ratios = [float(lum[x].mean()) / max(centre, 1e-6) for x in ends]
+                    ok = min(ratios) > 0.97
+                    detail += ", ends " + " and ".join(f"{r:.3f}" for r in ratios) + " of the middle"
+                failures += 0 if ok else 1
+                rows.append(f"{'PASS' if ok else 'FAIL'}  {cid:34s} {'no falloff':14s} {detail}")
             H, W = rgba.shape[:2]
             raw = a.out / "port" / f"{cid}.gray"
             mask = None

@@ -286,7 +286,7 @@ struct PairPiecePanel: View {
                 title(L("Date Back")).baseline(Y.rows[1])
                 PillMenu(label: PairWords.backSummary(pair, back),
                          rows: [.init(option: Back.off, title: L("Off"))]
-                            + DateBackFace.allCases.map { face in
+                            + DateBackFace.dateFaces.map { face in
                                 .init(option: .face(face), title: face.label, detail: Self.detail(face),
                                       refused: face == .data && !pair.wearsFilmEdge ? L("Prints between frames: it needs Film Edge") : nil)
                             },
@@ -357,6 +357,7 @@ struct PairPiecePanel: View {
         case .lcd: L("Each frame's date, seven segments")
         case .dots: L("Each frame's date, in dots")
         case .data: L("Each frame's shutter and aperture, between frames")
+        case .perfs: L("Shooting data between the holes")
         }
     }
 

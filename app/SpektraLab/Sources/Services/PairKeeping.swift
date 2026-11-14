@@ -47,6 +47,8 @@ extension AppServices {
         if let existing, let was = library.frame(existing), was.isPair {
             let session = openSession(existing)
             let before = session?.historySnapshot()
+            // With no page open, the frame's state before, for its history's step (the door, PRD-F §3.3).
+            let door = session == nil ? historyRevision(existing) : nil
             let guide = PairGuide.write(pair, frames: frames, id: existing, in: folder)
             library.update(existing) { f in
                 f.pair = pair
@@ -66,6 +68,7 @@ extension AppServices {
             } else {
                 library.update(existing) { $0.edit = look }
                 queue(existing)
+                if let door { recordStep(existing, before: door, origin: .flow, label: nil) }
             }
             // On the Mac a pair is a row of the library, pointing at its file in the app's storage (`MacPairRows.swift`).
             macLibrary.pairKept(existing)
@@ -138,6 +141,8 @@ extension AppServices {
     /// fill the holes in the library's own order, the look is the first
     /// frame's (`PairStart.make`), and a frame given alone is the first hole.
     /// Returns the pair's id, or nil where neither is a photograph of the library.
+    /// A piece made of photographs — a pair, and since 2026-11-07 a double
+    /// exposure (`isComposite`, RFC-047 §6; PRD 2 §9) — is not one to put in a hole.
     ///
     /// `beginsWithFirst`: the pair began with `first` alone and was then asked
     /// for its second frame (the sheet, H2) — `first` is what the pair is of,
@@ -151,11 +156,11 @@ extension AppServices {
             // From a half frame's Film Edge: the first hole is the half frame, as it was
             // framed, with its film edge; the second frame fills the other.
             made = PairStart.make(.halfFrame(first), library: library)
-            if let second, let frame = library.frame(second), !frame.isPair { made.pair.right = PairStart.hole(for: frame) }
+            if let second, let frame = library.frame(second), !frame.isComposite { made.pair.right = PairStart.hole(for: frame) }
         } else if beginsWithFirst, let first {
             // The frame the pair began with is its first, whichever comes first in the library.
             made = PairStart.make(.new(first: first, second: nil), library: library)
-            if let second, let frame = library.frame(second), !frame.isPair { made.pair.right = PairStart.hole(for: frame) }
+            if let second, let frame = library.frame(second), !frame.isComposite { made.pair.right = PairStart.hole(for: frame) }
         } else {
             made = PairStart.make(.new(first: first, second: second), library: library)
         }
@@ -183,6 +188,8 @@ extension AppServices {
         guard let item = library.frame(id), let was = item.pair else { return }
         let session = openSession(id)
         let historyBefore = session?.historySnapshot()
+        // With no page open (a swap from the grid), the state before, for the history's step (PRD-F §3.3).
+        let door = session == nil ? historyRevision(id) : nil
         var pair = was
         var look = session?.edit ?? item.edit
         mutate(&pair, &look)
@@ -217,6 +224,7 @@ extension AppServices {
         } else {
             library.update(id) { $0.edit = look }
             queue(id)
+            if let door { recordStep(id, before: door, origin: .develop, label: nil) }
         }
         if pair != was { macLibrary.pairKept(id) }
     }
@@ -231,7 +239,7 @@ extension AppServices {
     /// there and is composed again when the finger rests. The photograph's own
     /// kept picture is made again by `keepDecode` when the finger lifts.
     func changeDecode(of side: HalfFramePair.Side, in pairID: LibraryFrame.ID, _ mutate: (inout DecodeSettings) -> Void) {
-        guard let hole = library.frame(pairID)?.pair?[side], let held = library.frame(hole.frame), !held.isPair else { return }
+        guard let hole = library.frame(pairID)?.pair?[side], let held = library.frame(hole.frame), !held.isComposite else { return }
         var decode = held.edit.decode
         mutate(&decode)
         guard decode != held.edit.decode else { return }
@@ -247,7 +255,7 @@ extension AppServices {
     /// again, in the one queue. It reads the camera's own white balance again
     /// too, for a frame put back to As Shot (`readAsShot`).
     func keepDecode(of side: HalfFramePair.Side, in pairID: LibraryFrame.ID) {
-        guard let hole = library.frame(pairID)?.pair?[side], let held = library.frame(hole.frame), !held.isPair else { return }
+        guard let hole = library.frame(pairID)?.pair?[side], let held = library.frame(hole.frame), !held.isComposite else { return }
         queue(held.id)
     }
 

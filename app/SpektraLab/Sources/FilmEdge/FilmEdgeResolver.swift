@@ -15,6 +15,7 @@
 
 import CoreGraphics
 import Foundation
+import ImageIO
 
 extension DevicePolicy {
     /// The largest film canvas a film edge develops at, in megapixels.
@@ -195,12 +196,16 @@ enum FilmEdgeResolver {
     /// The date's words for a frame: its capture date, or its shooting data.
     static func dateText(_ back: DateBackSettings, frame: LibraryFrame) -> String {
         if let custom = back.customText { return custom }
-        return back.style == .data ? ShootingLine.dataText(frame.exposure)
-                                   : DateBackSettings.dateText(frame.captureDate, order: back.order)
+        switch back.style {
+        case .data: return ShootingLine.dataText(frame.exposure)
+        case .perfs: return PerforationLine.of(frame)
+        case .lcd, .dots: return DateBackSettings.dateText(frame.captureDate, order: back.order)
+        }
     }
 
     static func dateRequest(_ back: DateBackSettings, edge: FilmEdgeSettings, frame: LibraryFrame) -> DateRequest? {
-        guard back.effective(filmEdge: edge) else { return nil }
+        // Perforation Data is the engine's to lay out (API-SPEC §21.2): the app's own layout does not draw it.
+        guard back.effective(filmEdge: edge), back.style != .perfs else { return nil }
         let text = dateText(back, frame: frame)
         guard !text.isEmpty else { return nil }
         // The data line beside a date face, as the wire sends it (`DateBackSettings.wire`).
@@ -226,12 +231,13 @@ enum FilmEdgeResolver {
 
         var active = edge
         active.active = true
-        var request = FilmEdgeRequest(format: edge.format, mode: edge.mode, gate: edge.gate, holes: edge.holes,
+        var request = FilmEdgeRequest(format: edge.format, mode: edge.view, gate: edge.gate, holes: edge.holes,
                                       cameraSeed: edge.cameraSeed > 0 ? edge.cameraSeed : bodySeed,
                                       frameSeed: edit.frameSeed, frameNumber: edge.frameNumber, turn: edge.turn,
                                       frame: cut, stockID: edit.params.filmStock, edgeText: stock?.edgeText(gauge: edge.format.gauge) ?? "",
                                       fNumber: ShootingLine.fNumber(frame.exposure),
-                                      date: dateRequest(edit.dateBack, edge: active, frame: frame))
+                                      date: dateRequest(edit.dateBack, edge: active, frame: frame),
+                                      perforation: edge.perforation.on(edge.format))
         guard var geometry = source.geometry(request) else { return nil }
         // The budget scales the picture, never the film alone.
         if geometry.out.megapixels > budgetMP {
@@ -261,5 +267,38 @@ extension LibraryFrame {
     func displaySizeUnder(_ geometry: Geometry) -> PixelSize {
         let out = geometry.outputSize(for: CGSize(width: originalSize.width, height: originalSize.height))
         return PixelSize(width: Int(out.width), height: Int(out.height))
+    }
+}
+
+extension PerforationLine {
+    /// The file's own EXIF, read once a file (the frame's develop source) and kept for the run: ExposureProgram,
+    /// MeteringMode and ExposureBiasValue are read here, beside the shutter and aperture, the first time the photo
+    /// is developed with the line — which is when it opens. A frame with no file says nothing.
+    static func of(_ frame: LibraryFrame) -> String {
+        guard let url = frame.developSource else { return "" }
+        return read(url).text
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var kept: [String: PerforationLine] = [:]
+
+    static func read(_ url: URL) -> PerforationLine {
+        let key = url.standardizedFileURL.path
+        lock.lock()
+        if let line = kept[key] { lock.unlock(); return line }
+        lock.unlock()
+        var line = PerforationLine()
+        if let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+           let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] {
+            func number(_ k: CFString) -> Double? { (exif[k] as? NSNumber)?.doubleValue }
+            line.exposureProgram = (exif[kCGImagePropertyExifExposureProgram] as? NSNumber)?.intValue
+            line.meteringMode = (exif[kCGImagePropertyExifMeteringMode] as? NSNumber)?.intValue
+            line.seconds = number(kCGImagePropertyExifExposureTime)
+            line.fNumber = number(kCGImagePropertyExifFNumber)
+            line.biasEV = number(kCGImagePropertyExifExposureBiasValue)
+        }
+        lock.lock(); kept[key] = line; lock.unlock()
+        return line
     }
 }

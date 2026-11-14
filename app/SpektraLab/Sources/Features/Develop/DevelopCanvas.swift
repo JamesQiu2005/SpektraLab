@@ -150,6 +150,10 @@ struct DevelopCanvas: View {
             let centre = CGPoint(x: area.width / 2 + offset.width, y: area.height / 2 + offset.height)
             let shown = CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2,
                                width: size.width, height: size.height)
+            #if DEBUG
+            // The page's canvas as drawn, for the transitions case's state-leak rows (`MacTransitionsCheck.leaks`).
+            let _ = allowsOriginalHold ? (Self.probe = Probe(frame: frame.id, zoom: zoom, offset: offset, stamp: developed?.stamp)) : ()
+            #endif
             ZStack {
                 Theme.background
                 printCropped(size: size, pointSize: max(fit.width, fit.height) * min(decodeZoom, decodeCap(fit: fit)))
@@ -175,6 +179,12 @@ struct DevelopCanvas: View {
             #if DEBUG
             .onReceive(NotificationCenter.default.publisher(for: MacDriver.zoomHundred)) { note in
                 changeZoom(to: (note.object as? Bool) == true ? hundred : 1, fit: fit, area: area, hundred: hundred)
+            }
+            // The transitions case's pan (`MacTransitionsCheck.leaks`): the picture moved by this much, as a drag leaves it.
+            .onReceive(NotificationCenter.default.publisher(for: Self.checkPan)) { note in
+                if let by = note.object as? CGSize {
+                    offset = clamped(CGSize(width: offset.width + by.width, height: offset.height + by.height), zoom: zoom, fit: fit, area: area)
+                }
             }
             #endif
             .simultaneousGesture(drag(area: area, fit: fit))
@@ -209,6 +219,51 @@ struct DevelopCanvas: View {
             })
             .overlay {
                 if let piece, !showsSplit { PieceFrame(marks: piece, picture: shown).allowsHitTesting(false) }
+            }
+            // The neutral-grey eyedropper (`NeutralPick`): while one is out a click on the picture is its, and the
+            // line under the picture says what to do, then what it found.
+            .overlay {
+                if let session = model.openSession(frame.id), session.neutralPick != nil, !showsSplit {
+                    Color.clear.contentShape(Rectangle())
+                        .gesture(SpatialTapGesture().onEnded { tap in
+                            guard shown.width > 1, shown.height > 1 else { return }
+                            session.pickNeutral(at: CGPoint(x: (tap.location.x - shown.minX) / shown.width,
+                                                            y: (tap.location.y - shown.minY) / shown.height))
+                        })
+                        // The pointer is the eyedropper over the picture (the owner, 2026-11-11), set again at
+                        // every move since UIKit sets its own; the arrow back when it leaves or is put away.
+                        .onContinuousHover { phase in
+                            if case .active(let p) = phase, shown.contains(p) { MacCursor.eyedropper() } else { MacCursor.arrow() }
+                        }
+                        .onDisappear { MacCursor.arrow() }
+                        .accessibilityIdentifier("neutral.canvas")
+                }
+            }
+            // The mask tools over the picture (MASKS-SPEC §6; `MaskStage`): the overlay, the mask alone, a gradient's
+            // handles, the brush's cursor and the pointer, through the view's one matrix to S. The page's canvas only, a
+            // single photograph's, while the picture is the develop (not the original, not Compare's split).
+            .overlay {
+                if FeatureFlags.maskLayers, allowsOriginalHold, !showsSplit, !displaysOriginal,
+                   let session = model.openSession(frame.id), session.neutralPick == nil, LayerRules.takesMasks(session.layerPiece),
+                   let toS = maskViewMatrix {
+                    MaskStage(session: session, frameID: frame.id, source: frame.originalSize, shown: shown, area: area, toS: toS)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if let session = model.openSession(frame.id), session.neutralPick != nil || session.neutralNote != nil {
+                    Text(session.neutralPick != nil ? L("Click a neutral grey in the picture") : (session.neutralNote ?? ""))
+                        .font(Theme.Font.ui(12, .medium)).padding(.horizontal, 10).padding(.vertical, 6)
+                        .foregroundStyle(Color.white)
+                        .background(.black.opacity(0.7), in: Capsule())
+                        .padding(.bottom, 14)
+                        .allowsHitTesting(false)
+                        .task(id: session.neutralNote) {
+                            // A result stays a few seconds; the instruction stays while the eyedropper is out.
+                            guard session.neutralPick == nil, let note = session.neutralNote, note != L("Measuring the grey…") else { return }
+                            try? await Task.sleep(for: .seconds(4))
+                            if session.neutralNote == note { session.neutralNote = nil }
+                        }
+                }
             }
             .overlay {
                 if showsSplit {
@@ -268,7 +323,7 @@ struct DevelopCanvas: View {
             }
             #if SPK_ENGINE
             // Past the preview's pixels: the render at full size, the part on screen of it.
-            .task(id: DetailKey(zoom: zoom, offset: offset, area: area, adjustments: edit.adjustments,
+            .task(id: DetailKey(zoom: zoom, offset: offset, area: area, adjustments: edit.adjustments, layers: edit.layers,
                                 ready: fullView?.state == .ready, moving: pinchBase != nil || dragBase != nil,
                                 showsOriginal: displaysOriginal)) {
                 guard let fullView, pinchBase == nil, dragBase == nil else { return }
@@ -324,6 +379,19 @@ struct DevelopCanvas: View {
     }
 
     // MARK: the picture
+
+    /// The cut picture's normalised coordinates → S (RFC-052 §3's third row, `MaskFrame.view`): Edit's crop of the
+    /// finished canvas as `cut` draws it, then the finished canvas → S (`AppServices.finishedToSource`). The zoom is the
+    /// picture's rect itself (`shown`), so it is the identity here. Nil where the finished canvas has no map to S.
+    private var maskViewMatrix: MaskMatrix? {
+        var mapped = edit, printCrop = edit.printCrop
+        #if DEBUG
+        (mapped, printCrop) = MaskStageProbe.breaking(edit)      // `--masks-check-break`'s; nothing outside a check
+        #endif
+        guard let finished = model.finishedToSource(frame, edit: mapped) else { return nil }
+        let base = DevelopedFrameView.finishedSize(frame: frame, edit: edit, model: model, developed: developed)
+        return MaskFrame.view(finished: finished, printCrop: printCrop, finishedSize: base)
+    }
 
     private var originalKey: String {
         if let pair = frame.pair {
@@ -382,7 +450,7 @@ struct DevelopCanvas: View {
     @ViewBuilder private func developedPicture(pointSize: CGFloat) -> some View {
         let base = DevelopedFrameView(frame: frame, edit: edit, pointSize: pointSize, developed: developed, cropsPrint: false)
         Group {
-            if edit.adjustments.isActive, let live = model.openSession(frame.id)?.layer2, live.picture != nil {
+            if edit.editPassActs, let live = model.openSession(frame.id)?.layer2, live.picture != nil {
                 Layer2Picture(live: live, pointSize: pointSize) { base }
             } else {
                 base
@@ -392,7 +460,7 @@ struct DevelopCanvas: View {
         .overlay {
             // The part on screen of the render at full size, where it is of the edit as it stands — in HDR where
             // the frame's look is, and then never shown before its HDR is made (`HDRPlacedImage`).
-            if let d = fullView?.detail, d.adjustments == edit.adjustments, zoom > 1.01 {
+            if let d = fullView?.detail, d.adjustments == edit.adjustments, d.layers?.key == detailLayers?.key, zoom > 1.01 {
                 HDRPlacedImage(image: GamutProof.shared.proofed(d.image, gamutProof), rect: d.rect)
                     .allowsHitTesting(false)
             }
@@ -401,6 +469,9 @@ struct DevelopCanvas: View {
         // The frame's Enable HDR, on every picture of the develop drawn here (`HDRImage`): its
         // session's curve, as the engine said it with the develop (`OpenFrameSession.hdr`). The original is never HDR.
         .environment(\.hdrLook, HDRLook.of(edit, model.openSession(frame.id)?.hdr))
+        #if DEBUG && SPK_ENGINE
+        .environment(\.pageCanvas, allowsOriginalHold)
+        #endif
     }
 
     #if SPK_ENGINE
@@ -413,6 +484,7 @@ struct DevelopCanvas: View {
         var offset: CGSize
         var area: CGSize
         var adjustments: Adjustments
+        var layers: LocalLayers?
         var ready: Bool
         var moving: Bool
         var showsOriginal: Bool
@@ -460,8 +532,11 @@ struct DevelopCanvas: View {
         guard !rect.isNull, rect.width > 0, rect.height > 0 else { return nil }
         let pixels = PixelSize(width: max(1, Int((rect.width * perUnit.width).rounded(.up))),
                                height: max(1, Int((rect.height * perUnit.height).rounded(.up))))
-        return FullView.Ask(rect: rect, pixels: pixels, adjustments: edit.adjustments)
+        return FullView.Ask(rect: rect, pixels: pixels, adjustments: edit.adjustments, layers: detailLayers)
     }
+
+    /// The edit's 成片 layers as the zoom's pass takes them (`AppServices.finishedLayers`, memoised there).
+    private var detailLayers: FinishedLayers? { edit.editPassActs ? model.finishedLayers(frame, edit: edit) : nil }
     #endif
 
     /// The picture's shape: the film's canvas when it wears a film, else the
@@ -682,6 +757,15 @@ struct DevelopCanvas: View {
         decodeZoom = min(Self.decodeStep(z), top)
     }
 }
+
+#if DEBUG
+extension DevelopCanvas {
+    /// The page's canvas as last drawn: its frame, zoom, pan and the develop it was handed (`MacTransitionsCheck.leaks`).
+    struct Probe { var frame: UUID; var zoom: CGFloat; var offset: CGSize; var stamp: String? }
+    @MainActor static var probe: Probe?
+    static let checkPan = Notification.Name("spk.check.pan")
+}
+#endif
 
 /// A half-frame pair on the develop page's picture: where each of its frames
 /// is, which layer is picked, and what a touch picks (design/pair v2).

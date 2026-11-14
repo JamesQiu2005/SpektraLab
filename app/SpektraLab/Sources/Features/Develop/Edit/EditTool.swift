@@ -46,12 +46,33 @@ enum EditTool: String, CaseIterable, Codable, Sendable, Identifiable {
 }
 
 /// Adjust's tiles, in the strip's order: Litti's list (亮度 对比度 色调 HSL 通道
-/// 色轮 鲜艳度 饱和度 色温 曲线, without its 褪色), then Vignette, which Layer 2
-/// had and Litti's list has not. Each is a part of `Adjustments`: what it holds
-/// is `isNeutral(in:)`, and its 🗑 is `reset(_:)`.
+/// 色轮 鲜艳度 饱和度 色温 曲线, without its 褪色), then **镜头 Lens** (PRD-D §3.4, 2026-11-11): every lens effect in
+/// one section — the vignette, moved here from its own tile unchanged (Layer 2's `Adjustments.vignette`, its wire
+/// and its saved key), and the 柔光镜 and 像差, which are on the negative and re-develop (`FrameEdit.lens`). Each
+/// tool but Lens is a part of `Adjustments`: what it holds is `isNeutral(in:)`, and its 🗑 is `reset(_:)`; Lens's
+/// own reach past Layer 2 is `isAtRest(in:lens:)` and `PageResetScope.lens`.
+///
+/// The vignette's own tile is gone: a saved column order (`edit.adjust.order`) that names `vignette` drops it as
+/// a word this build does not know (`order(from:)`), and Lens takes its place at the end.
 enum AdjustTool: String, CaseIterable, Codable, Sendable, Identifiable {
-    case brightness, contrast, tone, hsl, channel, wheels, vibrance, saturation, temperature, curve, vignette
+    case brightness, contrast, tone, hsl, channel, wheels, vibrance, saturation, temperature, curve, lens
     var id: String { rawValue }
+
+    /// A saved order read leniently: a word this build does not know (the retired `vignette`) is dropped, a repeat
+    /// is dropped, and a tool the list does not name keeps its place at the end.
+    static func order(from raw: [String]) -> [AdjustTool] {
+        var kept: [AdjustTool] = []
+        for word in raw {
+            if let t = AdjustTool(rawValue: word), !kept.contains(t) { kept.append(t) }
+        }
+        return kept + allCases.filter { !kept.contains($0) }
+    }
+
+    /// Whether its section holds nothing, Lens's settings on the negative counted (`AdjustTool.isAtRest(in:)` sees
+    /// Layer 2 alone).
+    func isAtRest(in a: Adjustments, lens: LensSettings) -> Bool {
+        isAtRest(in: a) && (self != .lens || lens.isAtRest)
+    }
 
     var title: String {
         switch self {
@@ -65,7 +86,7 @@ enum AdjustTool: String, CaseIterable, Codable, Sendable, Identifiable {
         case .saturation: L("Saturation")
         case .temperature: L("Temperature")
         case .curve: L("Curve")
-        case .vignette: L("Vignette")
+        case .lens: L("Lens", as: "the edit section")
         }
     }
 
@@ -82,14 +103,14 @@ enum AdjustTool: String, CaseIterable, Codable, Sendable, Identifiable {
         case .saturation: "rainbow"
         case .temperature: "thermometer.medium"
         case .curve: "point.topleft.down.to.point.bottomright.curvepath"
-        case .vignette: "circle.dashed.inset.filled"
+        case .lens: "camera.metering.center.weighted"
         }
     }
 
     /// The group of Layer 2 it is part of: Copy Settings', the log's and the status line's word.
     var group: Adjustments.Tool {
         switch self {
-        case .brightness, .contrast, .tone, .vignette: .light
+        case .brightness, .contrast, .tone, .lens: .light
         case .curve: .curve
         case .hsl, .channel, .wheels, .vibrance, .saturation, .temperature: .colour
         }
@@ -106,7 +127,7 @@ enum AdjustTool: String, CaseIterable, Codable, Sendable, Identifiable {
         case .vibrance: [.vibrance]
         case .saturation: [.saturation]
         case .temperature: [.temperature, .tint]
-        case .vignette: [.vignette, .vignetteMidpoint]
+        case .lens: [.vignette, .vignetteMidpoint]
         case .hsl, .channel, .wheels, .curve: []
         }
     }
@@ -118,7 +139,7 @@ enum AdjustTool: String, CaseIterable, Codable, Sendable, Identifiable {
         case .channel: a.channelMixer.isNeutral
         case .wheels: a.colorBalance.isNeutral
         case .curve: a.curves.isIdentity
-        case .vignette: a.vignette.isNeutral
+        case .lens: a.vignette.isNeutral
         default: controls.allSatisfy { !$0.isMoved(in: a) }
         }
     }
@@ -138,7 +159,7 @@ enum AdjustTool: String, CaseIterable, Codable, Sendable, Identifiable {
         case .channel: a.channelMixer = ChannelMixer()
         case .wheels: a.colorBalance = ColorBalance()
         case .curve: a.curves = CurveSet()
-        case .vignette: a.vignette = Vignette()
+        case .lens: a.vignette = Vignette()
         default: for control in controls { a[control] = control.rest }
         }
     }

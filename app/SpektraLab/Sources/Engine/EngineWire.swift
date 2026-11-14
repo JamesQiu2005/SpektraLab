@@ -95,6 +95,8 @@ struct FilmWire: Equatable, Sendable {
     /// The body a film edge with none of its own is shot through
     /// (`AppSettings.bodySeed`).
     var bodySeed = 1
+    /// `leak_rate`: 1 for one picture, a quarter for a batch export (`LeakSettings.rateBatch`).
+    var leakRate = LeakSettings.rateAlone
 
     init(edgeText: String = "", fNumber: Double = 0, dateText: String = "", bodySeed: Int = 1) {
         self.edgeText = edgeText
@@ -201,6 +203,10 @@ extension FrameEdit {
         if edge.cameraSeed == 0 { edge.cameraSeed = film.bodySeed }
         for field in edge.wire(edgeText: film.edgeText, frameSeed: frameSeed, fNumber: film.fNumber) { wire[field.name] = field.value }
         for field in dateBack.wire(text: film.dateText, filmEdge: filmEdge, dataText: film.dataText) { wire[field.name] = field.value }
+        // PRD-D (`LensEdge.swift`): the frame's leak, with the overscan seeds it reads when the film edge is off, and
+        // the lens in front of it. A frame's own develop only (`film` given): never a stock card's or a meter's.
+        for field in leakWire(bodySeed: film.bodySeed, rate: film.leakRate) { wire[field.name] = field.value }
+        for field in lens.wire { wire[field.name] = field.value }
         return wire
     }
 }

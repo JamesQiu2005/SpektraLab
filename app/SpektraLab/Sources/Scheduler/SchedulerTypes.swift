@@ -244,12 +244,80 @@ struct RenderJob: Identifiable, Equatable, Sendable {
     /// second time, by the engine's `scan_hdr`, holding the first result beside it, and makes the map of
     /// the two (`CostModel`: + 9 B a pixel, a render's time more).
     let hdrRendition: Bool
+    /// **A frame the host composes from more than one decode** before the
+    /// engine opens it: a double exposure's (RFC-048 §5). Its open decodes each
+    /// picture in turn — Core Image's caches cleared between them — into one
+    /// piece, beside one scratch band: so it is priced as **the sum of the
+    /// decodes' times and the largest of their peaks, and the scratch**, and
+    /// learned apart (`CostModel.key`, "double"). Nil for a photograph and for
+    /// a pair, whose open is priced as it always was. Told by the darkroom when
+    /// the job is submitted (`RenderScheduler.composition`).
+    let composition: Composition?
+    /// **A photograph's open below the full tier decodes a RAW file itself** — no proxy of it is here to
+    /// read (`RawProxy`) — which is priced as the RAW's decode (`CostModel`, `RawOpen`) and learned apart
+    /// (`CostModel.key`, "|raw"): a first open, where a later one reads the proxy for a tenth of it. False for
+    /// anything else, which is priced as it always was.
+    let rawDecode: Bool
+    /// **PRD-E's 场景 layers the job hands the engine**, and their planes' bytes (RFC-052 §8.5): each a 16-bit plane of
+    /// the source at most 4,096 px long, 22 MB at most (21.3 MB measured at 4,096 × 2,731), held by the host beside the
+    /// render. 0 for a job with none. Priced by `CostModel`.
+    let scenePlanes: Int
+    let scenePlaneBytes: UInt64
     let submitted: Date
+
+    /// What a composed open decodes, as the cost model prices it.
+    struct Composition: Equatable, Sendable {
+        /// The size each picture's decode is priced by, in the order they are
+        /// decoded (`decode(tier:own:original:longEdge:isRAW:)`): at the full
+        /// tier the decode's own size (`PieceAsk.longEdge`) — a RAW's whole, as
+        /// Core Image holds it — below it the original's, as `original` is for
+        /// a photograph.
+        var decodes: [PixelSize]
+        /// The scratch band the pictures are rendered into, held beside the
+        /// piece through the open (`PieceAdder.scratchBytes`: 64 MB and a row
+        /// at most, one band of 4 MP at 16 B a pixel).
+        var scratchBytes: UInt64
+        /// Whether any of its pictures is a RAW, which Core Image decodes whole and scales after: its
+        /// open is priced dearer below the full tier and learned apart (`CostModel.key`, "|raw"):
+        /// with one correction for both, a HEIF's lower peaks would teach the model to price the RAW's under.
+        var raw = false
+
+        /// **The size one picture's decode is priced by** (`Darkroom.note`
+        /// hands the scheduler this, picture by picture): what the decoder
+        /// holds while it makes the picture, not what it hands over.
+        ///
+        /// - Below the full tier: the photograph's original — the decoder may
+        ///   hold it while it makes the small one, as `RenderJob.original`
+        ///   says of a photograph.
+        /// - At the full tier, decoded whole (`longEdge` nil): its own size.
+        /// - At the full tier, **made smaller** (`longEdge` set — a 48 MP bottom
+        ///   under a 12 MP top makes a ~12 MP frame, `DoubleExposure.frameSize`):
+        ///   a HEIF or a JPEG is reduced by ImageIO, which does not hold the
+        ///   original (140-194 MB to open from 12 or from 48 MP, EngineBench
+        ///   2026-10-03), so the size it is made at; **a RAW is decoded whole
+        ///   by Core Image and scaled after** (`RawExposure.prepare`, "never by
+        ///   `scaleFactor`", FrameDecoder.swift), which holds the original
+        ///   while it works (438-588 MB from 48 MP, the same bench), so its own
+        ///   size. Priced by the scaled size, a 48 MP ProRAW's open was a
+        ///   12 MP decode's — about 0.2-0.35 GB under — and the planner sized
+        ///   its bands against that (the 10-12 failure: a plan that believed
+        ///   the wrong size; the 2026-11-07 review).
+        ///
+        /// `own` is the size the photograph is developed from
+        /// (`LibraryFrame.developSize`), `original` its original's.
+        static func decode(tier: RenderTier, own: PixelSize, original: PixelSize, longEdge: Int?,
+                           isRAW: Bool) -> PixelSize {
+            guard tier == .full else { return original }
+            guard let longEdge, longEdge < own.longEdge, !isRAW else { return own }
+            return own.scaled(toLongEdge: longEdge)
+        }
+    }
 
     init(id: UUID = UUID(), frameID: UUID, kind: JobKind, tier: RenderTier, canvas: PixelSize,
          layers: Set<ParamLayer> = [], what: String = "", decodesOriginal: Bool = false, bandable: Bool = true,
          original: PixelSize? = nil, printLayers: Int = 0, opens: PixelSize? = nil, slot: String? = nil,
-         gainMap: Bool = false, gainMaps: Int = 1, hdrRendition: Bool = false, submitted: Date = Date()) {
+         gainMap: Bool = false, gainMaps: Int = 1, hdrRendition: Bool = false, composition: Composition? = nil,
+         rawDecode: Bool = false, scenePlanes: Int = 0, scenePlaneBytes: UInt64 = 0, submitted: Date = Date()) {
         self.id = id; self.frameID = frameID; self.kind = kind; self.tier = tier; self.canvas = canvas
         self.layers = layers; self.what = what; self.decodesOriginal = decodesOriginal; self.bandable = bandable
         self.original = original
@@ -259,7 +327,20 @@ struct RenderJob: Identifiable, Equatable, Sendable {
         self.gainMap = gainMap
         self.gainMaps = gainMaps
         self.hdrRendition = hdrRendition
+        self.composition = composition
+        self.rawDecode = rawDecode
+        self.scenePlanes = max(scenePlanes, 0)
+        self.scenePlaneBytes = scenePlaneBytes
         self.submitted = submitted
+    }
+
+    /// The same job, its open composed of these decodes (`composition`).
+    func composed(_ composition: Composition?) -> RenderJob {
+        RenderJob(id: id, frameID: frameID, kind: kind, tier: tier, canvas: canvas, layers: layers, what: what,
+                  decodesOriginal: decodesOriginal, bandable: bandable, original: original, printLayers: printLayers,
+                  opens: opens, slot: slot, gainMap: gainMap, gainMaps: gainMaps, hdrRendition: hdrRendition,
+                  composition: composition, rawDecode: rawDecode, scenePlanes: scenePlanes, scenePlaneBytes: scenePlaneBytes,
+                  submitted: submitted)
     }
 
     /// A reprint reuses the cached negative; anything else develops it.

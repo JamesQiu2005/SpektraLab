@@ -231,6 +231,7 @@ struct FilmPainter {
               let out = correctedContext.createCGImage(made, from: frame) else { return image }
         let result = UIImage(cgImage: out, scale: image.scale, orientation: .up)
         correctedCache.setObject(Corrected(source: image, made: result), forKey: key)
+        correctedCount = min(correctedCount + 1, correctedCache.countLimit)
         return result
     }
 
@@ -244,7 +245,20 @@ struct FilmPainter {
         c.countLimit = 8
         return c
     }()
-    nonisolated(unsafe) private static let correctedContext = CIContext()
+    /// Its own results are cached above (`correctedCache`), so Core Image keeps no intermediates of its own
+    /// (until 2026-11-13 it did, and they were never cleared: DIAG-2026-11-13 Part 2 item 4).
+    nonisolated(unsafe) private static let correctedContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// How many corrected pictures are kept, for the check (`MemoryRelease.counts`).
+    nonisolated(unsafe) private(set) static var correctedCount = 0
+
+    /// The host is short of memory (`MemoryRelease`): the corrected pictures go, and the context's caches.
+    @MainActor static func releaseCorrected() {
+        correctedCache.removeAllObjects()
+        correctedContext.clearCaches()
+        correctedCount = 0
+        MemoryRelease.tally("corrected_pictures")
+    }
 
     /// The crop tool's own marks on the gate: its frame, thirds and brackets.
     private func drawHandles(_ c: inout GraphicsContext, toCanvas: CGAffineTransform, hair: CGFloat) {

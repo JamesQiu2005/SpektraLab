@@ -25,7 +25,26 @@ bool Pipeline::set_overscan_frame(uint32_t, uint32_t, std::string& error) {
 // not link. Overscan is refused here, so there is never a layout to report.
 std::string Pipeline::overscan_geometry_json() const { return "{\"valid\":false}"; }
 
+// API-SPEC §21.5-§21.6: the lens pass (`lens.cpp`) dispatches Metal kernels
+// only, so it is refused here rather than run on kernels Vulkan lacks.
+bool Pipeline::film_lens_wanted() const {
+    return params_.camera.diffusion_filter.active || params_.camera.lens_aberrations.active;
+}
+
+bool Pipeline::lens_source(const Params& params, const Image& src, bool, Image& out, std::string& error,
+                           bool, const Image*) {
+    params_ = params;
+    out = src;
+    if (!film_lens_wanted()) return true;
+    error = "the lens (diffusion filter, aberrations) is not implemented by the Windows Vulkan backend yet";
+    return false;
+}
+
 bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
+    if (params_.film_render.leak.kind != "off") {   // API-SPEC §21.1: the overscan node's
+        error = "light leaks are not implemented by the Windows Vulkan backend yet";
+        return false;
+    }
     if (params_.film_render.overscan.active || params_.film_render.date_imprint.active) {
         error = windows_unported_error(false, false, false, params_.film_render.overscan.active,
                                         params_.film_render.date_imprint.active);
@@ -41,6 +60,13 @@ bool Pipeline::node_overscan_film_present(const Image& in, Image& out, std::stri
 
 bool Pipeline::node_overscan_light(const Image& in, Image& out, std::string& error) {
     return node_overscan(in, out, error);
+}
+
+// RFC-052 §6.4: the 场景 layers' kernel is Metal only. `windows_unported_error`
+// refuses a stamp at build; this is the node's own backstop.
+bool Pipeline::node_scene_layers(const Image&, Image&, std::string& error) {
+    error = "scene layers are not implemented by the Windows Vulkan backend yet";
+    return false;
 }
 
 bool Pipeline::contrast_mask_wanted() const { return params_.print_render.contrast_mask.active; }

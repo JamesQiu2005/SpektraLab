@@ -1,0 +1,94 @@
+"About %@"
+约 %@
+約 %@
+約 %@
+
+File size
+文件大小
+檔案大小
+ファイルサイズ
+
+"For %@, the picture shown"
+按当前显示的 %@ 估算
+依目前顯示的 %@ 估算
+表示中の %@ の場合
+
+Separator
+分隔符
+分隔符號
+区切り文字
+
+File name
+文件名
+檔案名稱
+ファイル名
+
+Space
+空格
+空格
+スペース
+
+A file name needs at least one part
+文件名至少需要一个部分
+檔案名稱至少需要一個部分
+ファイル名には少なくとも 1 つの要素が必要です
+
+"Leave %@ out of the name"
+从文件名中去掉%@
+從檔案名稱中移除%@
+ファイル名から%@を外す
+
+"Put %@ in the name"
+将%@加入文件名
+將%@加入檔案名稱
+ファイル名に%@を入れる
+
+Move Earlier
+前移
+前移
+前へ移動
+
+Move Later
+后移
+後移
+後ろへ移動
+
+Naming
+命名
+命名
+名前の付け方
+
+Keyboard
+键盘
+鍵盤
+キーボード
+
+Space bar
+空格键
+空白鍵
+スペースバー
+
+In Develop and Edit, Space shows the original: while it is held, or each press switching between the original and the develop.
+在冲洗和编辑中，空格键显示原始图像：按住时显示，或每按一次在原始图像与成片之间切换。
+在沖洗和編輯中，空白鍵顯示原始影像：按住時顯示，或每按一次在原始影像與成品之間切換。
+現像と編集では、スペースキーで元画像を表示します。押している間だけ表示するか、押すたびに元画像と仕上がりを切り替えます。
+
+"For example: %@"
+示例：%@
+範例：%@
+例：%@
+
+Original Name
+原文件名
+原檔案名稱
+元のファイル名
+
+Hold to show the original
+按住显示原始图像
+按住顯示原始影像
+押している間、元画像を表示
+
+Press to switch
+按一下切换
+按一下切換
+押すたびに切り替え

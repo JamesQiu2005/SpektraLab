@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1164" height="724" viewBox="0 0 1164 724">
+<defs><image id="sfff675c37d" width="11.0" height="8.0" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAgCAYAAABpRpp6AAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAAEgAAAAAQAAASAAAAABAAKgAgAEAAAAAQAAACygAwAEAAAAAQAAACAAAAAAW2WheQAAAAlwSFlzAAAsSwAALEsBpT2WqQAAA9BJREFUWAntV11oFFcUPueO+dGoJSB9KpZoZmd/sinWCOJDUfDBPwS1VRG1BMSSF9s89KEvtlCxhT4oSosvoqCi+Isg/r34IqViVJLsJDO70RBaBKnVFtdqdp05nms0+zN3JuNu9Gkv7HLud875zjf3njs/ALVRW4HaCrzXFUC/aplM/1xwYD5o+Wu6/unffnGTgd/v6ZmWbWpYJoBGWmPtt4I4lYIzg/2LCfEKJ9bz7yEI+iwSSQ4GEVXqG+nrax6tE9cBIT7GQV2RaPKAH59QOQjwZ8alWDlmgSvOWZY1Y2w6ef9EhLl6cawgVnLjbqKTml8VpWAmmFeaQIaAF4dKsepnaSv1PQEsL2Nqtm1jdhk2PlULBvhzPKJgrEtb/d8WptVZtm0uR8SdChbXcab4nhkfwbRfQcSQ+GnISi1R+8KjltXbgkTHOMNzhrgdDyUSiawfm1KwbrTtA6CL3iTSXIATmUzvR15fOGR4eLhRkHaGo5sVGRaB1q3AxyGlYN4qasjRZo66Nx5ZMD4kV5wyTfPNoSx4Qlj50exv3jPyKvEJobsmGo0+CaJRCpYJH7e3PyaEtbxrzzwEhAvrNNjrwScA0oPmdubrVIYRdBpGu6X0FYG+gmWMYbT1IrpfFcUXmdRl26mtRUCgybELAIlbTTXwl0isTbbJhCNQsMzWjeQRJPhVxYSEB1jIJypfMWbb9izmOM1YQzEubb6tXdMN87ty3G8+oWCZ+N/T591M/LuXhKaykLPyaeX1jSH8cBDo5o7zbLYi5i+h5TYgrncUPiUUSnBHR0eeYMoXfFgeKFjmjNbjUfnUUvhgKD3wIyAuVfhyIPDzt31PCSVYFuPTex9QrGfzhbc4rmBhO8vxjGWu5gvx2W76OhJJ3CjPmWiuXJWgpIyV+obbY48ixuUXplWGkbgkfUOm2epq0MNd+oEnFuFwxGhT3y08waXAWwuW6enB1HFuj42lVK9mj11w5s/M5h88nT71DwJKemII7tQ1Ni1qaWl57vGFAEK3RDHXs5yzjQWbxdhru1k+xbJNjQeVYgEeOaCtrVSsrFHRCsvEuwMDuiPopnLLZYB3uAJwZWs0cdnrCo9UtMKSfm48nuGr/ZJNbulQ44dqxcoqFQuWyXo0cZ43abe0AwfCBd1I7AqMCemsSrCsoRtxeTu7GlDvbl19fot8oQqICe2qWjALcR3SNrGaEUXV/10gPmTz/lX4KoKqFiyrxmKxf4Qr+M0OSm5VCLg9Gk32VaTMJ2lSBEtuPR6/TSjWsSk/rx4B4Q7ucflVURu1FXiXK/ASMQIffXb2o1QAAAAASUVORK5CYII="/><image id="sa65bd92827" width="13.0" height="5.0" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAAAUCAYAAADC1B7dAAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAAEgAAAAAQAAASAAAAABAAKgAgAEAAAAAQAAADSgAwAEAAAAAQAAABQAAAAA/oVp3AAAAAlwSFlzAAAsSwAALEsBpT2WqQAAAlNJREFUWAntVb1rFEEUf2+T271NbpeAiJ2dhSgWdkERkyLgRyuK2FgJNvoHaOF/YKVYiSCKWCgIgjZp/IBYWJhCLCxsFI+QuLt3M7Mm83wrtzBmPoyt7MIw734fs/fe25kB6J6uAl0Fugr8zxVAX3JUFLtUjOeB4GCEMNZAy0mSPUNE8nlMnIjiWo7OING8RogioHe9fvaI/WNTF4qlrJYi0EuaMAfCj5saHgwGg28hj5OT8scpJcoNHrRtvKmqao/TZIBKlfvZ92mbt1nrSz0aHTakzpDW1+dqUb60/VWlxuU5p2kCWh1SqjoEmlaYTzzGt3F/cMTXKaJhVsv+Knv3uvzc3mGyCQcwy4YuvsGUKJ4D4AkPv8XdPt5L81cuPrJAouuM+ZJp5PPcgdOWbwIokV7i0JlMI+EK7q6n4epEbk0/RXE0kEyjnyLAG5ZxAjgSgkWfuMUjQK8GUS+0usDs1WhAL9eux10+xnt0qv1tznZCADOmwBVrgtSFNxgC/tXPB01AswM/wDS/Knb9B0dC9MEl/ANDaPaI+6EA1zpCftiBH+Az72HRLmfOVkIIcNsUWDHCRlLTQwufAPwh3OFwy8c3eETkfUfcn33Ckq8hPxHe8vFWQnGa3wWgex6DJNAXMM/XPDzwXbVKCFeY991X13oz+Wufv7mn+BQ7y3zl1CA8TdLZm04uBNaiuMjH5wrfBWMea0qWj38f6SGTwQlRLrDvBY+CR8n3yrKUo5OGJBjyXbiPffelKL/zLPj972tZXubDwGpCcKGO7CrQVeCfKvALvU0Xi5u7Y3QAAAAASUVORK5CYII="/><image id="s8cf6317af6" width="19.0" height="14.0" href="data:image/png;base64,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"/><image id="sd4b037f9bf" width="17.0" height="12.0" href="data:image/png;base64,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"/><clipPath id="c1"><rect x="46.00" y="67.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#16264a"/><stop offset="0.55" stop-color="#6b5a7a"/><stop offset="0.74" stop-color="#e0935a"/><stop offset="0.75" stop-color="#1b2a45"/><stop offset="1" stop-color="#0c1322"/></linearGradient><image id="sd61a9f3b05" width="17.0" height="12.0" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEQAAAAwCAYAAACooNxlAAAAAXNSR0IArs4c6QAAAGxlWElmTU0AKgAAAAgABAEaAAUAAAABAAAAPgEbAAUAAAABAAAARgEoAAMAAAABAAIAAIdpAAQAAAABAAAATgAAAAAAAAEgAAAAAQAAASAAAAABAAKgAgAEAAAAAQAAAESgAwAEAAAAAQAAADAAAAAArnAuawAAAAlwSFlzAAAsSwAALEsBpT2WqQAACb1JREFUaAXtWn9sVdUdP9/zbl9bC4UtygYGoaPvR/taumklQRRE3RbDGL8SJC4xmDkX5tz8gVMGyf5wGgZbHFuCGZtDsl91KCpElqmRibgYhmy1fb9bnyK1GeIyKVDavnvOPqfllXfvPfde2j7cP+8kLz3n++uc+7nf8/1+z7llrNzKCJQRKCNQRqCMwKVCgC6VYT+78Xg8aBhGrZTnJgcCRrVp5vuJqvo4532hUGjAT/9S8T8VQJLJ5GzOzEVEcj5jFMHDhPGb4fpQxP7NJMtgcWlB7LAQgdcbGhoyrvIlZFwyQNLpzmu5YGvwQKswyawSrLkXYL5I0myrjza/QUSiBDYdJkoKCLbBJIOztZzkvXLECxwTlohwXEraLhjfAc/5uEQ2h82UBJBUKjWZ5NCDRPw+xuSUMS5Qvel+/Krx42PTJaW3gwIDj4VCV380Nl299IQAkVLyTCa+jiT9CEBcoZ9ilHoaXnOISTrIicXzkqeEEB82NjaegfvDlKREIlGDoDrDIBEVksXgaTdA5wZYmDRqRd/pA3krBSq3TDQgjxsQxIgWkmwHFjJPv8Zh6mnI7MED/+mD3hOvLl68OO8hq2UdOHDAmDl92i2C5BoE2lUQ8gCH0ozT3eFw40GtsYsgjhkQ9Sazqc4HGdHjsF/hMscxSbTNMPqfmjOn9RMXGaZiTiXRbGHIGtM0zxIF34tGo+pta1t395Ep+Xz1N+FP34fAVVohuCroW3t6P9o4nhcwJkByuX9OzQ9U/BEz3uqymBPYEj8eEuxXsVhsUCeTi8c/P8jlOk60QjLZBBnrGrCd8EjPC2Y8CXA+1NlQNUwFZ99mJDeBP00nA95bQlascrOh1QHRuhg3KdC74vF6EZD70I1qxAQR286Nc5vcPCKXy1UNDZz5IXQfwK9GY8NGIhRq4udVl/U9OnPmdSp4OpryGDFY9Zgktg5MXUA+ji20NByO/cuh7EK4KEBG4gW94hI4u7mUd9Q3NP/dZQ6GYDnd4OIF8L3ijYu6PEoBsSwUajnuIsC6kh3X4Y38DvwvaGT6sH2XRCKxNzQ8B8kXkK7kO9cI4gCDfcauTYyeGTTZXdgep+28wrirq32amQ8cxkSzCrRx/D2eF3weMhKKM31T8SgYYL/BNrxNI3EWcWdJqKH5bxqeheQJSHciETK5fFPjGYJJ+XC4ofmnFmu2gdrrwYB8DTFngY01nuFhpNWFfmk1k+p4CJHgJ5jA/mynsH0W+W0f3b4bXqwKoCYXf9GAMQjPuM0PDGXEMNh3SwSGMjePicH7VcerhaPNW9X6IGMP6rVMyJfe7ej4nJe+KyBD54K/h+Icm/KAJL4iFI09a6M7hirgwU03OhgTIEjJHoHXfdbPBNa3m3G5EnL2U/OMfAW1qYLSzYaWgSD6LaStJTYltU1uj0Qa99vo2qHIV30DDN/FwwOPQm43PPxtrSELUU7BFrzDQnIZhMPNLyF9qzXYD4E3ZtOd97qoOVOV2iqoLtUetLcN2CZ77ES3MUrvpW688/T/CEY3w8WvCUebVoejsVaS4kbwTvro+dkdVQ83ND2HQKJSva3Ro+l0+nIbcXjo8JChgQqFnj2jvIxFb9EZcKNhIZ4pFvv8zmg09lqxfqhh7utIkZ4egJh0bbGOX78+EtuCqvoVm5w6jKpq19EcgEDidpsUinWhVbbJjQ7b29tV4eWxXagH+3zvqEJRB/UCAjk7VkSydycrL7YT3cbq4MhG1g8sixqxNUWj0a4GEJo1yh3u0MlIZG7KSvMeBYPBKm8JqS3JL+hQz4W+pnfWz75VB/EkCcrHFqrUn4U0gMgOiyKO9Tjif9FK8x7hWK8OaNY3YlUJHTlyRHswVKdbqKprRtd2Kp93PQDqlLLZ+JdAt8YMiTOTpukA2WmXIyF/Zqd5jdXBDmh4uf3U2ppK7Ta8cvrl98C2x3ZjvS0tLWe85i/mqdO5MDXrJ7mrWK7QdwAyZPLfIgXmCgLqLx7upkyyY30xza9PTB7ylCG+OZPq3KRu25ScKr3TyfgGzO1Z/ULU265tUqTY9Qjwi61k6qmu6dthpY2MIOts2WTHVxDt/2rlkIlCa0WooUmdeH1bNhVfhnOFOtD5tSGAcAKwXwHBoJ8wstPq4cLLTxB8rOHreJkoFWSgWFwVl6intGtzeIhSxCHoZSzyF8VGlFGA9Ewmk7jFSteP6iON+7B4WzzSyiKWyCvB8QUDMqn6SPyiaqFMouPLAKPNDgbGO93AUKvTAqIYp073r0dlelD1LzRZzYTYp97+BZq+pz4T4BPEw3ru+Kh4sxuIVpt+2ul0YjkOckjrWK+lyaMVlZO+YyHZBq6AtLa2DlUOyeUw2mnTqcJW2INrxPtsdMdwpKagbQ7GuAj0pNebLZhEzLgfFe9zGNtSP+UqTL6krq7uXEFW91cbQ4oFEfRm4KsbKkpNKpSsTZBxt9c9qJR/DmTSjaqE9vWq4nmtfbm/p/fkMq87UhWcA8z8tct9yAfcpJvqY7Euq13nyBcQpaIueUQ+oMrfuU4T7D28kbWq7NbwhknqdJlNJzYD1IfcZNzptC0UieObj/tWySbfWYTt9DRszHbaoZxg+Zuj0RZL5nTKjVAuChAlms1ma5k50IZAdavGGMjyaW6IR+rrW5Ax9C2djl+PQhpnIvWN17f9A1ntB163XCMvigNoWgtrzmfBRTPH9aPXmuyrcBqxSxSNlftn042Pg6TetEaXPsFl8xOMB5/AzdapIlVLN5XqXBCQbCWy1ny4eB0MTYI1FFsyh1v7txjnz3t9Wxl+Obgsguc9AMO1FuOjA7lTBVC/mDEqfr6jeSi7iHOcTXZ+FVcsu1Cxud0+/Rdnqqckye3h8Nx3nRbGR0ml2us4M5Al5F2wMNXFSh/S/TrUKn9w4XuSxwWIsqhurioCAlUl3ekxg7pUOiQZ320ItndOLHbMQ1bL6o7Hr8obcimOD6txjL8eQq6ZEby9FDDv8bqh105SRBw3IAUbKNQWojbZirHn/YeSR6B5X5X0uApMcOIZk0ncoss+w+Rn8wFxGcBFpqDpQoowtl4jxgugNlvp+rQkvGIDvOJFHzlf9oQBKcyAs85KxIGNeIirC7RP4W8WAG+ujyR3eWWhsayjZIAUJj3vMd/D+Gv4VRbopftLqFTlq7hE/mUo1LR/+AKodMZ1maI01oc/TA9WLYfrr4LXLMRDTJmAZWQg9ia84QUWGHq2VP8LoltPyT1EN4kqzLq6Ei34LjIf1xMRpNow9nwdQFIpE8d/wplD9qOPDMHUp8f3EUQzuPtLswA73NNz4m2vKlU3Z5lWRqCMQBmB/wcC/wNEc2pVftu6LwAAAABJRU5ErkJggg=="/><clipPath id="c3"><rect x="46.00" y="97.00" width="30.00" height="20.00" rx="3.00"/></clipPath><linearGradient id="g4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e6dfd2"/><stop offset="1" stop-color="#b3aa9a"/></linearGradient></defs>
+<rect x="0.00" y="0.00" width="1164.00" height="724.00" fill="#08090B"/>
+<text x="24.00" y="682.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="14" font-weight="600" fill="#F9F7F3">28 · 面板的构造与尺寸（2×；单位 = 冲洗页的点，100 % 界面下 1 = 0.9625 Mac 点）</text>
+<text x="24.00" y="702.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="400" fill="#898989">卡片与直方图同一个壳：Theme.plot、圆角 12、距栏边 12。行高 30（28.9 Mac 点，HIG 中号侧栏行 28）；新增文字不小于 11.5（11.07 Mac 点），唯一更小的是 ValueSlider 自带的 10.5 副标签。</text>
+<text x="1140.00" y="682.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="500" fill="#6D6D6B" text-anchor="end">28-anatomy</text>
+<rect x="24.00" y="24.00" width="1116.00" height="620.00" fill="#1A1D22" rx="10.00"/>
+<g transform="translate(64,80) scale(2)">
+<rect x="0.00" y="-8.00" width="393.00" height="200.00" fill="#1A1D22"/>
+<rect x="393.00" y="-8.00" width="1.00" height="200.00" fill="#0E1013"/>
+<rect x="12.00" y="0.00" width="369.00" height="172.50" fill="#22262C" rx="12.00"/>
+<use href="#sfff675c37d" x="27.00" y="12.00"/>
+<text x="46.00" y="20.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="600" fill="#F9F7F3">图层</text>
+<circle cx="360.00" cy="16.00" r="11.00" fill="#30343B"/>
+<use href="#sa65bd92827" x="353.50" y="13.50"/>
+<use href="#s8cf6317af6" x="51.50" y="40.00"/>
+<text x="84.00" y="51.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">胶片</text>
+<rect x="18.00" y="63.00" width="357.00" height="28.00" fill="#FFFFFF" rx="6.00"/>
+<use href="#sd4b037f9bf" x="23.50" y="71.00" opacity="0.75"/>
+<g clip-path="url(#c1)">
+<rect x="46.00" y="67.00" width="30.00" height="20.00" fill="url(#g2)"/>
+<rect x="46.13" y="79.38" width="1.40" height="2.52" fill="#0f1730"/>
+<rect x="46.50" y="79.88" width="0.67" height="1.39" fill="#f1c27b" opacity="0.55"/>
+<rect x="47.80" y="77.53" width="1.40" height="4.37" fill="#0f1730"/>
+<rect x="49.47" y="78.71" width="1.40" height="3.19" fill="#0f1730"/>
+<rect x="49.83" y="79.35" width="0.67" height="1.76" fill="#f1c27b" opacity="0.55"/>
+<rect x="51.13" y="75.35" width="1.40" height="6.55" fill="#0f1730"/>
+<rect x="51.50" y="76.66" width="0.67" height="3.60" fill="#f1c27b" opacity="0.55"/>
+<rect x="52.80" y="78.04" width="1.40" height="3.86" fill="#0f1730"/>
+<rect x="54.47" y="79.04" width="1.40" height="2.86" fill="#0f1730"/>
+<rect x="54.83" y="79.62" width="0.67" height="1.57" fill="#f1c27b" opacity="0.55"/>
+<rect x="56.13" y="76.69" width="1.40" height="5.21" fill="#0f1730"/>
+<rect x="56.50" y="77.73" width="0.67" height="2.86" fill="#f1c27b" opacity="0.55"/>
+<rect x="57.80" y="79.63" width="1.40" height="2.27" fill="#0f1730"/>
+<rect x="59.47" y="77.20" width="1.40" height="4.70" fill="#0f1730"/>
+<rect x="59.83" y="78.14" width="0.67" height="2.59" fill="#f1c27b" opacity="0.55"/>
+<rect x="61.13" y="74.34" width="1.40" height="7.56" fill="#0f1730"/>
+<rect x="61.50" y="75.85" width="0.67" height="4.16" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.80" y="78.37" width="1.40" height="3.53" fill="#0f1730"/>
+<rect x="64.47" y="78.88" width="1.40" height="3.02" fill="#0f1730"/>
+<rect x="64.83" y="79.48" width="0.67" height="1.66" fill="#f1c27b" opacity="0.55"/>
+<rect x="66.13" y="76.36" width="1.40" height="5.54" fill="#0f1730"/>
+<rect x="66.50" y="77.46" width="0.67" height="3.05" fill="#f1c27b" opacity="0.55"/>
+<rect x="67.80" y="79.30" width="1.40" height="2.60" fill="#0f1730"/>
+<rect x="69.47" y="77.87" width="1.40" height="4.03" fill="#0f1730"/>
+<rect x="69.83" y="78.67" width="0.67" height="2.22" fill="#f1c27b" opacity="0.55"/>
+<rect x="71.13" y="77.03" width="1.40" height="4.87" fill="#0f1730"/>
+<rect x="71.50" y="78.00" width="0.67" height="2.68" fill="#f1c27b" opacity="0.55"/>
+<rect x="72.80" y="79.46" width="1.40" height="2.44" fill="#0f1730"/>
+<rect x="74.47" y="78.54" width="1.40" height="3.36" fill="#0f1730"/>
+<rect x="74.83" y="79.21" width="0.67" height="1.85" fill="#f1c27b" opacity="0.55"/>
+<rect x="62.05" y="68.60" width="0.36" height="6.00" fill="#f1c27b" opacity="0.5"/>
+</g>
+<text x="84.00" y="81.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="600" fill="#0F0E0E">上层</text>
+<text x="365.00" y="81.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#0F0E0E" text-anchor="end" style="font-variant-numeric: tabular-nums" opacity="0.85">60 %</text>
+<use href="#sd61a9f3b05" x="23.50" y="101.00" opacity="0.75"/>
+<g clip-path="url(#c3)">
+<rect x="46.00" y="97.00" width="30.00" height="20.00" fill="url(#g4)"/>
+<circle cx="61.00" cy="104.20" r="3.80" fill="#1d1a18"/>
+<path d="M52.3,117.0 C52.6,109.4 56.8,108.4 61.0,108.4 C65.2,108.4 69.4,109.4 69.7,117.0 Z" fill="#1d1a18"/>
+</g>
+<text x="84.00" y="111.55" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13" font-weight="500" fill="#F9F7F3">下层</text>
+<text x="365.00" y="111.20" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12" font-weight="500" fill="#898989" text-anchor="end" style="font-variant-numeric: tabular-nums">40 %</text>
+<rect x="26.00" y="128.00" width="341.00" height="0.50" fill="#3A3F47"/>
+<text x="69.75" y="147.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="13.5" font-weight="600" fill="#F9F7F3" text-anchor="end">平衡</text>
+<text x="69.75" y="160.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="10.5" font-weight="500" fill="#898989" text-anchor="end">上层占比</text>
+<rect x="77.75" y="147.00" width="219.25" height="3.00" fill="#3A3F47"/>
+<rect x="186.88" y="143.00" width="1.00" height="11.00" fill="#DAD8D4" opacity="0.55"/>
+<rect x="210.28" y="139.00" width="9.00" height="19.00" fill="#FFFFFF" rx="3.00"/>
+<rect x="305.00" y="136.50" width="62.00" height="24.00" fill="#30343B" rx="6.00"/>
+<text x="360.00" y="152.88" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="12.5" font-weight="600" fill="#F9F7F3" text-anchor="end" style="font-variant-numeric: tabular-nums">60 %</text>
+</g>
+<line x1="64.00" y1="60.00" x2="88.00" y2="60.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="64.00" y1="57.00" x2="64.00" y2="63.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="88.00" y1="57.00" x2="88.00" y2="63.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="76.00" y="56.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">12</text>
+<line x1="88.00" y1="42.00" x2="826.00" y2="42.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="88.00" y1="39.00" x2="88.00" y2="45.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="826.00" y1="39.00" x2="826.00" y2="45.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="457.00" y="38.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">369 (393 − 2 × 12)</text>
+<line x1="826.00" y1="60.00" x2="850.00" y2="60.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="826.00" y1="57.00" x2="826.00" y2="63.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="850.00" y1="57.00" x2="850.00" y2="63.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="838.00" y="56.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">12</text>
+<line x1="866.00" y1="80.00" x2="866.00" y2="144.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="80.00" x2="869.00" y2="80.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="144.00" x2="869.00" y2="144.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="871.00" y="115.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">标题 32</text>
+<line x1="866.00" y1="144.00" x2="866.00" y2="204.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="144.00" x2="869.00" y2="144.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="204.00" x2="869.00" y2="204.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="871.00" y="177.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">行 30（选中胶囊 28，圆角 6）</text>
+<line x1="866.00" y1="204.00" x2="866.00" y2="264.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="204.00" x2="869.00" y2="204.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="264.00" x2="869.00" y2="264.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="871.00" y="237.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">30</text>
+<line x1="866.00" y1="264.00" x2="866.00" y2="324.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="264.00" x2="869.00" y2="264.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="324.00" x2="869.00" y2="324.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="871.00" y="297.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">30</text>
+<line x1="866.00" y1="324.00" x2="866.00" y2="336.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="324.00" x2="869.00" y2="324.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="336.00" x2="869.00" y2="336.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="871.00" y="333.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">6</text>
+<line x1="866.00" y1="337.00" x2="866.00" y2="417.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="337.00" x2="869.00" y2="337.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="417.00" x2="869.00" y2="417.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="871.00" y="380.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">平衡 40（ValueSlider）</text>
+<line x1="866.00" y1="417.00" x2="866.00" y2="425.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="417.00" x2="869.00" y2="417.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="863.00" y1="425.00" x2="869.00" y2="425.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="871.00" y="424.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">4</text>
+<line x1="1016.00" y1="80.00" x2="1016.00" y2="425.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="1013.00" y1="80.00" x2="1019.00" y2="80.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="1013.00" y1="425.00" x2="1019.00" y2="425.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="1021.00" y="255.80" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">多重曝光 172.5</text>
+<line x1="1016.00" y1="425.00" x2="1016.00" y2="437.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="1013.00" y1="425.00" x2="1019.00" y2="425.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="1013.00" y1="437.00" x2="1019.00" y2="437.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="1021.00" y="434.30" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff">下方 6</text>
+<line x1="88.00" y1="463.00" x2="100.00" y2="463.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="88.00" y1="460.00" x2="88.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="100.00" y1="460.00" x2="100.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="94.00" y="474.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">6</text>
+<line x1="108.00" y1="463.00" x2="148.00" y2="463.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="108.00" y1="460.00" x2="108.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="148.00" y1="460.00" x2="148.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="128.00" y="474.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">眼睛 20</text>
+<line x1="156.00" y1="463.00" x2="216.00" y2="463.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="156.00" y1="460.00" x2="156.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="216.00" y1="460.00" x2="216.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="186.00" y="474.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">缩略图 30 × 20</text>
+<line x1="216.00" y1="485.00" x2="232.00" y2="485.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="216.00" y1="482.00" x2="216.00" y2="488.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="232.00" y1="482.00" x2="232.00" y2="488.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="224.00" y="496.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">8</text>
+<line x1="794.00" y1="463.00" x2="814.00" y2="463.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="794.00" y1="460.00" x2="794.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="814.00" y1="460.00" x2="814.00" y2="466.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="804.00" y="474.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">10</text>
+<line x1="814.00" y1="485.00" x2="826.00" y2="485.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="814.00" y1="482.00" x2="814.00" y2="488.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<line x1="826.00" y1="482.00" x2="826.00" y2="488.00" stroke="#7fb6ff" stroke-width="0.75"/>
+<text x="820.00" y="496.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="9.5" font-weight="600" fill="#7fb6ff" text-anchor="middle">6</text>
+<text x="64.00" y="533.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="400" fill="#DAD8D4">标题：chevron.down 10 semibold（收起时转 −90°）· 「图层」13 semibold · ⋯ 为 22 的圆钮（距卡片右缘 10）</text>
+<text x="64.00" y="552.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="400" fill="#DAD8D4">行：眼睛 eye 11 medium · 缩略图按比例放进 30 × 20、圆角 3 · 名称 13 medium（选中 semibold）· 右端 12 medium 等宽数字</text>
+<text x="64.00" y="571.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="400" fill="#DAD8D4">「胶片」行：缩略图位置是 SF Symbol film 13；没有眼睛。半格组的行没有眼睛，位置空着留给以后。</text>
+<text x="64.00" y="590.00" font-family="-apple-system, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif" font-size="11.5" font-weight="400" fill="#DAD8D4">高度：收起或单张 32 · 半格组 128 · 多重曝光 172.5 · 空着一层时去掉平衡、加一行说明（+28.3）。面板下方 6，面板上方即直方图下方的 6。</text>
+</svg>

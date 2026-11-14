@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | **Status** | The binary is in the repository, and the 2.0 app embeds and launches it (§9). This document is the contract the 2.0 library work builds against. |
-| **Binary** | `vendor/spklib/macos/spklib-host`, `spklib 0.3.1+f236e03b4c8e (abi 1, schema 3)`, built by `./build.sh release` from the public tag [`v0.3.1`](https://github.com/JamesQiu2005/SpektraLab_library/releases/tag/v0.3.1). SHA-256 `9e14546ff99ee3d956a20a9d235c013b1b852a29aae03ace8be0231d3a0ea9d7`, also in `spklib-host.sha256` beside it. |
+| **Binary** | `vendor/spklib/macos/spklib-host`, `spklib 0.4.0+f4aced84f483 (abi 1, schema 3)`, built by `./build.sh release` from SpektraLab_library `f4aced8`, the public tag [`v0.4.0`](https://github.com/JamesQiu2005/SpektraLab_library/releases/tag/v0.4.0). SHA-256 `b171e61d9abda38008f105fceb010bb17468f2b4091be05423c5a795dead026c`, also in `spklib-host.sha256` beside it. |
 | **Platform** | Universal (arm64 + x86_64), macOS 13.0 or later (the app needs 15.0). Stripped, ad-hoc signed. |
 | **Source** | [JamesQiu2005/SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) (public, MIT). Built there by `./build.sh release`, at the tag named above. |
 | **Licence** | MIT (the SDK repository's `LICENSE`). It is a separate program that SpektraLab starts and talks to over pipes; this repository carries the built binary, not its source. |
-| **Date** | 2026-10-18; 0.2.0 on 2026-10-23 (the Mac's library data layer, `app/SpektraLab/MAC-LIBRARY-DATA.md`); 0.2.1 on 2026-10-24 (an import into a Capture One mirror is a Recent Imports album, under a row of SpektraLab's); **0.3.0** on 2026-10-24 (`capture_one.copy`, `capture_one.update`, `images.add recent_import_at`, `library.info.copied_from`; schema 3, and a 0.2.x helper refuses a library 0.3.0 has opened); **0.3.1** on 2026-10-25 (`images.remove`, and the kind `pair` for a half-frame pair's `.spektrapair`; schema 3 unchanged, so a 0.3.0 helper still opens the same libraries and calls such a row `other`). The SDK's `API-SPEC.md` at the published tag is authoritative for them |
+| **Date** | 2026-10-18; 0.2.0 on 2026-10-23 (the Mac's library data layer, `app/SpektraLab/MAC-LIBRARY-DATA.md`); 0.2.1 on 2026-10-24 (an import into a Capture One mirror is a Recent Imports album, under a row of SpektraLab's); **0.3.0** on 2026-10-24 (`capture_one.copy`, `capture_one.update`, `images.add recent_import_at`, `library.info.copied_from`; schema 3, and a 0.2.x helper refuses a library 0.3.0 has opened); **0.3.1** on 2026-10-25 (`images.remove`, and the kind `pair` for a half-frame pair's `.spektrapair`; schema 3 unchanged, so a 0.3.0 helper still opens the same libraries and calls such a row `other`); **0.4.0** on 2026-11-13 (`variant.delete`, and a variant's own keys in filters and facets, §4; PRD-G, variants). The SDK's `API-SPEC.md` at the published tag is authoritative for them |
 
 SpektraLab 2.0 manages libraries the way Capture One does: catalogs, sessions, albums, folders,
 variants, ratings and colour tags. It can also open an existing Capture One catalog. All of that lives
@@ -89,6 +89,7 @@ Contents/Helpers/spklib-host --store ~/Library/Application\ Support/SpektraLab/L
 | `not_found` | Missing image, variant, collection, library or folder |
 | `invalid_params` | The request is wrong; a bug in the app |
 | `read_only` | The target is Capture One's; offer to do it in a SpektraLab album instead |
+| `last_variant` | `variant.delete` of an image's last present variant (0.4.0): the image goes by Move to Trash instead |
 | `conflict` | `edit.put` was based on an old revision (`data.revision` is the current one), or a different catalog now sits at the linked path |
 | `source_busy` | Capture One is writing; try again shortly |
 | `unsupported` | A catalog schema the helper cannot read (the message lists what is missing), a Capture One session (probe only in 2.0), or Capture One smart-album criteria |
@@ -126,7 +127,8 @@ stale. `sdk.methods` lists the table from the binary itself. *L* means the metho
 | `meta.set` | L | `variants[]` or `images[]`, `rating` 0–5 or null, `color_tag` 0–7 or null | `updated`. null hands the value back to Capture One |
 | `images.trash` | L | `images[]`, `trashed` true, false or null | `updated`. A flag only; no file moves |
 | `images.remove` | L | `images[]` | `removed`, `refused[] {image, code}`: forgets rows whose file is gone (`file_present` while it is there, `read_only` for Capture One's), with their variants, edits and album places; never a file. The app uses it for a half-frame pair's row once it has deleted the pair's file (0.3.1) |
-| `variant.create` | L | `image`, `from_variant`? | `variant`, `position`, `edit_copied`: a second print from one negative |
+| `variant.create` | L | `image`, `from_variant`? | `variant`, `position`, `edit_copied`: a second print from one negative. The position is one past the highest left (0.4.0: positions are never renumbered) |
+| `variant.delete` | L | `variant` | `{variant, image, deleted: true, files_moved: false}` (0.4.0). See below |
 | `images.add` | L | `items[]` (a path, or `{path, metadata}`), `mode` (`reference` or `copy`), `collection`? | `results[] {image, variant, existing, stored_at?, error?}`, `recent_import`? (the import's album; in a Capture One mirror, under a Recent Imports row of SpektraLab's, 0.2.1). Never overwrites |
 | `collection.create` / `update` / `delete` / `add` / `remove` | L | `kind`, `name`, `parent`, `criteria` (smart albums use the `images.list` filter), `images[]` | SpektraLab collections only. Capture One's answer `read_only` |
 | `images.facets` | L | the `images.list` scope (`collection`, `recursive`, `filter`, `include_trashed`) | `total`, counts per `rating`, `color_tag`, `kind`, `captured {years, months, days, undated}`, `camera`, `lens`, `keyword`, `edited`, `undescribed`; each facet without its own filter keys (0.2.0) |
@@ -145,6 +147,33 @@ Filter keys: `min_rating`, `max_rating`, `ratings[]`, `color_tags[]`, `kinds[]` 
 album's import time), gives SpektraLab's own catalogs and sessions their fixed rows (root, All Images,
 Recent Imports, Trash, In Catalog) with a Recent Imports album per import, and migrates a library to
 schema 2 when it is opened: a 0.1.0 helper refuses it afterwards.
+
+**spklib 0.4.0** (schema 3, `abi` 1, additions only; a 0.3.x helper opens the same libraries). PRD-G
+(variants, 2026-11-13) is this section's announcement under AGENTS.md's rule.
+
+- `variant.delete {library, variant}` → `{variant, image, deleted: true, files_moved: false}`. Removes that
+  variant's row, its edit and its keywords; never a file, never the image; the image's album places stay (they
+  are the image's). Errors: `read_only` (one of Capture One's variants, in a mirror), `last_variant` (the
+  image's last present variant: use Move to Trash for the image), `not_found`, `invalid_params`.
+  - Positions are not renumbered: the other variants keep their `position` and order, and the next present one
+    becomes the primary (its rating, colour, sort place, `images.lookup` variant, `meta.set {images}` target).
+    Gaps are possible (1, 3). `variant.create` returns one past the highest position left.
+  - In a copy, a deleted variant stays deleted at `capture_one.update` (`variants.deleted_in_spektralab`).
+- `images.list` / `images.facets` / smart albums: `min_rating`, `max_rating`, `ratings[]`, `color_tags[]` and
+  `keywords[]` (any of the words) are a variant's keys: an image matches when one of its present variants
+  matches all of them together (4 stars, purple and "portrait" is one variant). An image with no present
+  variant is judged as 0 stars, no tag, no keyword.
+  - One row per image still; `total` and every count are images. The row's `rating`/`color_tag` and the
+    `rating` sort stay the primary's.
+  - The `rating`, `color_tag` and `keyword` facets count an image under each value one of its present
+    variants has (so they may sum to more than `total`); under the other variant keys' filter, only the
+    variants matching it count. `has_edit` tests any variant.
+- Reserved: `variant.move {variant, position}` (promote/demote), not implemented.
+
+**What the app does with it** (PRD-G part 1, `app/SpektraLab/MAC-LIBRARY-DATA.md` §2l): a grid cell is a
+variant, numbered by its index in `variants[]` ("2 / 3"), never by `position`; everything is keyed by the
+variant's `uuid`; after a delete the image is read again (its primary may have changed); no check assumes
+the rating, colour or keyword facet counts add up to `total`.
 
 ## 5. How the app runs its library on it
 

@@ -294,10 +294,15 @@ public:
     // it. Refused if the buffer belongs to another device or holds fewer
     // than `bytes`.
     //
-    // For `spk_open_device` only, and only for the length of that call: the
+    // For `spk_open_device`, and only for the length of that call: the
     // frame goes through `spk_take_rgb` into the engine's own buffer and the
-    // borrow ends when the call returns. Nothing may keep the handle, because
+    // borrow ends when the call returns. Nothing may keep that handle, because
     // the caller reuses or frees the memory the moment it gets control back.
+    //
+    // And for `spk_set_scene_layers` (RFC-052 §6.4), whose planes the session
+    // *does* keep, until the next call or its release: that contract says the
+    // host never writes into a plane it has handed over, which is what makes
+    // holding the handle safe there and nowhere else.
     virtual BufferRef borrow(void* mtl_buffer, size_t bytes, std::string& error) = 0;
 
     virtual void* contents(Buffer* b) = 0;

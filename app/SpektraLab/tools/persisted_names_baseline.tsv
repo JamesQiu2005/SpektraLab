@@ -225,7 +225,7 @@ UserDefaults	settings.galleryView	key
 UserDefaults	settings.language	key
 UserDefaults	settings.lastFilm	key
 UserDefaults	settings.lastPaper	key
-UserDefaults	settings.lensCorrection	key
+UserDefaults	settings.lensCorrection	key	retired: Settings' Lens Correction switch removed in 2.4.0 (e38ed017, the owner's decision): 镜头校正 is the photograph's edit now; the stored key is left in defaults, unread
 UserDefaults	settings.newFrameFilm	key
 UserDefaults	settings.newFramePaper	key
 UserDefaults	settings.previewCopiesLimit	key

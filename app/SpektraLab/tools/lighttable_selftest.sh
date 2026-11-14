@@ -14,7 +14,7 @@ mkdir -p "$out"
 src="$here/Sources"
 swiftc -O -parse-as-library -o "$out/lighttable_selftest" \
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FilmParams.swift" "$src/Model/Geometry.swift" \
-  "$src/Model/FeatureFlags.swift" "$src/Model/FilmEdge.swift" "$src/Model/FrameEdit.swift" "$src/Model/Adjustments.swift" \
+  "$src/Model/FeatureFlags.swift" "$src/Model/FilmEdge.swift" "$src/Model/LensEdge.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" "$src/Model/Adjustments.swift" \
   "$src/Model/CurveMath.swift" "$src/Model/Stock.swift" "$src/Model/HalfFramePair.swift" "$here/tools/selftest_theme_shim.swift" \
   "$src/FilmEdge/FilmEdgeStock.swift" "$src/FilmEdge/FilmGeometry.swift" "$src/FilmEdge/FilmLayout.swift" \
   "$src/LightTable/LightTableModel.swift" "$src/LightTable/LightTableTouch.swift" "$src/LightTable/LightTableSizing.swift" "$src/LightTable/LightTableStore.swift" "$src/Services/KeptFileAside.swift" \
@@ -25,7 +25,7 @@ swiftc -O -parse-as-library -o "$out/lighttable_selftest" \
 # The Share pictures' sizes, tiles and films (Sources/LightTable/LightTableExportPlan.swift), after the table's own.
 swiftc -O -parse-as-library -o "$out/lighttable_export_selftest" \
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FilmParams.swift" "$src/Model/Geometry.swift" \
-  "$src/Model/FeatureFlags.swift" "$src/Model/FilmEdge.swift" "$src/Model/FrameEdit.swift" "$src/Model/Adjustments.swift" \
+  "$src/Model/FeatureFlags.swift" "$src/Model/FilmEdge.swift" "$src/Model/LensEdge.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" "$src/Model/Adjustments.swift" \
   "$src/Model/CurveMath.swift" "$src/Model/Stock.swift" "$src/Model/HalfFramePair.swift" "$here/tools/selftest_theme_shim.swift" \
   "$src/FilmEdge/FilmEdgeStock.swift" "$src/FilmEdge/FilmGeometry.swift" "$src/FilmEdge/FilmLayout.swift" \
   "$src/LightTable/LightTableModel.swift" "$src/LightTable/LightTableTouch.swift" "$src/LightTable/LightTableExportPlan.swift" \

@@ -106,7 +106,8 @@ TIFF export and Windows desktop viewers, contributed separately from the Mac app
 [Windows build guide](engine/WINDOWS.md) and [feature coverage](engine/WINDOWS_FEATURE_COVERAGE.md)
 for the tested scope. The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor
 layout to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained. The Mac
-app described above has interface and display features they do not.
+app described above has interface and display features they do not. Future development will have a
+Tauri-based frontend.
 
 ## Support SpektraLab
 

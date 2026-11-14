@@ -30,12 +30,37 @@
 //
 //  The placing itself is `PiecePlacer`, in a file of its own that
 //  `tools/selftest.sh` holds against the pair's own arithmetic on a Mac.
+//
+//  **A double exposure is the same piece with one difference** (RFC-048 §1,
+//  §2): its pictures are **added** into the whole buffer (`Lay.add`) instead
+//  of each being **placed** into its own hole (`Lay.place`, the pair's). Both
+//  of a double's pictures cover the whole frame, so each one's "hole" is the
+//  whole piece, and the light of the two is summed in scene-linear ProPhoto —
+//  the decoder's own space, where the sum is physically a double exposure —
+//  before the engine sees one frame. The adding itself is `PieceAdder`
+//  (Mac-checked, `tools/piece_selftest.swift`); the double's ask is made in
+//  `DoubleDevelop.swift`. **Nothing of a pair's ask moves**: the new fields
+//  default to the pair's way, and `key` gains a word only where one of them is
+//  not the default, so every pair's key, stamp and kept develop is byte for
+//  byte what it was.
 
 import CoreGraphics
 import Foundation
 
 /// A piece of film for the host to lay out, and how each picture on it is exposed.
 struct PieceAsk: Equatable, Sendable {
+    /// How a picture is laid on the piece (RFC-048 §2).
+    enum Lay: Equatable, Sendable {
+        /// The pair's: the picture's pixels are written into its hole, and the
+        /// rest of the piece stays as it is (black between the holes).
+        case place
+        /// A double exposure's: the picture is rendered band by band into a
+        /// scratch band and its light **added** into the piece, its gain on
+        /// the three colour channels only (`PieceAdder`). The order of laying
+        /// does not change the sum, byte for byte.
+        case add
+    }
+
     /// How a picture is exposed on the film.
     enum Exposure: Equatable, Sendable {
         /// Its meter off: a plain gain of the hole's own stops, and nothing else.
@@ -82,30 +107,74 @@ struct PieceAsk: Equatable, Sendable {
         /// the piece's look with the meter on and its intent, no exposure of
         /// its own, no film edge and no date, on one half frame of film.
         var meterWire: [String: ParamValue]
+        /// Placed (the pair's) or added (a double exposure's).
+        var lay: Lay = .place
+        /// A horizontal mirror of the cut, turned picture, **after the quarter
+        /// turns and before the window** (`PiecePlacer.place`), so the window's
+        /// fractions mean the same with or without it (RFC-048 §2). A double
+        /// exposure's `Placement.flipped`; never a pair's.
+        var flipped = false
+        /// Quarter turns, clockwise, of the placed picture **after** the window
+        /// is scaled to its hole: a double exposure's frame turned back for a
+        /// film edge turned half round, whose canvas the host turns forward
+        /// again (`EngineHost.Request.turnsAfter`), as a photograph's is
+        /// (`FrameEdit.hostCut`, `hostTurns`). The hole is then the turned
+        /// frame's. Never a pair's, whose film is not turned (`PairDevelop.swift`).
+        var turnedAfter = 0
+        /// 镜头校正 as this picture's key names it, taken once (`resolvingLens`): its decode is made with it. Nil asks the
+        /// resolver wherever the key or the decode is made.
+        var lens: LensResolution? = nil
     }
 
     /// The piece, in pixels.
     var size: PixelSize
     var pictures: [Picture]
 
+    /// The piece with each RAW picture's lens correction taken now (`LensResolver.current`): what a develop's request
+    /// carries, so its key and its decodes name the same corrector whatever settles between them.
+    func resolvingLens() -> PieceAsk {
+        var p = self
+        for i in p.pictures.indices where p.pictures[i].isRAW && p.pictures[i].lens == nil {
+            p.pictures[i].lens = LensResolver.current(p.pictures[i].url, decode: p.pictures[i].settings)
+        }
+        return p
+    }
+
     /// What the piece's pixels are made of, as a word: for telling one source
     /// from another (`EngineHost.Request.sourceKey`) and for a develop's stamp.
     var key: String {
         var words = ["piece \(size.width)x\(size.height)"]
         for p in pictures {
-            let decode: String = p.isRAW ? "raw " + p.settings.pixelsKey : ""
+            let decode: String = p.isRAW ? "raw " + p.settings.pixelsKey(source: p.url, lens: p.lens) : ""
             let edge: String = p.longEdge.map { "\($0)" } ?? "whole"
             let turns: String = "turned \(((p.quarterTurns % 4) + 4) % 4)"
             let window: String = "\(p.window.minX),\(p.window.minY),\(p.window.width),\(p.window.height)"
             let hole: String = "\(Int(p.hole.minX)),\(Int(p.hole.minY)),\(Int(p.hole.width)),\(Int(p.hole.height))"
             // The file by its place under the app's own folder, not by the whole path: that folder moves
             // with an install of the app, and a stamp that moved with it had every pair developed again.
-            let parts: [String] = [String(p.index), ImportService.stampWord(p.url), decode, edge, p.cut.cutKey, turns, window, hole,
+            var parts: [String] = [String(p.index), ImportService.stampWord(p.url), decode, edge, p.cut.cutKey, turns, window, hole,
                                    p.exposure.word]
+            // A word only where a picture is not laid the pair's way: a pair's key is what it always was.
+            parts += Self.layWords(p)
             words.append(parts.joined(separator: "|"))
         }
         return words.joined(separator: " / ")
     }
+
+    /// What of a picture's laying is not the pair's, as words for `key`: none
+    /// for a picture placed in its hole unflipped and unturned (every pair's),
+    /// so a pair's key is byte for byte what it was before a double existed.
+    static func layWords(_ p: Picture) -> [String] {
+        var words: [String] = []
+        if p.lay == .add { words.append("added") }
+        if p.flipped { words.append("flipped") }
+        let after = ((p.turnedAfter % 4) + 4) % 4
+        if after != 0 { words.append("then turned \(after)") }
+        return words
+    }
+
+    /// Whether any picture is added rather than placed: a double exposure's piece.
+    var adds: Bool { pictures.contains { $0.lay == .add } }
 
     /// The long edge to decode a picture at so that its window fills its hole
     /// without being made larger: nil when that is the file's own size or

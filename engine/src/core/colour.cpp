@@ -53,7 +53,9 @@ double bt_decode(double v) {
 enum class Cctf { Srgb, ProPhoto, Adobe, Bt, Identity };
 
 const std::unordered_map<std::string, Cctf>& cctf_table() {
-    static const std::unordered_map<std::string, Cctf> t = {
+    // Never destroyed (2026-11-13): a quit's `exit()` runs the statics' destructors while a render thread may still
+    // be building a pipeline, which reads this table (a SIGSEGV here at quit; app/SpektraLab/tools/exit_render_check.swift).
+    static const auto& t = *new const std::unordered_map<std::string, Cctf>{
         {"sRGB", Cctf::Srgb},
         {"Display P3", Cctf::Srgb},
         {"ProPhoto RGB", Cctf::ProPhoto},
@@ -136,6 +138,16 @@ bool Colour::colourspace(const std::string& name, const Colourspace*& out, std::
         return false;
     }
     out = &it->second;
+    return true;
+}
+
+bool Colour::cat_matrix(const std::string& name, Mat3& out, std::string& error) const {
+    auto it = cats_.find(name);
+    if (it == cats_.end()) {
+        error = "no baked chromatic adaptation transform '" + name + "'";
+        return false;
+    }
+    out = it->second;
     return true;
 }
 

@@ -235,7 +235,7 @@ struct AgentExecutor {
         }
         if collection != store.selectedCollectionID { await store.select(collection: collection) }
         if q != store.query { await store.apply(q) }
-        while store.images.count < offset + limit, store.images.count < store.total {
+        while store.images.count < offset + limit, store.hasMore {
             let before = store.images.count
             await store.loadMore()
             if store.images.count == before { break }
@@ -262,7 +262,9 @@ struct AgentExecutor {
                 "developed": state]
     }
 
-    static func idText(_ id: MacImage.ID) -> String { id.source.uuidString + "/" + id.image }
+    /// `<source>/<image>`, and `#<variant>` after it for a cell of an image with more than one (PRD-G: a cell is a
+    /// variant); an id without one names the image's first variant, as every id did before.
+    static func idText(_ id: MacImage.ID) -> String { id.source.uuidString + "/" + id.image + (id.variant.map { "#" + $0 } ?? "") }
 
     static func colourLabel(_ name: String) -> MacColorLabel? {
         guard let i = AgentTools.colourNames.firstIndex(of: name) else { return nil }
@@ -293,11 +295,19 @@ struct AgentExecutor {
     private func imageID(_ text: String) throws -> MacImage.ID {
         if let slash = text.firstIndex(of: "/") {
             let s = try source(String(text[..<slash]))
-            let image = String(text[text.index(after: slash)...])
+            let (image, variant) = Self.splitVariant(String(text[text.index(after: slash)...]))
             guard !image.isEmpty else { throw AgentError.refused("\(text) names no picture.") }
-            return MacImage.ID(source: s.id, image: image)
+            return MacImage.ID(source: s.id, image: image, variant: variant)
         }
-        return MacImage.ID(source: try source(nil).id, image: text)
+        let (image, variant) = Self.splitVariant(text)
+        return MacImage.ID(source: try source(nil).id, image: image, variant: variant)
+    }
+
+    /// `<image>#<variant>` as its two parts (`idText`).
+    private static func splitVariant(_ text: String) -> (String, String?) {
+        guard let hash = text.firstIndex(of: "#") else { return (text, nil) }
+        let variant = String(text[text.index(after: hash)...])
+        return (String(text[..<hash]), variant.isEmpty ? nil : variant)
     }
 
     private func imageArgs(_ a: [String: JSONValue], _ key: String = "images") -> [String] {
@@ -563,7 +573,8 @@ struct AgentExecutor {
         guard let f = model.library.frame(id), !f.isPair else { throw AgentError.refused("\(p.fileName) is a half-frame pair: change it on its Develop page.") }
         // As Develop's strips and slider change them (`StockPreviewPanel`): a film is loaded, a paper printed
         // on, never `filmStock` or `printStock` set alone (PAGES.md §4 rules 8–9).
-        model.change(id) { e in
+        // An agent's change is the person's through the agent: one step of the frame's history (PRD-F §3.3).
+        model.change(id, as: .elsewhere, .agent) { e in
             if let film { e.params.load(film: film) }
             if let paper { e.params.print(on: paper) }
             if di == true { e.params.scanFilm = false; e.params.digitalIntermediate = true }

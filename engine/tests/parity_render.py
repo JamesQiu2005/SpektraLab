@@ -44,6 +44,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
+import os
+# The oracle is the optical print. The print's hue from the negative (core/negative_hue.hpp, 96f87899)
+# departs from it on purpose, so this harness measures the engine with it off, which is what
+# SPK_V2_REFERENCE_OPTICAL means (pipeline.cpp). Without it a correct engine fails here: measured
+# 2026-11-11, parity_render 22 of 27 cases and parity_grain 3 of 9 levels, 0 with it.
+os.environ.setdefault("SPK_V2_REFERENCE_OPTICAL", "1")
 from dataclasses import dataclass, field
 from pathlib import Path
 

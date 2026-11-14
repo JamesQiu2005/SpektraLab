@@ -58,6 +58,10 @@ struct ExportOrder: Equatable, Sendable {
     /// same pass the page draws with (`Layer2Export`). Nil, or a neutral
     /// layer: the file is the develop, exactly as before.
     var adjustments: Adjustments? = nil
+    /// Edit's 成片 layers (PRD-E, RFC-052 §7), captured at submit with the rest of the order: baked into the file by
+    /// the same local pass (`Layer2Export`, `Layer2Local`), their planes made on the engine's queue at delivery. Nil:
+    /// none acts, and the file is as before.
+    var layers: FinishedLayers? = nil
     /// Edit's crop, cut from the finished picture after everything else
     /// (`FinishedCut`, `ExportPlan.printCrop`). Nil: the file is the whole picture.
     var printCrop: Geometry? = nil

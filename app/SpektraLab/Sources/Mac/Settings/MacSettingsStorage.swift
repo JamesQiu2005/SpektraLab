@@ -90,6 +90,9 @@ struct MacSettingsStorage: View {
     @State private var ownPreviews: (files: Int, bytes: Int64) = (0, 0)
     /// Every source's previews, by source (*Every library*); measured every 30 s.
     @State private var everyLibrary: [MacSource.ID: MacPreviewsUsage] = [:]
+    /// What every frame's edit history takes on disk (PRD-F §4), the log folded in; nil until measured.
+    @State private var historyBytes: Int64?
+    @State private var confirmingClearHistory = false
 
     /// One budget: what its pop-up button offers, and the calls the button makes.
     struct Budget: Identifiable {
@@ -188,6 +191,7 @@ struct MacSettingsStorage: View {
                 .disabled(library.storage.workingCopies <= 0)
                 .macSettingsItem("Clear Working Copies")
             }
+            historyGroup
             previewsGroup
             everyLibraryGroup
             MacSettingsGroup(title: L("Where")) {
@@ -213,6 +217,7 @@ struct MacSettingsStorage: View {
                     // Every library's: a listing of each one's previews folder, some on other disks, so less often.
                     if round % 6 == 0 { everyLibrary = await Self.measureEvery(model.macLibrary.sources) }
                 }
+                historyBytes = await Self.historyBytes(model)
                 round += 1
                 try? await Task.sleep(for: .seconds(5))
             }
@@ -223,6 +228,42 @@ struct MacSettingsStorage: View {
         } message: {
             Text(L("This removes the previews kept in the library for every Mac that opens it. Each picture is developed again when it is next opened, exported or laid on the Light Table. Edits are kept."))
         }
+    }
+
+    // MARK: the edit history
+
+    /// *Edit history: 4.1 MB* and *Clear All…* (PRD-F §4): one row, asked first. Every frame's history goes; each
+    /// edit stays as it stands, its history's Original from then on (`AppServices.clearAllHistory`).
+    private var historyGroup: some View {
+        MacSettingsGroup(title: L("Edit History"),
+                         footer: L("Up to 256 steps for each picture, kept on this Mac, so Undo reaches back after SpektraLab quits.")) {
+            MacSettingsRow(label: L("Edit history: \(historyBytes.map { $0 > 0 ? Fmt.fileSize($0) : "0 KB" } ?? L("Counting"))"), last: true) {
+                Button(L("Clear All…")) { confirmingClearHistory = true }
+                    .buttonStyle(MacSettingsButtonStyle(kind: .destructive))
+                    .disabled((historyBytes ?? 0) <= 0)
+                    .accessibilityIdentifier("settings.history.clear-all")
+            }
+            .macSettingsItem("Edit history: %@", "Clear All…")
+        }
+        .confirmationDialog(L("Clear every picture's edit history?"), isPresented: $confirmingClearHistory, titleVisibility: .visible) {
+            Button(L("Clear All History"), role: .destructive) {
+                Task { historyBytes = await Self.clearAllHistory(model) }
+            }
+            Button(L("Cancel"), role: .cancel) {}
+        } message: {
+            Text(L("Every edit stays as it is. Undo can no longer go back past it, in any picture."))
+        }
+    }
+
+    /// The history's size, as the row says it: after every call sent before (the line's order).
+    @MainActor static func historyBytes(_ model: AppServices) async -> Int64? {
+        try? await model.history.ask("settings") { try await $0.bytesOnDisk() }
+    }
+
+    /// *Clear All…*, as its button does it once asked: the size after it.
+    @MainActor static func clearAllHistory(_ model: AppServices) async -> Int64? {
+        model.clearAllHistory()
+        return await historyBytes(model)
     }
 
     /// Every source's previews, one after another off the main thread (sizes only).

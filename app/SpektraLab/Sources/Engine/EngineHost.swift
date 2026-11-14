@@ -39,6 +39,13 @@
 //  (`SpkEngine.meterOnQueue`), and the reading is handed back (`.metered`) to
 //  be kept in the pair — so it is read once, and the picture does not pump.
 //
+//  **A double exposure's frame is made the same way** (RFC-048): its two
+//  exposures' light **added** over the whole frame (`PieceAsk.Lay.add`,
+//  `PieceAdder`), each metered alone from a small render of its own, the
+//  reading handed back the same way (`.metered`, its index the exposure's
+//  position) and kept in the double (`EngineRouter.onDoubleMetered`). It is one
+//  frame in one gate: no gates are asked of the engine and no print is cut in.
+//
 //  **A frame of a pair that prints as its own is cut in here**
 //  (`Request.layers`, `PrintLayers.swift`). The engine prints the piece once
 //  for the film; for each such frame it is then asked for another print of
@@ -80,7 +87,10 @@ import os
 final class EngineHost: FrameSource, @unchecked Sendable {
     /// `card`: a card of Develop's strips (`StockPreviews`), its key.
     /// `fullView`: the develop page's zoom — the render kept on disk (`FullRender`), nothing else made of it.
-    enum Purpose: Sendable { case canvas, keep, export(ExportOrder), card(String), fullView(FullRender.Ask) }
+    /// `alone`: one exposure of a double exposure by itself (`EngineRouter.prepareAlone`, PRD 2 D12): the
+    /// page's picture, kept in memory for the page to take when the job has ended (`takeCard`), never
+    /// the page's canvas nor the frame's develop.
+    enum Purpose: Sendable { case canvas, keep, export(ExportOrder), card(String), fullView(FullRender.Ask), alone }
 
     /// A strip's picture, decoded once and handed to each of its cards' opens
     /// (`StripSource`). The engine borrows the buffer for the open and keeps
@@ -161,6 +171,17 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         /// A slide's Enable HDR on an export (`HDRGain`): the second rendition the engine renders after the
         /// job's own, whose ratio over it is the file's map. Nil for everything else.
         var slideHDR: HDRGain.SlideRendition? = nil
+        /// PRD-E's 场景 layers (RFC-052 §6.4): what `spk_set_scene_layers` is handed for this job — the layers'
+        /// value, the matrix, the stamp the wire names (`scene_layers`) — captured here with the rest of the job's
+        /// answers, so its planes are made from the edit this job was submitted with (`SceneLayerWire.planes`). Nil:
+        /// no layer can act, and the wire has no `scene_layers`.
+        var sceneLayers: SceneLayerWire.Ask? = nil
+        /// 镜头校正 as this request's keys name it (`stamp`, `sourceKey`, `pixelsKey`, its proxy's name), taken once when
+        /// it was made (`EngineRouter.prepare`): every decode of the request is made with it (`DecodeAsk.lens`,
+        /// `DigitalDecode.render`), so a resolution that settles between the two never puts a picture of one corrector
+        /// under a key that names another. Nil (a piece's, whose pictures carry their own; a request no key named a
+        /// lens for) asks the resolver.
+        var lens: LensResolution? = nil
 
         /// Whether the engine draws the film round the frame: the canvas is
         /// then the film, and a pair's frames are where its gates are.
@@ -168,18 +189,20 @@ final class EngineHost: FrameSource, @unchecked Sendable {
 
         /// What the frame's pixels are made of, as a word: the file, how it is
         /// decoded and how the host cuts it. The decode's settings change a
-        /// RAW's pixels and nothing else's (as in `DevelopStamp`).
-        static func sourceKey(source: URL, isRAW: Bool, decode: DecodeSettings, longEdge: Int?, cut: Geometry?) -> String {
-            [source.path, isRAW ? "raw " + decode.pixelsKey : "", longEdge.map { "\($0)" } ?? "whole", cut?.cutKey ?? ""]
+        /// RAW's pixels and nothing else's (as in `DevelopStamp`), the app's lens correction among them
+        /// (`LensCorrection.word`).
+        static func sourceKey(source: URL, isRAW: Bool, decode: DecodeSettings, longEdge: Int?, cut: Geometry?,
+                              lens: LensResolution? = nil) -> String {
+            [source.path, isRAW ? "raw " + decode.pixelsKey(source: source, lens: lens) : "", longEdge.map { "\($0)" } ?? "whole", cut?.cutKey ?? ""]
                 .joined(separator: "|")
         }
         /// The same pixels at any size: the file, its decode, the host's cut.
-        static func pixelsKey(source: URL, isRAW: Bool, decode: DecodeSettings, cut: Geometry?) -> String {
-            [source.path, isRAW ? "raw " + decode.pixelsKey : "", cut?.cutKey ?? ""].joined(separator: "|")
+        static func pixelsKey(source: URL, isRAW: Bool, decode: DecodeSettings, cut: Geometry?, lens: LensResolution? = nil) -> String {
+            [source.path, isRAW ? "raw " + decode.pixelsKey(source: source, lens: lens) : "", cut?.cutKey ?? ""].joined(separator: "|")
         }
-        var pixelsKey: String { Self.pixelsKey(source: source, isRAW: isRAW, decode: decode, cut: cut) }
+        var pixelsKey: String { Self.pixelsKey(source: source, isRAW: isRAW, decode: decode, cut: cut, lens: lens) }
         var sourceKey: String {
-            piece?.key ?? Self.sourceKey(source: source, isRAW: isRAW, decode: decode, longEdge: longEdge, cut: cut)
+            piece?.key ?? Self.sourceKey(source: source, isRAW: isRAW, decode: decode, longEdge: longEdge, cut: cut, lens: lens)
         }
     }
 
@@ -254,7 +277,16 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         prepared.sourceGeneration = request.strip?.generation ?? feeds[request.frameID]?.source.generation
         requests[jobID] = prepared
         lock.unlock()
+        #if DEBUG
+        Self.registered?(request)
+        #endif
     }
+
+    #if DEBUG
+    /// A check's: told of every request as it is registered, before its job can start (`MacLensCheck` settles a lens
+    /// resolution there, the moment the model stage's race needs).
+    nonisolated(unsafe) static var registered: ((Request) -> Void)?
+    #endif
 
     /// The job has ended, however: its answers are no longer needed.
     func forget(_ jobID: UUID) {
@@ -339,8 +371,10 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             for reading in report.readings {
                 onDelivery?(.metered(pair: r.frameID, index: reading.index, ev: reading.ev, key: reading.key))
             }
+            // A pair's holes are first and second; a double exposure's exposures bottom and top.
+            let names = piece.adds ? ("bottom", "top") : ("first", "second")
             let stops = report.stops.sorted { $0.key < $1.key }
-                .map { "\($0.key == 0 ? "first" : "second") \(String(format: "%+.2f", $0.value)) EV" }.joined(separator: ", ")
+                .map { "\($0.key == 0 ? names.0 : names.1) \(String(format: "%+.2f", $0.value)) EV" }.joined(separator: ", ")
             log.info("composed a piece of \(piece.pictures.count) by \(report.how.joined(separator: ", "), privacy: .public): \(frame.size.width) x \(frame.size.height); \(stops, privacy: .public)\(report.readings.isEmpty ? "" : "; metered \(report.readings.count)", privacy: .public)")
             var said = frame
             said.how = Self.recorded(report.how.joined(separator: ", "))
@@ -362,7 +396,7 @@ final class EngineHost: FrameSource, @unchecked Sendable {
                 throw EngineError.resource(StripSource.givenBack)
             }
             let (frame, report) = try decoder.decode(DecodeAsk(url: r.source, isRAW: r.isRAW, settings: r.decode,
-                                                               longEdge: r.longEdge, cut: r.cut, proxy: r.proxy))
+                                                               longEdge: r.longEdge, cut: r.cut, proxy: r.proxy, lens: r.lens))
             if let facts = report.rawExposure { onDelivery?(.rawExposure(frame: r.frameID, facts: facts)) }
             if let event = report.proxy { onDelivery?(.proxy(frame: r.frameID, event: event)) }
             if let generation {
@@ -374,7 +408,7 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             return said
         }
         let (frame, report) = try decoder.decode(DecodeAsk(url: r.source, isRAW: r.isRAW, settings: r.decode, longEdge: r.longEdge,
-                                                           cut: r.cut, proxy: r.proxy))
+                                                           cut: r.cut, proxy: r.proxy, lens: r.lens))
         if let facts = report.rawExposure { onDelivery?(.rawExposure(frame: r.frameID, facts: facts)) }
         if let event = report.proxy { onDelivery?(.proxy(frame: r.frameID, event: event)) }
         if let wb = report.asShot, r.decode.whiteBalance == .asShot {
@@ -411,11 +445,31 @@ final class EngineHost: FrameSource, @unchecked Sendable {
     func digital(_ job: RenderJob, device: MTLDevice) throws -> RenderedPixels? {
         guard let r = request(job.id), let geometry = r.digital, r.piece == nil, r.strip == nil else { return nil }
         let started = DispatchTime.now().uptimeNanoseconds
+        // Its 场景 layers on the linear decode, by the engine node's expression (`SceneLayerHost`, RFC-052 §6.5).
+        var layers: DigitalDecode.Layers?
+        if let ask = r.sceneLayers {
+            let planes = try SceneLayerWire.planes(for: ask, device: device)
+            let host = try Self.sceneLayerHost(device)
+            let toSource = MaskFrame.finished(picture: geometry, source: CGSize(width: ask.source.width, height: ask.source.height))
+            layers = { buffer, w, h in try host.apply(ask, planes: planes, frameToSource: toSource, to: buffer, width: w, height: h) }
+        }
         let pixels = try DigitalDecode.render(r.source, isRAW: r.isRAW, decode: r.decode, geometry: geometry,
-                                              canvas: job.canvas, device: device)
+                                              canvas: job.canvas, device: device, layers: layers, lens: r.lens)
         let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
         log.info("Apple's decode of \(r.source.lastPathComponent, privacy: .public), no film: \(pixels.size.width) x \(pixels.size.height) in \(ms, format: .fixed(precision: 0)) ms")
         return pixels
+    }
+
+    private static let hostLock = NSLock()
+    nonisolated(unsafe) private static var hosts: [ObjectIdentifier: SceneLayerHost] = [:]
+
+    /// The 场景 layers' host kernel on `device`: one, compiled the first time it is asked for.
+    static func sceneLayerHost(_ device: MTLDevice) throws -> SceneLayerHost {
+        hostLock.lock(); defer { hostLock.unlock() }
+        if let h = hosts[ObjectIdentifier(device)] { return h }
+        let h = try SceneLayerHost(device: device)
+        hosts[ObjectIdentifier(device)] = h
+        return h
     }
 
     func sourceKey(_ job: RenderJob) -> String {
@@ -431,6 +485,11 @@ final class EngineHost: FrameSource, @unchecked Sendable {
 
     func params(_ job: RenderJob) -> [String: ParamValue] {
         request(job.id)?.wire ?? [:]
+    }
+
+    func sceneLayers(_ job: RenderJob) -> SceneLayerWire.Ask? {
+        guard let r = request(job.id), r.digital == nil, r.piece == nil else { return nil }
+        return r.sceneLayers
     }
 
     func hdrCurveRequest(_ job: RenderJob) -> String? {
@@ -479,10 +538,18 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         request(job.id)?.layers.map(\.rows) ?? []
     }
 
+    /// An exposure of a double shown alone is developed in a session of its own that goes with the job: the
+    /// page's open session — the double composed, its negative cached — stays the engine's `editing`.
+    func leavesEditingAlone(_ job: RenderJob) -> Bool {
+        guard let r = request(job.id), case .alone = r.purpose else { return false }
+        return true
+    }
+
     /// A pair on its strip: for the page's canvas, which is told where the two
     /// frames are, and for any job with a frame's own print to cut in there.
     func wantsFilmGeometry(_ job: RenderJob) -> Bool {
-        guard let r = request(job.id), r.piece != nil, r.wearsFilm else { return false }
+        // A pair's only: a double exposure is one frame in one gate, and nothing is cut in along a hole.
+        guard let r = request(job.id), let piece = r.piece, !piece.adds, r.wearsFilm else { return false }
         if case .canvas = r.purpose { return true }
         return !r.layers.isEmpty
     }
@@ -585,10 +652,16 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             }
             // An export of an edited frame bakes the edit (design/v5 §3.5); anything else is as before.
             let made: CGImage
-            if case .export(let order) = r.purpose, let edit = order.adjustments, edit.isActive {
+            if case .export(let order) = r.purpose, let edit = order.adjustments, Layer2Local.acts(edit, order.layers) {
                 if layer2 == nil { layer2 = try Layer2Export(device: device) }
                 guard let layer2 else { throw EngineError.failed("Layer 2's export pass could not be made") }
-                made = try layer2.image(pixels, to: target, depth: depth, adjustments: edit, fetch: fetch)
+                // Its 成片 layers: their planes made here, on the engine's queue (the store's where the page baked them
+                // already), and read at the pixel's place on this render, before the host's turns. A plane that cannot
+                // be made fails the file: never the file without its layer.
+                let local = try order.layers.map { l in
+                    Layer2LocalPass(l, planes: try l.planesBlocking(device: device), adjustments: edit, matrix: l.matrix(turnsAfter: r.turnsAfter))
+                }
+                made = try layer2.image(pixels, to: target, depth: depth, adjustments: edit, local: local, fetch: fetch)
             } else {
                 made = try transformer.image(pixels, to: target, depth: depth, fetch: fetch)
             }
@@ -600,7 +673,7 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             switch r.purpose {
             case .canvas:
                 // A pair's strip: where its two frames are on the picture that follows.
-                if r.piece != nil, r.wearsFilm, let said = pixels.filmGeometry {
+                if let piece = r.piece, !piece.adds, r.wearsFilm, let said = pixels.filmGeometry {
                     let gates = FilmGates.rects(said)
                     log.debug("a pair's strip, \(pixels.size.width) x \(pixels.size.height): the engine's gates \(said, privacy: .public)")
                     if gates.count == 2 { onDelivery?(.gates(frame: r.frameID, rects: gates)) }
@@ -634,7 +707,8 @@ final class EngineHost: FrameSource, @unchecked Sendable {
                 #if DEBUG
                 if let gainMap, written.hdr != nil { HDRGainMap.exportWitness?(written.url, gainMap) }
                 #endif
-                let edited = order.adjustments.map { $0.isActive ? ", edited after the print (" + $0.changedTools.map(\.rawValue).joined(separator: ", ") + ")" : "" } ?? ""
+                let layered = order.layers.map { ", \($0.layers.count) finished-stage mask layer\($0.layers.count == 1 ? "" : "s")" } ?? ""
+                let edited = (order.adjustments.map { $0.isActive ? ", edited after the print (" + $0.changedTools.map(\.rawValue).joined(separator: ", ") + ")" : "" } ?? "") + layered
                 let hdr = written.hdr.map { ", HDR " + $0 } ?? ""
                 log.info("exported \(order.url.lastPathComponent, privacy: .public): \(written.size.width) x \(written.size.height), \(order.format.rawValue, privacy: .public) \(order.format.bitDepth)-bit in \(order.colour.engineName, privacy: .public)\(edited, privacy: .public)\(hdr, privacy: .public), \(Double(written.bytes) / 1_048_576, format: .fixed(precision: 1)) MB, written in \(written.seconds, format: .fixed(precision: 2)) s")
                 exported(job.id, .written(written))
@@ -644,6 +718,9 @@ final class EngineHost: FrameSource, @unchecked Sendable {
                 lock.lock(); cards[job.id] = made; lock.unlock()
             case .fullView:
                 break                                        // kept above, before any picture is made
+            case .alone:
+                // One exposure alone, at the page's size: kept for the page to take (`EngineRouter.takeAlone`).
+                lock.lock(); cards[job.id] = image; lock.unlock()
             }
         } catch {
             // Stopped by an edit (the zoom's write): nothing to say, the job ends as cancelled.

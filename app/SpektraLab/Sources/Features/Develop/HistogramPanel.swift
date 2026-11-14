@@ -45,6 +45,9 @@ struct HistogramPanel: View {
 
     /// One holder per panel: the curve tool holds the same histogram for its own plot.
     @State private var holder = "histogram.\(UUID().uuidString)"
+    /// Whether the panel is still on the page when its first hold comes due (`onAppear`).
+    private final class Shown { var on = true }
+    @State private var shown = Shown()
 
     private var collapsed: Bool { prefs.histogramCollapsed }
 
@@ -60,10 +63,19 @@ struct HistogramPanel: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.plot))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 12).padding(.vertical, Self.margin)
-        .onChange(of: collapsed, initial: true) { _, folded in
+        .onChange(of: collapsed) { _, folded in
             if folded { session.layer2.releaseHistogram(holder) } else { session.layer2.holdHistogram(holder) }
         }
-        .onDisappear { session.layer2.releaseHistogram(holder) }
+        // Asked once the page's first frame is on the screen (made for each frame, 2.4.0 A2b): its pass and its plot
+        // landing in the turn after a change of photograph held that frame back ~30–50 ms in a Debug build.
+        .onAppear {
+            let session = session, holder = holder, shown = shown
+            shown.on = true
+            AfterFrame.run(after: 2) {
+                if shown.on, !DevelopPanelPrefs.shared.histogramCollapsed, session.isHeld { session.layer2.holdHistogram(holder) }
+            }
+        }
+        .onDisappear { shown.on = false; session.layer2.releaseHistogram(holder) }
         .modifier(HDRZoneFeed(session: session))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("v5.histogram")

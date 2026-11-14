@@ -59,7 +59,7 @@ struct PairSelectChip: View {
     var body: some View {
         let picks = picks
         // One or two photographs: a pair is not a frame of another pair.
-        let can = (1...2).contains(picks.count) && !picks.contains { library.frame($0)?.isPair == true }
+        let can = (1...2).contains(picks.count) && !picks.contains { library.frame($0)?.isComposite == true }
         Chip(title: L("Pair"), height: 28, size: 13.5, padding: 14, dim: !can) {
             library.endSelecting()
             if picks.count > 1 {
@@ -149,7 +149,7 @@ enum PairWay {
                      model: AppServices) -> LibraryFrame.ID? {
         let router = model.router
         // Two photographs the library still has: a pair of the second frame alone is not what was asked for.
-        guard [first, second].allSatisfy({ model.library.frame($0).map { !$0.isPair } ?? false }),
+        guard [first, second].allSatisfy({ model.library.frame($0).map { !$0.isComposite } ?? false }),
               let id = model.makePair(first, second, keepFilmEdge: keepFilmEdge, beginsWithFirst: beginsWithFirst) else {
             router.dismissAllSheets()
             return nil

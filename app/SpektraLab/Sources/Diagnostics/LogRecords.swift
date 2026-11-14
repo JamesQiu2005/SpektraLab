@@ -376,3 +376,69 @@ extension Log {
             : name == "adjustments" ? "edit" : name
     }
 }
+
+// MARK: the double exposure (RFC-047 §8)
+
+extension Log {
+    /// A double exposure has been made and kept (`AppServices.makeDouble`): which way in — the viewer's
+    /// "one, then another" (the frame the user was on is the bottom) or "two picked" in Select — and of
+    /// what: each photograph's kind and size class, and whether it is the same one twice. The double
+    /// exposure by its eight hex, and its photographs by theirs, so a later record can be read against
+    /// this one; never a name.
+    static func doubleMade(_ id: UUID, way: String, bottom: LibraryFrame, top: LibraryFrame) {
+        func kind(_ f: LibraryFrame) -> [String: Any] {
+            let from: String
+            switch f.source {
+            case .photos: from = "photos"
+            case .linkedFolder: from = "linked folder"
+            case .copiedIn: from = "in the app"
+            }
+            return ["frame": frame(f.id), "raw": f.isRAW, "size": megapixelClass(f.originalSize), "from": from]
+        }
+        note(.double, "made", ["double": frame(id), "way": way, "bottom": kind(bottom), "top": kind(top),
+                               "same": bottom.id == top.id])
+    }
+
+    /// A layer of the darkroom's band picked (下层 · 底片 · 上层): which. The darkroom's to call (RFC-050).
+    static func doubleLayer(_ id: UUID, _ layer: DoubleExposure.Layer) {
+        note(.double, "layer", ["double": frame(id), "layer": layerName(layer)])
+    }
+
+    /// Top and bottom changed over (`AppServices.swapDouble`): whether the frame took the new bottom's other
+    /// shape (both laid again), and Balance after it, which stays with the position (PRD 2 §8.2).
+    static func doubleSwap(_ id: UUID, refit: Bool, balance: Double?) {
+        var fields: [String: Any] = ["double": frame(id), "refit": refit]
+        fields["balance"] = balance.map(percent)
+        note(.double, "swap", fields)
+    }
+
+    /// Balance where the finger left it — **once a gesture, on release**, never a tick (RFC-047 §8): the
+    /// top's share in whole percent, and each exposure's own stops to a hundredth. The darkroom's to call.
+    static func doubleBalance(_ id: UUID, _ double: DoubleExposure) {
+        guard let balance = double.balance else { return }
+        note(.double, "balance", ["double": frame(id), "balance": percent(balance),
+                                  "ev": DoubleExposure.Position.allCases.compactMap { double[$0].map { hundredth($0.exposureEV) } }])
+    }
+
+    /// An exposure laid on the frame, once Place is done (位置's Done, RFC-050): its zoom to a hundredth,
+    /// whether it was moved off the middle, its quarter turns, its flip. Never where on the picture it is.
+    static func doublePlace(_ id: UUID, _ position: DoubleExposure.Position, _ placement: DoubleExposure.Placement) {
+        let p = placement.held
+        note(.double, "place", ["double": frame(id), "layer": layerName(DoubleExposure.Layer(position)),
+                                "scale": hundredth(p.base.scale), "moved": p.base.x != 0 || p.base.y != 0,
+                                "turns": ((p.base.quarterTurns % 4) + 4) % 4, "flipped": p.flipped])
+    }
+
+    /// A layer as the log names it, in English whatever the app's language: the record is the same word
+    /// in every tester's log (the films' rule, `stock`).
+    static func layerName(_ layer: DoubleExposure.Layer) -> String {
+        switch layer {
+        case .film: "film"
+        case .bottom: "bottom"
+        case .top: "top"
+        }
+    }
+
+    private static func percent(_ share: Double) -> Int { Int((share * 100).rounded()) }
+    private static func hundredth(_ v: Double) -> Double { (v * 100).rounded() / 100 }
+}

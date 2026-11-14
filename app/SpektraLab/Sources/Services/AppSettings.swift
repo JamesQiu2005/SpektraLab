@@ -53,14 +53,9 @@ final class AppSettings {
     /// counted by their size on disk (a 100 MP RAW's is ~1 GB, a 12 MP JPEG's ~120 MB), apart from the
     /// thumbnails and previews (`previewCopiesLimit`) and the working copies (`workingCopiesLimit`).
     var fullRenderCacheLimit: Int64 = 8 << 30 { didSet { save() } }
-    /// **Lens Correction** (Settings › Develop): a RAW's decode applies its
-    /// lens's distortion and vignetting profile where the operating system has one
-    /// (`CIRAWFilter.isLensCorrectionEnabled`, on by Apple's own default for a
-    /// RAW it can correct). A setting for the whole library, not an edit (the
-    /// owner, 2026-10-21: "we put 'use lens correction' in settings, not
-    /// edit"): each frame still records it in its edit's decode, which the
-    /// app's model keeps equal to this (`AppServices.holdLensCorrection`).
-    var lensCorrection = true { didSet { save() } }
+    // Settings › Develop's *Lens Correction* (2.3: `settings.lensCorrection`, the whole library's) is gone with 2.4.0's
+    // panel: 镜头校正 is each frame's own (`DecodeSettings.lensCorrection` and its fields), a new RAW starts with it on
+    // (`ImportService`), and nothing reads the kept key; it is left in a person's defaults, unread.
     /// **Crop re-maps the frame** (Settings › Develop; v1.3.3's, restored 2026-10-26): whether
     /// Develop's crop changes the physical scale of grain, halation and the coupler diffusion. Off --
     /// the default, as in v1.3.3, and the physically true answer -- a crop shows less of the same
@@ -76,8 +71,10 @@ final class AppSettings {
     /// (`UpdateCheck`). On unless turned off.
     var checksForUpdates = true { didSet { save() } }
     /// **Enable HDR by Default** (Settings › Develop on the Mac; the owner, 2026-11-03): every frame
-    /// whose own Enable HDR was never set follows it (`FrameEdit.hdrByDefault`). Off until turned on. A frame that
-    /// chose keeps its choice; a slide that follows it is developed again when it moves (its stretch, `HDRGain`).
+    /// whose own Enable HDR was never set follows it (`FrameEdit.hdrByDefault`). Off until turned on — here, or by
+    /// switching Enable HDR on a photograph, which sets it too (2.4.0, `OpenFrameSession.switchHDR`: the last state the
+    /// person chose). A frame that chose keeps its choice; a slide that follows it is developed again when it moves
+    /// (its stretch, `HDRGain`).
     var hdrByDefault = false { didSet { FrameEdit.hdrByDefault = hdrByDefault; save() } }
     /// Which of the gallery's three views the Library shows (`GalleryView`): 全部 unless another was
     /// chosen (the owner, 2026-10-21: the reference device opens on 全部, the pill switches, and is remembered).
@@ -87,6 +84,21 @@ final class AppSettings {
     /// Off by default, and read at every call: it is the person's consent to another program changing
     /// their library, so turning it off refuses an agent's very next call.
     var agentAccess = false { didSet { save() } }
+    /// **Space shows the original** (Settings › General › Keyboard; the owner, 2026-11-11): held — the
+    /// original while the bar is down, as a finger held on the picture (PAGES.md W-X2), the default and what
+    /// the page always did — or pressed, each press switching between the original and the develop.
+    var spaceOriginal = SpaceOriginal.hold { didSet { save() } }
+
+    enum SpaceOriginal: String, CaseIterable, Sendable {
+        case hold, toggle
+        /// Settings' words for it.
+        var title: String {
+            switch self {
+            case .hold: L("Hold to show the original")
+            case .toggle: L("Press to switch")
+            }
+        }
+    }
 
     init(defaults: UserDefaults? = .standard) {
         self.defaults = defaults
@@ -116,7 +128,6 @@ final class AppSettings {
         if let kept = d.object(forKey: "settings.workingCopiesLimit") as? NSNumber, kept.int64Value > 0 { workingCopiesLimit = kept.int64Value }
         if let kept = d.object(forKey: "settings.previewCopiesLimit") as? NSNumber, kept.int64Value > 0 { previewCopiesLimit = kept.int64Value }
         if let kept = d.object(forKey: "settings.fullRenderCacheLimit") as? NSNumber, kept.int64Value > 0 { fullRenderCacheLimit = kept.int64Value }
-        if d.object(forKey: "settings.lensCorrection") != nil { lensCorrection = d.bool(forKey: "settings.lensCorrection") }
         cropRemapsFrame = d.bool(forKey: "settings.cropRemapsFrame")
         canvasGamut = d.string(forKey: "settings.canvasGamut").flatMap(CanvasGamut.init(rawValue:)) ?? canvasGamut
         if d.object(forKey: "settings.checksForUpdates") != nil { checksForUpdates = d.bool(forKey: "settings.checksForUpdates") }
@@ -126,6 +137,7 @@ final class AppSettings {
         FrameEdit.hdrByDefault = hdrByDefault
         galleryView = d.string(forKey: "settings.galleryView").flatMap(GalleryView.init(rawValue:)) ?? galleryView
         agentAccess = d.bool(forKey: "agent.access")
+        spaceOriginal = d.string(forKey: "settings.spaceOriginal").flatMap(SpaceOriginal.init(rawValue:)) ?? spaceOriginal
     }
 
     /// Another camera body: a new gate, new margins, new holes.
@@ -157,12 +169,12 @@ final class AppSettings {
         d.set(NSNumber(value: workingCopiesLimit), forKey: "settings.workingCopiesLimit")
         d.set(NSNumber(value: previewCopiesLimit), forKey: "settings.previewCopiesLimit")
         d.set(NSNumber(value: fullRenderCacheLimit), forKey: "settings.fullRenderCacheLimit")
-        d.set(lensCorrection, forKey: "settings.lensCorrection")
         d.set(cropRemapsFrame, forKey: "settings.cropRemapsFrame")
         d.set(canvasGamut.rawValue, forKey: "settings.canvasGamut")
         d.set(checksForUpdates, forKey: "settings.checksForUpdates")
         d.set(hdrByDefault, forKey: "settings.hdrByDefault")
         d.set(galleryView.rawValue, forKey: "settings.galleryView")
         d.set(agentAccess, forKey: "agent.access")
+        d.set(spaceOriginal.rawValue, forKey: "settings.spaceOriginal")
     }
 }

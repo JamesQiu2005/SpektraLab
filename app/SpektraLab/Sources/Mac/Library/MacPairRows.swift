@@ -144,7 +144,7 @@ extension CatalogSourcesStore {
     /// The library a pair's row goes into: the one shown first, then the other SpektraLab catalogs and
     /// sessions (and a Capture One catalog only if it is the one shown: linking one is a snapshot), the
     /// first that holds `firstFile`; with none, the one shown, if it takes imports.
-    private func pairHome(_ firstFile: URL?) async -> (MacSource, String)? {
+    func pairHome(_ firstFile: URL?) async -> (MacSource, String)? {
         var order = sources.filter { $0.acceptsImports && ($0.kind != .captureOneCatalog || $0.id == selectedSourceID) }
         if let i = order.firstIndex(where: { $0.id == selectedSourceID }) { order.insert(order.remove(at: i), at: 0) }
         if let firstFile {
@@ -159,7 +159,7 @@ extension CatalogSourcesStore {
     }
 
     /// Rows whose pair has gone, each forgotten in its own library (whose file is deleted by now).
-    private func forgetRows(_ rows: [PairRecord.Placed]) async {
+    func forgetRows(_ rows: [PairRecord.Placed]) async {
         for (source, group) in Dictionary(grouping: rows, by: \.source) {
             guard let s = sources.first(where: { $0.id == source }), let h = try? await handle(s) else { continue }
             do {

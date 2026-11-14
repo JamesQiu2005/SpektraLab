@@ -56,6 +56,9 @@ struct FilmPanel: View {
     var includesPaper = false
     /// A snapshot's own: the card the row opens on.
     var cardsOpenOn: String? = nil
+    /// Film Exposure while its knob or its number moves (`ValueSlider`'s own, for a row this panel draws itself).
+    @State private var exposureLive: Double?
+    @State private var exposureWrites = SliderWrites()
     @Environment(AppRouter.self) private var router
     @Environment(AppServices.self) private var model
 
@@ -116,14 +119,24 @@ struct FilmPanel: View {
                     DrawnText(L("both frames"), PanelNotes.size, .medium, Theme.dim).padding(.leading, -3)
                 }
                 Spacer(minLength: 8)
-                SliderField(shown: Fmt.signed(ev) + " EV",
+                SliderField(shown: Fmt.signed(exposureLive ?? ev) + " EV",
                             parse: SliderField.number(from:),
                             commit: { new in
                                 let r = side == nil ? -8...8 : HalfFramePair.exposureRange
                                 session.editing(.shoot)(true)
                                 exposure.wrappedValue = new.clamped(to: r)
                                 session.editing(.shoot)(false)
-                            })
+                            },
+                            // The number's drag moves the knob below with it: they share the value while moving.
+                            scrub: .init(value: exposureLive ?? exposure.wrappedValue,
+                                         mapping: SliderMapping(range: side == nil ? -8...8 : HalfFramePair.exposureRange, width: 1, step: 0.1),
+                                         began: { session.editing(.shoot)(true) },
+                                         moved: { v in exposureLive = v; exposureWrites.write { exposure.wrappedValue = v } },
+                                         ended: {
+                                             exposureWrites.flush()
+                                             if let l = exposureLive { exposure.wrappedValue = l; exposureLive = nil }
+                                             session.editing(.shoot)(false)
+                                         }))
             }
             .padding(.horizontal, Theme.Metric.margin)
             .baseline(PanelY.Film.exposureLabel + paperOffset)
@@ -131,7 +144,8 @@ struct FilmPanel: View {
             // the scale does not. Thirds of a stop are its ticks.
             SliderTrack(value: exposure, range: side == nil ? -8...8 : HalfFramePair.exposureRange,
                         rest: 0, step: 0.1, detentAtRest: false,
-                        onEditingChanged: session.editing(.shoot))
+                        onEditingChanged: session.editing(.shoot), probeName: "Film Exposure",
+                        sharedLive: $exposureLive, sharedWrites: exposureWrites)
                 .padding(.horizontal, Theme.Metric.margin)
                 .top(PanelY.Film.dial + paperOffset)
                 .accessibilityLabel(side.flatMap { pair?.title(.init($0)) }.map { L("Film Exposure, \($0)") } ?? L("Film Exposure"))
@@ -211,8 +225,8 @@ struct FramePanel: View {
     var v5 = false
     /// a wide window's Format has
     /// no Film Edge and Date Back rows — they are sections on Film & Paper (`FilmEdgeColumn`), and the
-    /// flow the rows opened is the host's — so it is the film's sizes alone: greyed under a film edge,
-    /// the line under them saying whose the size is, as the drawn panel's note does.
+    /// flow the rows opened is the host's — so it is the film's sizes alone: the folding 尺寸 Size
+    /// section (`FilmSizeSection`, 2026-11-11), greyed under a film edge.
     var wide = false
     @Environment(AppRouter.self) private var router
     @Environment(AppServices.self) private var model
@@ -293,19 +307,7 @@ struct FramePanel: View {
         if wide { sizesBody } else { rowsBody }
     }
 
-    private var sizesBody: some View {
-        let held = edge.effective
-        return DrawnBand(height: PanelY.Frame.note + 17) {
-            CardRow(items: Self.sizes, selectedID: held ? nil : session.edit.params.filmFrame, height: SizeCard.height,
-                    onPick: setSize) {
-                SizeCard(frame: $0, photo: frame)
-            }
-            .compositingGroup()
-            .rowEnabled(!held)
-            .top(PanelY.Frame.cards - CardRowMetric.framePadding)
-            panelNote(PanelNotes.filmSize(edge: held ? edge.format.label : nil)).baseline(PanelY.Frame.note)
-        }
-    }
+    private var sizesBody: some View { FilmSizeSection(session: session, frame: frame) }
 
     @ViewBuilder private var rowsBody: some View {
         let p = session.edit.params
@@ -424,6 +426,232 @@ struct FramePanel: View {
         let pairs = [(1, 1), (3, 2), (2, 3), (4, 3), (3, 4), (16, 9), (9, 16), (5, 4), (4, 5), (7, 5), (5, 7)]
         if let (a, b) = pairs.first(where: { abs(r - Double($0.0) / Double($0.1)) < 0.005 }) { return "\(a):\(b)" }
         return r >= 1 ? String(format: "%.2f:1", r) : String(format: "1:%.2f", 1 / r)
+    }
+}
+
+// MARK: - Size (a wide window's Format, 2026-11-11)
+
+/// Develop › Format's 尺寸 Size in a wide window's column. The owner (2026-11-11): the 110 / APS / 135 / 120
+/// choice kept but shrunk into a section of its own, greyed while the film edge is on; 8mm and, on the
+/// desktop, 4×5, 5×7 and 8×10 sheet film beside them; the cards a sideways strip as the Film and Paper
+/// strips are (`StripScroller`, `StripCard`: the same row, card, ring and scrolling); and Custom not a card
+/// but rows under the strip, as 1.3.x's 胶片画幅 had them — 基准边 Reference Side and 边长 Side Length, in
+/// millimetres or inches.
+///
+/// Every write is one `session.change` of the frame's settings (`FilmParams.take(size:photo:)`,
+/// `take(customSide:lengthMM:photo:)`), so Undo walks it and the film develops again. A frame whose size the
+/// strip has no card for — Custom, or a cine frame from a 1.x desktop edit — shows as Custom with its own
+/// side and length, and is rewritten only when one of them is changed.
+struct FilmSizeSection: View {
+    let session: OpenFrameSession
+    let frame: LibraryFrame
+    private var prefs: DevelopPanelPrefs { .shared }
+    @ScaledMetric(relativeTo: .caption) private var labelSize: CGFloat = 11
+    /// The card Custom's switch goes back to when it is turned off: the last one picked here, else 135.
+    @State private var lastCard = "135"
+
+    private var params: FilmParams { session.edit.params }
+    private var edge: FilmEdgeSettings { session.edit.filmEdge }
+    private var photo: PixelSize { frame.originalSize }
+    private var cards: [FilmFrame] { FilmFrame.offered(stockID: params.filmStock, chosen: params.filmFrame) }
+    /// The frame's size has no card: Custom, or a frame the strip does not offer (a cine frame).
+    private var isCustom: Bool { !cards.contains { $0.id == params.filmFrame } }
+    private var side: FilmSide { FilmSide(rawValue: params.filmSide) ?? .short }
+
+    var body: some View {
+        let held = edge.effective
+        // The first of the column's sections: the tool row's rule is over it already.
+        VStack(spacing: 0) {
+            ColumnSectionHeader(title: L("Size"), folded: prefs.filmSizeCollapsed, id: "film-size",
+                                toggleFold: { prefs.filmSizeCollapsed.toggle() }) {
+                Text(readout(held: held)).font(Theme.Font.ui(12, .medium)).foregroundStyle(Theme.dim)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .accessibilityIdentifier("v5.develop.film-size.readout")
+            }
+            if !prefs.filmSizeCollapsed {
+                VStack(spacing: 4) {
+                    StripScroller(ids: cards.map(\.id), selected: isCustom ? nil : params.filmFrame,
+                                  cardHeight: StripCard<EmptyView>.size(compact: true).height) { id in
+                        if let f = cards.first(where: { $0.id == id }) { card(f, held: held) }
+                    }
+                    customRows
+                }
+                // With a film edge on, the film's size is the film edge's own format — the engine takes the
+                // gate's millimetres, not these (`pipeline.cpp`, `overscan_gate_long_mm`).
+                .rowEnabled(!held)
+                Text(PanelNotes.filmSize(edge: held ? edge.format.label : nil).joined(separator: " "))
+                    .font(Theme.Font.ui(PanelNotes.size)).foregroundStyle(Theme.dim)
+                    .lineLimit(2).minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 10)
+            }
+        }
+        .onChange(of: params.filmFrame, initial: true) { _, id in
+            if cards.contains(where: { $0.id == id }) { lastCard = id }
+        }
+        // Another frame on the kept page (2.4.0 A2b): Custom's way back is this frame's card, or 135, never the last's.
+        .onChange(of: frame.id) { _, _ in lastCard = cards.contains { $0.id == params.filmFrame } ? params.filmFrame : "135" }
+    }
+
+    // MARK: the strip
+
+    private func card(_ f: FilmFrame, held: Bool) -> some View {
+        let selected = !isCustom && params.filmFrame == f.id
+        let dims = Self.dimensions(long: sentLong(f), photo: photo)
+        return Button { take(f) } label: {
+            StripCard(compact: true, selected: selected, live: !held) {
+                Rectangle().fill(Theme.card)
+                filmGlyph(f).frame(maxWidth: .infinity, maxHeight: .infinity).padding(.bottom, 24)
+                // The name over this picture's size, both at the card's foot: side by side they ran into each
+                // other on a 96 pt card (APS, 4×5; the merged build's snapshot, 2026-11-11).
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(f.title).font(Theme.Font.ui(labelSize, .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(dims).font(Theme.Font.ui(9.5, .medium)).monospacedDigit().foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                }
+                .padding(6).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(f.title + Fmt.dot + Self.mm(f.short) + " × " + Self.mm(f.long) + " mm")
+        .accessibilityLabel(f.title + ", " + dims)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("v5.develop.film-size." + f.id)
+    }
+
+    /// The frame on the card, this picture's shape, its size on a log scale: 8mm's 4.9 mm to 8×10's
+    /// 245 mm is fifty times, which to scale would be a dot beside the card's whole height.
+    private func filmGlyph(_ f: FilmFrame) -> some View {
+        let long = sentLong(f), aspect = max(photo.aspect, 1 / max(photo.aspect, 0.0001))
+        let t = log(max(long, 3) / 3.68) / log(245 / 3.68)
+        let w = 12 + 30 * min(max(t, 0), 1)
+        return RoundedRectangle(cornerRadius: 1.5).fill(Color.white.opacity(0.16))
+            .overlay { RoundedRectangle(cornerRadius: 1.5).stroke(Color.white.opacity(0.7), lineWidth: 1) }
+            .frame(width: w, height: w / aspect)
+    }
+
+    /// The long edge a card sends for this picture, as taking it would (`FilmParams.take(size:photo:)`).
+    private func sentLong(_ f: FilmFrame) -> Double {
+        var p = params
+        p.take(size: f, photo: photo)
+        return p.filmFormatMM
+    }
+
+    private func take(_ f: FilmFrame) {
+        lastCard = f.id
+        guard isCustom || params.filmFrame != f.id else { return }
+        session.change { $0.params.take(size: f, photo: photo) }
+    }
+
+    // MARK: Custom, 1.3.x's rows
+
+    @ViewBuilder private var customRows: some View {
+        row(L("Custom", as: "film size")) {
+            SpkToggle(isOn: Binding(get: { isCustom }, set: { setCustom($0) }), size: .compact)
+                .accessibilityLabel(L("Custom", as: "film size"))
+                .accessibilityIdentifier("v5.develop.film-size.custom")
+        }
+        if isCustom {
+            row(L("Reference Side")) {
+                pill(side.title) {
+                    ForEach(FilmSide.allCases) { s in
+                        Button { setCustom(side: s, lengthMM: params.sideLengthMM) } label: {
+                            if s == side { Label(s.title, systemImage: "checkmark") } else { Text(s.title) }
+                        }
+                    }
+                }
+                .accessibilityLabel(L("Reference Side"))
+            }
+            row(L("Side Length")) {
+                HStack(spacing: 6) {
+                    let unit = prefs.sideUnit
+                    SliderField(shown: String(format: "%.\(unit.decimals)f", unit.fromMM(params.sideLengthMM)), width: 64,
+                                parse: SliderField.number(from:),
+                                commit: { setCustom(side: side, lengthMM: unit.toMM($0)) })
+                        .accessibilityIdentifier("v5.develop.film-size.length")
+                    pill(unit.title) {
+                        ForEach([SideUnit.mm, .inch]) { u in
+                            Button { prefs.sideUnit = u } label: {
+                                if u == unit { Label(u.title, systemImage: "checkmark") } else { Text(u.title) }
+                            }
+                        }
+                    }
+                    .accessibilityLabel(L("Side Length"))
+                }
+            }
+        }
+    }
+
+    /// Custom on keeps the frame's side and length — what the card it was on measured — as Custom's own;
+    /// off goes back to a card. One step of Undo either way.
+    private func setCustom(_ on: Bool) {
+        guard on != isCustom else { return }
+        if on {
+            setCustom(side: side, lengthMM: params.sideLengthMM)
+        } else {
+            take(cards.first { $0.id == lastCard } ?? .named("135"))
+        }
+    }
+
+    private func setCustom(side: FilmSide, lengthMM: Double) {
+        let length = lengthMM.clamped(to: 1...1000)
+        var p = params
+        p.take(customSide: side, lengthMM: length, photo: photo)
+        guard p != params else { return }
+        session.change { $0.params.take(customSide: side, lengthMM: length, photo: photo) }
+    }
+
+    /// A row as Edit's: the title at the left in 12.5 pt, its control at the right, 32 pt.
+    private func row<V: View>(_ title: String, @ViewBuilder value: () -> V) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(Theme.Font.ui(12.5, .medium)).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            Spacer(minLength: 8)
+            value()
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 32)
+    }
+
+    /// A small capsule popup, 24 pt, as 1.3.x's and Edit's.
+    private func pill<C: View>(_ text: String, @ViewBuilder _ content: () -> C) -> some View {
+        Menu(content: content) {
+            HStack(spacing: 4) {
+                Text(text).font(Theme.Font.ui(12, .semibold)).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 10).frame(height: 24)
+            .background(Theme.card, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    // MARK: words
+
+    /// The header's reading: the size's name and what it is on this picture ("135 · 24 × 36 mm"); under a
+    /// film edge, the edge's format, whose size it is.
+    private func readout(held: Bool) -> String {
+        if held { return edge.format.label }
+        let name = FilmFrame.all.first { $0.id == params.filmFrame }?.title ?? params.filmFrame
+        return name + " · " + Self.dimensions(long: params.filmFormatMM, photo: photo)
+    }
+
+    /// "24 × 36 mm": the short side from the picture's shape and the long edge sent.
+    static func dimensions(long: Double, photo: PixelSize) -> String {
+        let aspect = max(photo.aspect, 1 / max(photo.aspect, 0.0001))
+        return mm(long / aspect) + " × " + mm(long) + " mm"
+    }
+
+    /// 36, 16.7, 3.68: a whole number bare, under ten to two places, else one, trailing zeros dropped.
+    static func mm(_ v: Double) -> String {
+        var t = String(format: v < 10 ? "%.2f" : "%.1f", v)
+        while t.contains("."), t.hasSuffix("0") { t.removeLast() }
+        if t.hasSuffix(".") { t.removeLast() }
+        return t
     }
 }
 
@@ -767,15 +995,6 @@ struct ScenePanel: View {
                     .rowEnabled(reaches)
                     .baseline(PanelY.Scene.second - lift)
                 panelNote(PanelNotes.whiteBalance(reach)).baseline(PanelY.Scene.note - lift)
-            case .lens:
-                DrawnText(L("Lens correction"), DevelopType.label, .semibold).leading(16).baseline(PanelY.Scene.first)
-                SpkToggle(isOn: Binding(get: { d.lensCorrection },
-                                        set: { on in change { $0.lensCorrection = on }; lifted() }))
-                    .rowEnabled(reaches)
-                    .trailingInset(16)
-                    .top(PanelY.Scene.lensSwitch)
-                    .accessibilityLabel(L("Lens correction"))
-                panelNote(PanelNotes.lens(reach)).baseline(PanelY.Scene.lensNote)
             case .placement:
                 // pro-control's Scene Placement page, as it was, at this page's rows. It is the
                 // film's latitude, not the file's decode: it reaches every frame the film is applied
@@ -845,7 +1064,9 @@ struct EffectsPanel: View {
     /// no chips (`flatHeight`). Grain's Sub-layers switch is not among them: its value keeps rendering.
     var flat = false
 
-    /// The flat panel's height: its title line, and five rulers 56 pt apart, as the basic page's three.
+    /// The flat panel's height: its title line, and five rulers 56 pt apart, as the basic page's three. The title
+    /// line is the column's folding header since 2026-11-11 (`DevelopWorkspace.wideFormatTail`), drawn there, not
+    /// here: the band is the height less it.
     static let flatHeader: CGFloat = 30
     static let flatPitch: CGFloat = 56
     static var flatHeight: CGFloat {
@@ -893,13 +1114,6 @@ struct EffectsPanel: View {
 
     private var flatPage: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(L("Effects")).font(Theme.Font.ui(13, .semibold)).foregroundStyle(Theme.text)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .frame(height: Self.flatHeader, alignment: .bottom)
             DrawnBand(height: Self.flatHeight - Self.flatHeader) {
                 let first = PanelY.Effects.strengths[0]
                 grain.baseline(first)

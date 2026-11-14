@@ -85,10 +85,15 @@ struct FilmEdgeFlow: View {
             if session == nil {
                 session = model.session(for: frameID)
                 session?.enter()
+                // The flow is one sitting, and its result one step of the frame's history (PRD-F §3.3): every
+                // control's commit inside it is held to the one step its Develop, its Cancel or a leave closes.
+                // Its own Undo is the flow's (`MacFlowHistory`).
+                if snapshot == nil { session?.holdHistory(as: .flow, .filmEdge) }
             }
             if snapshot == nil { PairWay.filmEdgeEntered() }
         }
         .onDisappear {
+            session?.releaseHistory()
             session?.leave()
             session = nil
             // Left by the Format line on Half: now that this cover has gone, the page
@@ -195,6 +200,17 @@ private struct FilmEdgeFlowPage: View {
         .onChange(of: dragBase != nil || pinchBase != nil || scrollBase != nil) { _, now in macHistory.busy = now }
         // ⌘Z and ⇧⌘Z in the menu bar's Edit menu are this flow's while it is in front.
         .macFlowUndo(undo: { macUndo() }, redo: { macRedo() })
+        #if DEBUG
+        // MacDriver's `flow.next`: Next pressed (Develop on the last step), for a check without a mouse.
+        .onReceive(NotificationCenter.default.publisher(for: MacDriver.flowNext)) { _ in next() }
+        .onReceive(NotificationCenter.default.publisher(for: MacDriver.flowFog)) { n in
+            guard step == .edge, let v = n.object as? Double else { return }
+            session.began(.shoot)
+            draft.filmEdge.fog = v
+            commit()
+            session.ended()
+        }
+        #endif
     }
 
     /// The window (`FlowDialogLayout.swift`, PAGES.md W-F1): the film on the picture side as tall as the
@@ -550,11 +566,12 @@ private struct FilmEdgeFlowPage: View {
         guard format != draft.filmEdge.format else { return }
         withAnimation(.easeOut(duration: 0.18)) {
             let wasHalfTurned = draft.filmEdge.turn >= 2
-            draft.filmEdge.format = format
+            // The format and what it starts with: 135 Full Width's black holes, a Vision3 film's keyholes on 120.
+            draft.filmEdge.take(format: format, stockID: draft.params.filmStock)
             // The gate lies the way the picture does; a half turn already chosen is kept.
             draft.filmEdge.turn = format.defaultTurn(pictureAspect: Self.pictureAspect(frame, draft)) + (wasHalfTurned ? 2 : 0)
             draft.filmEdge.framing = nil
-            if !format.draws(draft.dateBack.style), let face = DateBackFace.allCases.first(where: format.draws) {
+            if !format.draws(draft.dateBack.style), let face = DateBackFace.offered.first(where: format.draws) {
                 draft.dateBack.style = face
             }
         }
@@ -588,9 +605,12 @@ private struct FilmEdgeFlowPage: View {
         // The Frame step's straighten is the photo's own (2026-10-25: the framing takes the photo's
         // corrections, `FilmFraming`), so it goes on the frame's geometry, as the crop page's does.
         let (angle, src) = (draft.geometry.angle, source)
-        session.change {
-            $0.filmEdge = edge; $0.dateBack = date; $0.frameSeed = seed
-            if $0.geometry.angle != angle { $0.geometry = $0.geometry.straightened(to: angle, in: src) }
+        // One step of the frame's history, the flow's (PRD-F §3.3).
+        session.recording(.flow, .filmEdge) {
+            session.change {
+                $0.filmEdge = edge; $0.dateBack = date; $0.frameSeed = seed
+                if $0.geometry.angle != angle { $0.geometry = $0.geometry.straightened(to: angle, in: src) }
+            }
         }
     }
 
@@ -603,7 +623,9 @@ private struct FilmEdgeFlowPage: View {
         if snapshot == nil, session.edit.filmEdge != opened.filmEdge || session.edit.dateBack != opened.dateBack
             || session.edit.frameSeed != opened.frameSeed || session.edit.geometry.angle != opened.geometry.angle {
             let (edge, date, seed, geometry) = (opened.filmEdge, opened.dateBack, opened.frameSeed, opened.geometry)
-            session.change { $0.filmEdge = edge; $0.dateBack = date; $0.frameSeed = seed; $0.geometry = geometry }
+            session.recording(.flow, .filmEdge) {
+                session.change { $0.filmEdge = edge; $0.dateBack = date; $0.frameSeed = seed; $0.geometry = geometry }
+            }
         }
         router.dismissCover()
     }

@@ -1,8 +1,10 @@
 //  ExportRecipe.swift — what Export makes: format, size, colour, where it goes.
 //
 //  The desktop's recipes on a sheet (design/flow, E1): Format, Size, Colour,
-//  Quality, and Save to Files or Share. The host's recipe is the
-//  small one — no naming templates, no Digital Intermediate.
+//  Quality, and Save to Files or Share — and, since 2026-11-11, 1.x's naming
+//  (issue #111): the file's name made of the original name, the film, the
+//  paper and the date, in the order the chips are dragged into (`Naming`). No
+//  Digital Intermediate.
 //
 //  **A recipe is saved under a name** (the owner, 2026-10-08: "an actual
 //  create export recipe feature must exist"), as the desktop's are
@@ -27,7 +29,7 @@ struct ExportRecipe: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// The keys as they are written: renaming a property must not move its key.
     enum CodingKeys: String, CodingKey {
         case id = "id", title = "title", format = "format", size = "size", colour = "colour", quality = "quality",
-            destination = "destination"
+            destination = "destination", naming = "naming"
     }
     enum Format: String, Codable, CaseIterable, Sendable {
         case jpeg = "JPEG", heif = "HEIF", png = "PNG", tiff = "TIFF"
@@ -146,6 +148,9 @@ struct ExportRecipe: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// 1…100, for JPEG and HEIF.
     var quality = 95
     var destination: Destination = .files
+    /// The file's name (issue #111). The original name alone unless chosen otherwise, so a recipe kept
+    /// before 2026-11-11, which has none, names its files as it always did.
+    var naming = Naming()
 
     /// "JPEG · Display P3", "TIFF 16-bit · ProPhoto": what a recipe makes, as
     /// its chip says it when it has no name of its own.
@@ -174,6 +179,7 @@ struct ExportRecipe: Codable, Equatable, Hashable, Sendable, Identifiable {
     func sameSettings(as other: ExportRecipe) -> Bool {
         format == other.format && size == other.size && colour == other.colour
             && (!format.takesQuality || quality == other.quality) && destination == other.destination
+            && naming.chosen == other.naming.chosen && naming.separator == other.naming.separator
     }
 
     /// The recipes the app starts with. Their ids are fixed, so a library that
@@ -290,6 +296,161 @@ struct ExportRecipe: Codable, Equatable, Hashable, Sendable, Identifiable {
     func fileName(stem: String) -> String {
         (size == .preview ? stem + "_preview" : stem) + "." + format.fileExtension
     }
+
+    /// The file's name for a frame, as the recipe's naming makes it: "_DSC0061_Portra_400_Portra_Endura.jpg".
+    /// The preview size's mark goes after the parts.
+    func fileName(_ context: Naming.Context) -> String { fileName(stem: naming.stem(context)) }
+}
+
+// MARK: - naming
+
+extension ExportRecipe {
+    /// The file's name, as parts joined by a separator (issue #111; 1.x's `NamingRule`, `main_v1`'s
+    /// `modern_UI/…/Export/ExportRecipe.swift` and `desktop/src/export/recipes.ts`).
+    ///
+    /// **Four parts, and only four**: the original name, the film, the paper, the date. Two lists, as 1.x
+    /// kept them: `order` holds all four in the order the chips are drawn (dragged into shape), `tokens`
+    /// the ones switched on, so the chips' order is the name's order and there is no third thing to keep
+    /// in step. At least one is on: the setters make that so, not the view.
+    ///
+    /// Not a format string: the value of the control is the sample under it, which a list always makes.
+    struct Naming: Codable, Hashable, Sendable {
+        enum Token: String, Codable, CaseIterable, Identifiable, Sendable {
+            case originalName, filmStock, printStock, date
+            var id: String { rawValue }
+            /// The chip's word.
+            var title: String {
+                switch self {
+                case .originalName: L("Original Name")
+                case .filmStock: L("Film")
+                case .printStock: L("Paper")
+                case .date: L("Date")
+                }
+            }
+        }
+
+        /// What a frame gives its name: its original name, and its film and paper as a name carries them
+        /// (`token(_:)`), empty where there is none — a slide or a scanned negative has no paper.
+        struct Context: Sendable {
+            var originalName: String
+            var filmStock: String
+            var printStock: String
+            var date: Date
+            /// The frame's number among its image's variants (PRD-G §3), where the image has several: the second and
+            /// later are named `<name>-2`, `-3` whatever parts are on, so two variants of one picture never take each
+            /// other's name and a variant's file is named by its variant, not by which clashed first. Nil or 1: none.
+            var variant: Int? = nil
+        }
+
+        /// Switched on, in `order`'s order. Never empty.
+        private(set) var tokens: [Token] = [.originalName]
+        /// All four, in the chips' order.
+        private(set) var order: [Token] = Token.allCases
+        var separator = "_"
+
+        /// The separators offered: 1.x's underscore, a hyphen, a space.
+        static let separators = ["_", "-", " "]
+
+        init() {}
+
+        /// 1.x's default: the original name, the film and the paper.
+        static let withStocks: Naming = {
+            var n = Naming()
+            n.toggle(.filmStock)
+            n.toggle(.printStock)
+            return n
+        }()
+
+        var chosen: [Token] { order.filter { tokens.contains($0) } }
+        func isOn(_ t: Token) -> Bool { tokens.contains(t) }
+
+        /// A part on, or off — unless it is the last one on, which stays.
+        mutating func toggle(_ t: Token) {
+            if let i = tokens.firstIndex(of: t) {
+                guard tokens.count > 1 else { return }
+                tokens.remove(at: i)
+            } else {
+                tokens = order.filter { tokens.contains($0) || $0 == t }
+            }
+        }
+
+        /// A chip dropped on another: it takes that one's place. Both lists move together.
+        mutating func move(_ t: Token, before target: Token) {
+            guard t != target, let from = order.firstIndex(of: t), let to = order.firstIndex(of: target) else { return }
+            order.remove(at: from)
+            order.insert(t, at: from < to ? to - 1 : to)
+            tokens = order.filter { tokens.contains($0) }
+        }
+
+        /// A chip moved one place earlier or later (the chip's own menu: a drag is not the only way).
+        mutating func shift(_ t: Token, by step: Int) {
+            guard let from = order.firstIndex(of: t) else { return }
+            let to = from + step
+            guard order.indices.contains(to) else { return }
+            order.swapAt(from, to)
+            tokens = order.filter { tokens.contains($0) }
+        }
+
+        /// The name with no extension: the parts on, joined. Parts with nothing in them are left out, and
+        /// a name with nothing in it is the original's — an empty name would write one file over and over.
+        /// No path separator survives a stock's name: `/`, `\` and `:` become `-`.
+        func stem(_ c: Context) -> String {
+            let parts = chosen.compactMap { t -> String? in
+                let s = switch t {
+                case .originalName: c.originalName
+                case .filmStock: c.filmStock
+                case .printStock: c.printStock
+                case .date: Self.dateFormatter.string(from: c.date)
+                }
+                return s.isEmpty ? nil : s
+            }
+            let joined = parts.joined(separator: separator)
+            var name = joined.isEmpty ? c.originalName : joined
+            // Not a part of its own, a chip that could be off (issue #111's four): a variant beyond the first always
+            // says which it is.
+            if let v = c.variant, v > 1 { name += "-\(v)" }
+            return name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: "\\", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+        }
+
+        /// A stock's name as a file's name carries it: no maker in front, spaces as underscores —
+        /// "Kodak Portra 400" is "Portra_400" (1.x's `stockToken`).
+        static func token(_ name: String) -> String {
+            name.replacingOccurrences(of: #"^(Kodak|Fujifilm|Fuji|Ilford)\s+(Professional\s+)?"#, with: "", options: .regularExpression)
+                .split(whereSeparator: \.isWhitespace).joined(separator: "_")
+        }
+
+        /// The date as a name carries it: 2026-11-11 (the issue's; it sorts).
+        static let dateFormatter: DateFormatter = {
+            let f = DateFormatter()
+            f.dateFormat = "yyyy-MM-dd"
+            f.locale = Locale(identifier: "en_US_POSIX")
+            return f
+        }()
+
+        // Read leniently, as 1.x did: a part this build does not know is dropped, one the file does not
+        // name keeps its place at the end, and nothing on is the original name.
+        private enum CodingKeys: String, CodingKey { case tokens, order, separator }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            separator = ((try? c.decode(String.self, forKey: .separator)) ?? "_").filter { !"/\\:".contains($0) }
+            let known = ((try? c.decode([String].self, forKey: .order)) ?? []).compactMap(Token.init(rawValue:))
+            var unique: [Token] = []
+            for t in known where !unique.contains(t) { unique.append(t) }
+            order = unique + Token.allCases.filter { !unique.contains($0) }
+            var on = ((try? c.decode([String].self, forKey: .tokens)) ?? []).compactMap(Token.init(rawValue:))
+            if on.isEmpty { on = [.originalName] }
+            tokens = order.filter { on.contains($0) }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(order, forKey: .order)
+            try c.encode(tokens, forKey: .tokens)
+            try c.encode(separator, forKey: .separator)
+        }
+    }
 }
 
 extension ExportRecipe {
@@ -308,5 +469,21 @@ extension ExportRecipe {
         colour = (try? c.decode(Colour.self, forKey: .colour)) ?? colour
         quality = ((try? c.decode(Int.self, forKey: .quality)) ?? quality).clamped(to: 1...100)
         destination = (try? c.decode(Destination.self, forKey: .destination)) ?? destination
+        naming = (try? c.decode(Naming.self, forKey: .naming)) ?? naming
+    }
+
+    /// Written as read: every field, and the naming only where it is not the original name alone — so a
+    /// recipe nobody gave a naming is the file it was before naming came back (`persisted_check`, 2.1.4's
+    /// recipes written back the same), and a build before it reads one that has it, leaving the key.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(title, forKey: .title)
+        try c.encode(format, forKey: .format)
+        try c.encode(size, forKey: .size)
+        try c.encode(colour, forKey: .colour)
+        try c.encode(quality, forKey: .quality)
+        try c.encode(destination, forKey: .destination)
+        if naming != Naming() { try c.encode(naming, forKey: .naming) }
     }
 }

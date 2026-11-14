@@ -317,7 +317,11 @@ func cropIsFrame(_ c: Checks) {
     c.expect(near(sent(square, true), 36), "on, a full-height 1:1 out of 3:2 is a 24 x 24 of the same negative: 36 mm, v1's number (\(sent(square, true)))")
     var long = e; long.params.filmSide = "long"; long.params.sideLengthMM = 36; square(&long)
     c.expect(near(c.rules.wireFormat(long, photo, true), 54), "on, Side Long 36 on a full-height 1:1 makes the square 36 mm: 54 across the source")
-    c.expect(near(sent(tiny, true), 200), "on, the engine's 200 mm is the ceiling (\(sent(tiny, true)))")
+    c.expect(near(sent(tiny, true), 300), "on, the engine's 300 mm is the ceiling (\(sent(tiny, true)))")
+    c.expect(ExportPlan.filmFormatRange == FilmParams.filmFormatRange, "the export plan and the edit hold the film to one range, the engine's")
+    // A sheet under crop-is-frame: the crop's shape is cut from the sheet, as the whole picture is.
+    var sheet = e; sheet.params.take(size: .named("4x5"), photo: photo); square(&sheet)
+    c.expect(near(c.rules.wireFormat(sheet, photo, true), 144), "on, a full-height 1:1 out of 3:2 on 4×5 is a 96 mm square: 144 across the source (\(c.rules.wireFormat(sheet, photo, true)))")
     var turned = e; half(&turned); turned.geometry.quarterTurns = 1
     c.expect(near(c.rules.wireFormat(turned, photo, true), 72), "a quarter turn does not change the crop's size on the film")
     var edged = e; half(&edged); edged.filmEdge.active = true

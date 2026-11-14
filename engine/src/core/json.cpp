@@ -7,7 +7,9 @@
 
 namespace spk {
 
-static const Json kNull;
+// Never destroyed: `at` hands it out to a render, which may still run while `exit()` tears the statics down
+// (colour.cpp).
+static const Json& kNull = *new const Json;
 
 const Json& Json::at(const std::string& key) const {
     auto it = obj_.find(key);

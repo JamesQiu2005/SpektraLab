@@ -1,0 +1,114 @@
+"%@ masks"
+蒙版 %@
+遮罩 %@
+マスク %@
+
+Mask layers are for single photographs for now
+蒙版图层目前用于单张照片
+遮罩圖層目前用於單張照片
+マスクレイヤーは今のところ単写真のみです
+
+"Layer %@"
+图层 %@
+圖層 %@
+レイヤー %@
+
+"Subject %@"
+主体 %@
+主體 %@
+被写体 %@
+
+"Background %@"
+背景 %@
+背景 %@
+背景 %@
+
+"Person %@"
+人物 %@
+人物 %@
+人物 %@
+
+"Gradient %@"
+渐变 %@
+漸層 %@
+グラデーション %@
+
+"Brush %@"
+画笔 %@
+筆刷 %@
+ブラシ %@
+
+A photograph holds at most 8 Finished layers.
+一张照片最多 8 个成片图层。
+一張照片最多 8 個成片圖層。
+1 枚の写真に仕上がりレイヤーは 8 つまでです。
+
+A photograph holds at most 8 Scene layers.
+一张照片最多 8 个场景图层。
+一張照片最多 8 個場景圖層。
+1 枚の写真にシーンレイヤーは 8 つまでです。
+
+Changes the finished picture. The film and the print stay as made.
+改变成片，胶片与相纸不重做。
+改變成片，底片與相紙不重做。
+仕上がりを変えます。フィルムとプリントは作り直しません。
+
+Changes the light that reaches the film. The film develops again.
+改变到达胶片的光，胶片随之重新冲洗。
+改變到達底片的光，底片隨之重新沖洗。
+フィルムに届く光を変えます。フィルムは現像し直されます。
+
+Curve, wheels, HSL, channels and lens are Film’s
+曲线、色轮、HSL、通道与镜头属于「胶片」
+曲線、色輪、HSL、通道與鏡頭屬於「底片」
+カーブ、カラーホイール、HSL、チャンネル、レンズは「フィルム」のもの
+
+Work on Finished
+改为作用于成片
+改為作用於成片
+仕上がりに作用させる
+
+Work on Scene
+改为作用于场景
+改為作用於場景
+シーンに作用させる
+
+"Add {a mask's join}"
+加
+加
+追加
+
+Subtract
+减去
+減去
+減算
+
+Intersect
+相交
+相交
+交差
+
+Linear Gradient
+线性渐变
+線性漸層
+線形グラデーション
+
+Radial Gradient
+径向渐变
+放射漸層
+円形グラデーション
+
+Brush
+画笔
+筆刷
+ブラシ
+
+Subject
+主体
+主體
+被写体
+
+All People
+全部人物
+全部人物
+すべての人物

@@ -6,6 +6,9 @@ struct LibraryFrame: Identifiable {
     let captureDate: Date
     let importedAt: Date
     var isPair = false
+    var isDouble = false
+    /// A pair or a double exposure: a picture made of photographs, which the pickers never offer (`LibraryFrame.isComposite`).
+    var isComposite: Bool { isPair || isDouble }
 }
 @MainActor final class FrameCatalog {
     var frames: [LibraryFrame] = []

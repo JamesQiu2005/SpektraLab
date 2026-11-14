@@ -16,7 +16,11 @@
 //    and exports 3 and its cards 4 — so a running prefetch gives way to any of them (the scheduler's own
 //    `yield`) and a queued one waits for them;
 //  - **the nearest first**, in the way the person is going: +1, −1, +2, −2 (or the other way round after a
-//    step back), two each side;
+//    step back), two each side — **on a Mac with 16 GB or less, +1 only** (`PrefetchPolicy`, the owner,
+//    2026-11-13: each is a full-size decode and render, 0.9–6.3 GB, and on such a Mac the four back to back are
+//    swap);
+//  - **only with room on the host**: none where the host's headroom, once the prefetch's price is paid, would
+//    be under `PrefetchPolicy.floorBytes` (the same rule above and below 16 GB);
 //  - **cancelled when the person moves on** (`developing` with another frame): a prefetch that has not
 //    started goes, and so does one under way for a frame no longer beside the current one; one for the
 //    frame stepped to is left, and is that page's when it asks (`FullRenderJobs.promote`: taken over
@@ -56,8 +60,10 @@ final class MacRenderCache {
     private(set) var inspecting = false
     /// The one prefetch under way or queued.
     private(set) var prefetch: (frame: LibraryFrame.ID, job: UUID)?
-    /// How far each side the neighbours are made.
+    /// How far each side the neighbours are made, where the Mac's memory allows (`policy`).
     var reach = 2
+    /// Which of them, by this Mac's memory, and whether the host has room for one now (`PrefetchPolicy`).
+    var policy = PrefetchPolicy.current()
 
     /// What was decided, for the check (`MacRenderCheck`) and the log.
     struct Event: Sendable {
@@ -149,14 +155,11 @@ final class MacRenderCache {
         consider()
     }
 
-    /// The frames beside `id` in the strip, nearest first, the way the person is going first.
+    /// The frames beside `id` in the strip that are made ahead, nearest first, the way the person is going
+    /// first: +1, −1, +2, −2 — or +1 alone on a Mac with 16 GB or less (`policy`).
     func neighbours(of id: LibraryFrame.ID) -> [LibraryFrame.ID] {
         guard let i = strip.firstIndex(of: id) else { return [] }
-        var out: [LibraryFrame.ID] = []
-        for k in 1...max(reach, 1) {
-            for d in [direction * k, -direction * k] where strip.indices.contains(i + d) { out.append(strip[i + d]) }
-        }
-        return out
+        return policy.offsets(direction: direction, reach: reach).compactMap { d in strip.indices.contains(i + d) ? strip[i + d] : nil }
     }
 
     /// A page's full render changed state: zoomed, the visit is an inspection; here, the neighbours follow.
@@ -206,6 +209,14 @@ final class MacRenderCache {
             guard fits(m.estimatedBytes, beside: [current] + around) else {
                 event("prefetch skipped: no room in the renders' limit", id)
                 continue
+            }
+            // The host, as the scheduler reads it, against what this prefetch is priced at: a speculative render
+            // never takes the host under the floor (`PrefetchPolicy.allows`); it is asked again at the next step.
+            let price = model.scheduler.costModel.estimate(FullRenderJobs.job(f, m, kind: .importDevelop), mode: .whole).phoneBytes
+            let headroom = model.scheduler.readMemory().phoneHeadroom
+            guard policy.allows(cost: price, headroom: headroom) else {
+                event("prefetch skipped: the host has \(headroom >> 20) MB, the render is priced at \(price >> 20) MB", id)
+                return
             }
             guard let job = FullRenderJobs.submit(f, m, kind: .importDevelop, asker: .prefetch,
                                                   scheduler: model.scheduler, darkroom: model.darkroom) else { continue }

@@ -28,8 +28,16 @@ public:
     // `acc + weight * G(img)` with the multiply-add fused into the last pass
     // -- which is what keeps a three-component exponential PSF at three blurs
     // instead of three blurs plus three full-frame adds.
+    // A mix that follows a blur and is its only reader: `a * x + b * blurred`, per channel. Handed
+    // to `gaussian` or `mixture`, it is done in the blur's own last pass (`spk_sep_fir_fin`,
+    // `spk_iir_df_fin`) and the blurred plane is never written -- the same bits as `lincomb` after.
+    struct Mix {
+        const Image* x = nullptr;
+        double a[3] = {1, 1, 1}, b[3] = {1, 1, 1};
+    };
     bool gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,
-                  double truncate = 3.0, const Image* acc = nullptr, const double* weight = nullptr);
+                  double truncate = 3.0, const Image* acc = nullptr, const double* weight = nullptr,
+                  const Mix* mix = nullptr);
 
     // --- class R, and what it turned out to be -----------------------------
     //
@@ -67,7 +75,7 @@ public:
         double sigma[3];
     };
     bool mixture(const Image& img, const std::vector<Component>& components, Image& out,
-                 std::string& error, double truncate = 3.0);
+                 std::string& error, double truncate = 3.0, const Mix* mix = nullptr);
 
     // --- the class of a sigma, and what it costs a strip boundary -----------
     //
@@ -126,9 +134,10 @@ public:
 
 private:
     bool fir(const Image& img, const double sigmas[3], double truncate, const bool active[3],
-             Image& out, std::string& error, const Image* acc, const double* weight);
+             Image& out, std::string& error, const Image* acc, const double* weight, const Mix* mix = nullptr);
     bool iir(const Image& img, const double sigmas[3], const bool active[3],
-             Image& out, std::string& error, const Image* acc, const double* weight);
+             Image& out, std::string& error, const Image* acc, const double* weight, const Mix* mix = nullptr);
+    gpu::BufferRef upload_mix(const Mix& mix, std::string& error);
     bool alloc_like(const Image& img, Image& out, std::string& error);
 
     gpu::Gpu* gpu_;

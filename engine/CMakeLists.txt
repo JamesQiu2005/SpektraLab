@@ -16,12 +16,14 @@ add_library(spektralab_core STATIC
     src/core/cam16.cpp
     src/core/colour.cpp
     src/core/curves.cpp
+    src/core/diffusion_psf.cpp
     src/core/digital_intermediate.cpp
     src/core/hanatos.cpp
     src/core/hdr_curves.cpp
     src/core/json.cpp
     src/core/latitude_fit.cpp
     src/core/minilab.cpp
+    src/core/negative_hue.cpp
     src/core/numeric.cpp
     src/core/params.cpp
     src/core/print_lut.cpp
@@ -55,7 +57,8 @@ add_library(spektralab_pipeline OBJECT
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(APPLE)
     target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
+        src/pipeline/contrast_mask.cpp src/pipeline/lens.cpp src/pipeline/overscan.cpp
+        src/pipeline/scene_layers.cpp)
 else()
     target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
 endif()

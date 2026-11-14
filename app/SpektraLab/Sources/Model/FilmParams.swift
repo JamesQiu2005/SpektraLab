@@ -62,6 +62,30 @@ struct FilmFrame: Identifiable, Hashable, Sendable {
     let short: Double
     let long: Double
     let isCine: Bool
+    /// Sheet film (4×5, 5×7, 8×10).
+    let isSheet: Bool
+    /// A rectangle fixed both ways — a sheet, or a movie camera's gate (8mm)
+    /// — which a picture is the largest cut of (`longEdgeMM(of:photo:)`),
+    /// where a still roll's frame runs along the film as far as the picture's
+    /// shape asks (120's 6×9 on a 3:2 picture).
+    let isFixed: Bool
+
+    init(id: String, short: Double, long: Double, isCine: Bool, isSheet: Bool = false, isFixed: Bool? = nil) {
+        self.id = id
+        self.short = short
+        self.long = long
+        self.isCine = isCine
+        self.isSheet = isSheet
+        self.isFixed = isFixed ?? isSheet
+    }
+
+    /// What a chip says: the id, with a sheet's "x" as the "×" it is sold by.
+    /// Custom is the user's own and says so in the app's language.
+    var title: String {
+        if id == Self.custom.id { return L("Custom", as: "film size") }
+        if id == Self.max65.id { return Self.cine65Name }
+        return isSheet ? id.replacingOccurrences(of: "x", with: "×") : id
+    }
 
     /// The custom entry. Its two sides are the user's `sideLengthMM`, so the
     /// numbers here are only the value a fresh Custom starts at.
@@ -93,7 +117,69 @@ struct FilmFrame: Identifiable, Hashable, Sendable {
         custom,
     ]
 
-    static var all: [FilmFrame] { cine + still }
+    /// Large-format sheet film (2026-11-11, the Mac's Develop › Format only).
+    /// The ids are the inch sizes sheets are sold by, written with an ASCII
+    /// "x" because they are stored in a frame's settings; `title` draws "×".
+    ///
+    /// The millimetres are the **image area**, not the sheet. A sheet is the
+    /// nominal size (4×5 in = 102 × 127 mm, 5×7 in = 127 × 178 mm, 8×10 in =
+    /// 203 × 254 mm; e.g. design215.com's film size chart), and the holder's
+    /// rebates and the film's notch margin take a few millimetres off every
+    /// side — how many varies by holder, so these are the usual working
+    /// figures for the exposed area, not a standard's: 4×5 ≈ 96 × 120,
+    /// 5×7 ≈ 120 × 170, 8×10 ≈ 194 × 245.
+    static let sheet: [FilmFrame] = [
+        .init(id: "4x5", short: 96, long: 120, isCine: false, isSheet: true),
+        .init(id: "5x7", short: 120, long: 170, isCine: false, isSheet: true),
+        .init(id: "8x10", short: 194, long: 245, isCine: false, isSheet: true),
+    ]
+
+    /// Regular (Double/Standard) 8mm: the camera aperture, 0.192 × 0.145 in =
+    /// 4.88 × 3.68 mm (SMPTE ST 231 / ISO 74, "8 mm Type R camera aperture";
+    /// the NFSA's film-format table gives the same). A movie camera's gate is
+    /// fixed both ways, so a picture is the largest cut of it: a square one is
+    /// 3.68 mm, which is why the engine's range starts at 3 (`filmFormatRange`).
+    static let eight = FilmFrame(id: "8mm", short: 3.68, long: 4.88, isCine: true, isFixed: true)
+
+    /// Every size Develop › Format's 尺寸 Size has a card for, in the owner's
+    /// order (2026-11-11): 8mm, 110, APS, 135, 120, 4×5, 5×7, 8×10. Custom is
+    /// not a card: it is the rows under the strip. What a frame's settings
+    /// name from here is held to its photograph (`heldToItsPhoto`) on every
+    /// platform; which of them a page *offers* is `offered`.
+    static var presets: [FilmFrame] { [eight] + still.filter { $0.id != custom.id } + sheet }
+
+    /// **65mm** (PRD-D §3.2; the owner's name, 2026-11-11): Kodak Vision3 made in 65 mm and cut to 120, so 120's
+    /// 56 mm across — the size grain, halation and every micrometre effect are scaled by. A cine card, after 120,
+    /// offered only on the four Vision3 stocks (`offered(stockID:)`). Its id is not the cine list's "65mm" (a 65 mm
+    /// camera's own 52.6 × 23 frame, from a 1.x edit) and is no mark: a frame's size id is drawn as it is in places
+    /// (Copy Settings' line, the status line). Its title is `FilmEdgePerforation.filmName`.
+    static let max65 = FilmFrame(id: "65mm 120", short: 56, long: 56, isCine: true)
+    /// The cine 120's name, zh and en alike (`FilmEdgePerforation.filmName`).
+    static let cine65Name = "65mm"
+    /// The stocks made in 65 mm and sold cut to 120 (`FilmEdgePerforation.cine65Stocks`).
+    static let cine65Stocks: Set<String> = ["kodak_vision3_50d", "kodak_vision3_250d", "kodak_vision3_200t", "kodak_vision3_500t"]
+
+    /// The cards the page shows for a frame on `stockID` whose size is `chosen`: `offered`, with 65mm only on a
+    /// stock made that way — or on a frame that already has it, so its card is never taken from under it.
+    static func offered(stockID: String, chosen: String? = nil) -> [FilmFrame] {
+        var cards = offered
+        if cine65Stocks.contains(stockID) || chosen == max65.id, let after = cards.firstIndex(where: { $0.id == "120" }) {
+            cards.insert(max65, at: after + 1)
+        }
+        return cards
+    }
+
+    /// The cards the page shows: the sheets on the Mac alone (a desktop's large
+    /// format; a build for any other platform does not offer them).
+    static var offered: [FilmFrame] {
+        #if targetEnvironment(macCatalyst)
+        return presets
+        #else
+        return presets.filter { !$0.isSheet }
+        #endif
+    }
+
+    static var all: [FilmFrame] { cine + still + sheet + [eight, max65] }
     static func named(_ id: String) -> FilmFrame { all.first { $0.id == id } ?? custom }
 
     func side(_ s: FilmSide) -> Double { s == .short ? short : long }
@@ -107,12 +193,26 @@ enum FilmSide: String, CaseIterable, Identifiable, Sendable {
 }
 
 extension FilmParams {
+    /// The engine's range for `film_format_mm` (`engine/src/core/params.cpp`;
+    /// API-SPEC §2's table). `ExportPlan.filmFormatRange` is the same range,
+    /// written again because the export's checks compile without this file
+    /// (`crop_selftest` holds the two together).
+    ///
+    /// 3…300 since 2026-11-11 (was 4…200): 8×10 sheet film's image is 245 mm
+    /// long, and a square picture on 8mm is 3.68. The engine only divides it
+    /// by the frame's pixels (the pitch that sizes grain, halation and DIR
+    /// diffusion), so a wider range is a longer or shorter pitch and nothing
+    /// else: grain's exact Poisson sampler takes any count (`spk_common.h`:
+    /// PTRS above mu 10, a sequential search under), and the blurs' wider
+    /// sigmas at 3 mm are a third more than the 4 mm the wire already took.
+    static let filmFormatRange = 3.0...300.0
+
     /// The frame's long edge in millimetres: the short side times the photo's
     /// aspect, or the long side itself. 135 on a 3:2 photo is 36; 120 is 84
     /// (6 × 9) on 3:2 and 56 on a square. The desktop's `Session.filmFormatMM`.
     static func longEdgeMM(side: FilmSide, length: Double, photo: PixelSize) -> Double {
         let long = Double(max(photo.width, photo.height)), short = Double(max(min(photo.width, photo.height), 1))
-        return (side == .short ? length * long / short : length).clamped(to: 4...200)
+        return (side == .short ? length * long / short : length).clamped(to: filmFormatRange)
     }
 
     /// Take a film's size, as a size card does. **Three fields move
@@ -120,11 +220,46 @@ extension FilmParams {
     /// the wire's long edge (`film_format_mm`), derived from the photograph's
     /// own shape. The name alone changes a label and nothing the engine is
     /// sent, so nothing would develop.
+    ///
+    /// A sheet is the exception to "the short side times the picture's shape":
+    /// its image area is fixed both ways, so the picture is the largest cut of
+    /// its own shape inside it (`longEdgeMM(of:photo:)`) — a 3:2 picture on 4×5
+    /// is 80 × 120, not 96 × 144 past the sheet's edge — whichever side it is
+    /// measured by.
     mutating func take(size frame: FilmFrame, photo: PixelSize) {
         let side = FilmSide(rawValue: filmSide) ?? .short
         filmFrame = frame.id
         sideLengthMM = frame.side(side)
-        filmFormatMM = Self.longEdgeMM(side: side, length: sideLengthMM, photo: photo)
+        filmFormatMM = frame.isFixed ? Self.longEdgeMM(of: frame, photo: photo)
+                                     : Self.longEdgeMM(side: side, length: sideLengthMM, photo: photo)
+    }
+
+    /// A fixed frame's long edge (a sheet, 8mm's gate) for a picture this
+    /// shape: the largest cut of it inside the frame, held to the engine's range.
+    static func longEdgeMM(of sheet: FilmFrame, photo: PixelSize) -> Double {
+        let long = Double(max(photo.width, photo.height)), short = Double(max(min(photo.width, photo.height), 1))
+        return min(sheet.long, sheet.short * long / short).clamped(to: filmFormatRange)
+    }
+
+    /// The frame's long edge, unclamped, for a picture (or a crop) whose
+    /// sides are `long` and `short` pixels: what these settings make of that
+    /// shape. Crop-is-frame measures the crop with it (`FrameEdit.wireFilmFormatMM`).
+    func frameLongMM(long: Double, short: Double) -> Double {
+        let aspect = long / max(short, 1e-9)
+        if let frame = FilmFrame.presets.first(where: { $0.id == filmFrame && $0.isFixed }) {
+            return min(frame.long, frame.short * aspect)
+        }
+        return (FilmSide(rawValue: filmSide) ?? .short) == .short ? sideLengthMM * aspect : sideLengthMM
+    }
+
+    /// Type a Custom size, as 1.3.x's rows did: the side it measures and its
+    /// length in millimetres (the unit is the reading's, `SideUnit`). The
+    /// length is kept as typed; what is sent is held to the engine's range.
+    mutating func take(customSide side: FilmSide, lengthMM: Double, photo: PixelSize) {
+        filmFrame = FilmFrame.custom.id
+        filmSide = side.rawValue
+        sideLengthMM = lengthMM
+        filmFormatMM = Self.longEdgeMM(side: side, length: lengthMM, photo: photo)
     }
 
     /// These settings with the film's long edge as *this* photograph makes it
@@ -135,7 +270,7 @@ extension FilmParams {
     /// frame the page does not offer (Custom, a cine frame: a desktop edit's)
     /// is left as it is.
     func heldToItsPhoto(_ photo: PixelSize) -> FilmParams {
-        guard let frame = FilmFrame.still.first(where: { $0.id == filmFrame }), frame.id != FilmFrame.custom.id,
+        guard let frame = (FilmFrame.presets + [FilmFrame.max65]).first(where: { $0.id == filmFrame }),
               photo.width > 0, photo.height > 0 else { return self }
         var p = self
         p.take(size: frame, photo: photo)
@@ -506,7 +641,7 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// below and the photograph's own aspect — and stored because the
     /// derivation needs a decoded frame and this struct has never seen one.
     /// `Session.recomputeFilmFormat()` is the one place that writes it.
-    var filmFormatMM: Double = 36                    // 4…200
+    var filmFormatMM: Double = 36                    // 3…300 (`filmFormatRange`)
     /// Film Type, Side and Side Length: the user's half of that derivation.
     /// Not wire fields — the engine takes one number — but they have to come
     /// back with the frame, so they live here beside the number they make.
@@ -850,8 +985,20 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// sent: the session kept developing the slide stretched, under a stamp that said it was not.
     /// So a field of those that was told and is gone is sent at its rest, before a stock change
     /// cuts `applied` back — which would otherwise forget it, and leave a slide's grain seed on the next film.
+    ///
+    /// **PRD-D (2026-11-11)**, the desktop's `leavesToDefault` for API-SPEC §21: a leak, the 柔光镜 and the 像差 are
+    /// sent only while on, and the film edge's falloff (0 on every format) and the 120 keyholes only while the film edge is on
+    /// (`LensEdge.swift`); each switch goes back to the engine's rest when it leaves. Never sent to an engine that
+    /// was never told them, so an engine without §21 is never named a field it does not know.
     static let sometimesSent: [String: ParamValue] = ["scan_hdr_stretch": .bool(false), "scan_hdr_headroom": .double(0),
-                                                       "scan_hdr_output_scale": .double(1), "grain_seed": .double(0)]
+                                                       "scan_hdr_output_scale": .double(1), "grain_seed": .double(0),
+                                                       "leak_kind": .string("off"), "diffusion_filter_active": .bool(false),
+                                                       "lens_aberrations_active": .bool(false), "overscan_falloff": .double(0),
+                                                       "overscan_perforation": .string("none"),
+                                                       "date_imprint_data_placement": .string("gap"),
+                                                       // PRD-E (RFC-052 §6.4): sent only while a 场景 layer acts; its
+                                                       // rest takes the set away from an open session.
+                                                       "scene_layers": .string("")]
 
     static func step(from applied: inout [String: ParamValue], to now: [String: ParamValue]) -> [String: ParamValue] {
         var delta = now.filter { applied[$0.key] != $0.value }

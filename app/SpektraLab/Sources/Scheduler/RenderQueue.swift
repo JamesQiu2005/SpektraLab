@@ -101,6 +101,24 @@ final class RenderQueue {
     /// How long a job someone waits on waits for memory, after everything has been given back, before
     /// it starts in its smallest mode against the app's allowance alone, the watch on it.
     @ObservationIgnored var forceAfter = 1.5
+    /// **On the Mac, a job someone waits on never starves** (review, 2026-11-13). The forced start above is held to
+    /// the host there (`MemoryProbe.macAllowance`), and macOS frees nothing for us under pressure: a
+    /// 60 MP export on a loaded 16 GB Mac could otherwise wait for good, which is worse than the swap this round
+    /// removes. So once it has waited this long it starts anyway, in its smallest mode, the watch on it as before.
+    /// **5 s**: the forced start's 1.5 s, by which both of the reclaim's rungs have run (the frontend's caches, then
+    /// the engine's session and pool, `reclaim`); then the ~2 s the footprint takes to show a release
+    /// (`MemoryProbe`: it lags by up to ~2 s); then 1.5 s more, ten of the 0.15 s re-plans a waiting queue makes,
+    /// for the host's own compressor to answer. Nil: never (off the Mac, where the allowance is the OS's own).
+    @ObservationIgnored var forceAnywayAfter: Double? = {
+        #if targetEnvironment(macCatalyst) || os(macOS)
+        return 5.0
+        #else
+        return nil
+        #endif
+    }()
+    /// How long the queue is idle before the engine's pool is given back (`idle`). The pool of a 2,560 px
+    /// canvas is ~0.2-0.3 GB, of a full-size render several GB (`MacMemoryCheck`, 2026-11-13).
+    @ObservationIgnored var idleTrimAfter = 5.0
     /// Every change to a job, for whoever keeps the frames' states.
     @ObservationIgnored var onUpdate: (@MainActor (JobSnapshot) -> Void)?
     /// R8: every record as it is made, for whoever writes them to a file
@@ -108,6 +126,11 @@ final class RenderQueue {
     @ObservationIgnored var onRecord: (@MainActor (JobRecord) -> Void)?
     /// An export gives way to a canvas edit only if it has longer than this left.
     @ObservationIgnored var yieldThreshold = 0.4
+    /// **What a job's open composes**, asked once when it is submitted (`EngineRouter.composition(of:)`):
+    /// a double exposure's two decodes and its scratch band (RFC-048 §5).
+    /// The job is priced with it — planned, and learned from, as a composed open — and runs as it was asked.
+    /// Nil, or nil for a job, leaves the job as it is: every photograph's and every pair's price is what it was.
+    @ObservationIgnored var composition: (@MainActor (RenderJob) -> RenderJob.Composition?)?
     /// How long a waiting queue goes before it looks again by itself. Signals
     /// re-plan at once; this is the fallback.
     @ObservationIgnored var replanInterval = 0.5
@@ -209,6 +232,7 @@ final class RenderQueue {
     @ObservationIgnored private var outcomeOrder: [UUID] = []
     @ObservationIgnored private var replanTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
+    @ObservationIgnored private var idleTrim: Task<Void, Never>?
     @ObservationIgnored private var lastReprintStart: Date?
     /// The pool has been given back since a job last started: once per wait.
     @ObservationIgnored private var trimmedForWait = false
@@ -242,7 +266,10 @@ final class RenderQueue {
     // MARK: - asking for a render
 
     @discardableResult
-    func submit(_ job: RenderJob) -> UUID {
+    func submit(_ asked: RenderJob) -> UUID {
+        // The scheduler must know what an open holds before the job runs: a composed open is priced as one
+        // (`CostModel.seed`, a double exposure's).
+        let job = asked.composition == nil ? (composition?(asked)).map { asked.composed($0) } ?? asked : asked
         if job.kind.isCanvas {
             // Latest wins: an older canvas job for this frame that has not
             // started is dropped, not finished.
@@ -469,6 +496,16 @@ final class RenderQueue {
                 start(asked, plan, reading)
                 return
             }
+            // The Mac's longer bound: everything has been given back and had its time to show, and the host still
+            // has no room -- it starts anyway, past what the host has left (`forceAnywayAfter`).
+            if let bound = forceAnywayAfter, let since = waitingForMemorySince[asked.id], Date().timeIntervalSince(since) >= bound,
+               forcedStoppedAt[asked.id].map({ Date().timeIntervalSince($0) > 10 }) ?? true,
+               let plan = anywayPlan(asked, budget: askedBudget) {
+                log.notice("\(asked.kind.rawValue, privacy: .public) has waited \(Date().timeIntervalSince(since), format: .fixed(precision: 1)) s for memory, past the Mac's \(bound, format: .fixed(precision: 1)) s bound: it starts anyway in \(plan.mode.name, privacy: .public), past the host's headroom, the watch on it")
+                forced.insert(asked.id)
+                start(asked, plan, reading)
+                return
+            }
         }
         // Nothing could start. If memory is why, the engine's own idle pool is
         // the first place to find some: it keeps the planes of the job that
@@ -523,6 +560,7 @@ final class RenderQueue {
     }
 
     private func start(_ job: RenderJob, _ plan: RenderPlan, _ reading: MemoryReading) {
+        idleTrim?.cancel(); idleTrim = nil
         queue.removeAll { $0.id == job.id }
         trimmedForWait = false
         reclaimed = 0
@@ -605,6 +643,14 @@ final class RenderQueue {
         let cost = costModel.estimate(job, mode: mode)
         guard Double(cost.peakBytes) <= Double(budget.appBytes) * currentDerate(job.id) else { return nil }
         return RenderPlan(mode: mode, estimate: cost, budget: budget)
+    }
+
+    /// `forcedPlan` without the allowance: the smallest mode, where the frontend allows the job at all.
+    private func anywayPlan(_ job: RenderJob, budget: MemoryBudget) -> RenderPlan? {
+        guard Planner.gate(job, frontend: frontend, policy: costModel.policy, captures: captureRule,
+                           besideCamera: developsBesideCamera) == nil else { return nil }
+        let mode = Planner.ladder(for: job).last ?? .whole
+        return RenderPlan(mode: mode, estimate: costModel.estimate(job, mode: mode), budget: budget)
     }
 
     private func progressed(_ id: UUID, _ p: RenderProgress) {
@@ -714,13 +760,22 @@ final class RenderQueue {
         }
     }
 
-    /// Nothing queued and nothing running: release gives everything back. A
-    /// banded engine holds 0 MB after release, and the footprint returns within
-    /// 2 s (RFC-035 §11).
+    /// Nothing queued and nothing running: the engine's pool goes back **once the queue has been idle for
+    /// `idleTrimAfter`** — not at once: between two reprints of a slider's drag the queue is idle for a few
+    /// milliseconds, and a pool given back there is allocated again by the next (the engine's own idle trim
+    /// waits 60 s, which back-to-back browsing never gives it). Until 2026-11-13 this called a trim that freed
+    /// nothing.
     private func idle() {
         replanTask?.cancel(); replanTask = nil
+        idleTrim?.cancel()
         let engine = self.engine
-        Task { await engine.trim() }
+        let after = idleTrimAfter
+        idleTrim = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(after, 0) * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.isIdle else { return }
+            let freed = await engine.trim()
+            if freed > 0 { self.log.info("idle \(after, format: .fixed(precision: 0)) s: \(freed.megabytes, format: .fixed(precision: 0)) MB of the engine's pool given back") }
+        }
     }
 
     // MARK: - bookkeeping

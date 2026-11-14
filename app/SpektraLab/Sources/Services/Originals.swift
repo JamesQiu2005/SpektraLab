@@ -124,7 +124,7 @@ final class Originals {
     @discardableResult
     func holdToItsFile(_ id: LibraryFrame.ID) async -> Bool {
         if let running = sizing[id] { return await running.value }
-        guard let frame = library.frame(id), frame.isRAW, !frame.isPair, !sized.contains(id),
+        guard let frame = library.frame(id), frame.isRAW, !frame.isComposite, !sized.contains(id),
               let file = frame.developSource, FileManager.default.fileExists(atPath: file.path) else { return false }
         let task = Task { [weak self] () -> Bool in
             let size = await Task.detached(priority: .userInitiated) { ImportService.rawSize(file) }.value

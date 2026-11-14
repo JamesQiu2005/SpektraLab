@@ -12,10 +12,16 @@ enum MacShortcut: String, CaseIterable {
     case tableDrag, tableClick, tableLoupe, tableFit, tableActual, tableZoomIn, tableZoomOut
     case tableRight, tableLeft
     case red, yellow, green
+    case original
+    case newVariant, cloneVariant
 
     var bindings: [MacKeySpec] {
         func k(_ input: String, _ flags: UIKeyModifierFlags = []) -> MacKeySpec { MacKeySpec(input: input, flags: flags) }
         switch self {
+        case .original: return [k(" ")]
+        // Capture One's own on the Mac (PRD-G §3; its support pages, 2026-11-13). Delete Variant has none there.
+        case .newVariant: return [k(UIKeyCommand.f2)]
+        case .cloneVariant: return [k(UIKeyCommand.f3)]
         case .red: return [k("-")]
         case .yellow: return [k("*")]
         case .green: return [k("+")]
@@ -65,6 +71,9 @@ enum MacShortcut: String, CaseIterable {
 
     var title: String {
         switch self {
+        case .original: L("Original")
+        case .newVariant: L("New Variant")
+        case .cloneVariant: L("Clone Variant")
         case .red: L("Red")
         case .yellow: L("Yellow")
         case .green: L("Green")
@@ -105,6 +114,48 @@ enum MacShortcut: String, CaseIterable {
     // The scene owns Import; ⌘I now belongs to Invert Selection.
     static let importKey: KeyEquivalent = "i"
     static let importModifiers: EventModifiers = [.command, .shift]
+}
+
+/// **The mask tools' plain keys** (design/masks/MASKS-SPEC.md §8): the develop page's, registered while a single
+/// photograph's 图层 panel takes masks (`PadDevelopPage.maskKeys`), each enabled under the page's free-keys conditions
+/// and none while a field is edited (no `allowsDuringTextEditing`: a slider's number box and a row being renamed keep
+/// their keys, trap 32). Free on the Mac before them (read 2026-11-12): M, B, E, [ and ] were bound nowhere.
+///
+/// `[` and `]` with ⇧: a US layout sends `{` `}` with the shift flag; a layout whose shifted key is something else
+/// sends the unshifted input with the flag. Both spellings are registered with the shift flag, and `{` `}` bare too (an
+/// event whose flags the system has folded into the character). ⌥M: `m` with the option flag, and `µ` (what ⌥M types
+/// on a US layout) with it.
+enum MaskKey: CaseIterable {
+    case showMask, maskAlone, brush, eraser, smaller, larger, softer, harder, putDown
+
+    var specs: [MacKeySpec] {
+        func k(_ input: String, _ flags: UIKeyModifierFlags = []) -> MacKeySpec { MacKeySpec(input: input, flags: flags) }
+        switch self {
+        case .showMask: return [k("m")]
+        case .maskAlone: return [k("m", .alternate), k("µ", .alternate)]
+        case .brush: return [k("b")]
+        case .eraser: return [k("e")]
+        case .smaller: return [k("[")]
+        case .larger: return [k("]")]
+        case .softer: return [k("[", .shift), k("{", .shift), k("{")]
+        case .harder: return [k("]", .shift), k("}", .shift), k("}")]
+        case .putDown: return [k(UIKeyCommand.inputEscape)]
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .showMask: L("Show Mask")
+        case .maskAlone: L("Show Mask Alone")
+        case .brush: L("Brush")
+        case .eraser: L("Eraser")
+        case .smaller: L("Smaller Brush")
+        case .larger: L("Larger Brush")
+        case .softer: L("Softer Brush")
+        case .harder: L("Harder Brush")
+        case .putDown: L("Put the Tool Down")
+        }
+    }
 }
 
 struct MacShortcutButton: View {
@@ -164,7 +215,11 @@ struct MacKeySpec: Hashable {
 
 @MainActor
 final class MacShortcutRegistry {
-    static let shared = MacShortcutRegistry()
+    static let shared: MacShortcutRegistry = {
+        let registry = MacShortcutRegistry()
+        registry.watchEditing()
+        return registry
+    }()
     struct Entry {
         var specs: [MacKeySpec]
         var title: String
@@ -175,6 +230,31 @@ final class MacShortcutRegistry {
     private var entries: [UUID: Entry] = [:]
     private var order: [UUID] = []
     private var pendingRebuild = false
+    /// Whether the menu was last built for a field being edited (`buildMenu`).
+    private var builtTyping = false
+
+    /// **A field that takes the keys rebuilds the menu** (issue #112, measured 2026-11-11 on 2.3.2's build): a
+    /// menu item's plain key — the ratings' 0–5, Space, the arrows — is offered to the menu before the focused
+    /// field (trap 32), and AppKit takes it there: with Temperature's box focused and its own `@FocusState` true,
+    /// `5` reached neither the box nor this registry (no `canPerform`, no `perform`), while `7`, which no item
+    /// has, went in. So the menu is built again whenever a field begins or ends editing, and while one is
+    /// edited it carries no plain key that does not take part in editing (`buildMenu`).
+    private func watchEditing() {
+        let centre = NotificationCenter.default
+        for name in [UITextField.textDidBeginEditingNotification, UITextField.textDidEndEditingNotification,
+                     UITextView.textDidBeginEditingNotification, UITextView.textDidEndEditingNotification] {
+            centre.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { MacShortcutRegistry.shared.typingMayHaveChanged() }
+            }
+        }
+    }
+
+    /// The editing state may have moved (a field began or ended, the search field's `typing`, a ruler's box):
+    /// the menu is built again when it no longer matches.
+    func typingMayHaveChanged() {
+        // The field's own first-responder change lands a moment after its notification.
+        DispatchQueue.main.async { [self] in if typing != builtTyping { rebuild(now: true) } }
+    }
 
     func register(_ owner: UUID, entry: Entry) {
         let previous = entries[owner]
@@ -192,17 +272,36 @@ final class MacShortcutRegistry {
         order.removeAll { $0 == owner }
         rebuild()
     }
-    private func rebuild() {
-        guard !pendingRebuild else { return }
+    /// The menu built again: at once (the next turn) where a field began or ended editing — a plain key must not be
+    /// the menu's while a field has the keys (trap 32) — and otherwise two display frames on, so that a change of
+    /// picture or of page, which registers and lets go of a page's keys and moves what is enabled, is on the screen
+    /// before AppKit makes the menu bar again (~20–40 ms of the main thread in a Debug build, by `sample`; 2.4.0 A2b).
+    /// Meanwhile a key reaches its registration as it stands (`canPerform`, `perform`); only the menu's greying waits.
+    private func rebuild(now: Bool = false) {
+        // A rebuild for typing never waits behind one put off for the frames.
+        guard now || !pendingRebuild else { return }
         pendingRebuild = true
-        DispatchQueue.main.async { [weak self] in
+        let go: () -> Void = { [weak self] in
+            #if DEBUG && SPK_ENGINE
+            TransitionMarks.mark("menu.rebuild")
+            #endif
             self?.pendingRebuild = false
             UIMenuSystem.main.setNeedsRebuild()
         }
+        if now { DispatchQueue.main.async(execute: go) } else { AfterFrame.run(after: 2, go) }
     }
     private func entry(for spec: MacKeySpec) -> Entry? {
         order.reversed().compactMap { entries[$0] }.first { $0.enabled && $0.specs.contains(spec) }
     }
+    #if DEBUG
+    /// Every registration of a plain key, newest first: its title and whether it is enabled (`--masks-check`'s keys).
+    func registrations(of input: String) -> [String] {
+        order.reversed().compactMap { entries[$0] }.filter { $0.specs.contains { $0.input == input && $0.flags.isEmpty } }
+            .map { "\($0.title)\($0.enabled ? "" : " (off)")" }
+    }
+    /// The key commands as the anchor offers them, by input.
+    func offered(_ input: String) -> Int { (keyCommands ?? []).filter { $0.input == input }.count }
+    #endif
     var typing: Bool { MacKeyFocus.commitEditing != nil || MacKeyFocus.editingField != nil || MacLibraryBrowser.shared.typing }
     func canPerform(_ command: UIKeyCommand) -> Bool {
         guard let spec = MacKeySpec(command), let entry = entry(for: spec) else { return false }
@@ -253,8 +352,12 @@ final class MacShortcutRegistry {
         // focused field, so a registration shows its first key Edit does not own (Paste Settings: ⇧⌘V),
         // or none (Select All, Copy Settings' ⌘C).
         var seen: Set<MacKeySpec> = []
+        let editing = typing
+        builtTyping = editing
         let items = order.reversed().compactMap { entries[$0] }.compactMap { entry -> UIKeyCommand? in
             guard let key = entry.specs.first(where: { MacKeySpec.standard[$0] == nil }), seen.insert(key).inserted else { return nil }
+            // While a field is edited, a plain key is the field's: no item may take it first (issue #112).
+            if editing, key.flags.isEmpty, !entry.allowsDuringTextEditing { return nil }
             let c = command(key, title: entry.title)
             if !entry.enabled { c.attributes = .disabled }
             return c

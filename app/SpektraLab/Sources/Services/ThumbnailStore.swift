@@ -223,6 +223,9 @@ final class RenderedPictures: @unchecked Sendable {
     }
 
     func removeAll() { lock.lock(); images.removeAll(); lock.unlock() }
+
+    /// How many are held, for the check (`MemoryRelease.counts`).
+    var count: Int { lock.lock(); defer { lock.unlock() }; return images.count }
 }
 
 /// A picture on a page: decoded at the size it is shown, never larger.
@@ -239,6 +242,10 @@ struct FramePicture: View {
     @Environment(\.gamutProof) private var gamutProof
     /// The page's HDR for this picture (`HDRImage`), where it gives one (the develop canvas).
     @Environment(\.hdrLook) private var hdrLook
+    #if DEBUG && SPK_ENGINE
+    /// The develop page's canvas draws this one (`TransitionMarks.drew`), not the browser's cells.
+    @Environment(\.pageCanvas) private var pageCanvas
+    #endif
     @State private var image: UIImage?
 
     private var maxPixel: Int? { PictureLoading.maxPixel(points: pointSize, scale: scale) }
@@ -247,6 +254,9 @@ struct FramePicture: View {
         ZStack {
             Theme.plot
             if let shown = image ?? ThumbnailStore.shared.cachedAny(picture) ?? (isSnapshot ? maxPixel.flatMap { ThumbnailStore.shared.load(picture, maxPixel: $0) } : nil) {
+                #if DEBUG && SPK_ENGINE
+                let _ = pageCanvas ? TransitionMarks.drew(picture) : ()
+                #endif
                 if hdrLook != nil, shown.imageOrientation == .up, let cg = shown.cgImage {
                     HDRImage(image: GamutProof.shared.proofed(cg, gamutProof), contentMode: contentMode)
                 } else {
@@ -258,12 +268,28 @@ struct FramePicture: View {
             guard !isSnapshot, let maxPixel else { return }
             // The picture shown stays until the one for this size lands (a
             // zoom step would show the ground for the length of a decode).
-            if let made = await PictureLoading.picture(picture, maxPixel: maxPixel) { image = made }
+            if let made = await PictureLoading.picture(picture, maxPixel: maxPixel) {
+                #if DEBUG && SPK_ENGINE
+                TransitionMarks.mark("picture.landed")
+                #endif
+                image = made
+            }
         }
     }
 }
 
 private struct IsSnapshotKey: EnvironmentKey { static let defaultValue = false }
+
+#if DEBUG && SPK_ENGINE
+private struct PageCanvasKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    /// Inside the develop page's canvas (the transitions case's probe of the picture it drew).
+    var pageCanvas: Bool {
+        get { self[PageCanvasKey.self] }
+        set { self[PageCanvasKey.self] = newValue }
+    }
+}
+#endif
 
 extension EnvironmentValues {
     /// True inside the snapshot harness: a page draws complete and still —

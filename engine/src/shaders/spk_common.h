@@ -90,6 +90,37 @@ inline df df_mul_f(df a, float b) {
 inline df df_from_f(float a) { return df{a, 0.0f}; }
 inline df df_sub(df a, df b) { return df_add(a, df{-b.hi, -b.lo}); }
 
+// preprocess.geometry's mapping: output pixel (ox, oy) of the cut frame -> the
+// place in the source it samples, in source pixels (pixel centres at the
+// integers), *before* the clamp to the source's edge. `g` is the node's eight
+// (hi, lo) pairs (`Pipeline::geometry_constants`). Shared by
+// `spk_geometry_resample_df`, which cuts the picture, and `spk_scene_layers`,
+// which maps a mask through the same cut (RFC-052 §3): one function, so the
+// mask cannot drift off the picture by a second transliteration.
+inline void spk_geometry_source_px(uint ox, uint oy, device const float* g, uint OH, uint OW,
+                                   uint turns, uint flips, thread df& fx, thread df& fy) {
+    // Output pixel -> the crop's unrotated frame, in *output pixels* (exact
+    // integers plus 0.5) so the flips and quarter turns cost no rounding.
+    float u = (float)ox + 0.5f, v = (float)oy + 0.5f;   // in [0, OW] x [0, OH]
+    if (flips & 1u) u = (float)OW - u;
+    if (flips & 2u) v = (float)OH - v;
+    float t;
+    // after a turn the crop's own frame is (CW, CH) = (OH, OW) for odd turns
+    switch (turns) {
+        case 1u: t = u; u = v; v = (float)OW - t; break;
+        case 2u: u = (float)OW - u; v = (float)OH - v; break;
+        case 3u: t = u; u = (float)OH - v; v = t; break;
+        default: break;
+    }
+    // g (df pairs): 0 sx = crop_w*SW/CW, 1 sy = crop_h*SH/CH, 2 hx = crop_w*SW/2, 3 hy = crop_h*SH/2,
+    //               4 cx*SW - 0.5, 5 cy*SH - 0.5, 6 cos, 7 sin
+    df px = df_sub(df_mul_f(df{g[0], g[1]}, u), df{g[4], g[5]});
+    df py = df_sub(df_mul_f(df{g[2], g[3]}, v), df{g[6], g[7]});
+    df ca = df{g[12], g[13]}, sa = df{g[14], g[15]};
+    fx = df_add(df{g[8], g[9]},  df_sub(df_mul(px, ca), df_mul(py, sa)));
+    fy = df_add(df{g[10], g[11]}, df_add(df_mul(px, sa), df_mul(py, ca)));
+}
+
 // --- the bicubic 2-D LUT sampler (Mitchell B=C=1/3) ------------------------
 inline float mitchell(float t) {
     const float B = 1.0f / 3.0f, C = 1.0f / 3.0f;

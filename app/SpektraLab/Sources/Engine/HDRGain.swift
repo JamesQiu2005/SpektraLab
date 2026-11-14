@@ -110,7 +110,8 @@ enum HDRGain {
         // is of the picture before Layer 2 (the engine's), so it lifted what the edit had put down: the 2026-11-06
         // review measured a Velvia frame at Layer 2 −2 EV whose mid-greys (Y 0.18–0.30) the file lifted 1.20 stops
         // on average, 89 % of them past a stop, where the canvas lifts none (and the same slide unedited 0.02).
-        let slide = isSlide(edit, catalog: catalog) && !edit.adjustments.isActive
+        // So too a slide with a 成片 layer over a neutral whole (PRD-E): the ratio would lift what the layer put down.
+        let slide = isSlide(edit, catalog: catalog) && !edit.editPassActs
         return (true, slide ? edit.hdrHeadroom : nil, nil)
     }
 

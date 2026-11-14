@@ -71,14 +71,8 @@ struct AdjustInspector: View {
         }
     }
 
-    @ViewBuilder private func control(_ tool: AdjustTool) -> some View {
-        switch tool {
-        case .hsl: HSLTool(session: session, hue: $state.hue)
-        case .channel: ChannelMixerTool(session: session, output: $state.output)
-        case .wheels: ColourWheelsTool(session: session, height: height, zone: $state.zone)
-        case .curve: CurveTool(session: session, height: height - 10, channel: $state.curveChannel, mode: state.curveMode)
-        default: AdjustSliders(session: session, tool: tool, tone: state.tone)
-        }
+    private func control(_ tool: AdjustTool) -> some View {
+        AdjustControl(session: session, tool: tool, height: height, state: $state)
     }
 }
 
@@ -131,7 +125,7 @@ struct AdjustStrip: View {
 
     private func tile(_ tool: AdjustTool) -> some View {
         // Where the tiles stay over the open tool (a wide window's column), the open one wears the white frame.
-        EditTile(title: tool.title, symbol: tool.symbol, moved: !tool.isNeutral(in: session.adjustments),
+        EditTile(title: tool.title, symbol: tool.symbol, moved: !session.adjustIsAtRest(tool),
                  open: session.pageNavigation.adjust == tool, identifier: "adjust.tile.\(tool.rawValue)") {
             session.pageNavigation.open(tool)
         }
@@ -190,11 +184,11 @@ struct AdjustToolBar: View {
     let session: OpenFrameSession
     let tool: AdjustTool
     @Binding var state: AdjustState
-    private var atRest: Bool { tool.isAtRest(in: session.adjustments) }
+    private var atRest: Bool { session.adjustIsAtRest(tool) }
 
     var body: some View {
         EditToolBar(session: session, title: tool.title, atRest: atRest, identifier: "adjust",
-                    reset: { session.changeEdit { tool.reset(&$0) } },
+                    reset: { session.resetAdjust(tool) },
                     done: { session.pageNavigation.closeAdjust() }) { centre }
     }
 

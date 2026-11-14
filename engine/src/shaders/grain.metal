@@ -103,7 +103,7 @@ kernel void spk_lognormal_field(device const float* p [[buffer(0)]],
 //
 // When it fires: `sigma_particle = blur_dye_clouds_um * sqrt(dmax / n)` above
 // 0.4 px. At 35 mm and 45 MP it is 0.29 px and this never runs -- but
-// `camera.film_format_mm` goes down to 4 mm on the wire, and at 4 mm it is
+// `camera.film_format_mm` goes down to 4 mm on the wire (3 mm since 2026-11-11), and at 4 mm it is
 // 0.51 px. Which is exactly why the branch is here rather than an error: an
 // unreachable-looking path that the wire can in fact reach.
 kernel void spk_grain_layer_one(device const float* cmy [[buffer(0)]],

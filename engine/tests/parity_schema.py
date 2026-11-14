@@ -47,6 +47,13 @@ STOCK_PAIRS = [
 # directions — a divergence that stops diverging is a failure too, so the list
 # cannot go stale.
 KNOWN = {
+    ("film_format_mm", "range"): (
+        [3.0, 300.0],
+        "API-SPEC §20 (2026-11-11): the Mac offers 8×10 sheet film, whose image is 245 mm "
+        "long, and 8mm, whose gate makes a square picture 3.68 mm; the oracle's 4–200 holds "
+        "neither. Only the bounds a request is checked against moved: the field, its path, "
+        "layer and meaning (the frame's long edge, which sets the pixel pitch) are the oracle's.",
+    ),
     ("output_color_space", "default"): (
         "ProPhoto RGB",
         "RFC-018 §5.1: the declared output default is the *working space*, so that "
@@ -234,7 +241,8 @@ NATIVE_ONLY = {
     },
     "date_imprint_ev": {
         "path": "film_render.date_imprint.exposure_ev", "type": "float", "layer": "shoot",
-        "default": 3.5, "live": False, "range": [-2.0, 8.0],
+        # 5.5 since 2026-11-11 (was 3.5): the camera imprint's LED glow (API-SPEC §21.2).
+        "default": 5.5, "live": False, "range": [-2.0, 8.0],
     },
     "date_imprint_style": {
         "path": "film_render.date_imprint.style", "type": "str", "layer": "shoot",
@@ -355,6 +363,144 @@ NATIVE_ONLY = {
     "grain_seed": {
         "path": "settings.film_seed", "type": "int", "layer": "shoot",
         "default": 0, "live": False, "range": [0, 2147483647],
+    },
+    # API-SPEC §21: leaks, the MZ-S line, ks65, 135_sprocket's
+    # falloff, the camera's diffusion filter and the lens aberrations. The
+    # reference has the diffusion filter's struct but never put it on a wire.
+    "diffusion_filter_active": {
+        "path": "camera.diffusion_filter.active", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
+    "diffusion_filter_family": {
+        "path": "camera.diffusion_filter.filter_family", "type": "str", "layer": "shoot",
+        "default": 'black_pro_mist', "live": False, "range": None,
+    },
+    "diffusion_filter_strength": {
+        "path": "camera.diffusion_filter.strength", "type": "float", "layer": "shoot",
+        "default": 0.5, "live": False, "range": [0.0, 2.0],
+    },
+    "diffusion_filter_spatial_scale": {
+        "path": "camera.diffusion_filter.spatial_scale", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.25, 4.0],
+    },
+    "diffusion_filter_halo_warmth": {
+        "path": "camera.diffusion_filter.halo_warmth", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-1.5, 1.5],
+    },
+    "diffusion_filter_core_intensity": {
+        "path": "camera.diffusion_filter.core_intensity", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 4.0],
+    },
+    "diffusion_filter_core_size": {
+        "path": "camera.diffusion_filter.core_size", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.25, 4.0],
+    },
+    "diffusion_filter_halo_intensity": {
+        "path": "camera.diffusion_filter.halo_intensity", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 4.0],
+    },
+    "diffusion_filter_halo_size": {
+        "path": "camera.diffusion_filter.halo_size", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.25, 4.0],
+    },
+    "diffusion_filter_bloom_intensity": {
+        "path": "camera.diffusion_filter.bloom_intensity", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 4.0],
+    },
+    "diffusion_filter_bloom_size": {
+        "path": "camera.diffusion_filter.bloom_size", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.25, 4.0],
+    },
+    "lens_aberrations_active": {
+        "path": "camera.lens_aberrations.active", "type": "bool", "layer": "shoot",
+        "default": False, "live": False, "range": None,
+    },
+    "lens_field_curvature_um": {
+        "path": "camera.lens_aberrations.field_curvature_um", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 120.0],
+    },
+    "lens_astigmatism_um": {
+        "path": "camera.lens_aberrations.astigmatism_um", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-120.0, 120.0],
+    },
+    "lens_field_exponent": {
+        "path": "camera.lens_aberrations.field_exponent", "type": "float", "layer": "shoot",
+        "default": 2.0, "live": False, "range": [1.0, 4.0],
+    },
+    "lens_sharp_radius": {
+        "path": "camera.lens_aberrations.sharp_radius", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 0.8],
+    },
+    "lens_coma_um": {
+        "path": "camera.lens_aberrations.coma_um", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-150.0, 150.0],
+    },
+    "lens_spherical_amount": {
+        "path": "camera.lens_aberrations.spherical_amount", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 0.6],
+    },
+    "lens_spherical_um": {
+        "path": "camera.lens_aberrations.spherical_um", "type": "float", "layer": "shoot",
+        "default": 60.0, "live": False, "range": [10.0, 400.0],
+    },
+    "lens_lateral_ca_r": {
+        "path": "camera.lens_aberrations.lateral_ca_r", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-3.0, 3.0],
+    },
+    "lens_lateral_ca_b": {
+        "path": "camera.lens_aberrations.lateral_ca_b", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [-3.0, 3.0],
+    },
+    "lens_loca_um": {
+        "path": "camera.lens_aberrations.loca_um", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 30.0],
+    },
+    "lens_loca_sign": {
+        "path": "camera.lens_aberrations.loca_sign", "type": "str", "layer": "shoot",
+        "default": 'purple', "live": False, "range": None,
+    },
+    "lens_loca_highlight_gate": {
+        "path": "camera.lens_aberrations.loca_highlight_gate", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 1.0],
+    },
+    "leak_kind": {
+        "path": "film_render.leak.kind", "type": "str", "layer": "shoot",
+        "default": 'off', "live": False, "range": None,
+    },
+    "leak_amount": {
+        "path": "film_render.leak.amount", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 4.0],
+    },
+    "leak_rate": {
+        "path": "film_render.leak.rate", "type": "float", "layer": "shoot",
+        "default": 1.0, "live": False, "range": [0.0, 1.0],
+    },
+    "leak_front": {
+        "path": "film_render.leak.front", "type": "float", "layer": "shoot",
+        "default": -1.0, "live": False, "range": [-1.0, 1.0],
+    },
+    "date_imprint_data_placement": {
+        "path": "film_render.date_imprint.data_placement", "type": "str", "layer": "shoot",
+        "default": 'gap', "live": False, "range": None,
+    },
+    "date_imprint_data_leader": {
+        "path": "film_render.date_imprint.data_leader", "type": "str", "layer": "shoot",
+        "default": '', "live": False, "range": None,
+    },
+    "overscan_perforation": {
+        "path": "film_render.overscan.perforation", "type": "str", "layer": "shoot",
+        "default": 'none', "live": False, "range": None,
+    },
+    "overscan_falloff": {
+        "path": "film_render.overscan.falloff", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 1.5],
+    },
+    # RFC-052 §6.4 (API-SPEC §23): the stamp of the session's 场景 layers, whose
+    # planes `spk_set_scene_layers` hands over. The reference has no layers;
+    # "" is none, and the node is not dispatched.
+    "scene_layers": {
+        "path": "camera.scene_layers", "type": "str", "layer": "shoot",
+        "default": '', "live": False, "range": None,
     },
 }
 

@@ -10,9 +10,9 @@
 //    window's sheet: `SheetHost`, `init(frameIDs:done:)`). A picture of a catalog, a session or a folder
 //    that is not a frame yet becomes one here, read in place, as Develop makes it (`frames(for:)`).
 //  - **The controls at the left**, in the develop column's width, as the Mac library's sidebar and the
-//    Mac develop page keep theirs: the window sheet's own rows, unchanged — Recipe (`RecipeChips`, every
-//    chip whole), Format, Size (its page, pushed in the column), Colour, Quality, Save to — then the
-//    batch's progress and the button.
+//    Mac develop page keep theirs: the window sheet's own rows — Recipe (`RecipeChips`, every chip whole),
+//    Format, Quality (a slider, 2026-11-11), Size (its page, pushed in the column), Colour, the file's
+//    estimated size, Naming (`ExportNaming.swift`), Save to — then the batch's progress and the button.
 //  - **The library's preview at the right**: `BrowserViewerSplit` for the picture in front, and beside it,
 //    when there are several, the chosen pictures as the library's grid (`MacGridCell`) to step through
 //    (a click, ← →), with the library's viewer switch (2026-10-25). Every picture is drawn developed, as
@@ -162,6 +162,8 @@ private struct MacExportScreen: View {
     @State private var startsAfterPicking = false
     @State private var folder: URL? = MacExportFolder.saved()
     @State private var sharing: [URL] = []
+    /// The picture shown's file, estimated (`measureEstimate`); nil while it is worked out.
+    @State private var estimate: Int64?
 
     private var run: MacExportRun { .shared }
     private var frames: [LibraryFrame] { pictures.compactMap { $0.frameID.flatMap { library.frame($0) } } }
@@ -279,18 +281,28 @@ private struct MacExportScreen: View {
             SectionLabel(L("Recipe")).padding(.horizontal, 20).padding(.top, 6)
             RecipeChips(recipe: recipe, admit: { ExportRecipe.opening($0) }, wraps: true)
                 .padding(.top, 10)
+            // Quality between Format and Size, a slider (the owner, 2026-11-11); the file's estimated size last.
             GroupBox(radius: 14) {
                 ExportRow(label: L("Format"), height: 46) { FormatSwitch(recipe: recipe) }
                     .modifier(Separated())
+                QualitySliderRow(recipe: recipe).modifier(Separated())
                 ExportSizeRow(size: recipe.wrappedValue.size, line: sizeLine(recipe.wrappedValue)) {
                     withAnimation(.snappy(duration: 0.3)) { choosingSize = true }
                 }
                 .modifier(Separated())
                 ColourRow(recipe: recipe).modifier(Separated())
-                QualityRow(recipe: recipe)
+                ExportEstimateRow(bytes: estimate, of: frames.count > 1 ? shown?.stem : nil)
             }
             .padding(.horizontal, Theme.Metric.margin)
             .padding(.top, 18)
+            .task(id: estimateKey(recipe.wrappedValue)) { await measureEstimate(recipe.wrappedValue) }
+            // The file's name (issue #111): 1.x's four parts, and the name the picture shown gets.
+            SectionLabel(L("Naming")).padding(.horizontal, 20).padding(.top, 24)
+            GroupBox(radius: 14) {
+                ExportNamingBox(recipe: recipe, sample: sampleName(recipe.wrappedValue))
+            }
+            .padding(.horizontal, Theme.Metric.margin)
+            .padding(.top, 10)
             SectionLabel(L("Save to")).padding(.horizontal, 20).padding(.top, 24)
             SegmentedSwitch(options: ExportRecipe.Destination.allCases, selection: recipe.destination,
                             title: \.shownTitle, height: 32, track: Theme.card)
@@ -419,6 +431,44 @@ private struct MacExportScreen: View {
     private var subtitle: String {
         pictures.count == 1 ? (frames.first?.stem ?? pictures[0].image.fileName) + Fmt.dot + L("1 frame")
             : L("\(pictures.count) frames")
+    }
+
+    /// The picture the page is about: the one in front, or the first of the batch with a frame.
+    private var shown: LibraryFrame? {
+        if let i = focus, pictures.indices.contains(i), let id = pictures[i].frameID, let f = library.frame(id) { return f }
+        return frames.first
+    }
+
+    /// The name the picture shown gets with `recipe` (`ExportRecipe.Naming`), as `ExportService.start` makes it.
+    private func sampleName(_ recipe: ExportRecipe) -> String {
+        guard let f = shown else {
+            return recipe.fileName(StockCatalog.shared.namingContext(originalName: pictures.first.map { ($0.image.fileName as NSString).deletingPathExtension } ?? "_DSC0001",
+                                                                     params: FilmParams()))
+        }
+        var r = recipe
+        r.size = exporter.prepared(f, recipe).size
+        return r.fileName(StockCatalog.shared.namingContext(originalName: f.stem, params: f.edit.params, variant: exporter.variantNumber(f.id)))
+    }
+
+    /// What the estimate depends on: the picture shown and its develop, and what the recipe makes of it.
+    private func estimateKey(_ recipe: ExportRecipe) -> String {
+        guard let f = shown else { return "none" }
+        let out = exporter.outputSize(f, recipe)
+        return [f.id.uuidString, f.shownDevelop?.stamp ?? "-", recipe.format.rawValue, "\(recipe.format.takesQuality ? recipe.quality : 0)",
+                "\(out.width)x\(out.height)"].joined(separator: "|")
+    }
+
+    /// The estimate for the picture shown (`ExportEstimate`), measured on its kept develop, a moment after
+    /// the recipe stops moving: a dragged slider measures where it lands.
+    private func measureEstimate(_ recipe: ExportRecipe) async {
+        guard let f = shown, let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { estimate = nil; return }
+        try? await Task.sleep(for: .milliseconds(150))
+        guard !Task.isCancelled else { return }
+        let out = exporter.outputSize(f, recipe)
+        let bytes = await ExportEstimate.bytes(source: source, format: recipe.format, quality: recipe.quality,
+                                               pixels: out.width * out.height)
+        guard !Task.isCancelled else { return }
+        estimate = bytes
     }
 
     /// The file's real size, as the sheet's Size row says it (`FullExport.sizeLine`).
@@ -562,7 +612,7 @@ private struct MacExportScreen: View {
     /// frame with a develop page open on it has that page's (`MacShownFrame`); one the engine cannot read
     /// (its disk away) keeps its preview, and the develop is not queued (`AppServices.queueDevelop`).
     private func want(_ p: MacExportPage.Picture) {
-        guard let id = p.frameID, !asked.contains(id), let f = library.frame(id), !f.isPair,
+        guard let id = p.frameID, !asked.contains(id), let f = library.frame(id), !f.isComposite,
               model.darkroom.makesPictures, model.openSession(id) == nil, !f.develop.isBusy else { return }
         // A develop whose file is missing (`DevelopedPicture.isMissing`) is none.
         guard model.darkroom.needsDevelop(f) else { return }

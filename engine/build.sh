@@ -133,7 +133,7 @@ build_dylib() {
 build_tests() {
   collect_sources
   local driver
-  for driver in dump_setup dump_json gpu_smoke cam16_bake_checks fusion_checks device_lifetime_checks hdr_curve_unit; do
+  for driver in dump_setup dump_json gpu_smoke cam16_bake_checks fusion_checks device_lifetime_checks hdr_curve_unit scene_layers_checks; do
     [[ -f "$here/tests/$driver.cpp" ]] || continue
     "$CXX" "${cxxflags[@]}" "${includes[@]}" -I"$here/tests" \
       "$here/tests/$driver.cpp" "${sources[@]}" "${frameworks[@]}" -o "$out/$driver"

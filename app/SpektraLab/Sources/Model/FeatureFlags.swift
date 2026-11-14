@@ -57,4 +57,16 @@ enum FeatureFlags {
     /// switch is shown off and cannot be turned on. The drawings' own words
     /// come back with the flag.
     static let backgroundFinish = false
+
+    /// **像差 Character**, 编辑 › 镜头's named lenses (PRD-D §3.4, §6 q3: the owner, 2026-11-11 — ships later). The
+    /// model, the tables (`LensPreset`) and the wire are built; the page and the clipboard leave it out, and the
+    /// wire sends none of it, until this is on (and the engine has its fields, `EngineFeatures`).
+    static let lensCharacter = false
+
+    /// **蒙版图层 in the panel and on its page** (PRD-E M1, design/masks/MASKS-SPEC.md §12): a single photograph's 图层
+    /// panel unfolds with its mask layers, the selection and tool rows, 不透明度 and a layer's own page. On in every build
+    /// since M1c (2026-11-13), when the last of the seams M1a left (主体 · 背景 · 人, 组合蒙版, 完善蒙版…) was filled and
+    /// `MaskSeams` deleted. Off, the panel is as it was before M1; the layers an edit holds still apply wherever the frame
+    /// is shown.
+    static let maskLayers = true
 }

@@ -10,6 +10,71 @@
 
 import Foundation
 
+/// **A double exposure's composed open, as measured on the Mac** (2026-11-11, Apple M3 Max, macOS 27;
+/// `tools/double_check.sh`: each job from rest, this process's `phys_footprint` — `footprint -p`'s number, never
+/// RSS — sampled every 20 ms, and the queue's own record of the same jobs; the envelope of the two is fitted).
+/// The earlier figures (150 MB + 16 B a pixel of the piece + 5 B a pixel of the decode at Full; 240 MB + 7.6 or
+/// 9 B a pixel below it) were arithmetic, never measured, and priced a RAW double's preview open at
+/// 483 MB where it took 2,005–2,150 (PRD-D §3.6). Measured, two photographs each:
+///
+/// | photographs | tier | the job | measured over rest | this fit |
+/// |---|---|---|---|---|
+/// | 2 × 24 MP ARW (A7 III) | preview, 1,920 px | the double's develop | 1,788–1,880 sampled, 2,005–2,150 recorded | 2,156 |
+/// | 2 × 45 MP NEF (Z7 II) | preview, 1,920 px | the double's develop | 3,466–3,473 sampled, 3,391–3,398 recorded | 3,424 |
+/// | 2 × 45 MP HEIC (of the NEFs) | preview, 1,920 px | the double's develop | 108–248 sampled, 377–378 recorded | 389 |
+/// | 2 × 24 MP ARW | Full, 6,000 × 4,000 piece | an export | 3,572–3,613 | 3,625 |
+/// | 2 × 45 MP NEF | Full, 3,669 × 5,504 piece | an export | 3,390 | 3,434 |
+/// | 2 × 45 MP HEIC | Full, 3,669 × 5,504 piece | an export | 1,484–1,507 | 1,594 |
+///
+/// The preview rows carry the router's 37 MB scratch band (1,920 × 1,280 × 16 B) and are the harness's own seeds;
+/// the Full rows are this arithmetic with a 64 MB band, the export's not being recorded by the harness.
+/// For scale, each photograph alone on the same Mac: a 24 MP ARW's preview develop +1,730 MB, a 45 MP NEF's
+/// +3,417, a 45 MP HEIC's +83–121; a 45 MP NEF's full export +3,181–3,353, a 45 MP HEIC's +2,196–2,220. **Two
+/// RAW decodes do not stack**: the double's open is its larger photograph's and little more. A RAW decoded whole
+/// at Full is nearly flat between 24 and 45 MP (~2 GB): a 12 MP RAW is not measured and is probably over-priced
+/// here, which the model's online correction (`|double|raw`) takes back. Times: preview 0.6–1.3 s, Full 1.0–1.8 s.
+enum ComposedOpen {
+    static let mb = 1_048_576.0
+    // At the full tier: the piece and the engine's render of it, and the largest decode.
+    static let fullPieceBytesPerPixel = 64.0
+    static let fullRAWBase = 2050 * mb, fullRAWBytesPerPixel = 2.0
+    static let fullOtherBase = 220 * mb, fullOtherBytesPerPixel = 4.0
+    static let fullRAWSecondsPerMP = 0.012, fullOtherSecondsPerMP = 0.006
+    // Below it: the decode of the largest original.
+    static let belowRAWBase = 700 * mb, belowRAWBytesPerPixel = 62.0
+    static let belowOtherBase = 200 * mb, belowOtherBytesPerPixel = 3.5
+    static let belowRAWSecondsPerMP = 0.022, belowOtherSecondsPerMP = 0.007
+}
+
+/// **A photograph's RAW opened below the full tier with no proxy to read: its first open** (`RenderJob.rawDecode`),
+/// as measured on the Mac (2026-11-13, Apple M3 Max, macOS 27; DIAG-2026-11-13 Part 2). Core Image decodes the RAW
+/// whole and makes it the page's size, now in bands of 2 MP of the original (`FrameDecoder.rawBandSourcePixels`), and
+/// the proxy is written of it. The figure is the job's own record, `openPeakFootprint − footprintBefore`
+/// (`MacMemoryCheck`, a 2,560 px canvas, lens correction on as a new RAW frame has it), or the decode alone in a
+/// process of its own (`tools/raw_open_probe.swift`) where that was higher:
+///
+/// | original | measured | this fit |
+/// |---|---|---|
+/// | 8 MP Olympus ORF (decoder 7) | 187–320 MB | 829 |
+/// | 24 MP Sony A7 III ARW | 489–573 | 1,287 |
+/// | 24 MP Panasonic S1M2 RW2 | 912–977 | 1,287 |
+/// | 45 MP Nikon Z7 II NEF | 737–922 | 1,900 |
+/// | 60 MP Sony A7R V ARW | 568–706 | 2,323 |
+/// | 60 MP Leica Q3 DNG | 2,114–2,317 | 2,326 |
+/// | 102 MP Fujifilm GFX100RF RAF | 2,116–2,385 | 3,511 |
+///
+/// The same files before the banding, in one band: 1,274–1,665 (A7 III), 1,180–1,286 (S1M2), 2,355–2,910 (Z7 II),
+/// 2,818–4,303 (A7R V), 3,768–7,121 (GFX), and the job log's 2.6–2.9 GB median (DIAG). The cameras differ by 3x at one
+/// size (the Q3's lens opcodes against the A7R V's), so the fit is their envelope — never under, at most 3.3x over —
+/// and the correction, learned apart (`CostModel.key`, "|raw"), brings it down to the camera the person has
+/// (0.5x a job at most). The old price was the HEIF's (240 MB + 7.6 B a pixel: 414 MB for 24 MP).
+enum RawOpen {
+    static let mb = 1_048_576.0
+    static let base = 600 * mb, bytesPerPixel = 30.0
+    /// 0.11 s (8 MP) to 1.7 s (102 MP) measured: ~0.017 s a megapixel of the original.
+    static let secondsPerMP = 0.017
+}
+
 struct CostEstimate: Equatable, Sendable {
     /// The job's peak over the app's resting footprint: what the allowance pays.
     var peakBytes: UInt64
@@ -130,6 +195,14 @@ struct CostModel: Sendable {
             }
             seconds = max(seconds, 0.05)
         }
+        if job.scenePlanes > 0 {
+            // PRD-E's 场景 layers (RFC-052 §8.5): their planes, the host's beside the render, and the node. Measured
+            // (API-SPEC §23, M3 Max, 2026-11-13): the develop's own peak the same with 0 and with 8 layers, the planes
+            // on top (21 MB each at 4,096 px); the node 4.7–5.2 / 5.3 / 8.0–8.5 ms at 45 MP for 1 / 4 / 8 layers —
+            // about 0.096 ms a megapixel of the canvas and 0.011 ms more a layer.
+            peak += Double(job.scenePlaneBytes)
+            seconds += (0.096 + 0.011 * Double(job.scenePlanes)) * mp / 1000
+        }
         if job.printLayers > 0 {
             // A half-frame pair whose frames print as their own (`RenderJob.printLayers`): after
             // its own print the job prints the same negative again for each, and cuts that print
@@ -169,11 +242,50 @@ struct CostModel: Sendable {
             // picture the host cuts decodes the whole original for a frame that is part of it
             // (`ExportPlan`; `RenderJob.original` is then the decode's size): the 5 B are of
             // the decode. Arithmetic from the uncut figure, not a measurement of a cut one.
-            let decoded = max(job.original.map { Double($0.width) * Double($0.height) } ?? pixels, pixels)
-            peak = max(peak + 3.3 * pixels, 150 * Self.mb + 16 * pixels + 5 * decoded)
-            // HEIF: 0.11 s at 12 MP, 0.40 s at 48 MP. A Bayer RAW is slower: 0.36-0.55 s
-            // at 12 MP (RFC-035 §11).
-            seconds += 0.009 * mp
+            if let composed = job.composition, !composed.decodes.isEmpty {
+                // A double exposure's open at the full tier (RFC-048 §5), **re-fitted on the Mac**
+                // (`ComposedOpen`: the 150 MB + 16 B + 5 B below were never measured): the piece and the
+                // engine's render of it, the largest decode — a RAW's whole, by Core Image, a nearly flat
+                // ~2 GB; ImageIO's reduced one small — and the scratch band; the decodes' times summed.
+                let largest = composed.decodes.map { Double($0.width) * Double($0.height) }.max() ?? pixels
+                let decode = composed.raw ? ComposedOpen.fullRAWBase + ComposedOpen.fullRAWBytesPerPixel * largest
+                                          : ComposedOpen.fullOtherBase + ComposedOpen.fullOtherBytesPerPixel * largest
+                peak = max(peak + 3.3 * pixels, ComposedOpen.fullPieceBytesPerPixel * pixels + decode + Double(composed.scratchBytes))
+                let perMP = composed.raw ? ComposedOpen.fullRAWSecondsPerMP : ComposedOpen.fullOtherSecondsPerMP
+                seconds += composed.decodes.reduce(0) { $0 + perMP * Double($1.width) * Double($1.height) / 1_000_000 }
+            } else {
+                let decoded = max(job.original.map { Double($0.width) * Double($0.height) } ?? pixels, pixels)
+                peak = max(peak + 3.3 * pixels, 150 * Self.mb + 16 * pixels + 5 * decoded)
+                // HEIF: 0.11 s at 12 MP, 0.40 s at 48 MP. A Bayer RAW is slower: 0.36-0.55 s
+                // at 12 MP (RFC-035 §11).
+                seconds += 0.009 * mp
+            }
+        } else if job.decodesOriginal, let composed = job.composition, !composed.decodes.isEmpty {
+            // A double exposure's open below the full tier: each picture decoded no larger than the
+            // canvas, one at a time, with the scratch band beside the piece; the decodes' times summed.
+            // **Measured on the Mac** (`ComposedOpen`): a RAW decoded by Core Image holds ~62 B a pixel of its
+            // original while it works, and two do not stack -- the double's peak is its larger photograph's
+            // alone and little more;
+            // ImageIO's reduced decode of a HEIF a few B a pixel (`RenderJob.Composition.raw`).
+            let largest = composed.decodes.map { Double($0.width) * Double($0.height) }.max() ?? opened
+            let decode = composed.raw ? ComposedOpen.belowRAWBase + ComposedOpen.belowRAWBytesPerPixel * largest
+                                      : ComposedOpen.belowOtherBase + ComposedOpen.belowOtherBytesPerPixel * largest
+            peak = max(peak + 3.3 * opened, decode + Double(composed.scratchBytes))
+            let perMP = composed.raw ? ComposedOpen.belowRAWSecondsPerMP : ComposedOpen.belowOtherSecondsPerMP
+            seconds += composed.decodes.reduce(0) { $0 + perMP * Double($1.width) * Double($1.height) / 1_000_000 }
+        } else if job.decodesOriginal, job.rawDecode {
+            // A photograph's RAW with no proxy here (`RawOpen`): Core Image decodes it whole and makes it smaller,
+            // banded by the original, and the proxy is written of it. Priced by the original's pixels.
+            let from = Double((job.original ?? job.canvas).width) * Double((job.original ?? job.canvas).height)
+            peak = max(peak + 3.3 * opened, RawOpen.base + RawOpen.bytesPerPixel * from)
+            // `RawOpen` was fitted at a 2,560 px canvas: a larger one (Settings' 3,200 and 3,840 px, 2.4.0) adds its
+            // session's growth over the bench's, which the decode does not hide. Measured on this Mac (M3 Max,
+            // 2026-11-13, `tools/memory_check.sh --preview-edge`, interleaved, load 6-8): the whole job's peak over the
+            // footprint before it, 2,560 → 3,840 px, 1,116-1,318 → 1,630-1,838 MB (24 MP ARW) and 1,494-1,495 →
+            // 2,024-2,230 MB (45 MP NEF) — +0.5-0.7 GB, the session's ~114 B a canvas pixel — where the max alone
+            // priced both sizes alike (1,287 and 1,900 MB). Nothing changes at 2,560 px and below.
+            peak += max(0, max(80, 560 * pixels / Self.canvasPixels) - 560) * Self.mb
+            seconds += RawOpen.secondsPerMP * from / 1_000_000
         } else if job.decodesOriginal {
             // Below the full tier the frame is decoded no larger than the canvas
             // (`FrameSource.decode`), and what that takes depends on the decoder and on the
@@ -254,8 +366,17 @@ struct CostModel: Sendable {
         case .whole, .wait: how = job.isReprint ? "reprint" : "whole"
         case .bands: how = "bands"
         }
-        // A slide's two renditions are learned apart: their peak and time are not one render's.
+        // A slide's two renditions are learned apart: their peak and time are not one render's. So is a
+        // double exposure's open of two decodes (RFC-048 §5): what it teaches is not a photograph's.
         return "\(job.tier.rawValue)|\(size)|\(how)" + (job.hdrRendition ? "|hdr" : "")
+            + (job.decodesOriginal && job.composition != nil ? "|double" : "")
+            // A RAW's decode is not a HEIF's: learned apart, so a HEIF's lower peaks never teach the
+            // model to price a RAW's under.
+            + (job.decodesOriginal && job.composition?.raw == true ? "|raw" : "")
+            // So is a photograph's first open of a RAW (`RenderJob.rawDecode`): its proxy's later opens, and a
+            // HEIF's of the same size, cost a tenth of it, and with one correction for all of them the model
+            // priced the first at 0.4–1.1 GB where it took 2.6–2.9 (DIAG-2026-11-13).
+            + (job.decodesOriginal && job.rawDecode && job.composition == nil && job.tier != .full ? "|raw" : "")
     }
 
     func estimate(_ job: RenderJob, mode: RenderMode) -> CostEstimate {

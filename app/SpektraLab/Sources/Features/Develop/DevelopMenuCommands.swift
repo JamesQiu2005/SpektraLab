@@ -12,15 +12,17 @@
 //  press earlier (the tour: the first ⌘Z after an edit did nothing, the next one undid it), and the
 //  session's own undo and redo do nothing where there is nothing to take back.
 //
-//  The scene adds them: `.commands { DevelopMenuCommands() }` on the app's WindowGroup.
+//  *Edit History…* follows them, with no key (PRD-F §4): the history page of the picture in front.
+//
+//  The scene adds them: `.commands { DevelopMenuCommands(model: model) }` on the app's WindowGroup.
 
 import SwiftUI
 import UIKit
 
-/// What Undo and Redo do on the page in front.
+/// What Undo and Redo do on the page in front. No "can undo": the items are never greyed (above), and a value that
+/// changed with Undo's state made the scene hand the commands a new value at every drag's press and lift, and AppKit
+/// rebuild the whole menu bar each time (2.4.0 A2: ~20 ms of a brush's press, by `sample`).
 struct UndoRedoActions {
-    var canUndo: Bool
-    var canRedo: Bool
     var undo: () -> Void
     var redo: () -> Void
 }
@@ -45,6 +47,8 @@ enum UndoRedoRecipient {
 
 struct DevelopMenuCommands: Commands {
     @FocusedValue(\.padEditActions) private var actions
+    /// The app, for *Edit History…*'s page.
+    let model: AppServices
 
     var body: some Commands {
         CommandGroup(replacing: .undoRedo) {
@@ -65,7 +69,22 @@ struct DevelopMenuCommands: Commands {
                 else { Self.send("redo:") }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
+            // 编辑历史 (PRD-F §4) under Undo and Redo, with no key: ⌥⌘H is Hide Others. The picture on the develop
+            // page in front, else the one picture chosen in the browser; nothing where there is neither, or where the
+            // page is up already.
+            Button(L("Edit History…")) {
+                guard let id = Self.historyFrame(model), model.router.sheets.last != .history(id) else { return }
+                model.router.present(.history(id))
+            }
         }
+    }
+
+    /// The frame *Edit History…* is about.
+    @MainActor static func historyFrame(_ model: AppServices) -> LibraryFrame.ID? {
+        if let session = UndoRedoRecipient.session, model.openSession(session.frameID) === session { return session.frameID }
+        let rows = MacLibraryUI.store(model).images.filter { MacLibraryBrowser.shared.selection.contains($0.id) }
+        guard rows.count == 1, let id = rows[0].develop?.frameID, model.library.frame(id) != nil else { return nil }
+        return id
     }
 
     /// The system's own Undo or Redo, down the responder chain, where no develop page is in front.

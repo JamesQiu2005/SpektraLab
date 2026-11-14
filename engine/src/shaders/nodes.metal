@@ -90,6 +90,30 @@ kernel void spk_curves(device const float* x [[buffer(0)]],
     for (uint c = 0u; c < 3u; ++c) out[3u * i + c] = interp_channel(xa, inv, y, K, c, x[3u * i + c]);
 }
 
+// `spk_log10_guarded` and the film's `spk_curves`, as one kernel with both of their outputs: the
+// log exposure (read again by the couplers) and the developed density. The curve reads the log
+// as the float32 the plane holds, so neither value differs from the two-pass form.
+// meta: {curve knots, pixels}.
+kernel void spk_log_curves(device const float* x [[buffer(0)]],
+                           device const float* k [[buffer(1)]],
+                           device const float* xa [[buffer(2)]],
+                           device const float* inv [[buffer(3)]],
+                           device const float* y [[buffer(4)]],
+                           device const uint* meta [[buffer(5)]],
+                           device float* out_log [[buffer(6)]],
+                           device float* out_cmy [[buffer(7)]],
+                           uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint i = thread_position_in_grid.x;
+    uint K = meta[0], n = meta[1];
+    if (i >= n) return;
+    for (uint c = 0u; c < 3u; ++c) {
+        float v = max(x[3u * i + c] * k[c], 0.0f) + 1e-10f;
+        float l = log10(v);
+        out_log[3u * i + c] = l;
+        out_cmy[3u * i + c] = interp_channel(xa, inv, y, K, c, l);
+    }
+}
+
 // ``x @ M`` for an (H, W, 3) image and a 3x3 matrix, in one pass.
 kernel void spk_matmul3(device const float* x [[buffer(0)]],
                         device const float* m [[buffer(1)]],
@@ -160,6 +184,63 @@ kernel void spk_lut2d_cubic(device const float* tc [[buffer(0)]],
     if (wsum != 0.0f) acc /= wsum;
     float bv = b[i];
     out[3u * i] = acc.x * bv; out[3u * i + 1u] = acc.y * bv; out[3u * i + 2u] = acc.z * bv;
+}
+
+// `spk_tc_b`, `spk_lut2d_cubic` and the exposure's `spk_affine3`, as one kernel. The three were
+// consecutive passes over the frame with nothing between them: (tc, b) was written to two planes
+// and read straight back, and the reconstruction was written and read back to be multiplied by
+// one number. Each value here is formed by the same expressions in the same order, narrowed to
+// float32 where a plane used to hold it, so the result is theirs bit for bit.
+// st: the exposure's gain (3) then its offset (3). meta: {lut side, pixels}.
+kernel void spk_upsample_expose(device const float* rgb [[buffer(0)]],
+                                device const float* m [[buffer(1)]],
+                                device const float* lut [[buffer(2)]],
+                                device const float* st [[buffer(3)]],
+                                device const uint* meta [[buffer(4)]],
+                                device float* out [[buffer(5)]],
+                                uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint i = thread_position_in_grid.x;
+    uint L = meta[0], n = meta[1];
+    if (i >= n) return;
+    // spk_tc_b
+    float r = rgb[3u * i], g = rgb[3u * i + 1u], bl = rgb[3u * i + 2u];
+    float X = m[0] * r + m[1] * g + m[2] * bl;
+    float Y = m[3] * r + m[4] * g + m[5] * bl;
+    float Z = m[6] * r + m[7] * g + m[8] * bl;
+    float b = X + Y + Z;
+    float denom = b > 1e-10f ? b : 1e-10f;
+    float cx = X / denom, cy = Y / denom;
+    float omx = 1.0f - cx;
+    float ty = cy / (omx > 1e-10f ? omx : 1e-10f);
+    float tx = omx * omx;
+    float tc0 = clamp(tx, 0.0f, 1.0f);
+    float tc1 = clamp(ty, 0.0f, 1.0f);
+    float bv = isnan(b) ? 0.0f : b;
+    // spk_lut2d_cubic
+    float scale = (float)(L - 1u);
+    float x = tc0 * scale, y = tc1 * scale;
+    int xb, yb; float xf, yf;
+    base_frac(x, (int)L, xb, xf);
+    base_frac(y, (int)L, yb, yf);
+    float wx[4] = { mitchell(xf + 1.0f), mitchell(xf), mitchell(xf - 1.0f), mitchell(xf - 2.0f) };
+    float wy[4] = { mitchell(yf + 1.0f), mitchell(yf), mitchell(yf - 1.0f), mitchell(yf - 2.0f) };
+    float3 acc = float3(0.0f); float wsum = 0.0f;
+    for (int a = 0; a < 4; ++a) {
+        int xi = safe_index(xb - 1 + a, (int)L);
+        for (int bb = 0; bb < 4; ++bb) {
+            int yj = safe_index(yb - 1 + bb, (int)L);
+            float wgt = wx[a] * wy[bb];
+            wsum += wgt;
+            uint o = 3u * ((uint)xi * L + (uint)yj);
+            acc += wgt * float3(lut[o], lut[o + 1u], lut[o + 2u]);
+        }
+    }
+    if (wsum != 0.0f) acc /= wsum;
+    float u0 = acc.x * bv, u1 = acc.y * bv, u2 = acc.z * bv;
+    // spk_affine3
+    out[3u * i] = u0 * st[0] + st[3];
+    out[3u * i + 1u] = u1 * st[1] + st[4];
+    out[3u * i + 2u] = u2 * st[2] + st[5];
 }
 
 // The DIR-coupler correction field, before its spatial diffusion.
@@ -321,6 +402,30 @@ kernel void spk_cctf_encode_matrix(device const float* x [[buffer(0)]],
     for (uint k = 0u; k < 3u; ++k) out[3u * i + k] = cctf_encode_mode(v[k], mode);
 }
 
+// `spk_cctf_encode_matrix` and `spk_to_rgba16`, as one kernel: the encoded float frame was
+// written only to be read once and quantised. The encode is the kernel above's, the quantisation
+// is `spk_to_rgba16`'s expression on the float32 it would have read.
+// meta: {pixels, width, row stride in pixels, cctf mode}.
+kernel void spk_cctf_to_rgba16(device const float* x [[buffer(0)]],
+                               device const float* m [[buffer(1)]],
+                               device const uint* meta [[buffer(2)]],
+                               device ushort* out [[buffer(3)]],
+                               uint3 thread_position_in_grid [[thread_position_in_grid]]) {
+    uint i = thread_position_in_grid.x;
+    uint n = meta[0], width = meta[1], stride = meta[2], mode = meta[3];
+    if (i >= n) return;
+    float a = x[3u * i], b = x[3u * i + 1u], c = x[3u * i + 2u];
+    float v[3] = { a * m[0] + b * m[3] + c * m[6], a * m[1] + b * m[4] + c * m[7], a * m[2] + b * m[5] + c * m[8] };
+    uint row = i / width, col = i % width;
+    uint dst = row * stride + col;
+    for (uint k = 0u; k < 3u; ++k) {
+        float e = cctf_encode_mode(v[k], mode);
+        float q = clamp(e, 0.0f, 1.0f);
+        out[4u * dst + k] = (ushort)(q * 65535.0f + 0.5f);
+    }
+    out[4u * dst + 3u] = 65535;
+}
+
 // preprocess.geometry -- a transliteration of utils/geometry.py, with the
 // pixel coordinates carried as double-floats so an 8k frame's mapping is not
 // off by half a pixel.
@@ -333,26 +438,8 @@ kernel void spk_geometry_resample_df(device const float* img [[buffer(0)]],
     uint SH = meta[0], SW = meta[1], OH = meta[2], OW = meta[3], turns = meta[4], flips = meta[5];
     if (i >= OH * OW) return;
     uint oy = i / OW, ox = i % OW;
-    // Output pixel -> the crop's unrotated frame, in *output pixels* (exact
-    // integers plus 0.5) so the flips and quarter turns cost no rounding.
-    float u = (float)ox + 0.5f, v = (float)oy + 0.5f;   // in [0, OW] x [0, OH]
-    if (flips & 1u) u = (float)OW - u;
-    if (flips & 2u) v = (float)OH - v;
-    float t;
-    // after a turn the crop's own frame is (CW, CH) = (OH, OW) for odd turns
-    switch (turns) {
-        case 1u: t = u; u = v; v = (float)OW - t; break;
-        case 2u: u = (float)OW - u; v = (float)OH - v; break;
-        case 3u: t = u; u = (float)OH - v; v = t; break;
-        default: break;
-    }
-    // g (df pairs): 0 sx = crop_w*SW/CW, 1 sy = crop_h*SH/CH, 2 hx = crop_w*SW/2, 3 hy = crop_h*SH/2,
-    //               4 cx*SW - 0.5, 5 cy*SH - 0.5, 6 cos, 7 sin
-    df px = df_sub(df_mul_f(df{g[0], g[1]}, u), df{g[4], g[5]});
-    df py = df_sub(df_mul_f(df{g[2], g[3]}, v), df{g[6], g[7]});
-    df ca = df{g[12], g[13]}, sa = df{g[14], g[15]};
-    df fx = df_add(df{g[8], g[9]},  df_sub(df_mul(px, ca), df_mul(py, sa)));
-    df fy = df_add(df{g[10], g[11]}, df_add(df_mul(px, sa), df_mul(py, ca)));
+    df fx, fy;
+    spk_geometry_source_px(ox, oy, g, OH, OW, turns, flips, fx, fy);
     float w1 = (float)SW - 1.0f, h1 = (float)SH - 1.0f;
     // clamp to edge, then split into an integer base and an exact fraction
     float x0f, y0f, tx, ty;

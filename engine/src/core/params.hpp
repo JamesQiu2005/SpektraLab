@@ -213,6 +213,17 @@ struct OverscanParams {
     // pictures, the second starting one advance (19.00 mm) along the film,
     // and the gate is exposed twice on one strip.
     bool pair = false;
+    // API-SPEC §21.3 (2026-11-09): the holes a 120 film carries.
+    // `none` (every 120 format as before) | `ks65`: 65 mm motion-picture film
+    // slit to 120, whose KS perforations survive about 0.98 mm from the new
+    // edges and bite into the 56 mm gate. 120 formats only; 135 formats refuse
+    // anything but `none`. Hole phase: the frame seed's; the slitter's offset:
+    // the camera's.
+    std::string perforation = "none";
+    // API-SPEC §21.4: the lens's cos^4 falloff inside the gate,
+    // times this (1 = cos^4 for the format's lens). Picture only: never fog,
+    // leaks or the edge print. 0 = off, byte for byte.
+    double falloff = 0.0;
 };
 
 // RFC-031: the date back, exposed onto the negative from behind. 135 only by
@@ -227,7 +238,10 @@ struct DateImprintParams {
     // `text` there alone, as before.
     std::string data_text;
     std::string placement = "frame";
-    double exposure_ev = 3.5;        // red-layer exposure above 18 % grey (RFC-031 §3.3)
+    // 5.5 since 2026-11-11 (was 3.5; 2026-11-10): with the camera
+    // imprint's base-scatter glow (API-SPEC §21.2) 3.5 leaves the marks dim
+    // and soft; 5.5 gives the owner's MZ-S strip's core and rim hues on Gold 200.
+    double exposure_ev = 5.5;        // red-layer exposure above 18 % grey (RFC-031 §3.3)
     // RFC-031 §8 (2026-10-01): three faces of one mechanism. lcd = seven
     // segments, slanted; dots = a dot-matrix date, upright; data = shooting
     // data in a 5x7 face between frames (135) or in the margin (645).
@@ -236,6 +250,26 @@ struct DateImprintParams {
     std::string corner = "br";       // frame placement: br | bl | tr | tl, in the film's frame (the camera held level)
     double inset_x = 3.0;            // mm from the gate's side to the text (frame placement)
     double inset_y = 2.4;            // mm from the gate's top/bottom to the text (frame placement)
+    // API-SPEC §21.2 (2026-11-09): where `data_text` goes. `gap` =
+    // between frames, as before, byte for byte | `perfs` = the Pentax MZ-S
+    // line: one `|`-separated field per gap between perforations on the top rebate.
+    std::string data_placement = "gap";
+    // The roll's leader block (MZ-S, before frame 1), `|`-separated, drawn
+    // only when `overscan.frame_number` is 1 and `data_placement` is `perfs`.
+    std::string data_leader;
+};
+
+// API-SPEC §21.1 (2026-11-09): light that reaches the film without
+// passing the lens -- a worn seal, an opened back, the 120 window. Exposure
+// added on the film in the overscan node, before halation; its colour comes
+// from the film's own sensitivity to light through the base (rear) and on the
+// emulsion (front). Works with the film edge on or off. `kind = off` is
+// structural: nothing is added and no new light is computed.
+struct LeakParams {
+    std::string kind = "off";        // off | auto | band | wash | spot (spot: 120 formats only)
+    double amount = 1.0;             // 0..4, on overscan.fog's scale
+    double rate = 1.0;               // 0..1, the chance this frame shows the camera's leak
+    double front = -1.0;             // -1 = the camera seed's; 0..1 = the core's share of front light
 };
 
 struct FilmRenderParams {
@@ -246,6 +280,7 @@ struct FilmRenderParams {
     GlareParams glare;
     OverscanParams overscan;
     DateImprintParams date_imprint;
+    LeakParams leak;
 };
 
 // RFC-024: the virtual contrast mask, a neutral spatial gain on the
@@ -330,6 +365,27 @@ constexpr size_t kSceneCurveRows = 5;
 /// into `table` (row-major) and `n`. "" parses to an empty table.
 bool parse_scene_curve(const std::string& text, std::vector<float>& table, size_t& n, std::string& error);
 
+// API-SPEC §21.6 (2026-11-09): the lens's character, a pass on
+// the source before the film chain (`lens.cpp`), so the rebate, edge print,
+// fog, leaks and date never pass it. Sizes are micrometres on the film at the
+// frame's corner (h = 1: distance from the source frame's centre over its
+// half-diagonal). `active = false` is structural.
+struct LensAberrationParams {
+    bool active = false;
+    double field_curvature_um = 0.0;   // 0..120: isotropic sigma at h = 1
+    double astigmatism_um = 0.0;       // -120..120: extra sigma, tangential (> 0) or radial (< 0), at h = 1
+    double field_exponent = 2.0;       // 1..4: sigma ~ h^p
+    double sharp_radius = 0.0;         // 0..0.8: h below which nothing blurs (smooth knee)
+    double coma_um = 0.0;              // -150..150: the comet's length at h = 1; sign = outward / inward
+    double spherical_amount = 0.0;     // 0..0.6: the glow's share of the light
+    double spherical_um = 60.0;        // 10..400: the glow's radius
+    double lateral_ca_r = 0.0;         // -3..3: red's radial scale against green at h = 1, in thousandths
+    double lateral_ca_b = 0.0;         // -3..3: the same for blue
+    double loca_um = 0.0;              // 0..30: sigma of the defocused channels
+    std::string loca_sign = "purple";  // purple (R and B soft) | green (G soft)
+    double loca_highlight_gate = 1.0;  // 0 = everywhere, 1 = on highlight edges only
+};
+
 struct CameraParams {
     double exposure_compensation_ev = 0.0;
     bool auto_exposure = true;
@@ -347,10 +403,18 @@ struct CameraParams {
     /// The filter factor is given (18 % grey keeps its exposure). Native only.
     std::string filter;
     DiffusionFilterParams diffusion_filter;
+    LensAberrationParams lens_aberrations;
     SceneLatitudeParams scene_latitude;
     /// The Decode curve's table, as the wire carries it (`parse_scene_curve`).
     /// Native only; "" = off, and the node is not dispatched.
     std::string scene_curve;
+    /// RFC-052 §6.4: the stamp of the scene layers this develop is of -- the
+    /// name the host gave `spk_set_scene_layers` for the planes and gains the
+    /// session holds. The planes travel by that call, the stamp by the wire, so
+    /// a render whose stamp is not the held set's is refused (both named)
+    /// rather than developed on the masks of the stroke before. Native only;
+    /// "" = no layers, and the node is not dispatched.
+    std::string scene_layers;
 };
 
 struct EnlargerParams {

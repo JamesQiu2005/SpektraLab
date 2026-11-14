@@ -14,11 +14,12 @@ out="$here/build/tools"
 mkdir -p "$out"
 src="$here/Sources"
 swiftc -O -D DEBUG -parse-as-library -o "$out/hdr_gainmap_selftest" \
-  "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" \
-  "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/SettingsClipboard.swift" \
+  "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" \
+  "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/LensEdge.swift" "$src/Model/SettingsClipboard.swift" \
   "$src/Model/Stock.swift" "$src/Model/ExportRecipe.swift" "$src/Engine/HDRMath.swift" "$src/Engine/HDRGrainGain.swift" "$src/Engine/HDRRendition.swift" \
   "$src/Engine/HDRLook.swift" "$src/Engine/HDRGainMap.swift" "$src/Engine/HDRSessionCurve.swift" "$src/Engine/HDRGain.swift" \
   "$src/Engine/HDRContainer.swift" "$src/Engine/HDRUltraHDR.swift" "$src/Engine/ExportWriter.swift" \
+  "$src/Engine/HostCut.swift" "$src/Model/MaskFrame.swift" "$src/Engine/MaskBaker.swift" "$src/Engine/MaskStore.swift" "$src/Engine/SceneLayerWire.swift" "$src/Engine/Layer2Kernel.swift" "$src/Engine/Layer2Local.swift" \
   "$here/tools/hdr_gainmap_selftest.swift" 2> "$out/hdr-gainmap-selftest-build.log" \
   || { grep -E "error" "$out/hdr-gainmap-selftest-build.log" | head -30; exit 1; }
 if [[ "${1:-}" == "--self-test" ]]; then

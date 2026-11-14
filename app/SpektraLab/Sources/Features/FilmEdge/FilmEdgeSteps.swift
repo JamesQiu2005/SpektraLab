@@ -28,12 +28,21 @@ struct FilmStepPanel: View {
     /// the cards wrap into rows across the panel, each as drawn (72 × 92, 9 apart), and everything
     /// under them moves down by the rows added.
     private static let cardGap: CGFloat = 9
+    /// 片幅's filter over the cards (PRD-D §3.1): All · 135 · 120 · Wide, kept in the app's defaults.
+    private var filter: FilmEdgeFormat.Filter { DevelopPanelPrefs.shared.filmEdgeFilter }
+    /// The cards shown: the filter's, of the formats this engine has.
+    private var shown: [FilmEdgeFormat] { filter.formats() }
+    /// The chosen format, when the filter hides its card: the line under the filter names it.
+    private var hiddenChoice: FilmEdgeFormat? { shown.contains(draft.filmEdge.format) ? nil : draft.filmEdge.format }
     private var cardRows: Int {
         let perRow = max(1, Int((width - 32 + Self.cardGap) / (72 + Self.cardGap)))
-        return (FilmEdgeFormat.allCases.count + perRow - 1) / perRow
+        return max(1, (shown.count + perRow - 1) / perRow)
     }
+    /// The filter's row: the segmented control and, under it, the hidden choice's line.
+    private static let filterRow: CGFloat = 38
+    private var hiddenRow: CGFloat { hiddenChoice == nil ? 0 : 18 }
     /// How much taller the cards are than the host's one row (92 + its 3 pt above and below).
-    private var extra: CGFloat { CGFloat(cardRows) * 92 + CGFloat(cardRows - 1) * Self.cardGap + 6 - 98 }
+    private var extra: CGFloat { CGFloat(cardRows) * 92 + CGFloat(cardRows - 1) * Self.cardGap + 6 - 98 + Self.filterRow + hiddenRow }
 
     var body: some View {
         DrawnBand(height: 226 + extra) {
@@ -43,19 +52,41 @@ struct FilmStepPanel: View {
             } else {
                 DrawnText(stock?.madeInText ?? "", 12, .medium, Theme.dim).trailingInset(16).baseline(30)
             }
+            SegmentedSwitch(options: FilmEdgeFormat.Filter.allCases,
+                            selection: Binding(get: { filter }, set: { f in
+                                withAnimation(.easeOut(duration: 0.18)) { DevelopPanelPrefs.shared.filmEdgeFilter = f }
+                            }),
+                            title: \.label, track: Theme.card, size: 12)
+                .accessibilityLabel(L("Film Format Filter"))
+                .accessibilityIdentifier("film-edge.format-filter")
+                .spanning(leading: 16, trailing: 16).top(41)
+            if let hiddenChoice {
+                DrawnText(L("Chosen: \(hiddenChoice.label)"), 11.5, .medium, Theme.dim)
+                    .leading(16).baseline(41 + Self.filterRow + 10)
+                    .accessibilityIdentifier("film-edge.format-hidden")
+            }
             ChipFlow(spacing: Self.cardGap, lineSpacing: Self.cardGap) {
-                ForEach(FilmEdgeFormat.allCases) { format in card(format) }
+                ForEach(shown) { format in card(format) }
             }
             .frame(width: width - 32, alignment: .leading)
             .padding(.vertical, 3)
-            .leading(16).top(41)
+            .leading(16).top(41 + Self.filterRow + hiddenRow)
             DrawnText(L("View"), 14, .semibold).leading(16).baseline(168 + extra)
-            SegmentedSwitch(options: FilmEdgeView.allCases, selection: $draft.filmEdge.mode, title: \.label,
-                            segmentWidth: 92, track: Theme.card)
+            // Greyed, not hidden, where the format draws one view whatever is kept (135 Full Width: Strip), and
+            // showing that view; the kept choice is left for the next format (`FilmEdgeOptions.view`).
+            let viewOpen = FilmEdgeOptions.view(draft.filmEdge)
+            SegmentedSwitch(options: FilmEdgeView.allCases,
+                            selection: Binding(get: { draft.filmEdge.view },
+                                               set: { if FilmEdgeOptions.view(draft.filmEdge) { draft.filmEdge.mode = $0 } }),
+                            title: \.label, segmentWidth: 92, track: Theme.card)
+                .rowEnabled(viewOpen)
+                .accessibilityIdentifier("film-edge.view")
                 .trailingInset(16).top(152 + extra)
             DrawnText(L("Strip shows the full film width: ×\(cost(.strip)) pixels."), 11.5, .medium, Theme.dim)
+                .rowEnabled(viewOpen)
                 .leading(16).baseline(200 + extra)
             DrawnText(L("Filed shows a sliver of rebate: ×\(cost(.filed))."), 11.5, .medium, Theme.dim)
+                .rowEnabled(viewOpen)
                 .leading(16).baseline(216 + extra)
         }
     }
@@ -66,7 +97,7 @@ struct FilmStepPanel: View {
         var e = draft
         if format != draft.filmEdge.format {
             let a = frame.originalSize.aspect
-            e.filmEdge.format = format
+            e.filmEdge.take(format: format, stockID: e.params.filmStock)
             e.filmEdge.turn = format.defaultTurn(pictureAspect: e.geometry.quarterTurns % 2 == 0 ? a : 1 / max(a, 0.0001))
             e.filmEdge.framing = nil
         }
@@ -99,8 +130,8 @@ struct FilmStepPanel: View {
                 }
                 .frame(width: 62, height: 50).leading(5).top(5)
                 DrawnBand(width: 72, height: 92) {
-                    DrawnText(format.label, 13, .semibold).leading(8).baseline(68)
-                    DrawnText(format.aspectText, 10, .medium, Theme.dim).leading(8).baseline(83)
+                    DrawnText(format.cardTitle, 13, .semibold).leading(8).baseline(68)
+                    DrawnText(format.cardDetail, 10, .medium, Theme.dim, fit: true).spanning(leading: 8, trailing: 4).baseline(83)
                 }
                 .top(0)
             }
@@ -325,18 +356,41 @@ struct EdgeStepPanel: View {
     }
 
     // Holes: what the scan sees through the perforations.
-    private func holesPanel(_ w: CGFloat) -> some View {
-        let has = FilmEdgeOptions.holes(edge)
-        return DrawnBand(height: 132) {
-            DrawnText(L("Holes"), 14, .semibold).leading(16).baseline(26)
-            DrawnText(has ? edge.holes.label : L("None"), 13, .medium, Theme.secondaryText).trailingInset(16).baseline(26)
-            SegmentedSwitch(options: FilmEdgeHoles.allCases,
-                            selection: Binding(get: { edge.holes }, set: { set(\.holes, $0) }),
-                            title: \.label, segmentWidth: 92, track: Theme.card)
-                .rowEnabled(has)
-                .accessibilityHint(has ? "" : holesNote(has))
-                .leading(16).top(42)
-            DrawnText(holesNote(has), 11.5, .medium, Theme.dim, fit: true).spanning(leading: 16, trailing: 16).baseline(122)
+    // Holes: on 135 their colour; on 120 (PRD-D §3.2, "one row") 齿孔 Perforations, a switch for the keyholes, with
+    // their colour under it only while it is on (`FilmEdgeOptions.holesRow`).
+    @ViewBuilder private func holesPanel(_ w: CGFloat) -> some View {
+        switch FilmEdgeOptions.holesRow(edge) {
+        case .perforations(let showsColour):
+            DrawnBand(height: 132) {
+                DrawnText(L("Perforations"), 14, .semibold).leading(16).baseline(26)
+                SpkToggle(isOn: Binding(get: { edge.perforation == .ks65 }, set: { set(\.perforation, $0 ? .ks65 : .none) }),
+                          size: .compact)
+                    .accessibilityLabel(L("Perforations"))
+                    .accessibilityIdentifier("film-edge.perforation")
+                    .trailingInset(16).centreY(21)
+                if showsColour {
+                    SegmentedSwitch(options: FilmEdgeHoles.allCases,
+                                    selection: Binding(get: { edge.holes }, set: { set(\.holes, $0) }),
+                                    title: \.label, segmentWidth: 92, track: Theme.card)
+                        .accessibilityIdentifier("film-edge.holes")
+                        .leading(16).top(42)
+                }
+                DrawnText(showsColour ? holesNote(true) : L("Keyholes: 120 cut from 65 mm motion-picture film."),
+                          11.5, .medium, Theme.dim, fit: true).spanning(leading: 16, trailing: 16).baseline(122)
+            }
+        case .colour, .none:
+            let has = FilmEdgeOptions.holes(edge)
+            DrawnBand(height: 132) {
+                DrawnText(L("Holes"), 14, .semibold).leading(16).baseline(26)
+                DrawnText(has ? edge.holes.label : L("None"), 13, .medium, Theme.secondaryText).trailingInset(16).baseline(26)
+                SegmentedSwitch(options: FilmEdgeHoles.allCases,
+                                selection: Binding(get: { edge.holes }, set: { set(\.holes, $0) }),
+                                title: \.label, segmentWidth: 92, track: Theme.card)
+                    .rowEnabled(has)
+                    .accessibilityHint(has ? "" : holesNote(has))
+                    .leading(16).top(42)
+                DrawnText(holesNote(has), 11.5, .medium, Theme.dim, fit: true).spanning(leading: 16, trailing: 16).baseline(122)
+            }
         }
     }
 
@@ -611,12 +665,16 @@ struct DateStepPanel: View {
         if flat { flatBody } else { steppedBody }
     }
 
-    private var faceWidth: CGFloat { (width - 32 - 16) / 3 }
+    /// The faces' cards share the row: three, or four with Perforation Data (`DateBackFace.offered`).
+    private var faceWidth: CGFloat {
+        let n = CGFloat(DateBackFace.offered.count)
+        return (width - 32 - 8 * (n - 1)) / n
+    }
 
     private var flatBody: some View {
         VStack(spacing: 0) {
             DrawnBand(height: 74) {
-                ForEach(Array(DateBackFace.allCases.enumerated()), id: \.element) { i, face in
+                ForEach(Array(DateBackFace.offered.enumerated()), id: \.element) { i, face in
                     faceCard(face, width: faceWidth).leading(16 + CGFloat(i) * (faceWidth + 8)).top(4)
                 }
             }
@@ -683,7 +741,7 @@ struct DateStepPanel: View {
                 draft.dateBack.active = on
                 // Switched on with a face this camera cannot print: take one it can.
                 if on, !back.prints(back.style, filmEdge: edge),
-                   let face = DateBackFace.allCases.first(where: { back.prints($0, filmEdge: edge) }) {
+                   let face = DateBackFace.offered.first(where: { back.prints($0, filmEdge: edge) }) {
                     draft.dateBack.style = face
                 }
                 changed()
@@ -691,7 +749,7 @@ struct DateStepPanel: View {
             .rowEnabled(!printsNothing)
             .trailingInset(16).top(18.5)
 
-            ForEach(Array(DateBackFace.allCases.enumerated()), id: \.element) { i, face in
+            ForEach(Array(DateBackFace.offered.enumerated()), id: \.element) { i, face in
                 faceCard(face, width: cwid).leading(16 + CGFloat(i) * (cwid + 8)).top(58)
             }
 
@@ -723,9 +781,10 @@ struct DateStepPanel: View {
         if printsNothing { return back.reason(.lcd, filmEdge: edge) ?? "" }
         // Off: the faces, the corner and the size wait for the switch.
         if !back.active { return L("Turn on Date Back to choose a face and a corner.") }
-        if let face = DateBackFace.allCases.first(where: { back.reason($0, filmEdge: edge) != nil }),
+        if let face = DateBackFace.offered.first(where: { back.reason($0, filmEdge: edge) != nil }),
            let reason = back.reason(face, filmEdge: edge) { return reason }
         if back.style == .data { return L("Data prints beside the frame, not in it.") }
+        if back.style == .perfs { return L("The shooting data, one field between each pair of holes.") }
         return L("The camera’s corner. Turned, it turns too.")
     }
 
@@ -743,9 +802,12 @@ struct DateStepPanel: View {
                     .overlay(RoundedRectangle(cornerRadius: 10)
                         .strokeBorder(on ? Theme.selectionFrame : Theme.rule, lineWidth: on ? 1.6 : 1))
                     .frame(width: cwid, height: 62).top(0)
-                DateFaceGlyphs(face: face, text: text.isEmpty ? (face == .data ? "1/125 F8" : "'26 10 1") : text, ink: ink)
-                    .frame(width: cwid - 16, height: 20).leading(8).top(face == .data ? 14 : 13)
-                DrawnText(face.label, 12, .semibold, on ? Theme.text : Theme.secondaryText).centreX(cwid / 2).baseline(52)
+                DateFaceGlyphs(face: face == .perfs ? .data : face,
+                               text: face == .perfs ? PerforationLine.shown(text.isEmpty ? "P|180|F8|±0.0" : text)
+                                   : (text.isEmpty ? (face == .data ? "1/125 F8" : "'26 10 1") : text), ink: ink)
+                    .frame(width: cwid - 16, height: 20).leading(8).top(face == .data || face == .perfs ? 14 : 13)
+                DrawnText(face.label, 12, .semibold, on ? Theme.text : Theme.secondaryText, fit: true)
+                    .frame(width: cwid - 8).centreX(cwid / 2).baseline(52)
             }
             .contentShape(Rectangle())
         }

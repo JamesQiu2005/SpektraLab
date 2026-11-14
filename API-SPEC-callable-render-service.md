@@ -1308,3 +1308,414 @@ XTRA 400 / Endura Premier), `knee_ev` moves by −c, and a scene clip x under c 
 a slide's medium and curve are the same with the stretch, H 4 ×1/4 or a grain seed; `clip_ev` gives a C¹
 plateau; the refusals above. `engine/build/hdr_curve_unit` (C++, synthetic media): the knee stays in its
 bracket where model.py's crossing extrapolated to 1e7 EV, a γ₀ of 1e-7 is refused, `top` = log2 H.
+
+## 20. `film_format_mm` — 3–300 mm, for 8mm and sheet film (2026-11-11, branch `mac/film-sizes-2026-11-11`)
+
+The oracle's field, unchanged in name, path, type, layer (shoot) and meaning — the frame's **long edge**
+in millimetres, which the engine divides by the frame's long edge in pixels for the pitch that sizes grain,
+halation and DIR diffusion (`Pipeline::set_source_long_edge`). Only its range moved:
+
+| field | path | type | default | range (was) | live |
+|---|---|---|---|---|---|
+| `film_format_mm` | `camera.film_format_mm` | float | 35.0 | **3–300** (4–200) | yes |
+
+- **300**: the Mac's Develop › Format offers 4×5, 5×7 and 8×10 sheet film; 8×10's image area is about
+  194 × 245 mm, so its long edge is 245 (`FilmFrame.sheet`).
+- **3**: it also offers Regular 8mm, whose camera aperture is 4.88 × 3.68 mm (SMPTE ST 231); a gate is
+  fixed both ways, so a square picture on it is 3.68 mm long.
+
+Nothing else in the engine assumed 200: the pitch is a division, grain's exact Poisson sampler takes any
+mean (PTRS above 10, a sequential search under), and the blurs' sigmas at 3 mm are a third wider than the
+4 mm the wire already took. `parity_schema.py` records the range as a known divergence from the oracle
+(`KNOWN`), and `engine/src/desktop/preview_host.cpp` checks the same bounds. The app holds every film size
+it sends to this range (`FilmParams.filmFormatRange`, `ExportPlan.filmFormatRange`).
+
+## 21. Leaks, the MZ-S line, ks65, `135_sprocket` and the lens (2026-11-11, branch `mac/lens-edge-engine-2026-11-11`)
+
+**Status: in this engine since 2026-11-11.** §21 specifies the film-side effects (light leaks in the
+picture, the MZ-S data line and the camera imprint's glow, ks65 perforations, `135_sprocket`, the lens
+falloff, Fujifilm's edge stripes) and the lens pass on the source (the diffusion filter and the lens
+aberrations). The lens lives in its own files (`core/diffusion_psf.*`, `pipeline/lens.cpp`,
+`shaders/lens.metal`); the rest extends the overscan node. What was measured on this engine is marked
+**Measured**. PRD: `PRD/PRD-D-lens-film-edge-double-layers-2026-11-11.md` §2.
+
+Checks: `engine/tests/wire_2026_11_checks.py` (the wire), `film_effects_checks.py` (§21.1–§21.4),
+`lens_checks.py` (§21.6, `--big` for 48 MP), `diffusion_checks.py` (§21.5, against upstream's
+`diffusion.py`), and two cases in `overscan_checks.py`; every one runs with `--base-dylib` against an
+engine built at `af5173b9`.
+
+### 21.0 Rules for every field below
+
+- **32 fields, native only, SHOOT, not live**, appended to `kFields` after `grain_seed` and before
+  `preview_long_edge`, in one fixed order. `parity_schema.py`'s `NATIVE_ONLY` grows by the same names in
+  the same order; `spk_params_schema()` lists every one, so a host learns whether an engine has them from
+  the schema, not from `SPK_SCHEMA_VERSION` (still 1: fields added, none renamed or re-ranged).
+- **Off is structural.** With every new field at its default the engine renders byte for byte what
+  `af5173b9` renders (frames alone, 135 with fog and spool leaks, half-frame pairs, data between frames,
+  every 120 format with Vision3, Velvia 100 and Provia 100F and C200 on 135, and the print). Since
+  2026-11-11 a Fujifilm colour negative on a 135 format (X-Tra 400, Pro 400H) is that engine's except in
+  its factory stripes' bands (§21.4) — on purpose. The lens is not in the
+  graph; no new `light_weights` call is made; the overscan kernels' slots 0–260 do not move.
+- **Overscan kernel slots.** The block ended at `P_PAIR_ADV = 260`, `P_COUNT = 261`. The new
+  slots are appended from 261: `P_LEAK_KIND` … `P_LEAK_CORE` 261–273, `P_LEAK_REAR_*` /
+  `P_LEAK_FRONT_*` 274–279, `P_FALLOFF`, `_F`, `_N` 280–282, `P_PERF_DT` 283, `P_COUNT = 284`.
+- **Unknown enum values are refused** at an open and in a delta, with the field named
+  (`'leak_kind' = 'x' is not one of (off, auto, band, wash, spot)`).
+- **The date back changes on purpose** (§21.2): the LED's glow and `date_imprint_ev` 5.5. Every render with
+  `date_imprint_active` changes look; nothing more than 1 mm from an imprint moves (measured, max 0.02/255).
+
+### 21.1 Light leaks in the picture
+
+Light that reaches the film without passing the lens, added as exposure on the film in the overscan node
+(beside edge fog, before halation): halation, the curves, couplers, grain and the print turn it into colour.
+No colour is painted. It works **with Film Edge on or off**: off, the node runs on the identity layout and
+lays the format's nominal gate over the frame, so a band still has the long edge it comes from. The node runs
+when `overscan_active || date_imprint_active || leak_kind != "off"`.
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `leak_kind` | `film_render.leak.kind` | str | `"off"` | `off` \| `auto` \| `band` \| `wash` \| `spot` | `band`: across the film, 5–14 mm along, brighter at one long edge. `wash`: a graded flood from one end, falling by e in 3.5–6.5 mm. `spot`: the 120 window (120 formats only; refused elsewhere): an irregular oval core 2–4.5 mm in radius, hot, and the backing paper's scatter around it. `auto`: the camera seed picks (135: band 65 % / wash 35 %; 120: 55 / 30 / 15) |
+| `leak_amount` | `film_render.leak.amount` | float | `1.0` | 0–4 | the peak's light, `amount` × 18 % × 2^(6.0 ± 1.5) |
+| `leak_rate` | `film_render.leak.rate` | float | `1.0` | 0–1 | the chance this frame shows the camera's leak (frame seed; frames 1–2 ×4 and ≥ 33 ×3 when `overscan_frame_number` is sent). A frame that does not show it takes the copy path, byte for byte |
+| `leak_front` | `film_render.leak.front` | float | `-1` | −1, 0–1 | the core's share of front (emulsion-side) light; −1 = the camera seed's (band 0.3–0.7, wash and spot 0) |
+
+**Seeds.** A leak reads `overscan_camera_seed` (the body's bad seal: kind under `auto`, place, edge, width;
+stream 21), `overscan_frame_seed` (whether, how strong ±1.5 EV, a ±1.5 mm wobble; stream 22) and
+`overscan_frame_number` whenever it is on, with Film Edge on or off — a host sends the three with a leak even
+while Film Edge is off, so a frame's leak does not move when Film Edge is switched on.
+
+**Measured** (`film_effects_checks.py`, 1200 × 800, Portra 400 → Supra Endura): the frame seed
+moves the camera's band 13.9–15.5 mm (its wobble) and never its bright edge; the camera seed moves it
+2.2–24.1 mm. Film Edge on against off, inside the gate: mean 0.02 of a mean leak of 8.4 (8-bit). 64-row
+strips (RFC-020) = the whole frame, byte for byte. Tri-X on Multigrade: light without a hue (chroma change
+≤ 0.05/255). **The hue path depends on the print.** With the negative-hue node off (`SPK_NEGATIVE_HUE=0`) amount
+0.25 / 0.5 / 1 / 2 / 4 prints (82,39,18) 19.3° / (111,51,21) 19.9° / (132,63,25) 21.5° / (147,78,28) 25.0° /
+(160,97,32) 30.4°: red → orange → yellow. The default print takes the print's hue
+from the negative (2026-11-11) and holds a strong leak near orange: (81,40,19) 20.2° … (161,95,58) 21.4°.
+That is the print stage's decision; the leak's light was not retuned for it (AGENTS.md: do not pollute the
+material model). With a front share the core goes to near white (207,196,195).
+
+**The wash and the spot, as built (2026-11-11 retune, branch `engine/leak-retune-2026-11-11`).** The owner saw a
+wash at amount 1 flood a 135 frame and a 120 spot print as a flat pink disc. Both are shape, in the film stage;
+no field, no colour and no print stage changed.
+
+- *Wash.* Exposure `amp · exp(−x / len)` along the film from the leaking end of the gate (x ≥ −len/2: it rises
+  a little past the end), times the across-film decay from the bright long edge. `len` is the camera's,
+  **3.5–6.5 mm** (it was 8–25). The old range read Full_roll #2's visible climb (~21–26 mm) as the e-length;
+  at 2^6 over grey a leak stays visible for ~6.5 e-lengths, so 8–25 mm lit 50–160 mm of film and the whole
+  frame, rebate and picture. Not a units slip: positions are film mm throughout (`spk_leak_frame`,
+  the canvas). The reference's climb from the picture to yellow-orange is ~6 stops of the leak's hue walk in
+  ~21 mm, about 5 mm an e. At amount 1, on a dark frame (`film_effects_checks.py`, 8 camera × 3 frame seeds),
+  the far tenth of the frame keeps ≥ 95 % of its unleaked value and the middle column carries ≤ 28 % of the
+  end's light (it was −90 % and 78 %). Amount 4 may still flood half the frame.
+- *Spot.* Light through the 120 window and the backing paper: `amp · (8 · window + ⅛ · scatter)`, where
+  `window = exp(−(ρ/r(θ))⁴)` is the window's image (flat and hot inside, its edge soft) and
+  `scatter = exp(−max(ρ − r(θ), 0) / ℓ)` the paper's scatter around it. ρ, θ are taken in the window's frame
+  (rotated by the camera's 0–180°, its minor axis × 1/aspect, aspect 0.8–1); `r(θ) = r₀ · (1 + k · (0.55 cos(2θ + φ)
+  + 0.30 cos(3θ + 2.7φ + 1.3) + 0.15 cos(5θ + 4.1φ + 2.1)))` with r₀ 2–4.5 mm, k 0.14–0.28, φ the camera's;
+  ℓ 1–2.5 mm. The core is 2^3 over the leak's peak, so through the film's own sensitivity (rear light: red,
+  green × 0.08, blue × 0.003) it goes past red to yellow; nothing is painted. The five new camera draws come
+  after every earlier one (stream 21), so no other draw moves. Measured at amount 1, 8 camera seeds, 6 × 7,
+  dark frame: the core's green ≥ 0.68 of its red (was ≤ 0.63), the half-maximum contour's radius varies by
+  CV ≥ 0.064 (was ≤ 0.024, a disc), ≤ 9 % of the frame lifted by 5/255 (was up to 44 %) and ≤ 2.0 M 8-bit units of
+  light in all (was up to 9.9 M).
+- *Unchanged:* `off` is af5173b9's byte for byte; the band (film edge off and on, 135 and 120) is the engine
+  before the retune (5c5b890d) byte for byte; the seeds as above.
+
+### 21.2 The MZ-S data line, and the camera imprint's glow
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `date_imprint_data_placement` | `film_render.date_imprint.data_placement` | str | `"gap"` | `gap` \| `perfs` | `gap`: between frames, as before, byte for byte. `perfs`: the Pentax MZ-S line, one `\|`-separated field per gap between perforations along the camera's top rebate, from the gate's leading end, snapped to the layout's perforation phase; a field wider than the gap (2.77 mm) loses words, then characters |
+| `date_imprint_data_leader` | `film_render.date_imprint.data_leader` | str | `""` | — | the roll's leader block (`NO.012\|ISO 200\|F15 3`) in the gaps before the gate, drawn only when `overscan_frame_number` is 1 |
+| `date_imprint_ev` (changed) | `film_render.date_imprint.exposure_ev` | float | **`5.5`** (was 3.5) | −2–8 | unchanged meaning; the default moves with the glow |
+
+Which field carries the line is the existing rule: **the line alone** is `date_imprint_style = data` with the
+line in `date_imprint_text`; **with a date as well**, `style` = `lcd` or `dots`, the date in
+`date_imprint_text` and the line in `date_imprint_data_text`. Tokens: `{meter:multi}`, `{meter:center}`,
+`{meter:spot}`, `±`, `"`. `perfs` needs a perforated 135 layout (`135`, `135_half`) with Film Edge on;
+elsewhere the line is not drawn.
+
+**The glow** (2026-11-10): every camera imprint (the date, the data line, either placement) is the
+LED's light through the base, a Gaussian core of 0.018 mm and a tail of 0.09 mm carrying 30 % of the light
+(it was one 0.015 mm Gaussian). The factory's edge print keeps its sharp contact exposure.
+The masks are softened on the host (`rasterise`, vImage), and the two Gaussians are summed into one mask
+there — the light of both layers, one add.
+
+**Measured** (Gold 200, 2400 × 1600, 135): five fields, each centred in its gap to 0.029 mm;
+glyphs 0.831 mm; foot 0.74 mm above the gate; the leader on frame 1 only; the line alone (style `data`) draws
+on the rebate and never in the picture on **135 and 135_half**; nothing on 120 or with Film Edge off; a
+long field is cut to 1.95 mm. The glow: red over the background 1/2/3 px (0.03 mm) out +56/+26/+8 (the
+owner's strip +86/+34/+13); core (169,118,36) towards yellow, rim (129,68,26) orange; the in-frame date
++55/+33/+17; the edge print's rim +21.5/−7.2 (no glow).
+
+### 21.3 120 cut from 65 mm cine film: the keyhole perforations
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `overscan_perforation` | `film_render.overscan.perforation` | str | `"none"` | `none` \| `ks65` | 65 mm KS holes (SMPTE 145: 1.981 × 2.794 mm, pitch 4.75) about 0.98 mm from each slit edge, biting ~1.3 mm into the 56 mm gate. 120 formats only (refused on 135). Hole phase: the frame seed's (stream 24); the slitter's ±0.25 mm: the camera's (stream 23). **No 120 edge print is drawn on `ks65`, for any stock** |
+
+**Which stocks may carry it is the host's rule.** The engine draws `ks65` on any stock; the app offers it on
+every stock's 120 formats (the owner, 2026-11-11).
+**Measured** (120_6x7, 1390 × 1120): pitch 4.751–4.753 mm, holes 1.970–1.975 × 2.784–2.791 mm,
+0.97–1.04 mm from the edge, bite 1.22–1.32 mm; the same on Portra 400 as on Vision3 250D; Fujifilm Pro 400H's
+120 print (which reads `overscan_edge_text`) disappears under `ks65`; the margin date draws and the holes stay
+clear of it (≤ 0.01/255 inside them).
+
+### 21.4 `135_sprocket`, the lens falloff, and Fujifilm's edge stripes
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `overscan_format` (extended) | `film_render.overscan.format` | str | `"135"` | adds `135_sprocket` | a 72 × 36 mm gate on 35 mm film: the film's edges bound the picture, which runs over the perforations and under the edge print. Perforation phase: the frame's, over the whole pitch (stream 26). `square` gate; no date (the panoramic rule); `overscan_pair` refused. The picture handed in is 2 : 1 |
+| `overscan_falloff` | `film_render.overscan.falloff` | float | `0.0` | 0–1.5 | cos^n inside the gate × this, n per camera 3.8–4.2 (stream 25), the format's normal lens (135 50, half 30, XPan 45, sprocket 30, 645 75, 6×6 80, 6×7 90, 6×8 105, 6×9 105, 6×12 90, 6×17 90 mm). Picture only: never fog, leaks or the edge print. Any format, Film Edge on only; 0 = off, byte for byte |
+
+Fujifilm's red and green factory edge stripes (green solid 0.33 mm at 2.83 mm from each edge; red 0.65 mm at
+3.73 mm, 19 mm on and 19 off, on the print's 19 mm grid; both run across the holes, exposed through the film's
+green- and red-sensitive layers) are **the Fujifilm colour negatives' edge, on every 135-gauge format** — `135`,
+`135_half`, `135_xpan`, `135_sprocket` — and never on 120 (the only Pro 400H 120 reference, 6 × 7, shows none)
+and never on a positive (the owner, 2026-11-11; until then X-Tra 400 on `135_sprocket` only). Film data: a
+stock with Fujifilm's negative 135 layout (`Edge135::FujiNeg`) carries them (`edge_stripes_135` in
+`overscan.cpp`; the app's `EdgeLook.stripes135`), and `EdgeLook::stripes` adds them to a stock of another
+family; a Fujifilm negative added later needs only its row. In the catalogue: **X-Tra 400 and Pro 400H**.
+Not C200 (Fujicolor 200, made by Kodak and printed with Kodak's edge, its 135 reference), not Acros II (black
+and white, the slides' layout), not Velvia 100 or Provia 100F. Every other stock renders byte for byte as before;
+X-Tra 400 and Pro 400H on `135`, `135_half` and `135_xpan` change in the stripes' bands only
+(`film_effects_checks.py`: every moved pixel within 13.1–15.6 mm of the film's centre line).
+**Measured** (2400 × 1200): gate 72.00 × 36.00; the picture runs to both edges; 16 holes a row,
+pitch 4.740, 2.010 mm along; phase 0.13–4.03 mm over six frames; falloff 1 → −2.45 EV 0.5 mm from the ends
+(cos⁴ of 30 mm: −2.6 at the very end); falloff 1.5 on a 135 frame moves its rebate by at most 1 of 65535
+codes (the couplers' diffusion reaches past the gate); stripes green 55, red 72 on X-Tra 400, 0 on Portra.
+On every 135 format (2026-11-11, a near-black frame): green over red 55–56, red over green 71–72 on X-Tra 400;
+47 and 67–69 on Pro 400H; 0–1 on Portra 400, C200, Velvia 100 and Provia 100F; Pro 400H on `120_6x7` the base
+engine's byte for byte. The app's layout draws the same stripes (`tools/film_edge_parity.py`, 212 cases).
+
+### 21.5 The diffusion filter (柔光镜), camera only
+
+The oracle's `DiffusionFilterParams`, now on the wire; `Pipeline::build`'s refusal is lifted **for the
+camera only** (`enlarger.diffusion_filter` stays refused). It is **a pass on the source**, before the film
+chain (§21.7).
+
+| field | path | type | default | range |
+|---|---|---|---|---|
+| `diffusion_filter_active` | `camera.diffusion_filter.active` | bool | `false` | — |
+| `diffusion_filter_family` | `…filter_family` | str | `"black_pro_mist"` | `black_pro_mist` \| `pro_mist` \| `glimmerglass` \| `cinebloom` |
+| `diffusion_filter_strength` | `…strength` | float | `0.5` | 0–2 |
+| `diffusion_filter_spatial_scale` | `…spatial_scale` | float | `1.0` | 0.25–4 |
+| `diffusion_filter_halo_warmth` | `…halo_warmth` | float | `0.0` | −1.5–1.5 |
+| `diffusion_filter_core_intensity` | `…core_intensity` | float | `1.0` | 0–4 |
+| `diffusion_filter_core_size` | `…core_size` | float | `1.0` | 0.25–4 |
+| `diffusion_filter_halo_intensity` | `…halo_intensity` | float | `1.0` | 0–4 |
+| `diffusion_filter_halo_size` | `…halo_size` | float | `1.0` | 0.25–4 |
+| `diffusion_filter_bloom_intensity` | `…bloom_intensity` | float | `1.0` | 0–4 |
+| `diffusion_filter_bloom_size` | `…bloom_size` | float | `1.0` | 0.25–4 |
+
+As built: the PSF is `diffusion.py` line for line
+(`core/diffusion_psf.*`); it runs on a Gaussian-pyramid basis (the binomial [1 5 10 10 5 1]/32 filters, level
+weights a non-negative least-squares fit of the levels' line-spread functions to the PSF's, the mass held)
+plus an 11 × 11 core FIR for the exponentials' cusps. The exact path (twenty-odd Gaussians) is kept as the
+tests' reference. **Measured** (`diffusion_checks.py`, 43 checks, 89 s): host tables against the
+oracle, impulse responses, images in codes, chunked in-place combines byte for byte, an encoded source
+decoded/lensed/encoded, and RFC-020 strips = the source filtered first, byte for byte.
+
+### 21.6 Lens aberrations
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `lens_aberrations_active` | `camera.lens_aberrations.active` | bool | `false` | — | the switch |
+| `lens_field_curvature_um` | `…field_curvature_um` | float | `0.0` | 0–120 | the isotropic blur's σ at h = 1 |
+| `lens_astigmatism_um` | `…astigmatism_um` | float | `0.0` | −120–120 | extra σ, tangential (> 0, the swirl) or radial (< 0), at h = 1 |
+| `lens_field_exponent` | `…field_exponent` | float | `2.0` | 1–4 | σ ∝ h^p |
+| `lens_sharp_radius` | `…sharp_radius` | float | `0.0` | 0–0.8 | h below which nothing blurs |
+| `lens_coma_um` | `…coma_um` | float | `0.0` | −150–150 | the comet's length at h = 1; sign = outward / inward |
+| `lens_spherical_amount` | `…spherical_amount` | float | `0.0` | 0–0.6 | the glow's share of the light |
+| `lens_spherical_um` | `…spherical_um` | float | `60.0` | 10–400 | the glow's radius (σ = R/2) |
+| `lens_lateral_ca_r` | `…lateral_ca_r` | float | `0.0` | −3–3 | red's radial scale against green at h = 1, ‰ |
+| `lens_lateral_ca_b` | `…lateral_ca_b` | float | `0.0` | −3–3 | the same for blue |
+| `lens_loca_um` | `…loca_um` | float | `0.0` | 0–30 | σ of the defocused channels |
+| `lens_loca_sign` | `…loca_sign` | str | `"purple"` | `purple` \| `green` | R and B soft, or G |
+| `lens_loca_highlight_gate` | `…loca_highlight_gate` | float | `1.0` | 0–1 | 0 everywhere, 1 on highlight edges only |
+
+h is the distance from the **source** frame's centre over its half-diagonal, so a crop never moves the axis;
+sizes are µm on the film at the corner, so every tier shows the same lens. Named lenses (the app's
+`LensPreset`: Swirl, Petzval, Vintage, Toy) are host tables of these numbers.
+**Measured** (`lens_checks.py`, 54 checks): σ within 0.8 % of the formula, coma slope 3.343 / −3.314
+against ±3.333 px per h, energy within 1e-3 (2e-3 lateral CA); chunks of 64/200/333 rows = one, byte for
+byte; the engine's render = the source lensed first by the probe, byte for byte, for a frame, a crop, a
+mirrored crop, 6×7 and 135 overscan, and in RFC-020 strips; auto exposure meters the lensed light.
+
+### 21.7 Where the lens runs, and what it costs
+
+**On the source, per tier.** `tier_image` (`engine.cpp`) hands every develop, reprint, the meter and the
+Scene Latitude statistic the tier's source through the lens (`lensed_tier` → `Pipeline::lens_source`),
+made once per lens setting and kept in `TierState::lensed` (keyed by `lens_key`: the lens's fields, the
+format and overscan fields that set its pitch, the input's transfer function, and the boost while it is on).
+The full tier's copy is file-backed, as the source is; a slider's next value writes over the last one's copy.
+`spk_memory_report` reports it per session as `lensed_source_bytes`. The film side, its plan and its RFC-020
+strips are what they are with the lens off (`structural` checks the strip plan). The engine has no RFC-035
+bands; the aberrations' own chunks carry a lens-private chunk context (`LensChunk`). The pitch is
+`fix_film_pitch`'s rule at the image's long edge (the gate's under overscan).
+`medium_probe_params` turns leaks and the lens off (the medium is the film's).
+
+Test seams `spk_lens_probe` and `spk_diffusion_psf_json` (in `lens.cpp`) are compiled out under
+`SPK_HARDENED`. On Linux/Windows (CMake, Vulkan) the lens and the leaks are refused with a named error
+(`windows_unported.cpp`); `diffusion_psf.cpp` is in the portable core.
+
+**45 MP full renders, interleaved** — measured below (§21.7.1).
+
+#### 21.7.1 Measured (2026-11-11, Apple M3 Max)
+
+A synthetic 8256 × 5504 frame (the Z7 II's 45.4 MP), Portra 400 → Portra Endura, 36 mm, halation on, auto
+exposure off; a fresh session per sample, five rounds with the case order rotated each round (trap 17);
+load average 5–9 during the run (another lane was building). "Full" is the full tier's first develop (the
+lens pass and the film side); "again" a second develop of the same session with another film (the lensed
+copy kept). The pass alone is `spk_lens_probe` on the same frame: its first run (a new fit, fresh pages) and a
+slider's next value over its copy.
+
+| case | full, median (min) | again, median | pool high-water | the pass alone: first / next |
+|---|---|---|---|---|
+| everything off | 0.78 s (0.76) | 0.67 s | 2,600 MB | — |
+| Black Pro-Mist, strength 1 | 0.83 s (0.82) | 0.67 s | 2,600 MB | 63 / 34 ms |
+| aberrations strong (the Swirl preset at 100 %: curvature 45, astigmatism +70, p 2, coma 25, spherical 0.08 / 60 µm) | 2.06 s (2.02) | 0.63 s | 2,684 MB | 1,168 / 1,155 ms |
+| both | 2.14 s (1.99) | 0.65 s | 2,600 MB | 1,210 / 1,210 ms |
+
+At the live tier (1600 px long) the pass is 3 ms (the filter), 10 ms (Swirl) and 12 ms (both) for a slider's
+next value; the filter's first value at a new pitch adds ~100 ms of host-side fit, kept for the process. The
+cost is the aberrations' gathers at full resolution, once per setting: a re-develop that keeps the lens
+setting does not pay it again. The lensed copy is a file-backed full-tier plane (545 MB at 45 MP),
+reported as `lensed_source_bytes`.
+
+## 22. `spk_trim_pool` — the render pool given back on the host's word (2026-11-13, branch `mac/memory-16gb-2026-11-13`)
+
+```c
+size_t spk_trim_pool(spk_engine* engine, size_t keep_bytes);
+```
+
+- Frees the pooled render buffers that no node or Image holds (`refs == 0`, free or pending), the largest first,
+  until the pool holds at most `keep_bytes`, and returns the bytes freed. `keep_bytes = 0` is everything idle.
+- It is the same `Gpu::trim_pool` that RFC-020 §3.1's idle timer and §3.2's memory-pressure source call, and adds
+  no policy of its own. Sessions, their sources and cached negatives, and the baked tables are untouched: no wire
+  field, render or reprint changes (`tools/engine_smoke.sh mac`: 8 of 8 render sha256 equal against main).
+- It takes the pool's own lock, not the engine's, so it is safe beside a render on another thread, which then
+  allocates again what it needs. A null engine frees 0. It cannot fail.
+- The Mac app calls it from `SpkEngine.trim()`: a job waiting for memory, a memory-pressure event (warning or
+  critical), a reclaim for a job someone waits on, and the queue idle for 5 s (`RenderQueue.idleTrimAfter`).
+- `spk_memory_report`'s `pool.total_bytes` shows the effect. Not a wire change: no JSON field is added.
+
+## 23. 场景 layers — `spk_set_scene_layers` and `scene_layers` (2026-11-13, branch `mac/masks-2026-11-13`; RFC-052 §6)
+
+RFC-052's 场景 stage: a local amount of Film Exposure, and of a filter on the light, before the film. The host
+bakes each layer's mask (RFC-052 §4, `MaskBaker`) and hands the planes over by a call; the wire carries only the
+stamp that names them. RFC-052 called this §22; the memory branch had taken §22 (`spk_trim_pool`) first.
+
+```c
+typedef struct spk_scene_layer {
+    void*    plane;        /* id<MTLBuffer> of the engine's device: 16-bit unorm, row-major, top row first, tight */
+    uint32_t width, height;
+    float    log_gain[3];  /* g, natural log of a gain on the cone responses, at full coverage */
+    float    coverage;     /* on · opacity, 0…1 */
+} spk_scene_layer;
+
+spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* layers, uint32_t count,
+                                const float frame_to_source[9], const char* stamp, char** out_json);
+```
+
+| field | path | type | default | meaning |
+|---|---|---|---|---|
+| `scene_layers` | `camera.scene_layers` | str | `""` | the stamp of the set the develop is of. Native-only, SHOOT, not live; after `overscan_falloff` |
+
+- **The plane.** `width × height` uint16 (0 none, 65535 full) in source space S (RFC-052 §3: after EXIF
+  orientation and the decoder's lens correction, before any cut; origin top-left, x right, y down). Texel
+  (i, j)'s centre is S = ((i + 0.5)/width, (j + 0.5)/height). The engine samples it by hand, bilinear between
+  texel centres, clamped at the plane's edge, and 0 outside S. Any size from 1 to 16384 a side; a constant
+  plane samples to itself exactly (an all-65535 plane is 1.0 everywhere). Borrowed with a retain
+  (`Gpu::borrow`) and held until the next call or the session's release: **the host never writes into a plane
+  it has handed over**. Its bytes are the host's and are not in `spk_memory_report`.
+- **`frame_to_source`**: the handed frame's normalised coordinates → S, row-major 3 × 3 on the column (x, y, 1)
+  (divided by the third row when it is not 1), (0, 0)–(1, 1) the frame's corners. NULL is the identity, which
+  it is unless the host cut or mirrored the frame itself (`HostCut`). The engine composes it, per pixel, with
+  its own cut inverted: `spk_geometry_source_px` (`spk_common.h`), the one function `spk_geometry_resample_df`
+  cuts the picture with, gives the handed frame's pixel (centres at integers, before the clamp), normalised as
+  (p + 0.5)/N.
+- **The gain.** `log_gain` = g of RFC-052 §6.1: e·ln2·(1, 1, 1) for e stops, plus ln w(τ, ν) for a colour delta,
+  in the cone space `C = M_CAT16 · M_(working RGB → XYZ)` — the session's `input_color_space`, its own white, no
+  adaptation; the CAT16 matrix is the engine's baked `colour/cat/CAT16`. The reply carries C as `rgb_to_cone`
+  and its inverse as `cone_to_rgb` (row-major, out[i] = Σ_j m[3i + j] x[j]); a host computing w asks for C
+  rather than keeping its own copy (trap 28). k(x) = coverage · mask(x); G(x) = Σ k g;
+  RGB′ = C⁻¹ · diag(exp G) · C · RGB. With no colour delta in any layer at coverage > 0 (the three components of
+  every g equal) the node is the scalar gain 2^(Σ k e), e = g/ln2 narrowed to float, and runs no matrix; on the
+  colour path a pixel whose G is 0 is written back unchanged.
+- **The stamp is a check that can fire.** A render (`spk_render`, `spk_reprint`, every tier) whose wire names a
+  stamp that is not the held set's is refused with `SPK_ERR_USER`, both named: `scene_layers: the render's wire
+  names 's2' but the session holds 's1' (spk_set_scene_layers)` (or `holds no set`). Every other caller of the
+  negative (`spk_preview_stock_lut`, `spk_export_di`, `spk_render_digital_intermediate`) is refused the same way
+  in `negative_for`, and the node itself refuses as a backstop. A wire of `""` is never refused: the node is not
+  dispatched, whatever is held, and the render is the engine without the feature to the bit.
+- **What the call drops**: every tier's cached negative (a reprint after it develops again, of the new planes),
+  and the pre-grain disk checkpoint (keyed by the wire, so a stamp the host reuses would otherwise restore the old
+  picture). Not the decoded source, not the lens's kept copy (`TierState::lensed`), not the meter. A new stamp on
+  the wire is a SHOOT field and not live: `spk_set_params` drops the negative and rebuilds the pipeline, as for
+  any such field.
+- **Where**: `node_scene_layers` (`scene_layers.cpp`, kernel `spk_scene_layers` in `scene_layers.metal`) in
+  `film_scale_and_expose`, after `node_scene_latitude` and before `node_scene_curve`: after the meter (which never
+  sees a layer, nor does `spk_scene_latitude`'s statistic or its after-transform rows), before the spectral
+  upsample, before `overscan`. Pointwise and band-able (it reads `band_row0_`). The medium probe
+  (`medium_probe_params`) clears the stamp, so `spk_scene_latitude`'s medium and `spk_session_hdr_curve` are
+  the film and paper's and not the edit's. Not under `debug.lut_mode`.
+- `out_json` (may be NULL): `stamp`, `count`, `colour`, `plane_bytes`, `working_space`, `rgb_to_cone`,
+  `cone_to_rgb`, `frame_to_source`. Refused with `SPK_ERR_INVALID_ARG`: more than 8 layers, a null plane, a side
+  of 0 or above 16384, a coverage outside [0, 1], a gain or matrix entry that is not finite, a plane from another
+  device or shorter than `width × height × 2` bytes.
+- The CMake targets (Windows, Linux) refuse the call with `SPK_ERR_UNSUPPORTED` and a stamp at build and in a
+  delta (`windows_unported.*`), as they refuse the lens. The test seam `SPK_SCENE_LAYERS_BREAK` (one term of the
+  cut broken for the mask alone, `scene_layers_checks gates 4`) is compiled out under `SPK_HARDENED`.
+
+Checked (`engine/tests/scene_layers_checks.cpp`, built by `engine/build.sh tests`; `scene_layers_checks
+engine/resources gates`: 100 checks, 0 failed, 18 s, on the device's own `MTLBuffer`s), Portra 400 → Portra Endura
+(the minilab path), product defaults, full tier of synthetic frames:
+
+- **A full mask is Film Exposure** (RFC-052 §10.1): one layer k ≡ 1 of e stops at Exp. Comp. 0.3 against Exp. Comp.
+  0.3 + e, e ∈ {−2, −0.5, +0.5, +2}: at most 1 count (1.5e-5), mean ≤ 0.007 counts, with and without Scene
+  Latitude and a Decode curve on; 0 counts at ±2. The same on the Digital Intermediate, on a slide's scan, plain
+  and HDR (headroom 4), and on a film edge's whole canvas (135, halation off): 0 counts at +1. With the node moved after the Decode curve (RFC-052 §6.3's rejected place,
+  built once to see the gate fail) the curve cases differ by 468–2895 counts. The colour path: a full-mask gain
+  (0.12, −0.04, −0.20) against C⁻¹·diag(exp g)·C applied to the input in double: at most 1 count; with C handed to
+  the kernel transposed (trap 20) 6916. `rgb_to_cone` equals M16 · colour-science's ProPhoto matrix to 0.
+- **Neutral** (§10.2): no call, a set held under a wire of "", a named empty set, coverage 0, zero gains, and a
+  colour layer whose mask is 0 everywhere, each on the defaults, Scene Latitude + a Decode curve, a cut (crop,
+  straighten, turn, flip) and RFC-020's strips: sha256 equal to the render without the field, and those equal to
+  main's build (047a0b9e) through the same driver; `tools/engine_smoke.sh mac` 8 of 8 sha256 equal against it. Two
+  layers (one colour) through a cut, striped at 97 rows, equal the whole render (red when the node is handed row 0
+  for every band).
+- **The meter** (§10.3): `spk_solve("exposure")` and the EV a render applied, with and without a +2 layer over half
+  the frame, for balanced, center-weighted and protect-highlights: equal to the last digit.
+- **Geometry** (§10.4, the engine's part): a hard-edged target in the picture and the same rectangle as a mask, found
+  independently on the output (each thresholded where its own interpolation weight is 0.5), through identity, a crop,
+  crop + straighten 7°, each quarter turn, both flips, crop + straighten −5° + turn + flip, a host cut, a host cut +
+  straighten 4° + turn 3, and a mirrored host cut + flip: symmetric edge distance at most 1.0 px (0 on every case
+  without a straighten; mean ≤ 0.03 px with a 750 × 500 plane, ≤ 0.30 px with a 1024 × 683 one, whose texels move
+  its edge by up to half a texel). Each term broken for the mask alone (`SPK_SCENE_LAYERS_BREAK`: crop x, crop y,
+  scale x, scale y, rotation, turns, flip h, flip v) and each of `frame_to_source`'s nine entries + 0.01: 3–148 px,
+  red; a host cut handed as the identity: 150 px.
+- **One negative** (§10.5): 2400 × 1600 at 1:1, grain on (seed 11), a soft ramp of k from 0 to 1 over 960 px at
+  +1.5 stops, against nine uniform develops at the exposures it passes through (Exp. Comp. q·1.5, q = 0…1, q = ½ the
+  edge's mean): the grain's σ per 48-px column bin, each column's mean removed, over σ of the uniform develop at that
+  bin's exposure: |σ/σ(exposure) − 1| ≤ 0.009, against the uniform develops' own bin-to-bin spread of 0.011. The
+  same statistic on two developments blended across the edge (RFC-052 §2.1's rejected design): 0.39.
+- **The stamp**: a stamp with no set, a stamp other than the held one, on `spk_render`, `spk_reprint` and the live
+  tier: `SPK_ERR_USER`, both named (red with the session's refusal removed: the node's backstop then fails it as
+  `SPK_ERR_GPU`). **The negative**: after a new plane under the same stamp, `spk_reprint` develops again
+  (`negative_was_cached` 0) and is a fresh session's render to the bit (red without the drop: the old picture, 0
+  counts from it); the source and the lens's kept copy are kept.
+- **Cost** (§10.6), interleaved, three rounds, a fresh process per case, M3 Max under load 5.4–9.3 (another agent's
+  Xcode build): a full develop at 24 MP 380 / 387 / 386 / 395 ms for 0 / 1 / 4 / 8 layers (median), 45 MP 669 / 675 /
+  685 / 692 ms; the second develop of the session 237–243 and 458–464 ms whatever the count; the live tier (2400 px)
+  49–53 ms. The node alone (`SPEKTRALAB_NODE_TIMINGS`): 2.5–2.8 / 2.9–3.2 / 4.2–4.6 ms at 24 MP and 4.7–5.2 /
+  5.3 / 8.0–8.5 ms at 45 MP for 1 / 4 / 8 layers. A stroke (`spk_set_params` with a new stamp, which rebuilds the
+  pipeline, then `spk_set_scene_layers`) 6.4–7.2 ms. Peak `phys_footprint` above the process's own holding before
+  the open: 1,666 MB at 24 MP and 3,056 MB at 45 MP with 0 and with 8 layers alike; the planes (21 MB each at
+  4096 px) are the host's, on top.
+- The parity harnesses (`docs/agents/BUILD-AND-TEST.md`), drivers rebuilt: `parity_setup` 227 quantities, 0 failed;
+  `parity_schema` 137 fields, `scene_layers` pinned native-only; `parity_render` 27 cases, 0 failed, 48 s
+  (main's build: 47 s, the same output); `parity_session` 137 fields, 0 failed (`scene_layers` refused by name,
+  the walk holding no set); `parity_grain` 9 levels, 0 failed; `parity_lut` 3 stocks, 0 failed; `gpu_smoke` and
+  `check_math_guard.sh` green.

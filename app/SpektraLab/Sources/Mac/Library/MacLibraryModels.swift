@@ -230,11 +230,24 @@ enum MacColorLabel: Int, CaseIterable, Codable, Hashable, Sendable {
     case red = 1, orange = 2, yellow = 3, green = 4, blue = 5, pink = 6, purple = 7
 }
 
+/// **A grid cell is a variant** (PRD-G §2, 2026-11-13): an image of the helper's with one present variant is one cell, as
+/// before; one with several is a cell per variant, side by side in the image's sort place, in their order (Capture
+/// One's browser). Each cell has its own frame (`develop`), rating and label. Counts stay per image (`total`).
 struct MacImage: Identifiable, Hashable, Sendable {
     struct ID: Hashable, Sendable {
         let source: MacSource.ID
         /// The helper's image uuid (Capture One's for a mirror), or a frame's id in the app library.
         let image: String
+        /// The cell's variant uuid when the image has more than one; nil for an image with one, so that the id of
+        /// every picture of a 2.3.x library, and of a pair's or a double's row, is what it was (a selection, an
+        /// agent's id, `MacPairRows`' record). An image that gains a second variant changes its first cell's id.
+        let variant: String?
+
+        init(source: MacSource.ID, image: String, variant: String? = nil) {
+            self.source = source
+            self.image = image
+            self.variant = variant
+        }
     }
 
     /// `pair`: a half-frame pair's file in the app's storage (spklib 0.3.1, `MacPairRows.swift`).
@@ -264,9 +277,18 @@ struct MacImage: Identifiable, Hashable, Sendable {
     /// Gone from a kept folder (listed only when asked).
     let isRemoved: Bool
     let fromCaptureOne: Bool
-    /// The variant the grid shows, and how many the image has.
+    /// The image's primary variant (the first present one, which the helper's sort and `images.lookup` use), and how
+    /// many present variants the image has.
     let primaryVariant: String?
     let variantCount: Int
+    /// This cell's own variant uuid: what its rating and label are written to (`meta.set {variants[]}`) and what its
+    /// frame is joined by. Nil only where there is no helper behind the row (the app library, the import page's grid).
+    var variant: String? = nil
+    /// The cell's number among the image's present variants, from 1: its index in `variants[]`, never the helper's
+    /// `position`, which keeps its gaps after a delete (spklib 0.4.0). "2 / 3" is `variantNumber` / `variantCount`.
+    var variantNumber: Int = 1
+    /// Whether this cell is the image's primary variant: its frame may be the one with no variant (`LibraryFrame.variant`).
+    var isPrimaryVariant: Bool { variant == nil || variant == primaryVariant }
     /// What SpektraLab has made of it, once it has been opened in Develop.
     var develop: MacDevelopInfo?
 }
@@ -340,6 +362,18 @@ struct MacImageQuery: Equatable, Sendable {
     var cleared: MacImageQuery { MacImageQuery(sort: sort, descending: descending, includeSubfolders: includeSubfolders) }
 }
 
+extension MacImageQuery {
+    /// Whether one variant's own rating and label pass the stars and labels ticked (PRD-G: a grid cell is a variant,
+    /// and the helper's filter matches an image when one of its variants does). 0 is "no stars", "no label".
+    func shows(_ v: LibraryVariant) -> Bool {
+        let rating = v.rating ?? 0
+        if let m = minimumRating, rating < m { return false }
+        if !ratings.isEmpty, !ratings.contains(rating) { return false }
+        if !colorLabels.isEmpty, !colorLabels.contains(v.colorTag ?? 0) { return false }
+        return true
+    }
+}
+
 /// The Filters tool: counts over the selected collection, each facet counted with every other tick
 /// applied but its own (so ticking 3 stars still shows how many have 4).
 struct MacFacets: Equatable, Sendable {
@@ -401,6 +435,10 @@ enum MacLibraryError: Error, LocalizedError, Equatable {
     case notSupported(String)
     /// More pictures than one carry into Develop takes (`CatalogSourcesStore.carryLimit`).
     case tooMany
+    /// Delete Variant on an image's last variant (spklib 0.4.0 `last_variant`): Move to Trash deals with the image.
+    case lastVariant
+    /// A variant of a half-frame pair or a double exposure (PRD-G §3: not in this round).
+    case notForVariants
     /// More pictures than the Light Table holds (`LightTableModel`: 99).
     case tooManyForTable
     /// None of the chosen pictures may lie on the Light Table (`MacLightTableCarry.takes`).
@@ -414,6 +452,8 @@ enum MacLibraryError: Error, LocalizedError, Equatable {
         case .unreadable(let name): "\(name) could not be read."
         case .notSupported(let why): why
         case .tooMany: "Choose 500 pictures or fewer to open in Develop."
+        case .lastVariant: "This is the picture's only variant. Use Move to Trash to remove the picture."
+        case .notForVariants: "Pairs and double exposures do not have variants yet."
         case .tooManyForTable: "Choose 99 pictures or fewer for the Light Table."
         case .notForTable: "Only pictures developed in SpektraLab go on the Light Table."
         }
@@ -470,9 +510,12 @@ protocol MacLibraryData: AnyObject, Observable {
     var selectedCollectionID: MacCollection.ID? { get }
     var watchedFolders: [MacWatchedFolder] { get }
     var query: MacImageQuery { get }
-    /// The loaded rows of the selected collection, in the query's order; `total` is how many there are.
+    /// The loaded cells of the selected collection, in the query's order: a cell per present variant (PRD-G). `total`
+    /// is how many **images** there are, and `hasMore` whether the helper has images not loaded yet: with variants,
+    /// `images.count` is not comparable with `total`.
     var images: [MacImage] { get }
     var total: Int { get }
+    var hasMore: Bool { get }
     var facets: MacFacets { get }
     var activity: MacLibraryActivity { get }
 
@@ -481,7 +524,7 @@ protocol MacLibraryData: AnyObject, Observable {
     func select(source: MacSource.ID) async
     func select(collection: MacCollection.ID?) async
     func apply(_ query: MacImageQuery) async
-    /// The next page of rows (`pageSize`), until `images.count == total`.
+    /// The next page of rows (`pageSize` images), until `hasMore` is false.
     func loadMore() async
     func loadAll() async
 

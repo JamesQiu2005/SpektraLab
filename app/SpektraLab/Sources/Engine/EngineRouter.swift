@@ -22,6 +22,15 @@
 //  A job's answers — its file, its decode, its whole wire — are captured here
 //  when the job is submitted (`prepare`), because the engine asks for them on
 //  its own queue (`EngineHost`).
+//
+//  **A double exposure (RFC-048) is handed over as a pair is**: a piece the
+//  host composes from its photographs' own files — their light added, not
+//  placed (`DoubleDevelop.swift`) — and the whole's wire, one frame, one date.
+//  Its stamp and source word are the piece's key and the look's; its export,
+//  its strip's cards and its press-and-hold of one exposure alone
+//  (`prepareAlone`) are composed the same way; and what its open decodes is
+//  told to the scheduler before the job is planned (`composition(of:)`). It is
+//  never a picture under a pair's hole, and neither is a pair an exposure.
 
 import CoreGraphics
 import Foundation
@@ -65,6 +74,12 @@ final class EngineRouter {
     /// reading is for (`HalfFramePair.meterKey`). Kept in the pair, so the
     /// picture is read once.
     var onMetered: ((_ pair: UUID, _ index: Int, _ ev: Double, _ key: String) -> Void)?
+    /// The engine's meter has read one exposure of a double exposure alone
+    /// (RFC-048 §4): which double, which exposure, the stops it chose, and
+    /// what the reading is for (`DoubleExposure.meterKey`). The model keeps it
+    /// in the double (`DoubleExposure.keep(reading:of:for:)`), so the picture
+    /// is read once and does not pump while it is moved.
+    var onDoubleMetered: ((_ double: UUID, _ position: DoubleExposure.Position, _ ev: Double, _ key: String) -> Void)?
     /// The engine has said where a half-frame pair's two frames are on the
     /// strip it has just developed for the develop page: each gate's
     /// rectangle, normalised to the canvas with a top-left origin, the first
@@ -201,19 +216,27 @@ final class EngineRouter {
     /// picture is made or the frame has nothing to develop from (`evenAway`: an
     /// original that is away now still has the stamp a develop of it would have).
     func stamp(_ frame: LibraryFrame, edit: FrameEdit, longEdge: Int, evenAway: Bool = false) -> String? {
+        if let double = frame.double { return stamp(double, item: frame, look: edit, longEdge: longEdge) }
         if let pair = frame.pair { return stamp(pair, frames: held(by: pair), look: edit, longEdge: longEdge) }
         guard makesPictures, !frame.isDemo, evenAway || frame.developSource != nil else { return nil }
         return DevelopStamp.of(wire: wire(frame, edit: edit, longEdge: longEdge), cut: edit.hostCut(source: frame.originalSize),
                                turns: edit.hostTurns(source: frame.originalSize),
                                decode: edit.decode, isRAW: frame.developsFromRAW, longEdge: longEdge, engine: identity,
-                               origin: frame.stampOrigin)
+                               origin: frame.stampOrigin,
+                               lens: LensCorrection.word(source: frame.developSource, fileName: frame.fileName, decode: edit.decode,
+                                                         isRAW: frame.developsFromRAW))
     }
 
     // MARK: an original that stays in Photos
 
     /// The frames whose own files a develop of `frame` reads: itself — or,
-    /// for a half-frame pair, the frames on it.
+    /// for a half-frame pair, the frames on it; for a double exposure, its
+    /// photographs, bottom first.
     func sources(of frame: LibraryFrame) -> [LibraryFrame] {
+        if let double = frame.double {
+            let frames = held(by: double)
+            return DoubleExposure.Position.allCases.compactMap { frames[$0] }
+        }
         guard let pair = frame.pair else { return [frame] }
         let frames = held(by: pair)
         return HalfFramePair.Side.allCases.compactMap { frames[$0] }
@@ -241,13 +264,25 @@ final class EngineRouter {
     /// own file, and where nothing is kept on disk. `longEdge` is the job's
     /// decode (`LibraryFrame.previewDevelopLongEdge`: a cropped frame's is
     /// larger than its preview); nil is the frame's own edit's.
-    func proxy(_ frame: LibraryFrame, decode: DecodeSettings, longEdge: Int? = nil) -> RawProxy.Ask? {
+    func proxy(_ frame: LibraryFrame, decode: DecodeSettings, longEdge: Int? = nil, lens: LensResolution? = nil) -> RawProxy.Ask? {
         let edge = longEdge ?? frame.previewDevelopLongEdge(frame.edit)
-        guard frame.developsFromRAW, !frame.isPair, edge > 0,
+        guard frame.developsFromRAW, !frame.isComposite, edge > 0,
               let folder = originals?.copies.proxyFolder, let source = frame.developSource else { return nil }
-        return RawProxy.Ask(url: folder.appendingPathComponent(RawProxy.fileName(frame: frame.id, source: source,
-                                                                                 decode: decode, longEdge: edge)),
+        return RawProxy.Ask(url: folder.appendingPathComponent(RawProxy.fileName(source: source, decode: decode, longEdge: edge, lens: lens)),
                             longEdge: edge)
+    }
+
+    /// A RAW photograph's 镜头校正 as it is answered now, for a request to carry (`EngineHost.Request.lens`); nil for
+    /// anything else (a piece's pictures carry their own: `PieceAsk.resolvingLens`).
+    func lensNow(_ frame: LibraryFrame, decode: DecodeSettings) -> LensResolution? {
+        guard frame.developsFromRAW, !frame.isComposite, let source = frame.developSource else { return nil }
+        return LensResolver.current(source, fileName: frame.fileName, decode: decode)
+    }
+
+    /// The proxies `frames` name now: each one's file and decode as its edit stands, at its preview size
+    /// (`proxy`). What the working copies' book asks before a proxy may go (`WorkingCopies.proxyNames`).
+    func proxyNames(of frames: some Sequence<LibraryFrame>) -> Set<String> {
+        Set(frames.compactMap { proxy($0, decode: $0.edit.decode)?.url.lastPathComponent })
     }
 
     /// The size a preview-size job's open is priced by (`RenderJob.original`):
@@ -258,6 +293,13 @@ final class EngineRouter {
         let edge = frame.previewDevelopLongEdge(edit)
         guard hasProxy(frame, decode: edit.decode, longEdge: edge) else { return decodeSize(frame) }
         return edge == frame.previewSize.longEdge ? frame.previewSize : frame.originalSize.scaled(toLongEdge: edge)
+    }
+
+    /// Whether a preview-size job's open of `frame` decodes a RAW file itself (`RenderJob.rawDecode`): a RAW
+    /// among what it reads, and no proxy here to stand for it — a first open, priced as the RAW's decode.
+    func decodesRAW(_ frame: LibraryFrame, edit: FrameEdit) -> Bool {
+        guard sources(of: frame).contains(where: \.developsFromRAW) else { return false }
+        return !hasProxy(frame, decode: edit.decode, longEdge: frame.previewDevelopLongEdge(edit))
     }
 
     /// Whether `frame`'s proxy for `decode` (at `longEdge`, nil: its own edit's) is here to read.
@@ -303,10 +345,32 @@ final class EngineRouter {
     /// words, and the frame's side of a film edge and a date (`FilmWire`).
     private func wire(_ frame: LibraryFrame, edit: FrameEdit, longEdge: Int?) -> [String: ParamValue] {
         // Apply Film Emulation off: no engine, and nothing of the film in what the picture is.
-        guard edit.appliesFilm || frame.isPair else { return Self.digitalWire(edit) }
+        // A piece made of frames is always the film's: its light is added, or laid, before the engine.
+        guard edit.appliesFilm || frame.isComposite else {
+            // 应用胶片模拟 off: the 场景 layers are the host's (`SceneLayerHost`, RFC-052 §6.5), on the decode cut by the
+            // frame's whole geometry; their stamp names them here, so a layer's change is another picture.
+            var digital = Self.digitalWire(edit)
+            if let ask = sceneAsk(frame, edit: edit, longEdge: longEdge, cut: edit.geometry) { digital["scene_layers"] = .string(ask.stamp) }
+            return digital
+        }
         var wire = edit.engineWire(previewLongEdge: longEdge, film: FilmWire(frame: frame, edit: edit, bodySeed: bodySeed()))
-        if !frame.isPair { holdFilmFormat(&wire, frame: frame, edit: edit) }
+        if !frame.isComposite { holdFilmFormat(&wire, frame: frame, edit: edit) }
+        // PRD-E's 场景 layers: the stamp of the set, only where one acts (`SceneLayerWire`).
+        if !frame.isComposite, let ask = sceneAsk(frame, edit: edit, longEdge: longEdge, cut: edit.hostCut(source: frame.originalSize)) {
+            wire["scene_layers"] = .string(ask.stamp)
+        }
         return wire
+    }
+
+    /// A photograph's 场景 layers for a develop whose decode is `longEdge` long (nil: the original's size) and which
+    /// the host cuts by `cut` before the engine (`FrameEdit.hostCut`, or an export's whole cut): nil where no layer
+    /// acts. The decode's size is the original's at that long edge, as `FrameDecoder` makes it.
+    /// With 应用胶片模拟 off the same ask is the host's (`EngineHost.digital`): its layers and planes, its matrix unused
+    /// there (the host maps the cut frame to S itself, `MaskFrame.finished`).
+    func sceneAsk(_ frame: LibraryFrame, edit: FrameEdit, longEdge: Int?, cut: Geometry?) -> SceneLayerWire.Ask? {
+        guard !frame.isComposite, edit.layers != nil else { return nil }
+        let decode = longEdge.map { frame.originalSize.scaled(toLongEdge: $0) } ?? frame.originalSize
+        return SceneLayerWire.ask(edit.layers, source: frame.originalSize, hostCut: cut, decode: decode)
     }
 
     /// `film_format_mm` as this frame's crop says it, where Settings makes the crop the frame
@@ -328,6 +392,7 @@ final class EngineRouter {
     /// not the one before it opens the frame again (`SpkEngine`) and is priced
     /// as that (`OpenFrameSession.submit`). Nil where nothing is opened.
     func sourceKey(_ frame: LibraryFrame, edit: FrameEdit, longEdge: Int?) -> String? {
+        if let double = frame.double { return sourceKey(double, look: edit, longEdge: longEdge) }
         if let pair = frame.pair { return sourceKey(pair, frames: held(by: pair), look: edit, longEdge: longEdge) }
         #if SPK_ENGINE
         guard host != nil, let source = frame.developSource else { return nil }
@@ -346,6 +411,10 @@ final class EngineRouter {
     /// below the full tier — its canvas — and nil for a full-size one.
     @discardableResult
     func prepare(_ job: RenderJob, frame: LibraryFrame, edit: FrameEdit, purpose: Purpose, longEdge: Int?) -> Bool {
+        // A double exposure: the frame is its two photographs' light, added by the host (RFC-048).
+        if let double = frame.double {
+            return prepare(job, double: double, item: frame, look: edit, purpose: purpose, longEdge: longEdge)
+        }
         // A half-frame pair: the frame is a piece the host composes from its two frames' files.
         if let pair = frame.pair {
             return prepare(job, pair: pair, frames: held(by: pair), look: edit, purpose: purpose, longEdge: longEdge)
@@ -354,7 +423,10 @@ final class EngineRouter {
         guard let host else { return true }       // the simulation asks for nothing
         // A job at the preview size reads the RAW's proxy where it is here, the original or not.
         // Apple's decode reads the file itself: a proxy is the engine's decode.
-        let proxy = edit.appliesFilm ? longEdge.flatMap { edge in self.proxy(frame, decode: edit.decode, longEdge: edge).flatMap { edge <= $0.longEdge ? $0 : nil } } : nil
+        // 镜头校正 taken once (`LensResolver.current`): the stamp, the proxy's name and the decode all name this answer,
+        // whatever settles while the job waits (`EngineHost.Request.lens`).
+        let lens = lensNow(frame, decode: edit.decode)
+        let proxy = edit.appliesFilm ? longEdge.flatMap { edge in self.proxy(frame, decode: edit.decode, longEdge: edge, lens: lens).flatMap { edge <= $0.longEdge ? $0 : nil } } : nil
         guard let source = frame.developSource,
               isHere(frame) || proxy.map({ originals?.copies.hasProxy($0.url) ?? false }) == true else { return false }
         let wire = wire(frame, edit: edit, longEdge: longEdge)
@@ -362,10 +434,13 @@ final class EngineRouter {
         let turns = edit.hostTurns(source: frame.originalSize)
         let stamp = DevelopStamp.of(wire: wire, cut: cut, turns: turns, decode: edit.decode, isRAW: frame.developsFromRAW,
                                     longEdge: longEdge ?? frame.originalSize.longEdge, engine: identity,
-                                    origin: frame.stampOrigin)
+                                    origin: frame.stampOrigin, lens: lens?.word ?? "")
         var request = EngineHost.Request(frameID: frame.id, source: source, isRAW: frame.developsFromRAW,
                                          decode: edit.decode, longEdge: longEdge, cut: cut, wire: wire, turnsAfter: turns,
                                          stamp: stamp, purpose: purpose == .canvas ? .canvas : .keep, proxy: proxy)
+        request.lens = lens
+        // The 场景 layers the wire names, captured with the rest (`wire` put their stamp in it).
+        request.sceneLayers = sceneAsk(frame, edit: edit, longEdge: longEdge, cut: cut)
         if !edit.appliesFilm { request.digital = cut ?? edit.geometry }
         // The page's canvas asks for Enable HDR's curve with a develop where its HDR is drawn (`curveWithDevelop`);
         // otherwise the page asks once the edit settles (`OpenFrameSession.askCurve`), not with every develop.
@@ -383,8 +458,35 @@ final class EngineRouter {
     /// frame's original — or, for a pair, the larger of its two frames', which
     /// are decoded one at a time (`FrameDecoder.decode(_:meter:)`).
     func decodeSize(_ frame: LibraryFrame) -> PixelSize {
+        // A double exposure's two decodes are priced one by one, by the scheduler (`composition`); this is the larger.
+        if let double = frame.double {
+            return held(by: double).values.map(\.originalSize).max { $0.megapixels < $1.megapixels } ?? frame.originalSize
+        }
         guard let pair = frame.pair else { return frame.originalSize }
         return held(by: pair).values.map(\.originalSize).max { $0.megapixels < $1.megapixels } ?? frame.originalSize
+    }
+
+    /// 镜头校正 resolved for every file a develop of `frame` reads (`LensResolver.resolve`: itself, or a pair's or a
+    /// double's photographs), off the main actor: what a page asks once it has opened a frame, and an export before it
+    /// renders one. Whether any of their words moved — the picture is another, and is developed again. Every RAW of
+    /// them is also measured for the black repair (`RawBlack.resolve`, once a file), whether its lens is corrected or not.
+    func resolveLens(_ frame: LibraryFrame, measure: Bool = true) async -> Bool {
+        let asks: [(URL, String, DecodeSettings)] = sources(of: frame).compactMap { f in
+            guard f.developsFromRAW, let url = f.developSource else { return nil }
+            return (url, f.fileName, f.edit.decode)
+        }
+        guard !asks.isEmpty else { return false }
+        return await Task.detached(priority: .utility) {
+            var moved = false
+            for (url, name, decode) in asks {
+                let before = LensResolver.current(url, fileName: name, decode: decode).word
+                RawBlack.resolve(url, decode: decode)
+                let after = decode.lensCorrection ? await LensResolver.resolve(url, decode: decode, measure: measure).word
+                    : LensResolver.current(url, fileName: name, decode: decode).word
+                if before != after { moved = true }
+            }
+            return moved
+        }.value
     }
 
     /// The file an export's metadata is read from, and whether there is
@@ -393,6 +495,13 @@ final class EngineRouter {
     /// still has with a file to read (the desktop's answer B9: a pair with an
     /// empty hole is not exported).
     func exportSource(_ frame: LibraryFrame) -> URL? {
+        if let double = frame.double {
+            // Its bottom photograph's file, while both exposures hold a photograph the library has with a
+            // file to read: a double with an empty layer is not exported, as a pair with an empty hole is not.
+            let frames = held(by: double)
+            guard double.isFilled, DoubleExposure.Position.allCases.allSatisfy({ frames[$0]?.developSource != nil }) else { return nil }
+            return frames[.bottom]?.developSource
+        }
         guard let pair = frame.pair else { return frame.isDemo ? nil : frame.developSource ?? frame.picture.fileURL }
         let frames = held(by: pair)
         guard pair.isFilled, HalfFramePair.Side.allCases.allSatisfy({ frames[$0]?.developSource != nil }) else { return nil }
@@ -404,7 +513,8 @@ final class EngineRouter {
     func held(by pair: HalfFramePair) -> HalfFramePair.Frames {
         var held: HalfFramePair.Frames = [:]
         for side in HalfFramePair.Side.allCases {
-            if let id = pair[side]?.frame, let frame = frames(id), !frame.isPair { held[side] = frame }
+            // Never a piece made of frames: no pair, and no double exposure, under a hole (PRD 2 §9).
+            if let id = pair[side]?.frame, let frame = frames(id), !frame.isComposite { held[side] = frame }
         }
         return held
     }
@@ -491,7 +601,7 @@ final class EngineRouter {
         // A frame on it that stays in Photos and has not been brought: a hole would fail the whole piece.
         guard frames.values.allSatisfy({ !$0.original.isAvailable || isHere($0) }) else { return false }
         let pair = pair.mirrored(frames)
-        let piece = pair.piece(frames, look: look, longEdge: longEdge)
+        let piece = pair.piece(frames, look: look, longEdge: longEdge).resolvingLens()
         guard let first = piece.pictures.first else { return false }
         let wire = wire(pair, frames: frames, look: look, longEdge: longEdge)
         let own = layers(pair, piece: piece, look: look)
@@ -507,6 +617,196 @@ final class EngineRouter {
         return true
         #else
         return true
+        #endif
+    }
+
+    // MARK: a double exposure (RFC-048)
+
+    /// The whole wire for a develop of a double exposure's piece under `look`
+    /// (`FrameEdit.doubleWire`): the film's own words for the edge print, and
+    /// **one date, the bottom exposure's** (PRD 2 §8.4) — its photograph's
+    /// capture date and shooting data, under the whole's Date Back — and its
+    /// f-number. With the bottom's layer empty, the top's: the photograph that
+    /// is there sets the frame, as it sets its shape (`DoubleExposure.frameAspect`).
+    func wire(_ double: DoubleExposure, item: LibraryFrame, frames: DoubleExposure.Frames, look: FrameEdit,
+              longEdge: Int?) -> [String: ParamValue] {
+        let bottom = frames[.bottom] ?? frames[.top] ?? item
+        return look.doubleWire(previewLongEdge: longEdge, film: FilmWire(frame: bottom, edit: look, bodySeed: bodySeed()))
+    }
+
+    /// What a develop of a double exposure at this size would be stamped, or
+    /// nil where no picture is made or neither photograph has anything to
+    /// develop from. The piece's key is in it — each photograph, its decode
+    /// and cut, its window, flip and turn, how it is exposed — and the host's
+    /// turn of the canvas; the readings are not (RFC-047 §5.2).
+    func stamp(_ double: DoubleExposure, item: LibraryFrame, look: FrameEdit, longEdge: Int) -> String? {
+        guard makesPictures else { return nil }
+        let frames = held(by: double)
+        let made = double.mirrored(frames)
+        let piece = made.piece(frames, look: look, longEdge: longEdge)
+        guard !piece.pictures.isEmpty, let shape = made.pieceFrame(made.framed(frames), look: look, longEdge: longEdge) else { return nil }
+        return DevelopStamp.of(wire: wire(made, item: item, frames: frames, look: look, longEdge: longEdge), turns: shape.turnsAfter,
+                               decode: DecodeSettings(), isRAW: false, longEdge: longEdge, engine: identity, piece: piece.key)
+    }
+
+    /// What the pixels a develop of a double exposure's piece starts from are
+    /// made of, as a word (`PieceAsk.key`). Nil where nothing is opened.
+    func sourceKey(_ double: DoubleExposure, look: FrameEdit, longEdge: Int?) -> String? {
+        #if SPK_ENGINE
+        guard host != nil else { return nil }
+        let frames = held(by: double)
+        let piece = double.mirrored(frames).piece(frames, look: look, longEdge: longEdge)
+        return piece.pictures.isEmpty ? nil : piece.key
+        #else
+        return nil
+        #endif
+    }
+
+    /// Hand the engine's host everything a **double exposure's** job will ask
+    /// for: the piece — each exposure's photograph, decode, cut and place over
+    /// the frame, how it is exposed, both added — and the whole's wire, as they
+    /// are now. `job.frameID` is the double's own id. False when neither
+    /// photograph has anything to develop from: the job is then not to be
+    /// submitted.
+    ///
+    /// Each exposure's decode and cut are read again from its photograph
+    /// (`DoubleExposure.mirrored`): the shot stays the photograph's. An
+    /// exposure whose meter has not read yet is read inside the job, and the
+    /// reading comes back through `onDoubleMetered`. What the job's open holds
+    /// is told to the scheduler before it is planned (`composition`).
+    @discardableResult
+    func prepare(_ job: RenderJob, double: DoubleExposure, item: LibraryFrame, look: FrameEdit,
+                 purpose: Purpose, longEdge: Int?) -> Bool {
+        #if SPK_ENGINE
+        guard let host else { return true }       // the simulation asks for nothing
+        let frames = held(by: double)
+        // A photograph on it that stays in Photos and has not been brought: a layer would fail the whole piece.
+        guard frames.values.allSatisfy({ !$0.original.isAvailable || isHere($0) }) else { return false }
+        let made = double.mirrored(frames)
+        let piece = made.piece(frames, look: look, longEdge: longEdge).resolvingLens()
+        guard let first = piece.pictures.first, let shape = made.pieceFrame(made.framed(frames), look: look, longEdge: longEdge) else {
+            return false
+        }
+        let wire = wire(made, item: item, frames: frames, look: look, longEdge: longEdge)
+        let stamp = DevelopStamp.of(wire: wire, turns: shape.turnsAfter, decode: DecodeSettings(), isRAW: false,
+                                    longEdge: longEdge ?? piece.size.longEdge, engine: identity, piece: piece.key)
+        // The strip's cards compose the same piece without the film edge and the date (`doubleCardPlan`):
+        // only where that is these pixels — no film edge, or one that cuts and turns nothing — is the
+        // page's own decode made the strip's (`DoubleExposure.stripPixels`, `EngineHost.feedStrip`).
+        host.register(job.id, EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
+                                                 longEdge: longEdge, cut: nil, wire: wire, turnsAfter: shape.turnsAfter, stamp: stamp,
+                                                 purpose: purpose == .canvas ? .canvas : .keep, piece: piece,
+                                                 stripPixels: made.stripPixels(frames, look: look)))
+        note(job, piece: piece, frames: frames)
+        return true
+        #else
+        return true
+        #endif
+    }
+
+    /// **One exposure of a double alone**, as it would develop by itself (PRD 2
+    /// D12, RFC-048 §6): a render of the same look with a one-picture ask
+    /// (`DoubleExposure.alone`), for the darkroom's press-and-hold
+    /// (`DoubleAlone`, RFC-050 §2). The page submits it as a canvas job of
+    /// `aloneSession(double, position)`, and the engine develops it **one-shot**
+    /// (`EngineHost.leavesEditingAlone`, phase-2 review): its session is opened
+    /// for the job and released at its end, so the page's open session — the
+    /// double composed, its negative cached — stays the engine's one editing
+    /// session and the page's next edit still reprints from it. The page takes
+    /// the picture with `takeAlone` once the job has ended, caches it by
+    /// `aloneStamp`, and cancels the job when the finger lifts or the page
+    /// closes. False where there is nothing to develop from.
+    @discardableResult
+    func prepareAlone(_ job: RenderJob, item: LibraryFrame, position: DoubleExposure.Position, look: FrameEdit,
+                      longEdge: Int?) -> Bool {
+        #if SPK_ENGINE
+        guard let host, let double = item.double else { return false }
+        let frames = held(by: double)
+        guard let frame = frames[position], !frame.original.isAvailable || isHere(frame) else { return false }
+        let made = double.mirrored(frames)
+        let piece = made.alone(position, frames: frames, look: look, longEdge: longEdge).resolvingLens()
+        guard let first = piece.pictures.first, let shape = made.pieceFrame(made.framed(frames), look: look, longEdge: longEdge) else {
+            return false
+        }
+        let wire = wire(made, item: item, frames: frames, look: look, longEdge: longEdge)
+        let stamp = DevelopStamp.of(wire: wire, turns: shape.turnsAfter, decode: DecodeSettings(), isRAW: false,
+                                    longEdge: longEdge ?? piece.size.longEdge, engine: identity, piece: piece.key)
+        host.register(job.id, EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
+                                                 longEdge: longEdge, cut: nil, wire: wire, turnsAfter: shape.turnsAfter, stamp: stamp,
+                                                 purpose: .alone, piece: piece))
+        note(job, piece: piece, frames: frames)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// What an exposure alone would be stamped: the page's cache key for it. Nil where none is made.
+    func aloneStamp(_ item: LibraryFrame, position: DoubleExposure.Position, look: FrameEdit, longEdge: Int) -> String? {
+        guard makesPictures, let double = item.double else { return nil }
+        let frames = held(by: double)
+        let made = double.mirrored(frames)
+        let piece = made.alone(position, frames: frames, look: look, longEdge: longEdge)
+        guard !piece.pictures.isEmpty, let shape = made.pieceFrame(made.framed(frames), look: look, longEdge: longEdge) else { return nil }
+        return DevelopStamp.of(wire: wire(made, item: item, frames: frames, look: look, longEdge: longEdge), turns: shape.turnsAfter,
+                               decode: DecodeSettings(), isRAW: false, longEdge: longEdge, engine: identity, piece: piece.key)
+    }
+
+    /// The engine session an exposure's alone render is developed in: one of
+    /// its own, never the double's, named from the double and the position so
+    /// the same hold finds the same session. Not a library frame's id.
+    nonisolated static func aloneSession(_ double: UUID, _ position: DoubleExposure.Position) -> UUID {
+        var bytes = double.uuid
+        // The last byte turned by the position (and one more, so the bottom is not the double itself).
+        bytes.15 ^= UInt8(0xA0 | (position.rawValue + 1))
+        return UUID(uuid: bytes)
+    }
+
+    /// An exposure alone's picture, once its job has ended (`prepareAlone`):
+    /// nil for one that never reached its delivery.
+    func takeAlone(_ jobID: UUID) -> CGImage? {
+        #if SPK_ENGINE
+        return host?.takeCard(jobID)
+        #else
+        return nil
+        #endif
+    }
+
+    // MARK: what a composed open holds, for the scheduler
+
+    #if SPK_ENGINE
+    /// What each prepared job of a double exposure decodes, until the
+    /// scheduler takes it (`composition(of:)`, when the job is submitted).
+    private var composed: [UUID: RenderJob.Composition] = [:]
+
+    /// A double's job: **each exposure's decode, priced one at a time**, and
+    /// the scratch band beside the piece (RFC-048 §5), each by what its
+    /// decoder holds (`RenderJob.Composition.decode`): at the full tier the
+    /// size it is made at (`PieceAsk.longEdge`) where ImageIO reduces it, the
+    /// photograph's own where Core Image decodes a RAW whole and scales it
+    /// after; below it, the photograph's original — the decoder may hold it
+    /// while it makes the small one, as `RenderJob.original` says of a photograph.
+    private func note(_ job: RenderJob, piece: PieceAsk, frames: DoubleExposure.Frames) {
+        guard piece.adds else { return }
+        var decodes: [PixelSize] = []
+        for p in piece.pictures {
+            guard let position = DoubleExposure.Position(rawValue: p.index), let photo = frames[position] else { continue }
+            decodes.append(RenderJob.Composition.decode(tier: job.tier, own: photo.developSize, original: photo.originalSize,
+                                                        longEdge: p.longEdge, isRAW: p.isRAW))
+        }
+        composed[job.id] = RenderJob.Composition(decodes: decodes,
+                                                 scratchBytes: UInt64(PieceAdder.scratchBytes(width: piece.size.width, height: piece.size.height)),
+                                                 raw: piece.pictures.contains { $0.isRAW })
+    }
+    #endif
+
+    /// What a job's open composes, for the scheduler's price of it (`RenderScheduler.composition`):
+    /// asked once, when the job is submitted, and then forgotten here. Nil for anything but a double's.
+    func composition(of jobID: UUID) -> RenderJob.Composition? {
+        #if SPK_ENGINE
+        return composed.removeValue(forKey: jobID)
+        #else
+        return nil
         #endif
     }
 
@@ -538,6 +838,8 @@ final class EngineRouter {
         var canvas: PixelSize
         var piece: PieceAsk? = nil
         var layers: [PrintLayer] = []
+        /// 镜头校正 as `key`, `strip` and `pixels` name it: the card's decode is made with it (`prepareCard`).
+        var lens: LensResolution? = nil
     }
 
     /// A card's plan, or nil where no card can be made here: no engine, a
@@ -550,6 +852,7 @@ final class EngineRouter {
     /// be metered smaller (AGENTS.md).
     func cardPlan(_ frame: LibraryFrame, edit: FrameEdit) -> CardPlan? {
         guard makesPictures else { return nil }
+        if let double = frame.double { return doubleCardPlan(double, item: frame, edit: edit) }
         if let pair = frame.pair { return pairCardPlan(pair, edit: edit) }
         guard let source = frame.developSource else { return nil }
         let original = frame.originalSize
@@ -569,12 +872,13 @@ final class EngineRouter {
         let k = Double(decoded.longEdge) / Double(original.longEdge)
         let inDecode = PixelSize(width: max(1, Int((gate.width * k).rounded())), height: max(1, Int((gate.height * k).rounded())))
         let sourceWord = ImportService.stampWord(source) + " \(original.width)x\(original.height)" + (frame.stampOrigin.map { " " + $0 } ?? "")
-        let decodeWord = frame.developsFromRAW ? edit.decode.pixelsKey : ""
+        let lens = lensNow(frame, decode: edit.decode)
+        let decodeWord = frame.developsFromRAW ? edit.decode.pixelsKey(source: source, lens: lens) : ""
         var strip = "", pixels = ""
         #if SPK_ENGINE
         strip = EngineHost.Request.sourceKey(source: source, isRAW: frame.developsFromRAW, decode: edit.decode,
-                                             longEdge: decodeLongEdge, cut: cut)
-        pixels = EngineHost.Request.pixelsKey(source: source, isRAW: frame.developsFromRAW, decode: edit.decode, cut: cut)
+                                             longEdge: decodeLongEdge, cut: cut, lens: lens)
+        pixels = EngineHost.Request.pixelsKey(source: source, isRAW: frame.developsFromRAW, decode: edit.decode, cut: cut, lens: lens)
         #endif
         let turns = edit.hostTurns(source: original)
         return CardPlan(key: StockPreviewKey.of(wire: wire, decode: decodeWord, cut: cut.map { $0.cutKey + " turned \(turns)" },
@@ -582,7 +886,7 @@ final class EngineRouter {
                         source: StockPreviewKey.tag(sourceWord), strip: strip, pixels: pixels, wire: wire, cut: cut, turns: turns,
                         // A perspective alone is cut by the host at the decode's own size (`hostCut`).
                         decodeLongEdge: decodeLongEdge, opens: cut == nil || !edit.filmEdge.effective ? decoded : inDecode,
-                        canvas: inDecode.scaled(toLongEdge: StockPreviewSize.renderLongEdge))
+                        canvas: inDecode.scaled(toLongEdge: StockPreviewSize.renderLongEdge), lens: lens)
     }
 
     /// Cards develop the composed piece, including each source's exposure,
@@ -592,7 +896,7 @@ final class EngineRouter {
         let pair = kept.mirrored(frames)
         var look = edit
         look.filmEdge.active = false; look.dateBack.active = false
-        let piece = pair.piece(frames, look: look, longEdge: StockPreviewSize.openLongEdge)
+        let piece = pair.piece(frames, look: look, longEdge: StockPreviewSize.openLongEdge).resolvingLens()
         guard !piece.pictures.isEmpty else { return nil }
         var wire = wire(pair, frames: frames, look: look, longEdge: StockPreviewSize.renderLongEdge)
         // Keep the strip's fixed 1 mm spacing and physical pitch in the
@@ -608,6 +912,26 @@ final class EngineRouter {
                         wire: wire, cut: nil, turns: 0, decodeLongEdge: StockPreviewSize.openLongEdge,
                         opens: piece.size, canvas: piece.size.scaled(toLongEdge: StockPreviewSize.renderLongEdge),
                         piece: piece, layers: own)
+    }
+
+    /// A double exposure's cards develop its composed piece — both exposures'
+    /// light, each one's placement and exposure — through each card's film and
+    /// paper; the film edge and the date are Format's, as on a photograph.
+    private func doubleCardPlan(_ kept: DoubleExposure, item: LibraryFrame, edit: FrameEdit) -> CardPlan? {
+        let frames = held(by: kept)
+        let double = kept.mirrored(frames)
+        var look = edit
+        look.filmEdge.active = false; look.dateBack.active = false
+        let piece = double.piece(frames, look: look, longEdge: StockPreviewSize.openLongEdge).resolvingLens()
+        guard !piece.pictures.isEmpty else { return nil }
+        let wire = wire(double, item: item, frames: frames, look: look, longEdge: StockPreviewSize.renderLongEdge)
+        let source = piece.key + frames.sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "|\($0.key.rawValue):\($0.value.stampOrigin ?? "")" }.joined()
+        let key = StockPreviewKey.of(wire: wire, decode: "", cut: nil, source: source, engine: identity)
+        return CardPlan(key: key, source: StockPreviewKey.tag(source), strip: piece.key, pixels: piece.key,
+                        wire: wire, cut: nil, turns: 0, decodeLongEdge: StockPreviewSize.openLongEdge,
+                        opens: piece.size, canvas: piece.size.scaled(toLongEdge: StockPreviewSize.renderLongEdge),
+                        piece: piece)
     }
 
     /// The strip of `frame` would take the page's own decode of the same
@@ -641,16 +965,20 @@ final class EngineRouter {
                             decode: DecodeSettings(), longEdge: plan.decodeLongEdge, cut: nil,
                             wire: plan.wire, stamp: plan.key, purpose: .card(plan.key),
                             piece: piece, layers: plan.layers, strip: strip, decodesStrip: decodes))
+            if decodes, let double = frame.double { note(job, piece: piece, frames: held(by: double)) }
             return true
         }
         // A RAW's card is made from its proxy where it is here: no decode of the file, the original or not.
-        let proxy = self.proxy(frame, decode: edit.decode).flatMap { plan.decodeLongEdge <= $0.longEdge ? $0 : nil }
+        let lens = lensNow(frame, decode: edit.decode)
+        let proxy = self.proxy(frame, decode: edit.decode, lens: lens).flatMap { plan.decodeLongEdge <= $0.longEdge ? $0 : nil }
         guard let host, let source = frame.developSource,
               isHere(frame) || proxy.map({ originals?.copies.hasProxy($0.url) ?? false }) == true else { return false }
-        host.register(job.id, EngineHost.Request(frameID: frame.id, source: source, isRAW: frame.developsFromRAW, decode: edit.decode,
-                                                 longEdge: plan.decodeLongEdge, cut: plan.cut, wire: plan.wire, turnsAfter: plan.turns,
-                                                 stamp: plan.key, purpose: .card(plan.key), strip: strip, decodesStrip: decodes,
-                                                 proxy: proxy))
+        var request = EngineHost.Request(frameID: frame.id, source: source, isRAW: frame.developsFromRAW, decode: edit.decode,
+                                         longEdge: plan.decodeLongEdge, cut: plan.cut, wire: plan.wire, turnsAfter: plan.turns,
+                                         stamp: plan.key, purpose: .card(plan.key), strip: strip, decodesStrip: decodes,
+                                         proxy: proxy)
+        request.lens = plan.lens ?? lens
+        host.register(job.id, request)
         return true
         #else
         return false
@@ -687,6 +1015,22 @@ final class EngineRouter {
         #if SPK_ENGINE
         guard let host else { return true }       // the simulation asks for nothing
         let edit = frame.edit
+        if let kept = frame.double {
+            // A double exposure: its two photographs' light added at the plan's size (RFC-048 §5: at Full,
+            // the frame no larger than either fills unenlarged). `source` is only where the file's
+            // metadata comes from. The look's Edit crop is the export's own (`ExportOrder.printCrop`).
+            let frames = held(by: kept)
+            let double = kept.mirrored(frames)
+            let piece = double.piece(frames, look: edit, longEdge: plan.decodeLongEdge)
+            guard !piece.pictures.isEmpty,
+                  let shape = double.pieceFrame(double.framed(frames), look: edit, longEdge: plan.decodeLongEdge) else { return false }
+            let wire = wire(double, item: frame, frames: frames, look: edit, longEdge: job.tier == .full ? nil : plan.decodeLongEdge)
+            host.register(job.id, EngineHost.Request(frameID: frame.id, source: source, isRAW: false, decode: DecodeSettings(),
+                                                     longEdge: plan.decodeLongEdge, cut: nil, wire: wire, turnsAfter: shape.turnsAfter,
+                                                     stamp: "", purpose: .export(order), piece: piece))
+            note(job, piece: piece, frames: frames)
+            return true
+        }
         if let kept = frame.pair {
             // A half-frame pair: the piece composed at the plan's size, from its two
             // frames' own files. `source` is only where the file's metadata comes from.
@@ -708,6 +1052,8 @@ final class EngineRouter {
         var request = EngineHost.Request(frameID: frame.id, source: source, isRAW: isRAW, decode: edit.decode,
                                          longEdge: plan.decodeLongEdge, cut: plan.cut, wire: wire,
                                          turnsAfter: plan.turnsAfter, stamp: "", purpose: .export(order))
+        request.lens = isRAW ? LensResolver.current(source, fileName: frame.fileName, decode: edit.decode) : nil
+        request.sceneLayers = sceneAsk(frame, edit: edit, longEdge: plan.decodeLongEdge, cut: plan.cut)
         // Enable HDR (the export round, D8): the file's map is of the curve this render's own session gives
         // (`HDRSessionCurve`, asked after the render as the canvas asks), and a slide's of its second rendition.
         if order.gainMap, edit.appliesFilm {
@@ -716,7 +1062,7 @@ final class EngineRouter {
         }
         // The page's zoom may have kept this very render (`FullRender`): then it is the export's — not with a map,
         // whose curve (or second rendition) needs the session a kept render has not.
-        if job.tier == .full, !order.gainMap { request.fullRender = fullAsk(frame, plan: plan, source: source, isRAW: isRAW) }
+        if job.tier == .full, !order.gainMap { request.fullRender = fullAsk(frame, plan: plan, source: source, isRAW: isRAW, lens: request.lens) }
         if !edit.appliesFilm { request.digital = plan.cut ?? (plan.engineCuts ? edit.geometry : .default) }
         host.register(job.id, request)
         return true
@@ -742,6 +1088,12 @@ final class EngineRouter {
             for field in Geometry.default.wire { wire[field.name] = field.value }
             if let format = plan.filmFormatMM { wire["film_format_mm"] = .double(format) }
         }
+        // The 场景 layers through the export's own cut (the host may make all of it): their matrix, so their stamp.
+        if let ask = sceneAsk(frame, edit: edit, longEdge: plan.decodeLongEdge, cut: plan.cut) {
+            wire["scene_layers"] = .string(ask.stamp)
+        } else {
+            wire["scene_layers"] = nil
+        }
         return wire
     }
 
@@ -750,13 +1102,16 @@ final class EngineRouter {
     /// the size, the file and the engine — everything an export's render is,
     /// and nothing that is made after it (Edit's layer, its crop, the file's
     /// colour space). Nil for a half-frame pair, and where nothing is kept.
-    func fullAsk(_ frame: LibraryFrame, plan: ExportPlan, source: URL, isRAW: Bool) -> FullRender.Ask? {
-        guard !frame.isPair, makesPictures, let folder = originals?.copies.proxyFolder else { return nil }
+    func fullAsk(_ frame: LibraryFrame, plan: ExportPlan, source: URL, isRAW: Bool, lens given: LensResolution? = nil) -> FullRender.Ask? {
+        guard !frame.isComposite, makesPictures, let folder = originals?.copies.proxyFolder else { return nil }
         let wire = exportWire(frame, plan: plan, full: true)
+        // The answer the kept render is decoded with (`prepareFullView` hands it on): the stamp names it.
+        let lens = given ?? (isRAW ? LensResolver.current(source, fileName: frame.fileName, decode: frame.edit.decode) : nil)
         let stamp = DevelopStamp.of(wire: wire, cut: plan.cut, turns: plan.turnsAfter, decode: frame.edit.decode, isRAW: isRAW,
-                                    longEdge: plan.decodeLongEdge ?? 0, engine: identity, origin: frame.stampOrigin)
+                                    longEdge: plan.decodeLongEdge ?? 0, engine: identity, origin: frame.stampOrigin,
+                                    lens: lens?.word ?? "")
             + "|\(plan.engineCanvas.width)x\(plan.engineCanvas.height)|\(source.lastPathComponent)"
-        return FullRender.Ask(url: folder.appendingPathComponent(FullRender.fileName(frame: frame.id, stamp: stamp)), stamp: stamp)
+        return FullRender.Ask(url: folder.appendingPathComponent(FullRender.fileName(frame: frame.id, stamp: stamp)), stamp: stamp, lens: lens)
     }
 
     /// Hand the engine's host a full-size render of `frame` for the page's
@@ -765,11 +1120,12 @@ final class EngineRouter {
     func prepareFullView(_ job: RenderJob, frame: LibraryFrame, plan: ExportPlan, source: URL, isRAW: Bool,
                          ask: FullRender.Ask) -> Bool {
         #if SPK_ENGINE
-        guard let host, !frame.isPair, isHere(frame) else { return false }
+        guard let host, !frame.isComposite, isHere(frame) else { return false }
         var request = EngineHost.Request(frameID: frame.id, source: source, isRAW: isRAW, decode: frame.edit.decode,
                                          longEdge: plan.decodeLongEdge, cut: plan.cut,
                                          wire: exportWire(frame, plan: plan, full: true),
                                          turnsAfter: plan.turnsAfter, stamp: ask.stamp, purpose: .fullView(ask))
+        request.lens = ask.lens
         if !frame.edit.appliesFilm { request.digital = plan.cut ?? (plan.engineCuts ? frame.edit.geometry : .default) }
         host.register(job.id, request)
         return true
@@ -814,6 +1170,29 @@ final class EngineRouter {
     func forget(_ jobID: UUID) {
         #if SPK_ENGINE
         host?.forget(jobID)
+        composed[jobID] = nil
+        #endif
+    }
+
+    /// The engine's own wire names (`spk_params_schema`), for a check of a wire this app builds (`DoubleHarness`).
+    /// Empty with no engine.
+    func schemaNames() async -> [String] {
+        #if SPK_ENGINE
+        guard let spk else { return [] }
+        return Array(await spk.schema().keys)
+        #else
+        return []
+        #endif
+    }
+
+    /// The frame whose engine session is open between canvas jobs (`SpkEngine.editingFrame`): nil with
+    /// none, or no engine. For the harness's check that an exposure held alone left the page's session.
+    func editingFrame() async -> UUID? {
+        #if SPK_ENGINE
+        guard let spk else { return nil }
+        return await spk.editingFrame()
+        #else
+        return nil
         #endif
     }
 
@@ -917,8 +1296,13 @@ final class EngineRouter {
             onAsShot?(frame, temperature, tint)
         case .rawExposure(let frame, let facts):
             onRawExposure?(frame, facts)
-        case .metered(let pair, let index, let ev, let key):
-            onMetered?(pair, index, ev, key)
+        case .metered(let piece, let index, let ev, let key):
+            // A double exposure's exposure, or a pair's hole: the piece the reading is of says which.
+            if frames(piece)?.isDouble == true {
+                if let position = DoubleExposure.Position(rawValue: index) { onDoubleMetered?(piece, position, ev, key) }
+            } else {
+                onMetered?(piece, index, ev, key)
+            }
         case .gates(let pair, let rects):
             onGates?(pair, rects)
         case .proxy(_, let event):

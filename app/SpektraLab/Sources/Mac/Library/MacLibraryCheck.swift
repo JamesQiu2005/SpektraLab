@@ -29,6 +29,9 @@ enum MacLibraryCheck {
         MacCatalogCheck.startIfAsked(model: model, arguments: arguments)
         // `--clipboard-check` (Sources/Mac/LibraryUI, 2026-11-05): Copy and Paste Settings, from the same hook.
         MacClipboardCheck.startIfAsked(model: model, arguments: arguments)
+        // `--variant-check` (PRD-G, 2026-11-13): a variant is a frame of its own, from the same hook.
+        MacVariantCheck.startIfAsked(model: model, arguments: arguments)
+        MacVariantActsCheck.startIfAsked(model: model, arguments: arguments)
         guard let i = arguments.firstIndex(of: "--library-check"), i + 1 < arguments.count else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         let c1 = arguments.firstIndex(of: "--library-check-c1").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
@@ -115,7 +118,9 @@ enum MacLibraryCheck {
                 r.note("capture one: every image as grid rows", allMS, ["rows": store.images.count, "total": store.total,
                                                                          "offline": store.images.filter(\.isOffline).count,
                                                                          "with_camera": store.images.filter { $0.cameraModel != nil }.count])
-                r.check(store.images.count == store.total, "loadAll lists every image")
+                // A cell per variant (PRD-G): the images are `total`, the cells at least as many.
+                r.check(store.loadedImageCount == store.total && store.images.count >= store.total,
+                        "loadAll lists every image (\(store.loadedImageCount) images in \(store.images.count) cells)")
                 store.pageSize = 20_000
                 let (_, oneMS) = await timed { await store.select(collection: store.tree.defaultSelection) }
                 r.note("capture one: every image in one page (rows + facets)", oneMS, ["rows": store.images.count])

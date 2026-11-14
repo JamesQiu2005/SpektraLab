@@ -157,6 +157,17 @@ struct DividerGrip: View {
 enum MacKeys {
     static var command: Bool { flags & (1 << 20) != 0 }        // NSEventModifierFlagCommand
 
+    /// Whether the event being handled is Esc (keyCode 53) going down or up: a field Catalyst closes on Esc
+    /// tells nobody why, and Esc must put its text back rather than take it (`SliderField`, 2026-11-11).
+    @MainActor static var handlingEscape: Bool {
+        guard let app = NSClassFromString("NSApplication") as? NSObject.Type,
+              let shared = app.value(forKey: "sharedApplication") as? NSObject,
+              let event = shared.value(forKey: "currentEvent") as? NSObject,
+              let type = (event.value(forKey: "type") as? NSNumber)?.uintValue,
+              type == 10 || type == 11 else { return false }                  // NSEventTypeKeyDown, KeyUp
+        return (event.value(forKey: "keyCode") as? NSNumber)?.intValue == 53
+    }
+
     private static var flags: UInt {
         guard let cls: AnyClass = NSClassFromString("NSEvent"),
               let method = class_getClassMethod(cls, NSSelectorFromString("modifierFlags")) else { return 0 }
@@ -173,6 +184,66 @@ enum MacCursor {
     static func arrow() { set("arrowCursor") }
     /// Over the Mac's colour wheel's disc (`MacColourWheel.swift`, 2026-10-24).
     static func crosshair() { set("crosshairCursor") }
+    /// Over the picture while a neutral-grey eyedropper is out (`NeutralPick`, 2026-11-11). AppKit has no
+    /// eyedropper cursor of its own, so one is made once from the "eyedropper" symbol, black on a white rim
+    /// so it reads on any picture, its hot spot at the tip (bottom left).
+    static func eyedropper() {
+        guard let cursor = eyedropperCursor else { crosshair(); return }
+        _ = cursor.perform(NSSelectorFromString("set"))
+    }
+
+    /// Over the picture while a brush is lit (MASKS-SPEC §6.2: the brush's circle is the cursor, "no arrow"): a
+    /// transparent cursor of AppKit's, set as the others are — never `NSCursor.hide`, whose count outlives a view.
+    static func hidden() {
+        guard let cursor = blankCursor else { return }
+        _ = cursor.perform(NSSelectorFromString("set"))
+    }
+
+    private static let blankCursor: NSObject? = {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        format.opaque = false
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16), format: format).pngData { _ in }
+        return cursor(png: png, side: 16, hotSpot: CGPoint(x: 8, y: 8))
+    }()
+
+    private static let eyedropperCursor: NSObject? = {
+        let side: CGFloat = 22
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        guard let symbol = UIImage(systemName: "eyedropper", withConfiguration: config) else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        let png = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).pngData { _ in
+            let s = symbol.size, origin = CGPoint(x: 2, y: side - s.height - 2)
+            // The rim: the symbol in white, a pixel out in every direction; then the symbol in black.
+            let white = symbol.withTintColor(.white, renderingMode: .alwaysOriginal)
+            for dx in [-1.5, 0, 1.5] { for dy in [-1.5, 0, 1.5] where dx != 0 || dy != 0 {
+                white.draw(at: CGPoint(x: origin.x + dx, y: origin.y + dy))
+            } }
+            symbol.withTintColor(.black, renderingMode: .alwaysOriginal).draw(at: origin)
+        }
+        // The hot spot counts from the image's top left: the symbol's tip, its bottom-left corner.
+        return cursor(png: png, side: side, hotSpot: CGPoint(x: 3, y: side - 3))
+    }()
+
+    /// An `NSCursor` of a 2× PNG `side` points square.
+    private static func cursor(png: Data, side: CGFloat, hotSpot: CGPoint) -> NSObject? {
+        guard let nsImage = NSClassFromString("NSImage") as? NSObject.Type,
+              let nsCursor = NSClassFromString("NSCursor") as? NSObject.Type else { return nil }
+        // NSImage(data:) reads the 2× PNG at 72 dpi, twice the size: set it back to points.
+        guard let image = nsImage.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue()
+                .perform(NSSelectorFromString("initWithData:"), with: png)?.takeUnretainedValue() as? NSObject else { return nil }
+        let setSize = NSSelectorFromString("setSize:")
+        guard let sizeIMP = class_getMethodImplementation(type(of: image), setSize) else { return nil }
+        typealias SetSize = @convention(c) (AnyObject, Selector, CGSize) -> Void
+        unsafeBitCast(sizeIMP, to: SetSize.self)(image, setSize, CGSize(width: side, height: side))
+        let initSel = NSSelectorFromString("initWithImage:hotSpot:")
+        guard let blank = nsCursor.perform(NSSelectorFromString("alloc"))?.takeUnretainedValue() as? NSObject,
+              let initIMP = class_getMethodImplementation(type(of: blank), initSel) else { return nil }
+        typealias Init = @convention(c) (AnyObject, Selector, AnyObject, CGPoint) -> Unmanaged<AnyObject>?
+        return unsafeBitCast(initIMP, to: Init.self)(blank, initSel, image, hotSpot)?
+            .takeRetainedValue() as? NSObject
+    }
 
     private static func set(_ name: String) {
         guard let cls = NSClassFromString("NSCursor") else { return }

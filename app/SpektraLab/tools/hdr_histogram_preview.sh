@@ -12,8 +12,8 @@ support="$sdk/System/iOSSupport"
 swiftc -O -parse-as-library -target "$(uname -m)-apple-ios18.0-macabi" -sdk "$sdk" \
   -Fsystem "$support/System/Library/Frameworks" -I "$support/usr/lib/swift" -L "$support/usr/lib/swift" \
   -o "$out/hdr_histogram_preview" \
-  "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" \
-  "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/SettingsClipboard.swift" \
+  "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" \
+  "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/LensEdge.swift" "$src/Model/SettingsClipboard.swift" \
   "$src/Model/Stock.swift" "$src/Engine/HDRMath.swift" "$src/Engine/HDRGrainGain.swift" "$src/Engine/HDRRendition.swift" "$src/Engine/HDRLook.swift" \
   "$src/Engine/HDRGainMap.swift" "$src/Engine/HDRSessionCurve.swift" "$src/Engine/HDRGain.swift" "$src/Model/ExportRecipe.swift" \
   "$src/DesignSystem/Theme.swift" "$src/DesignSystem/AppBackground.swift" "$src/Mac/RealStockNames.swift" \

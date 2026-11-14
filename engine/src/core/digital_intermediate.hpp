@@ -97,4 +97,13 @@ bool di_constants(const Colour& colour, const Blob& blob, const Params& params,
 // print's own mid-grey response (+1 -> +0.05 stop of blue, +0.03 of green).
 void di_live_offsets(const Params& params, double out[3]);
 
+// Pointer's gamut of real surface colours (xy), the gate `di_constants` fits its colour step inside.
+bool di_inside_pointer(double x, double y);
+
+// Uniform patches through the film on the host, exactly as `di_constants` runs them: input-space linear RGB
+// (n, 3) -> developed layer density (n, 3), DIR couplers included at the session's own amount. Halation, the
+// blurs and grain are identities or zero-mean on a flat field and are left out.
+void film_host_develop(const Params& params, const Vec& tc_lut, size_t side, const Mat3& tc_b,
+                       const double* rgb, size_t n, double* cmy);
+
 }  // namespace spk

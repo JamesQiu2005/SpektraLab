@@ -53,6 +53,10 @@ struct MacInfoStrip: View {
     }
 
     static var height: CGFloat { MacMetric.pt(28) }
+    #if DEBUG
+    /// What the strip was handed and what of it fit, as last drawn (`--masks-check`'s 仅显示蒙版).
+    @MainActor static var drawn: (asked: String?, shown: String?, width: CGFloat)?
+    #endif
 
     private var pad: CGFloat { MacMetric.pt(10) }
     private var gap: CGFloat { MacMetric.pt(14) }
@@ -94,6 +98,9 @@ struct MacInfoStrip: View {
             .padding(.horizontal, pad)
         } else if let image {
             let fit = Fit(image: image, status: status, room: width - pad * 2, gap: gap)
+            #if DEBUG
+            let _ = MacInfoStrip.drawn = (status?.text, fit.status, width)
+            #endif
             let name = Text(image.fileName).font(MacMetric.font(Self.size, .medium)).foregroundStyle(Theme.text).fixedSize()
             ZStack {
                 HStack(spacing: 0) {

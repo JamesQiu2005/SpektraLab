@@ -150,6 +150,11 @@ NOT_PAGES = {
     "Mac/LightTable/MacLightTableCheck.swift": "a debug build's Light Table check: its step names go to its JSON report and the log",
     "Mac/Settings/MacSettingsCheck.swift": "a debug build's Settings check: its step names go to its JSON report and the log",
     "Mac/LibraryUI/MacClipboardCheck.swift": "a debug build's Copy and Paste Settings check: its step names go to its JSON report and the log",
+    "Mac/History/MacHistoryCheck.swift": "a debug build's edit history check: its step names go to its JSON report and the log",
+    "Mac/History/MacHistoryPageCheck.swift": "a debug build's check of the edit history page: its step names go to its JSON report and the log",
+    "Mac/Library/MacVariantCheck.swift": "a debug build's variants check (PRD-G): its step names go to its JSON report and the log",
+    "Mac/Library/MacVariantActsCheck.swift": "a debug build's variants check, part 2 (PRD-G): its step names go to its JSON report and the log",
+    "Mac/Export/MacHDRChoiceCheck.swift": "a debug build's check that Enable HDR is remembered (2.4.0): its step names go to its JSON report and the log",
     "Mac/Settings/MacSettingsCoverage.swift": "a debug build's table of the Settings items and their sections: report text",
     "Mac/Library/CatalogSourcesStore.swift": "the Mac library's data: a collection's title is a key, shown through MacWords.title",
 }
@@ -242,11 +247,13 @@ def key_of(literals) -> str:
 
 
 def lookups(source: str):
-    """Every `L("...")` of a source: (offset, key, the literals' spans). `L(shown: x)` has no key of its own."""
+    """Every `L("...")` and `HistoryLabel("...")` of a source: (offset, key, the literals' spans). `L(shown: x)` has no key of its own."""
     lits = sorted(scan(source))
     by_start = {a: k for k, (a, _, _, _) in enumerate(lits)}
     found = []
-    for m in re.finditer(r"(?<![A-Za-z0-9_.])L\(\s*", source):
+    # `HistoryLabel("…")` keeps a key to be looked up where a history step is shown (Model/HistoryLabel.swift):
+    # it is held as `L("…")` is, so a step's name cannot be a key the catalog lacks.
+    for m in re.finditer(r"(?<![A-Za-z0-9_.])(?:L|HistoryLabel)\(\s*", source):
         k = by_start.get(m.end())
         if k is None:
             continue

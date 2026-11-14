@@ -33,6 +33,16 @@ final class CatalogSourcesStore: MacLibraryData {
     private(set) var query = MacImageQuery.remembered()
     private(set) var images: [MacImage] = []
     private(set) var total = 0
+    /// Whether the helper has images the loaded cells are not of yet: `total` counts images and `images` holds a cell
+    /// per variant (PRD-G), so the two are not compared.
+    var hasMore: Bool { loadedImageCount < total }
+    /// How many of the helper's images the loaded cells are: an image's cells are adjacent, so each run of one image
+    /// counts once (a filter never hides every cell of an image it matched, `cells`). The next page's offset.
+    var loadedImageCount: Int {
+        var n = 0
+        for i in images.indices where i == 0 || images[i].id.image != images[i - 1].id.image { n += 1 }
+        return n
+    }
     private(set) var facets: MacFacets = .empty
     private(set) var activity = MacLibraryActivity()
 
@@ -63,8 +73,13 @@ final class CatalogSourcesStore: MacLibraryData {
     /// The session the last carry into Develop was kept as (`keepCarried`), and the task making it.
     @ObservationIgnored private var carried: (handle: String, folder: URL)?
     @ObservationIgnored private var carrying: Task<Void, Never>?
-    /// Paths of the app library's frames → their ids, NFC, rebuilt when the frames change.
+    /// The app library's frames by what joins them to a cell (PRD-G, 2026-11-13): a frame of an image's primary variant
+    /// (`LibraryFrame.variant` nil, every frame before 2.4.0) by its file's path, NFC; a frame of another variant by
+    /// `path#variant uuid` (`variantKey`). Rebuilt when the frames change. **One frame per (file, variant)**:
+    /// `frames(for:)`'s one-at-a-time making and `ImportService.adoptLibraryFiles`' lookup keep it so.
     @ObservationIgnored private var frameIndex: [String: LibraryFrame.ID] = [:]
+    /// The paths (keyed) that have a frame of any variant: what "Developed" looks up (`developedImages`).
+    @ObservationIgnored private var framedPaths: Set<String> = []
     /// `key(path)` once per path (2026-11-05): the develop column is read again on every develop's state
     /// change (`refreshDevelopInfo`), and standardising and normalising every path of the library each
     /// time was most of the main thread while a paste's 500 previews were queued.
@@ -135,6 +150,8 @@ final class CatalogSourcesStore: MacLibraryData {
         if let first { await select(source: first.id) }
         // Half-frame pairs: each a row, pointing at its file in the app's own storage (`MacPairRows.swift`).
         await placePairs()
+        // Double exposures: each a row too, pointing at its recipe (`MacDoubleRows.swift`).
+        await placeDoubles()
     }
 
     // MARK: - the kept list
@@ -465,7 +482,8 @@ final class CatalogSourcesStore: MacLibraryData {
             // instead of letting its older snapshot replace the rating/label the person just chose.
             guard revision == metadataRevision else { await reload(keepingRows: true); return }
             refreshFrameIndex()
-            images = page.images.map { row($0, source: s) }
+            images = page.images.flatMap { cells($0, source: s) }
+            noteVariantNumbers()
             total = page.total
             let f = try await client.facets(h, q)
             guard g == generation else { return }
@@ -476,17 +494,35 @@ final class CatalogSourcesStore: MacLibraryData {
         }
     }
 
+    /// The page being read, if one is (it clears itself when done). Two `loadMore`s at once read the same offset and both
+    /// appended it — every cell of that page twice (measured 2026-11-13, `MacVariantActsCheck` L: the grid's last cell's
+    /// `onAppear` and a caller's loop together; `main`'s `offset: images.count` had the same race). So a second waits for
+    /// the page under way, then reads the one after it.
+    @ObservationIgnored private var paging: Task<Void, Never>?
+
     func loadMore() async {
-        guard let s = selectedSource, s.kind != .appLibrary, images.count < total else { return }
+        while let under = paging { await under.value }
+        let page = Task { [weak self] in
+            await self?.loadNextPage()
+            self?.paging = nil
+        }
+        paging = page
+        await page.value
+    }
+
+    private func loadNextPage() async {
+        guard let s = selectedSource, s.kind != .appLibrary, hasMore else { return }
         let g = generation
         let revision = metadataRevision
         do {
             let h = try await handle(s)
             let q = try await libraryQuery(s, h)
-            let page = try await client.images(h, q, offset: images.count, limit: pageSize)
+            let page = try await client.images(h, q, offset: loadedImageCount, limit: pageSize)
             guard g == generation else { return }
             guard revision == metadataRevision else { await reload(keepingRows: true); return }
-            images += page.images.map { row($0, source: s) }
+            refreshFrameIndex()
+            images += page.images.flatMap { cells($0, source: s) }
+            noteVariantNumbers()
             total = page.total
         } catch {
             failed(s, error)
@@ -495,8 +531,8 @@ final class CatalogSourcesStore: MacLibraryData {
 
     func loadAll() async {
         var before = -1
-        while images.count < total, images.count != before {
-            before = images.count
+        while hasMore, loadedImageCount != before {
+            before = loadedImageCount
             await loadMore()
         }
     }
@@ -530,7 +566,7 @@ final class CatalogSourcesStore: MacLibraryData {
         refreshFrameIndex()
         let sid = selectedSourceID ?? Self.appLibraryID
         if let c = developedCache[sid], c.frames == frameIndexCount { return c.images }
-        let paths = frameIndex.keys.map { URL(fileURLWithPath: $0) }
+        let paths = framedPaths.map { URL(fileURLWithPath: $0) }
         guard !paths.isEmpty else { return [] }
         var out: [String] = []
         for chunk in stride(from: 0, to: paths.count, by: 500) {
@@ -541,19 +577,35 @@ final class CatalogSourcesStore: MacLibraryData {
         return out
     }
 
-    private func row(_ i: LibraryImage, source s: MacSource) -> MacImage {
+    /// An image's cells (PRD-G §2): one per present variant, in `variants[]`' order (the helper's, by position), side by
+    /// side in the image's sort place whatever the sort — Capture One's browser. Each is numbered by its index there.
+    /// Under a rating or colour filter only the variants that match it are shown, as Capture One filters variants: the
+    /// helper matches an image when one of its variants matches (spklib 0.4.0) and lists all of them; the row carries
+    /// each variant's rating and tag, so the rest are left out here. A filter the row cannot judge per variant (a
+    /// keyword, a smart album's criteria) shows them all, and an image is never left with no cell.
+    private func cells(_ i: LibraryImage, source s: MacSource) -> [MacImage] {
+        guard i.variants.count > 1 else { return [row(i, variant: i.variants.first, number: 1, source: s, many: false)] }
+        let all = Array(i.variants.enumerated())
+        let shown = all.filter { query.shows($0.element) }
+        return (shown.isEmpty ? all : shown).map { row(i, variant: $0.element, number: $0.offset + 1, source: s, many: true) }
+    }
+
+    /// One cell: the image's, with the variant's own rating, label and frame. `many`: the image has more than one, and
+    /// the cell's id names its variant.
+    private func row(_ i: LibraryImage, variant v: LibraryVariant?, number: Int, source s: MacSource, many: Bool) -> MacImage {
         let url = i.url
         return MacImage(
-            id: .init(source: s.id, image: i.uuid), url: url, fileName: i.fileName,
+            id: .init(source: s.id, image: i.uuid, variant: many ? v?.uuid : nil), url: url, fileName: i.fileName,
             kind: MacImage.FileKind(rawValue: i.kind) ?? .other, capturedLocal: i.capturedLocal,
-            captureDate: Self.wallClock(i.capturedLocal), rating: i.variants.first?.rating ?? i.rating,
-            colorLabel: (i.variants.first?.colorTag ?? i.colorTag).flatMap(MacColorLabel.init(rawValue:)),
+            captureDate: Self.wallClock(i.capturedLocal), rating: v?.rating ?? i.rating,
+            colorLabel: (v?.colorTag ?? i.colorTag).flatMap(MacColorLabel.init(rawValue:)),
             cameraMake: i.camera?.make, cameraModel: i.camera?.model, lens: i.camera?.lens,
             exposure: Self.exposureText(i.exposure),
             pixelSize: i.width.flatMap { w in i.height.map { PixelSize(width: w, height: $0) } },
             isOffline: i.exists == false, isTrashed: i.trashed, isRemoved: i.originState == "removed",
-            fromCaptureOne: i.isCaptureOne, primaryVariant: i.variants.first?.uuid, variantCount: i.variants.count,
-            develop: developInfo(path: url.path))
+            fromCaptureOne: i.isCaptureOne, primaryVariant: i.variants.first?.uuid, variantCount: max(1, i.variants.count),
+            variant: v?.uuid, variantNumber: number,
+            develop: developInfo(path: url.path, variant: v?.uuid, primary: number == 1))
     }
 
     private func facetsFrom(_ f: LibraryFacets, source s: MacSource, handle h: String, base: LibraryQuery) async -> MacFacets {
@@ -584,17 +636,42 @@ final class CatalogSourcesStore: MacLibraryData {
         guard let frames = model?.library.frames else { return }
         guard frames.count != frameIndexCount else { return }
         var index: [String: LibraryFrame.ID] = [:]
+        var paths: Set<String> = []
         for f in frames {
             // A pair's row is its file in the app's storage (`MacPairRows.swift`); its picture is its guide.
-            if f.isPair { index[keyed(Self.pairFile(f).path)] = f.id; continue }
-            if let url = f.picture.fileURL { index[keyed(url.path)] = f.id }
+            if f.isPair { let k = keyed(Self.pairFile(f).path); index[k] = f.id; paths.insert(k); continue }
+            // A double exposure's row is its recipe the same way (`MacDoubleRows.swift`).
+            if f.isDouble { let k = keyed(Self.doubleFile(f).path); index[k] = f.id; paths.insert(k); continue }
+            guard let url = f.picture.fileURL else { continue }
+            let k = keyed(url.path)
+            index[f.variant.map { Self.variantKey(k, $0) } ?? k] = f.id
+            paths.insert(k)
         }
         frameIndex = index
+        framedPaths = paths
         frameIndexCount = frames.count
     }
 
-    private func developInfo(path: String) -> MacDevelopInfo? {
-        guard let id = frameIndex[keyed(path)], let f = model?.library.frame(id) else { return nil }
+    /// The index's key of a variant's frame: the file's key, then its variant uuid.
+    nonisolated static func variantKey(_ fileKey: String, _ variant: String) -> String { fileKey + "#" + variant }
+
+    /// **The join** (PRD-G §2): the frame of a file's variant — the one made for that variant, else, for the image's
+    /// primary variant only, the file's frame with no variant (every frame of 2.3.x, and a file two libraries share).
+    /// Another variant without a frame of its own has none: it never shows, opens or pastes onto the primary's edit.
+    /// Call `refreshFrameIndex` first.
+    private func frameID(path: String, variant: String?, primary: Bool) -> LibraryFrame.ID? {
+        let k = keyed(path)
+        if let variant, let id = frameIndex[Self.variantKey(k, variant)] { return id }
+        return primary ? frameIndex[k] : nil
+    }
+
+    /// A cell's frame, by its file and its variant.
+    private func frameID(of row: MacImage) -> LibraryFrame.ID? {
+        frameID(path: row.url.path, variant: row.variant, primary: row.isPrimaryVariant)
+    }
+
+    private func developInfo(path: String, variant: String?, primary: Bool) -> MacDevelopInfo? {
+        guard let id = frameID(path: path, variant: variant, primary: primary), let f = model?.library.frame(id) else { return nil }
         return Self.developInfo(f)
     }
 
@@ -622,9 +699,26 @@ final class CatalogSourcesStore: MacLibraryData {
         refreshFrameIndex()
         // Only the rows that changed: writing an equal value still tells every view of `images` to draw again.
         for i in images.indices where selectedSource?.kind != .appLibrary {
-            let info = developInfo(path: images[i].url.path)
+            let info = developInfo(path: images[i].url.path, variant: images[i].variant, primary: images[i].isPrimaryVariant)
             if images[i].develop != info { images[i].develop = info }
         }
+        noteVariantNumbers()
+    }
+
+    /// The number each loaded cell's frame has among its image's variants, kept for the launch: an export names a
+    /// variant beyond the first by it (`variantNumber(of:)`), also after another source has been selected.
+    @ObservationIgnored private var variantNumbers: [LibraryFrame.ID: Int] = [:]
+
+    private func noteVariantNumbers() {
+        for c in images { if let f = c.develop?.frameID { variantNumbers[f] = c.variantCount > 1 ? c.variantNumber : 1 } }
+    }
+
+    /// A frame's number among its image's variants (PRD-G §3: an export names the second `<name>-2`): from the cells
+    /// loaded now, else as they last were in this launch. Nil for a frame no cell has joined this launch (a frame of
+    /// the app's own, an agent's), which is named as before.
+    func variantNumber(of frame: LibraryFrame.ID) -> Int? {
+        if let c = images.first(where: { $0.develop?.frameID == frame }) { return c.variantCount > 1 ? c.variantNumber : 1 }
+        return variantNumbers[frame]
     }
 
     nonisolated static func key(_ path: String) -> String {
@@ -893,14 +987,25 @@ final class CatalogSourcesStore: MacLibraryData {
         let h = try await handle(s)
         let d = try await client.image(h, id.image)
         refreshFrameIndex()
+        // The cell's own variant: the one its id names (a deleted one is not there to read), else the primary.
+        let index: Int
+        if let named = id.variant {
+            guard let i = d.variants.firstIndex(where: { $0.uuid == named }) else { throw LibraryError(.notFound, "No such variant") }
+            index = i
+        } else {
+            index = 0
+        }
+        let v = d.variants.indices.contains(index) ? d.variants[index] : nil
         let image = MacImage(
             id: id, url: URL(fileURLWithPath: d.path), fileName: d.fileName, kind: MacImage.FileKind(rawValue: d.kind) ?? .other,
-            capturedLocal: d.capturedLocal, captureDate: Self.wallClock(d.capturedLocal), rating: d.variants.first?.rating ?? 0,
-            colorLabel: d.variants.first?.colorTag.flatMap(MacColorLabel.init(rawValue:)), cameraMake: d.camera?.make,
+            capturedLocal: d.capturedLocal, captureDate: Self.wallClock(d.capturedLocal), rating: v?.rating ?? 0,
+            colorLabel: v?.colorTag.flatMap(MacColorLabel.init(rawValue:)), cameraMake: d.camera?.make,
             cameraModel: d.camera?.model, lens: d.camera?.lens, exposure: Self.exposureText(d.exposure),
             pixelSize: d.width.flatMap { w in d.height.map { PixelSize(width: w, height: $0) } },
             isOffline: d.exists == false, isTrashed: false, isRemoved: false, fromCaptureOne: d.origin == "capture_one",
-            primaryVariant: d.variants.first?.uuid, variantCount: d.variants.count, develop: developInfo(path: d.path))
+            primaryVariant: d.variants.first?.uuid, variantCount: max(1, d.variants.count),
+            variant: v?.uuid, variantNumber: index + 1,
+            develop: developInfo(path: d.path, variant: v?.uuid, primary: index == 0))
         return MacImageDetail(
             image: image, fileSize: d.fileSize, albums: (d.albums ?? []).compactMap(\.name),
             variants: d.variants.map {
@@ -929,7 +1034,9 @@ final class CatalogSourcesStore: MacLibraryData {
         guard let first = ids.first else { return }
         let s = try source(first.source)
         guard s.isHelperBacked, s.kind != .captureOneCatalog, s.kind != .captureOneSession else { return }
-        try await client.trash(try await handle(s), images: ids.map(\.image), trashed: trashed)
+        // An image's cells (its variants) name it once: the flag is the image's (PRD-G).
+        var seen = Set<String>()
+        try await client.trash(try await handle(s), images: ids.map(\.image).filter { seen.insert($0).inserted }, trashed: trashed)
         await reload()
         // The counts beside All Images and 回收站 are the tree's, which a reload of the rows does not read.
         await refreshTree()
@@ -944,7 +1051,7 @@ final class CatalogSourcesStore: MacLibraryData {
         let wanted = Set(ids)
         var gone: [String] = []
         var failure: Error?
-        for image in images where wanted.contains(image.id) && image.isTrashed {
+        for image in images where wanted.contains(image.id) && image.isTrashed && !gone.contains(image.id.image) {
             do {
                 if FileManager.default.fileExists(atPath: image.url.path) {
                     try FileManager.default.trashItem(at: image.url, resultingItemURL: nil)
@@ -958,7 +1065,8 @@ final class CatalogSourcesStore: MacLibraryData {
         if let failure { throw failure }
     }
 
-    /// `meta.set` on the rows' first variants. On a Capture One catalog it writes SpektraLab's override in
+    /// `meta.set` on the cells' own variants (PRD-G: a rating or a label is a variant's, as in Capture One; the other
+    /// variants of the image keep theirs). On a Capture One catalog it writes SpektraLab's override in
     /// the mirror (`COALESCE(override, Capture One's)`; a sync never touches it), never Capture One's file;
     /// the app library has no ratings. With a `patch` the loaded rows are changed in place and only the
     /// facets are asked again, so a key held over the grid does not empty and refill it; without one (a
@@ -971,13 +1079,13 @@ final class CatalogSourcesStore: MacLibraryData {
         let h = try await handle(s)
         let wanted = Set(ids)
         let loaded = images.filter { wanted.contains($0.id) }
-        var variants = loaded.compactMap(\.primaryVariant)
+        var variants = loaded.compactMap(\.variant)
         // A picture that is not among the loaded rows (an agent's call names any picture of the source,
-        // `AgentExecutor`; the window's own keys only ever name loaded ones): its first variant is asked of
-        // the helper, as Info's panel asks it.
+        // `AgentExecutor`; the window's own keys only ever name loaded ones): its variant — the one its id names,
+        // else its first — is asked of the helper, as Info's panel asks it.
         let unloaded = wanted.subtracting(loaded.map(\.id))
         for id in unloaded where id.source == s.id {
-            if let v = try await detail(of: id).image.primaryVariant { variants.append(v) }
+            if let v = try await detail(of: id).image.variant { variants.append(v) }
         }
         guard !variants.isEmpty else { return }
         try await body(client, h, variants)
@@ -1057,7 +1165,8 @@ final class CatalogSourcesStore: MacLibraryData {
         // One frame-making at a time, store-wide, in the order asked (2026-11-05): a paste making frames
         // for 200 RAWs and a Return into Develop on the same pictures each read the frame index, await
         // the probe, then make frames, so two at once made two LibraryFrames for one file. The second
-        // waits here and then finds the first's frames in the refreshed index.
+        // waits here and then finds the first's frames in the refreshed index. Since variants (PRD-G) the
+        // same holds per (file, variant): one frame for each, never two.
         let previous = framingTail
         let (held, release) = AsyncStream<Void>.makeStream()
         framingTail = Task { await previous?.value; for await _ in held {} }
@@ -1071,7 +1180,7 @@ final class CatalogSourcesStore: MacLibraryData {
         refreshFrameIndex()
         var adopt: [MacImage] = []
         for r in rows {
-            if let known = r.develop?.frameID ?? frameIndex[Self.key(r.url.path)] {
+            if let known = r.develop?.frameID ?? frameID(of: r) {
                 frames[r.id] = known
             } else if FileManager.default.fileExists(atPath: r.url.path) {
                 adopt.append(r)
@@ -1080,11 +1189,15 @@ final class CatalogSourcesStore: MacLibraryData {
             }
         }
         if !adopt.isEmpty {
-            // Info's "Original" row: the source, then the folder the file is in.
+            // Info's "Original" row: the source, then the folder the file is in. Per (file, variant): the primary's frame
+            // has no variant (the file's own, as before 2.4.0), another variant's is made with its uuid.
             let made = await ImportService(model: model).adoptLibraryFiles(adopt.map {
-                ($0.url, s.name, $0.url.deletingLastPathComponent().lastPathComponent)
+                (url: $0.url, variant: $0.isPrimaryVariant ? nil : $0.variant, disk: s.name,
+                 path: $0.url.deletingLastPathComponent().lastPathComponent)
             })
-            for r in adopt { if let f = made[r.url] { frames[r.id] = f } }
+            for r in adopt {
+                if let f = made[LibraryFileVariant(url: r.url, variant: r.isPrimaryVariant ? nil : r.variant)] { frames[r.id] = f }
+            }
             // Made from a catalog's picture: in a catalog already, so never the move's to offer.
             move.noteInCatalog(Array(made.values))
             refreshDevelopInfo()
@@ -1113,7 +1226,7 @@ final class CatalogSourcesStore: MacLibraryData {
             let frames = ids.compactMap { id -> LibraryFrame.ID? in
                 if id.source == Self.appLibraryID { return UUID(uuidString: id.image) }
                 guard let row = loaded[id] else { return nil }
-                return row.develop?.frameID ?? frameIndex[Self.key(row.url.path)]
+                return row.develop?.frameID ?? frameID(of: row)
             }
             let taken = frames.filter { model.library.frame($0).map(MacLightTableCarry.takes) ?? false }
             guard !taken.isEmpty else { throw MacLibraryError.notForTable }
@@ -1168,6 +1281,162 @@ final class CatalogSourcesStore: MacLibraryData {
         f.dateFormat = "yyyy-MM-dd HH.mm.ss"
         return f
     }()
+
+    // MARK: - variants (PRD-G part 1: the model and these calls; the acts, menus and badges are part 2's)
+
+    /// What New Variant or Clone Variant made: the new cell, its frame and the helper's variant.
+    struct MadeVariant: Sendable, Equatable {
+        let cell: MacImage.ID
+        let frame: LibraryFrame.ID
+        let variant: String
+    }
+
+    /// **New Variant** (`clone` false) or **Clone Variant** (`clone` true) of the cell `id` (PRD-G §3), Capture One's
+    /// two: `variant.create {image, from_variant?}`, then the new variant's frame —
+    /// - New: the edit a fresh open gets (`ImportService.adoptLibraryFiles`: Settings' new-frame rule, the RAW
+    ///   defaults), not the photograph's untouched decode (§7.2);
+    /// - Clone: a copy of the cell's frame's edit, the whole of it (`ImportService.cloneFrame`, §7.3); a cell with no
+    ///   frame yet is given its own first (what opening it makes), so the clone is equal to what it shows. Its preview
+    ///   is developed at once, as a paste's is (`AppServices.develop`, the preview tier), so its tile is not stale.
+    ///
+    /// Either has **no history** (`AppServices.history` is keyed by frame id, and a new frame has none: PRD-F §8.6),
+    /// and its previews are kept with this library (`housePreviews`). The rows are read again; the new cell is
+    /// `MadeVariant.cell`, after its image's other cells. Nothing is selected or opened here.
+    ///
+    /// Refused: a half-frame pair's or a double exposure's row (`notForVariants`, §7.5), a picture with no helper
+    /// variant (the app library, `readOnly`), an offline or unreadable file (the helper's new variant is deleted again,
+    /// so no cell is left without a frame it could make).
+    func newVariant(of id: MacImage.ID, clone: Bool) async throws -> MadeVariant {
+        guard let model else { throw MacLibraryError.noSource }
+        let s = try source(id.source)
+        guard s.isHelperBacked, s.kind != .appLibrary else { throw MacLibraryError.readOnly }
+        let row = try await self.row(id)
+        guard let from = row.variant else { throw MacLibraryError.readOnly }
+        refreshFrameIndex()
+        let had = row.develop?.frameID ?? frameID(of: row)
+        if row.kind == .pair || had.flatMap({ model.library.frame($0)?.isComposite }) == true { throw MacLibraryError.notForVariants }
+        guard FileManager.default.fileExists(atPath: row.url.path) else { throw MacLibraryError.offline(row.fileName) }
+        // The clone's original: the cell's frame, made first where it has none (one at a time, `frames(for:)`).
+        var original: LibraryFrame.ID?
+        if clone { original = try await frames(for: [id], focus: id).frames[id] }
+        let h = try await handle(s)
+        let made: LibraryNewVariant
+        do { made = try await client.newVariant(h, image: id.image, from: clone ? from : nil) } catch { throw Self.variantError(error) }
+        let service = ImportService(model: model)
+        let frame: LibraryFrame.ID?
+        if let original {
+            frame = service.cloneFrame(of: original, variant: made.variant)
+        } else {
+            frame = await service.adoptLibraryFile(row.url, variant: made.variant, disk: s.name,
+                                                   path: row.url.deletingLastPathComponent().lastPathComponent)
+        }
+        guard let frame else {
+            _ = try? await client.deleteVariant(h, variant: made.variant)
+            await reload(keepingRows: true)
+            throw MacLibraryError.unreadable(row.fileName)
+        }
+        move.noteInCatalog([frame])
+        model.housePreviews([frame], from: s)
+        if clone { model.develop(frame) }
+        Log.note(.library, "mac library: variant made", ["clone": clone, "position": made.position])
+        refreshDevelopInfo()
+        await reload(keepingRows: true)
+        return MadeVariant(cell: MacImage.ID(source: s.id, image: id.image, variant: made.variant), frame: frame, variant: made.variant)
+    }
+
+    /// **Delete Variant** (PRD-G §3): the helper's `variant.delete`, then the variant's frame with everything the app
+    /// kept of it — its queued work, develops, previews, full renders, edit history and the RAW proxy no other frame
+    /// names (`AppServices.remove`). Never the file, never the image (its other variants, its albums). The image is read
+    /// again after: the next variant may now be its primary (spklib 0.4.0). Refused for the image's last variant
+    /// (`lastVariant`: Move to Trash deals with the image), for one of Capture One's in a mirror (`readOnly`), for a
+    /// pair's or a double's row.
+    ///
+    /// A frame a half-frame pair or a double exposure is made of is **kept** (PRD-G §3: "the pair keeps the frame it
+    /// was made from"): only the helper's row goes, and the piece still develops from it.
+    func deleteVariant(_ id: MacImage.ID) async throws {
+        guard let model else { throw MacLibraryError.noSource }
+        let s = try source(id.source)
+        guard s.isHelperBacked, s.kind != .appLibrary else { throw MacLibraryError.readOnly }
+        let row = try await self.row(id)
+        guard row.kind != .pair, let variant = row.variant else { throw MacLibraryError.notForVariants }
+        guard row.variantCount > 1 else { throw MacLibraryError.lastVariant }
+        refreshFrameIndex()
+        let frame = row.develop?.frameID ?? frameID(of: row)
+        if let frame, model.library.frame(frame)?.isComposite == true { throw MacLibraryError.notForVariants }
+        let h = try await handle(s)
+        do { _ = try await client.deleteVariant(h, variant: variant) } catch { throw Self.variantError(error) }
+        if let frame {
+            let inPiece = model.library.frames.contains { $0.composedOf.contains(frame) }
+            if inPiece {
+                Log.note(.library, "mac library: variant deleted, its frame kept for the piece made of it")
+            } else if model.library.frame(frame)?.variant == nil, await fileListedElsewhere(row.url, except: s.id) {
+                // The primary's frame is the file's own (no variant: joined by the path alone, part 1's decision 1),
+                // so another library that references the file shows it as its row's edit, develops and history.
+                // Deleting this library's variant must not take that library's edit: only the helper's row goes.
+                Log.note(.library, "mac library: variant deleted, the file's frame kept for another library that lists the file")
+                await frameForNewPrimary(of: id.image, row: row, source: s, handle: h, model: model)
+            } else {
+                model.remove([frame])
+            }
+        }
+        Log.note(.library, "mac library: variant deleted", ["frame": frame != nil])
+        refreshDevelopInfo()
+        await reload(keepingRows: true)
+    }
+
+    /// The file's frame was kept for another library, so this image's next variant — its primary now — would join it by
+    /// the path (`frameID(path:variant:primary:)`) and show that library's edit as its own. Where it has no frame of its
+    /// own (one of Capture One's never opened), it is given one now, stamped with its variant, with the edit a fresh open
+    /// gets — before the delete returns, so no cell ever joins the other library's frame. A file that cannot be read gets
+    /// none (said in the log).
+    private func frameForNewPrimary(of image: String, row: MacImage, source s: MacSource, handle h: String, model: AppServices) async {
+        guard let next = try? await client.image(h, image).variants.first?.uuid else { return }
+        frameIndexCount = -1
+        refreshFrameIndex()
+        guard frameIndex[Self.variantKey(keyed(row.url.path), next)] == nil else { return }
+        let made = await ImportService(model: model).adoptLibraryFile(row.url, variant: next, disk: s.name,
+                                                                      path: row.url.deletingLastPathComponent().lastPathComponent)
+        if let made {
+            move.noteInCatalog([made])
+            model.housePreviews([made], from: s)
+            Log.note(.library, "mac library: the image's new primary given a frame of its own")
+        } else {
+            Log.warn(.library, "mac library: the image's new primary could not be given a frame of its own", ["file": row.fileName])
+        }
+    }
+
+    /// Whether a source on the list other than `except` lists the file (the helper's `images.lookup`, trashed rows
+    /// included: a trashed picture can be put back with its edit), so that its primary variant joins the file's frame.
+    /// A source that cannot be asked (its catalog offline, the helper refusing) counts as listing it: a frame left
+    /// over costs a row in `library.json`, an edit taken from another library cannot be given back.
+    private func fileListedElsewhere(_ url: URL, except: MacSource.ID) async -> Bool {
+        for other in sources where other.id != except && other.isHelperBacked {
+            do {
+                let h = try await handle(other)
+                if try await client.lookup(h, paths: [url]).results.contains(where: \.found) { return true }
+            } catch {
+                Log.warn(.library, "mac library: a source could not say whether it lists a file; its frame is kept",
+                         ["source": other.kind.rawValue, "error": error.localizedDescription])
+                return true
+            }
+        }
+        return false
+    }
+
+    /// A cell as loaded, else as the helper has it (`detail`).
+    private func row(_ id: MacImage.ID) async throws -> MacImage {
+        if let r = images.first(where: { $0.id == id }) { return r }
+        return try await detail(of: id).image
+    }
+
+    /// The helper's refusals of a variant call, as the library says them.
+    private nonisolated static func variantError(_ error: Error) -> Error {
+        switch (error as? LibraryError)?.code {
+        case .lastVariant?: MacLibraryError.lastVariant
+        case .readOnly?: MacLibraryError.readOnly
+        default: error
+        }
+    }
 
     // MARK: - a frame as a row
 
@@ -1482,7 +1751,7 @@ final class MacLightTableCarry {
     /// or it carries the size itself: a film edge on (its format) or a half-frame pair. A picture only
     /// listed, or a frame never developed, has none.
     static func takes(_ frame: LibraryFrame) -> Bool {
-        frame.pair != nil || frame.edit.filmEdge.active || frame.developed != nil
+        frame.isComposite || frame.edit.filmEdge.active || frame.developed != nil
     }
 
     func take() -> [LibraryFrame.ID] {

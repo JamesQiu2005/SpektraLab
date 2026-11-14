@@ -1,4 +1,4 @@
-//  ExportSheet.swift — the rows of an export's settings: Format, Colour, Quality, and the words
+//  ExportSheet.swift — the rows of an export's settings: Format, Colour, and the words
 //  for a size. The Mac's Export page (`MacExportPage`) and Settings' recipes are made of them.
 
 import SwiftUI
@@ -78,38 +78,7 @@ struct ColourRow: View {
     }
 }
 
-/// Quality: JPEG's and HEIF's. PNG and TIFF keep every value they are handed,
-/// so the row says the bits they keep and has nothing to choose. Under it,
-/// what the pair costs where it costs something: ProPhoto in 8 bits.
-struct QualityRow: View {
-    @Binding var recipe: ExportRecipe
-    private static let steps = [100, 95, 90, 85, 80, 75]
-
-    var body: some View {
-        let lossy = recipe.format.takesQuality
-        Menu {
-            ForEach(Self.steps, id: \.self) { q in
-                Button("\(q)") { recipe.quality = q }
-            }
-        } label: {
-            DrawnBand(height: 68) {
-                DrawnText(L("Quality"), 14, .semibold).leading(14).baseline(29).rowEnabled(lossy)
-                DrawnText(lossy ? "\(recipe.quality)" : L("\(recipe.format.bitDepth)-bit, lossless"), 14, .medium, Theme.secondaryText)
-                    .trailingInset(lossy ? 30 : 14).baseline(29).rowEnabled(lossy)
-                if lossy { Chevron().trailingInset(19).centreY(24) }
-                if recipe.mayBand {
-                    DrawnText(L("In 8 bits ProPhoto can band in smooth tones"), 11.5, .medium, Theme.dim).trailingInset(14).baseline(54)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .menuStyle(.button)
-        .buttonStyle(PressStyle(scale: 1))
-        .menuIndicator(.hidden)
-        .disabled(!lossy)
-        .accessibilityLabel(lossy ? L("Quality, \(recipe.quality)") : L("\(recipe.format.bitDepth)-bit, lossless"))
-    }
-}
+// Quality is a slider now, between Format and Size (`QualitySliderRow`, ExportNaming.swift; 2026-11-11).
 
 /// How the export sheets say a size in words.
 enum ExportWords {

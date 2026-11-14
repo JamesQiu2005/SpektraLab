@@ -45,10 +45,17 @@ struct PresetSheet: View {
         .macPageActions(confirmEnabled: !saving && renaming == nil,
                         cancelEnabled: !saving && renaming == nil,
                         confirm: { dismiss() }, cancel: { dismiss() })
+        #if DEBUG
+        // MacDriver's `presetApply`: the preset of that name pressed, for a check without a mouse.
+        .onReceive(NotificationCenter.default.publisher(for: MacDriver.presetApply)) { n in
+            if let name = n.object as? String, let preset = model.presets.presets.first(where: { $0.name == name }) { apply(preset) }
+        }
+        #endif
     }
     private func apply(_ preset: LookPreset) {
         if let line = preset.clip.missingMaterialsLine { missing = line; return }
-        model.applyLook(preset.clip, to: session)
+        // One step of the frame's history, named for the preset (PRD-F §3.3).
+        session.recording(.preset, .preset(preset.name)) { model.applyLook(preset.clip, to: session) }
         dismiss()
     }
 }
@@ -100,7 +107,13 @@ struct SettingsGroupPicker: View {
     var body: some View {
         ForEach(top.filter { ClipboardGroup.offered.contains($0) }) { row($0) }
         DisclosureGroup(L("Darkroom")) { ForEach(darkroom) { row($0) } }
-        ForEach([ClipboardGroup.light, .curve, .colour]) { row($0) }
+        ForEach([ClipboardGroup.light, .curve, .colour, .lens].filter { $0.layer2Tool != nil || ClipboardGroup.offered.contains($0) }) { row($0) }
+        // PRD-E §9 q10: a copy and a preset carry no mask layer in M1 (`SettingsClip`).
+        if FeatureFlags.maskLayers {
+            Text(L("Mask layers are not copied.")).font(Theme.Font.note).foregroundStyle(Theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("copy.masks-note")
+        }
     }
     private func row(_ group: ClipboardGroup) -> some View {
         Toggle(isOn: Binding(get: { picked.contains(group) }, set: { on in

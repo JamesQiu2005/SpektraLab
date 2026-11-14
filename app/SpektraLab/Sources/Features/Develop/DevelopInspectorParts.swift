@@ -26,9 +26,14 @@
 //    not drawn with the switch off; on Edit at the foot of the panel. The progress of a develop is
 //    the canvas's bar, as before; the line keeps its dot and its words.
 //  - **A histogram** heads the panel, under the Develop | Edit row, on both (`HistogramPanel.swift`).
-//  - **The Film and Paper strips fold**, each under its own pill with a bare chevron at the right of
-//    that line (`StockPreviewPanel(foldable:)`), kept across launches; on the Mac a wheel or a
-//    trackpad moves a strip sideways, wheel down to the right (`Sources/Mac/MacWheelRow.swift`).
+//  - **The Film and Paper strips fold** (`StockPreviewPanel(foldable:)`), kept across launches; on the Mac a
+//    wheel or a trackpad moves a strip sideways, wheel down to the right (`Sources/Mac/MacWheelRow.swift`).
+//  - **Every section folds as Edit › Adjust's tools do** (the owner, 2026-11-11: "make Develop's left column
+//    tighter: match Edit's collapse style, and shrink the toggles and pills to Edit's size"): the strips, Decode
+//    (and its Enlarger and High Dynamic Range a step in), 片边, 日期后背 and Format's Effects each under the
+//    column's 32 pt folding header (`ColumnSectionHeader` over `FoldHeader`) — the chevron at the left, the name,
+//    a small switch or a shelf's small pill at the right; Apply Film Emulation and Remove anti-halation layer
+//    are 32 pt rows with the small switch (`SpkToggle(size: .compact)`).
 
 import SwiftUI
 
@@ -50,6 +55,36 @@ extension DevelopWorkspace {
                      placementOpen: .constant(false), flat: true)
     }
 
+    /// Develop › Format under 片边 and 日期后背 (2026-11-11): Remove anti-halation layer as a 32 pt row with the
+    /// small switch, then the effects under their own folding header, the fold kept (`DevelopPanelPrefs`).
+    var wideFormatTail: some View {
+        let prefs = DevelopPanelPrefs.shared
+        return VStack(spacing: 0) {
+            FoldRule()
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Remove anti-halation layer")).font(Theme.Font.ui(12.5, .medium)).foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(L("Experimental simulation for all stocks")).font(Theme.Font.ui(10.5)).foregroundStyle(Theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                SpkToggle(isOn: session.binding(\.params.antihalationRemoved), size: .compact)
+                    .accessibilityLabel(L("Remove anti-halation layer"))
+                    .accessibilityIdentifier("v5.develop.antihalation")
+            }
+            .padding(.horizontal, 16).padding(.vertical, 5)
+            .frame(minHeight: FoldHeader<EmptyView, EmptyView>.height)
+            ColumnSectionHeader(title: L("Effects"), folded: prefs.effectsCollapsed, id: "effects",
+                                toggleFold: { prefs.effectsCollapsed.toggle() })
+            if !prefs.effectsCollapsed {
+                wideEffects
+                // 漏光 (PRD-D §3.3): light on the film, beside its other effects; a single frame's, on an engine that has it.
+                if pair == nil, frame.pair == nil, EngineFeatures.offers(.leaks) { LeakSection(session: session) }
+            }
+        }
+    }
+
     /// What Film & Paper's Reset puts back: Decode (`decodeScopes`), and the retired Enlarger and
     /// Pre-flash with it, which nothing else can take off.
     var filmAndPaperResetScopes: [PageResetScope] { Self.decodeScopes + [.enlarger, .preflash] }
@@ -57,7 +92,7 @@ extension DevelopWorkspace {
     /// Format's ↺: the format, and the effects laid there (`wideEffects`) — Grain and Halation are the
     /// format's already; Scatter, Glare, the couplers and Grain's sub-layers with them.
     var resettingWideFormat: Bool { navigation.surface == .develop && navigation.step == .format && pair == nil }
-    static let wideFormatScopes: [PageResetScope] = [.format, .effects, .couplers]
+    static let wideFormatScopes: [PageResetScope] = [.format, .effects, .couplers, .leak]
 
     /// Format's 片边 and 日期后背 sections, on a single frame (a pair keeps its own lines).
     var filmEdgeColumn: FilmEdgeColumn? {
@@ -105,8 +140,15 @@ final class DevelopPanelPrefs {
     private static let dateBackFoldKey = "develop.wide.dateBack.collapsed"
     private static let hdrFoldKey = "develop.wide.hdr.collapsed"
     private static let enlargerFoldKey = "develop.wide.enlarger.collapsed"
+    private static let effectsFoldKey = "develop.wide.effects.collapsed"
+    private static let filmSizeFoldKey = "develop.wide.filmSize.collapsed"
+    private static let layersFoldKey = "develop.wide.layers.collapsed"
+    private static let sideUnitKey = "develop.wide.filmSize.sideUnit"
+    static let filmEdgeFilterKey = "develop.filmEdge.formatFilter"
 
     var histogramCollapsed: Bool { didSet { defaults.set(histogramCollapsed, forKey: Self.histogramFoldKey) } }
+    /// 图层, the card under the histogram, folds to its head (LAYERS-SPEC §3): open until folded.
+    var layersCollapsed: Bool { didSet { defaults.set(layersCollapsed, forKey: Self.layersFoldKey) } }
     var filmRowCollapsed: Bool { didSet { defaults.set(filmRowCollapsed, forKey: Self.filmFoldKey) } }
     var paperRowCollapsed: Bool { didSet { defaults.set(paperRowCollapsed, forKey: Self.paperFoldKey) } }
     /// Decode, 片边 Film Edge and 日期后背
@@ -118,6 +160,15 @@ final class DevelopPanelPrefs {
     var hdrCollapsed: Bool { didSet { defaults.set(hdrCollapsed, forKey: Self.hdrFoldKey) } }
     /// 解码 › 放大机 folds on its own (2026-11-10): open until folded.
     var enlargerCollapsed: Bool { didSet { defaults.set(enlargerCollapsed, forKey: Self.enlargerFoldKey) } }
+    /// Format's 效果 Effects folds as the others (2026-11-11): open until folded.
+    var effectsCollapsed: Bool { didSet { defaults.set(effectsCollapsed, forKey: Self.effectsFoldKey) } }
+    /// 格式 › 尺寸 Size folds as the others (2026-11-11): open until folded.
+    var filmSizeCollapsed: Bool { didSet { defaults.set(filmSizeCollapsed, forKey: Self.filmSizeFoldKey) } }
+    /// The unit Custom's Side Length is typed and read in: a reading, not the frame's (the wire is
+    /// millimetres), so the app's. Millimetres until the user picks inches.
+    var sideUnit: SideUnit { didSet { defaults.set(sideUnit.rawValue, forKey: Self.sideUnitKey) } }
+    /// 片边's 片幅 filter over the format cards (PRD-D §3.1): All until chosen, the flow's and the column's alike.
+    var filmEdgeFilter: FilmEdgeFormat.Filter { didSet { defaults.set(filmEdgeFilter.rawValue, forKey: Self.filmEdgeFilterKey) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -129,5 +180,10 @@ final class DevelopPanelPrefs {
         dateBackCollapsed = defaults.bool(forKey: Self.dateBackFoldKey)
         hdrCollapsed = defaults.bool(forKey: Self.hdrFoldKey)
         enlargerCollapsed = defaults.bool(forKey: Self.enlargerFoldKey)
+        effectsCollapsed = defaults.bool(forKey: Self.effectsFoldKey)
+        filmSizeCollapsed = defaults.bool(forKey: Self.filmSizeFoldKey)
+        layersCollapsed = defaults.bool(forKey: Self.layersFoldKey)
+        sideUnit = defaults.string(forKey: Self.sideUnitKey).flatMap(SideUnit.init(rawValue:)) ?? .mm
+        filmEdgeFilter = defaults.string(forKey: Self.filmEdgeFilterKey).flatMap(FilmEdgeFormat.Filter.init(rawValue:)) ?? .all
     }
 }

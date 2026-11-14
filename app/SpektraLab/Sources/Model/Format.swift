@@ -34,6 +34,14 @@ enum Fmt {
     /// "6.9 GB", "0.2 GB".
     static func gigabytes(_ bytes: Int64) -> String { String(format: "%.1f GB", Double(bytes) / 1_073_741_824) }
 
+    /// "9.1 MB", "640 KB": an export's estimated size (decimal units, as Finder counts a file).
+    static func fileSize(_ bytes: Int64) -> String {
+        let b = Double(max(bytes, 0))
+        if b >= 1e9 { return String(format: "%.1f GB", b / 1e9) }
+        if b >= 1e6 { return String(format: b >= 1e8 ? "%.0f MB" : "%.1f MB", b / 1e6) }
+        return String(format: "%.0f KB", max(b / 1e3, 1))
+    }
+
     /// "1.00×".
     static func times(_ v: Double) -> String { String(format: "%.2f×", v) }
 

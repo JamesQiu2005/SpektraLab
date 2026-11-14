@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """gen_project.py -- write SpektraLab.xcodeproj (and its shared scheme) from this file.
 
-    gen_project.py [--team TEAMID] [--bundle-id ID] [--no-engine] [--version 2.3.2] [--build N]
+    gen_project.py [--team TEAMID] [--bundle-id ID] [--no-engine] [--version 2.4.0] [--build N]
                    [--mac-idiom pad|mac] [--unhardened]
 
 The project is generated rather than kept, so what it builds is readable here and
@@ -145,7 +145,7 @@ def main() -> None:
     ap.add_argument("--bundle-id", default=None)
     ap.add_argument("--no-engine", action="store_true",
                     help="do not link the engine even where tools/build_engine_mac.sh has built it")
-    ap.add_argument("--version", default="2.3.2", help="the app's version (CFBundleShortVersionString)")
+    ap.add_argument("--version", default="2.4.0", help="the app's version (CFBundleShortVersionString)")
     ap.add_argument("--build", default="1", help="the build's number (CFBundleVersion): higher for every release")
     ap.add_argument("--update-feed", default="https://spektralab.app/updates/mac.json",
                     help="where Check for Updates reads the latest Mac release's manifest (Info.plist SPKUpdateFeedURL)")
@@ -351,6 +351,9 @@ def main() -> None:
         # includes in every build: a declaration costs nothing where the library is not linked, and
         # nothing calls it there.
         "HEADER_SEARCH_PATHS": '("$(PROJECT_DIR)/../../engine/include")',
+        # The system's SQLite (public domain), for the edit history's store (`SQLiteEditHistoryStore`, PRD-F
+        # §2). Said here rather than left to `import SQLite3`'s autolink, so the link line names everything.
+        "OTHER_LDFLAGS": '("$(inherited)", "-lsqlite3")',
     }
     if logs_url:
         # Read by build/Info-logs.plist: where the log goes (logs.local). No other build has them.
@@ -360,7 +363,7 @@ def main() -> None:
         # The archive, the C++ runtime, and the frameworks the engine calls (the film edge sets its
         # type through CoreText). Under `sdk=macosx` alone: no other platform links an engine.
         target['"OTHER_LDFLAGS[sdk=macosx*]"'] = (
-            '("$(inherited)", "$(PROJECT_DIR)/build/engine-macosx/libspektralab_engine.a", "-lc++", '
+            '("$(inherited)", "-lsqlite3", "$(PROJECT_DIR)/build/engine-macosx/libspektralab_engine.a", "-lc++", '
             '"-framework", Metal, "-framework", QuartzCore, "-framework", CoreText, "-framework", CoreGraphics, '
             '"-framework", Accelerate)')
         target['"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]"'] = '"$(inherited) SPK_ENGINE"'

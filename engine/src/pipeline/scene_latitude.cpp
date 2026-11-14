@@ -107,6 +107,7 @@ bool Pipeline::scene_latitude_sample(const Image& in, double ev, std::vector<dou
     // The node's own upstream nodes, as `measure_meter_evs` runs them: the
     // sample sees what the node would, decoded, cropped and turned.
     const uint32_t saved_long_edge = source_long_edge_;
+    const uint32_t saved_geometry_h = geometry_in_h_, saved_geometry_w = geometry_in_w_;
     Progress* const saved_progress = progress_;
     progress_ = nullptr;
     Image cast, decoded, framed;
@@ -114,6 +115,8 @@ bool Pipeline::scene_latitude_sample(const Image& in, double ev, std::vector<dou
                     node_decode_input(cast, decoded, error) &&
                     node_geometry(decoded, framed, error);
     source_long_edge_ = saved_long_edge;
+    geometry_in_h_ = saved_geometry_h;
+    geometry_in_w_ = saved_geometry_w;
     progress_ = saved_progress;
     if (!ok) return false;
     std::vector<float> host;

@@ -582,12 +582,12 @@ public:
         // A buffer from another device is not an error Metal reports: it is
         // a GPU fault at the first dispatch that names it.
         if (mtl->device() != device_) {
-            error = "the frame's MTLBuffer belongs to a different MTLDevice than the engine's";
+            error = "the MTLBuffer belongs to a different MTLDevice than the engine's";
             return {};
         }
         if (mtl->length() < bytes) {
-            error = "the frame's MTLBuffer holds " + std::to_string(mtl->length()) +
-                    " bytes; the image needs " + std::to_string(bytes);
+            error = "the MTLBuffer holds " + std::to_string(mtl->length()) +
+                    " bytes; " + std::to_string(bytes) + " are needed";
             return {};
         }
         mtl->retain();
@@ -789,9 +789,10 @@ public:
             pool_.erase(std::find(pool_.begin(), pool_.end(), b));
             auto queued = std::find(pending_.begin(), pending_.end(), b);
             if (queued != pending_.end()) pending_.erase(queued);
+            // Counted before the delete: `b` is not to be read after it (it was, until 2026-11-13).
+            freed += b->bytes;
             if (b->mtl) b->mtl->release();
             delete b;
-            freed += b->bytes;
         }
         return freed;
     }

@@ -29,9 +29,15 @@
 //  (`Canvas/Shaders.metal`, `pairCoverage` and `pairComposite`; the rectangle
 //  in pixels and the 1.5 px feather as `Renderer.compositePair` hands them).
 //
-//  Compiled with the pair's model, `Geometry`, `HostCut`, `PiecePlacer` and
-//  `PrintLayers`: no engine, no Metal, Core Image's software renderer with
-//  colour management off.
+//  **And a double exposure's** (RFC-048 §7): a picture flipped over its frame
+//  and turned after its window, every pixel held as above; and the light of
+//  two exposures **added** into one piece (`Sources/Engine/PieceAdder.swift`)
+//  band by band, as `FrameDecoder` adds them: g₁·A + g₂·B to 1e-6, alpha 1, an
+//  empty layer zero light, and either order of laying the same, byte for byte.
+//
+//  Compiled with the pair's model, `Geometry`, `HostCut`, `PiecePlacer`,
+//  `PrintLayers` and `PieceAdder`: no engine, no Metal, Core Image's software
+//  renderer with colour management off.
 //
 //  AGENTS.md: a check that cannot fire is not a check. `--self-test` runs the
 //  same checks against a rule broken on purpose, one at a time, and requires
@@ -62,7 +68,87 @@ struct Rules {
     }
     typealias Cut = (UnsafePointer<UInt16>, Int, UnsafeMutablePointer<UInt16>, Int, Int, Int, CGRect) -> PrintCut.Written?
 
-    static let broken: [Rules] = placing + cutting
+    /// A double exposure's picture placed over its frame (RFC-048 §2): the same, with its flip and the
+    /// turn after the window.
+    var placeLaid: (CIImage, Geometry, Int, CGRect, CGSize, Bool, Int) -> CIImage = {
+        PiecePlacer.place($0, cut: $1, quarterTurns: $2, window: $3, size: $4, flipped: $5, turnedAfter: $6)
+    }
+    /// The piece as unexposed film (`PieceAdder.expose`), and one picture's light added into it band by
+    /// band (`PieceAdder.lay`): width, height, gain, the piece, the scratch, the band's render.
+    var expose: (UnsafeMutableRawPointer, Int) -> Void = { PieceAdder.expose($0, pixels: $1) }
+    var lay: Lay = { w, h, g, piece, scratch, render in
+        try PieceAdder.lay(width: w, height: h, gain: g, into: piece, scratch: scratch, render: render)
+    }
+    typealias Lay = (Int, Int, Float, UnsafeMutableRawPointer, UnsafeMutableRawPointer,
+                     (UnsafeMutableRawPointer, Range<Int>) throws -> Void) throws -> Void
+
+    static let broken: [Rules] = placing + cutting + flipping + adding
+
+    static let flipping: [Rules] = [
+        Rules(name: "the flip left out", placeLaid: { image, cut, turns, window, size, _, after in
+            PiecePlacer.place(image, cut: cut, quarterTurns: turns, window: window, size: size, flipped: false, turnedAfter: after)
+        }),
+        Rules(name: "the flip made before the placement's turns", placeLaid: { image, cut, turns, window, size, flipped, after in
+            var picture = HostCut.image(image, by: cut)
+            if flipped {
+                let e = picture.extent
+                picture = picture.transformed(by: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: e.minX + e.maxX, ty: 0))
+            }
+            return PiecePlacer.place(picture, cut: .default, quarterTurns: turns, window: window, size: size, flipped: false, turnedAfter: after)
+        }),
+        Rules(name: "the flip mirrors the window, not the picture", placeLaid: { image, cut, turns, window, size, flipped, after in
+            let w = flipped ? CGRect(x: 1 - window.maxX, y: window.minY, width: window.width, height: window.height) : window
+            return PiecePlacer.place(image, cut: cut, quarterTurns: turns, window: w, size: size, flipped: false, turnedAfter: after)
+        }),
+        Rules(name: "the turn after the window the other way round", placeLaid: { image, cut, turns, window, size, flipped, after in
+            PiecePlacer.place(image, cut: cut, quarterTurns: turns, window: window, size: size, flipped: flipped, turnedAfter: 4 - after)
+        }),
+        Rules(name: "the turn after the window left out", placeLaid: { image, cut, turns, window, size, flipped, after in
+            let hole = after % 2 == 0 ? size : CGSize(width: size.height, height: size.width)
+            return PiecePlacer.place(image, cut: cut, quarterTurns: turns, window: window, size: hole, flipped: flipped, turnedAfter: 0)
+        }),
+    ]
+
+    static let adding: [Rules] = [
+        Rules(name: "a band written over the piece, not added to it", lay: { w, h, g, piece, scratch, render in
+            let n = PieceAdder.bands(width: w, height: h)
+            for b in 0..<n {
+                let r = PieceAdder.rows(b, of: n, height: h)
+                try render(scratch, r)
+                let s = scratch.assumingMemoryBound(to: Float.self), p = (piece + r.lowerBound * w * 16).assumingMemoryBound(to: Float.self)
+                for i in 0..<(r.count * w) { for c in 0..<3 { p[i * 4 + c] = g * s[i * 4 + c] } }
+            }
+        }),
+        Rules(name: "the gain left out", lay: { w, h, _, piece, scratch, render in
+            try PieceAdder.lay(width: w, height: h, gain: 1, into: piece, scratch: scratch, render: render)
+        }),
+        Rules(name: "the gain on alpha too", lay: { w, h, g, piece, scratch, render in
+            try PieceAdder.lay(width: w, height: h, gain: g, into: piece, scratch: scratch, render: render)
+            let p = piece.assumingMemoryBound(to: Float.self)
+            for i in 0..<(w * h) { p[i * 4 + 3] *= g }
+        }),
+        Rules(name: "every band added at the piece's top rows", lay: { w, h, g, piece, scratch, render in
+            let n = PieceAdder.bands(width: w, height: h)
+            for b in 0..<n {
+                let r = PieceAdder.rows(b, of: n, height: h)
+                try render(scratch, r)
+                PieceAdder.add(scratch, gain: g, into: piece, pixels: r.count * w)
+            }
+        }),
+        Rules(name: "the light added with one rounding (a fused multiply-add): the order of laying shows", lay: { w, h, g, piece, scratch, render in
+            let n = PieceAdder.bands(width: w, height: h)
+            for b in 0..<n {
+                let r = PieceAdder.rows(b, of: n, height: h)
+                try render(scratch, r)
+                let s = scratch.assumingMemoryBound(to: Float.self), p = (piece + r.lowerBound * w * 16).assumingMemoryBound(to: Float.self)
+                // `addingProduct` is IEEE fusedMultiplyAdd: p + g·s with one rounding, as `vDSP_vsma` may make it.
+                for i in 0..<(r.count * w) { for c in 0..<3 { p[i * 4 + c] = p[i * 4 + c].addingProduct(g, s[i * 4 + c]) } }
+            }
+        }),
+        Rules(name: "the piece's alpha left at 0", expose: { piece, pixels in
+            memset(piece, 0, pixels * 16)
+        }),
+    ]
 
     static let cutting: [Rules] = [
         Rules(name: "a hard cut: no feather at the frame's edge", cut: { layer, ls, base, bs, w, h, rect in
@@ -213,7 +299,10 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
 
     /// One picture under one hole, every pixel of the hole.
     /// `enlarge` is how many of the hole's pixels a pixel of the window is given: 1 is a pixel for a pixel.
-    func check(_ W: Int, _ H: Int, _ g: Geometry, _ p: HalfFramePair.Placement, aspect: Double, enlarge: Double, _ label: String) {
+    /// `flipped` and `after` are a double exposure's (RFC-048 §2): the turned picture mirrored across
+    /// before its window is taken, and the placed picture turned clockwise after.
+    func check(_ W: Int, _ H: Int, _ g: Geometry, _ p: HalfFramePair.Placement, aspect: Double, enlarge: Double, _ label: String,
+               flipped: Bool = false, after: Int = 0) {
         let size = CGSize(width: W, height: H)
         let picture = coordinatePicture(W, H)
         // The pair's own arithmetic: the frame as its owner cut it, turned by the placement, and the window of that.
@@ -223,24 +312,38 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
         guard rect.width >= 2, rect.height >= 2 else { expect(false, "\(label): the pair shows no part of the picture"); return }
         let window = CGRect(x: rect.minX / turned.width, y: rect.minY / turned.height,
                             width: rect.width / turned.width, height: rect.height / turned.height)
-        let hw = max(Int((rect.width * enlarge).rounded()), 1), hh = max(Int((rect.height * enlarge).rounded()), 1)
-        let placed = rules.place(picture, g, p.quarterTurns, window, CGSize(width: hw, height: hh))
+        // The hole before the turn after it (`pw` × `ph`), and as it is handed over (`hw` × `hh`).
+        let pw = max(Int((rect.width * enlarge).rounded()), 1), ph = max(Int((rect.height * enlarge).rounded()), 1)
+        let k2 = ((after % 4) + 4) % 4
+        let (hw, hh) = k2 % 2 == 0 ? (pw, ph) : (ph, pw)
+        let placed = flipped || k2 != 0 ? rules.placeLaid(picture, g, p.quarterTurns, window, CGSize(width: hw, height: hh), flipped, k2)
+                                        : rules.place(picture, g, p.quarterTurns, window, CGSize(width: hw, height: hh))
         let extent = placed.extent
         expect(abs(extent.minX) < 0.01 && abs(extent.minY) < 0.01 && abs(extent.width - CGFloat(hw)) < 0.01 && abs(extent.height - CGFloat(hh)) < 0.01,
                "\(label): the picture is the hole's size, at the origin (\(extent))")
         let got = pixels(placed, hw, hh)
         // A pixel for a pixel only where the window lies on whole pixels and is not enlarged.
         let whole = enlarge == 1 && rect.minX == rect.minX.rounded() && rect.minY == rect.minY.rounded()
-            && rect.width == CGFloat(hw) && rect.height == CGFloat(hh)
+            && rect.width == CGFloat(pw) && rect.height == CGFloat(ph)
         var worst = 0.0, greyed = 0, wrongSquare = 0
         let k = ((p.quarterTurns % 4) + 4) % 4
         for j in 0..<hh {
             for i in 0..<hw {
                 let o = (j * hw + i) * 4
                 let r = Double(got[o]), gr = Double(got[o + 1]), b = Int(got[o + 2])
-                // This pixel's place in the turned picture, with a top-left origin.
-                let xt = rect.minX + (CGFloat(i) + 0.5) / CGFloat(hw) * rect.width
-                let yt = rect.minY + (CGFloat(j) + 0.5) / CGFloat(hh) * rect.height
+                // This pixel's place in the hole before the turn after: turned back, as below.
+                let X = CGFloat(i) + 0.5, Y = CGFloat(j) + 0.5
+                let (u, v): (CGFloat, CGFloat)
+                switch k2 {
+                case 1: (u, v) = (Y, CGFloat(ph) - X)
+                case 2: (u, v) = (CGFloat(pw) - X, CGFloat(ph) - Y)
+                case 3: (u, v) = (CGFloat(pw) - Y, X)
+                default: (u, v) = (X, Y)
+                }
+                // Its place in the turned picture, with a top-left origin — mirrored back across when flipped.
+                var xt = rect.minX + u / CGFloat(pw) * rect.width
+                let yt = rect.minY + v / CGFloat(ph) * rect.height
+                if flipped { xt = turned.width - xt }
                 // Turned back: clockwise by a quarter, the picture's top-left corner is the turned one's top-right.
                 let xf: CGFloat, yf: CGFloat
                 switch k {
@@ -320,6 +423,131 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
     let held = PiecePlacer.shown(CGRect(x: -0.001, y: 0.7, width: 0.5, height: 0.3004), of: CGSize(width: 200, height: 120))
     expect(held.minX >= 0 && held.maxX <= 200.0001 && held.minY >= 0 && held.maxY <= 120.0001,
            "a window a rounding past the picture's edge is held inside it (\(held))")
+
+    // MARK: a double exposure's picture over its frame: flipped, and turned after its window (RFC-048 §2)
+
+    // A flip is after the placement's turns and before the window: the window's fractions are of the
+    // flipped picture, so a window at the left shows the picture's right, mirrored. Every pixel of the
+    // frame is held against that, at each turn, at the fit and moved, enlarged, through the frame's own cut.
+    let frame32 = 3.0 / 2, upright23 = 2.0 / 3
+    for turns in 0..<4 {
+        check(200, 120, geometry(), placement(turns: turns), aspect: frame32, enlarge: 1, "flipped, turned \(turns * 90)° over a 3:2 frame", flipped: true)
+        check(200, 120, geometry(), placement(scale: 2, x: -1, y: 0.4, turns: turns), aspect: frame32, enlarge: 1,
+              "flipped, enlarged 2× and moved to its left, turned \(turns * 90)°", flipped: true)
+        check(120, 200, geometry(), placement(scale: 1.3, x: 0.8, y: -0.6, turns: turns), aspect: upright23, enlarge: 1.5,
+              "an upright picture flipped over an upright frame, enlarged, turned \(turns * 90)°", flipped: true)
+    }
+    for (name, g) in [("cropped", geometry(x: 0.1, y: 0.2, w: 0.6, h: 0.5)), ("turned by itself", geometry(turns: 1)),
+                      ("flipped by itself, cropped", geometry(x: 0.05, y: 0.3, w: 0.7, h: 0.6, flipH: true))] {
+        check(200, 120, g, placement(scale: 1.5, x: 0.6, y: -0.3, turns: 1), aspect: frame32, enlarge: 1,
+              "a photograph \(name), flipped over the frame", flipped: true)
+    }
+    // A frame whose film edge is turned half round goes to the engine turned back, each picture turned after it is laid.
+    for after in 1..<4 {
+        check(200, 120, geometry(), placement(scale: 1.4, x: 0.3, y: 0.5), aspect: frame32, enlarge: 1, "turned \(after * 90)° after its window", after: after)
+        check(200, 120, geometry(), placement(scale: 2, x: -0.7, y: 1, turns: 1), aspect: frame32, enlarge: 0.8,
+              "turned 90° on the frame, flipped, and \(after * 90)° after its window", flipped: true, after: after)
+    }
+
+    // MARK: a double exposure's light, added (RFC-048 §2, §7)
+
+    // Two synthetic ramps in scene-linear — one across, one down and past 1 (scene light has no ceiling) —
+    // each laid with its gain into a piece of two of the decoder's 4 MP bands, uneven, as `FrameDecoder`
+    // lays an exposure: band by band into one scratch band, added on R, G and B. The piece starts as a
+    // buffer that held something else, so nothing of it may show.
+    do {
+        let w = 2003, h = 2011, n = w * h
+        expect(PieceAdder.bands(width: w, height: h) == 2 && PieceAdder.bandRows(width: w, height: h) == 1006,
+               "add: a 4.03 MP frame is two of the decoder's bands, of 1,005 and 1,006 rows")
+        expect(PieceAdder.bands(width: 8064, height: 6048) == Int((8064.0 * 6048 / 4_000_000).rounded(.up))
+               && PieceAdder.scratchBytes(width: 8064, height: 6048) <= 4_000_000 * 16 + 8064 * 16,
+               "add: at 48 MP the scratch is one of FrameDecoder's 4 MP bands, 64 MB and a row at most (\(PieceAdder.scratchBytes(width: 8064, height: 6048) >> 20) MB)")
+        typealias Ramp = (Int, Int, Int) -> Float
+        let A: Ramp = { x, _, c in Float(x) / Float(w) * 0.8 + Float(c) * 0.05 + 0.01 }
+        let B: Ramp = { _, y, c in Float(y) / Float(h) * 1.7 + Float(2 - c) * 0.11 + 0.003 }
+        let g1: Float = 0.37, g2: Float = 1.83
+        func drawn(_ f: @escaping Ramp) -> (UnsafeMutableRawPointer, Range<Int>) throws -> Void {
+            { band, rows in
+                let p = band.assumingMemoryBound(to: Float.self)
+                for (j, y) in rows.enumerated() {
+                    for x in 0..<w {
+                        let o = (j * w + x) * 4
+                        p[o] = f(x, y, 0); p[o + 1] = f(x, y, 1); p[o + 2] = f(x, y, 2); p[o + 3] = 0.25
+                    }
+                }
+            }
+        }
+        func compose(_ layers: [(Float, Ramp)]) -> [Float] {
+            var piece = [Float](repeating: 7, count: n * 4)
+            let scratch = UnsafeMutableRawPointer.allocate(byteCount: PieceAdder.scratchBytes(width: w, height: h), alignment: 64)
+            defer { scratch.deallocate() }
+            piece.withUnsafeMutableBytes { buffer in
+                rules.expose(buffer.baseAddress!, n)
+                for (g, f) in layers { try? rules.lay(w, h, g, buffer.baseAddress!, scratch, drawn(f)) }
+            }
+            return piece
+        }
+        let ab = compose([(g1, A), (g2, B)]), ba = compose([(g2, B), (g1, A)])
+        var worst = 0.0, notOpaque = 0
+        for y in 0..<h {
+            for x in 0..<w {
+                let o = (y * w + x) * 4
+                for c in 0..<3 {
+                    let want = Double(g1) * Double(A(x, y, c)) + Double(g2) * Double(B(x, y, c))
+                    worst = max(worst, abs(Double(ab[o + c]) - want) / want)
+                }
+                if ab[o + 3] != 1 { notOpaque += 1 }
+            }
+        }
+        expect(worst <= 1e-6, "add: the piece is g1·A + g2·B to 1e-6 (the furthest is \(worst))")
+        expect(notOpaque == 0, "add: alpha is 1 everywhere (\(notOpaque) pixels are not)")
+        let commutes = ab.withUnsafeBytes { a in ba.withUnsafeBytes { b in memcmp(a.baseAddress!, b.baseAddress!, a.count) == 0 } }
+        expect(commutes, "add: B laid then A is A then B, byte for byte")
+        let onlyA = compose([(g1, A)]), none = compose([])
+        var off = 0, dark = 0
+        for y in 0..<h {
+            for x in 0..<w {
+                let o = (y * w + x) * 4
+                for c in 0..<3 where onlyA[o + c] != g1 * A(x, y, c) { off += 1 }
+                if onlyA[o + 3] != 1 || none[o] != 0 || none[o + 1] != 0 || none[o + 2] != 0 || none[o + 3] != 1 { dark += 1 }
+            }
+        }
+        expect(off == 0, "add: an empty layer is zero light: one exposure alone is exactly its gain on its picture (\(off) channels are not)")
+        expect(dark == 0, "add: and with neither, the piece is unexposed film, alpha 1 (\(dark) pixels are not)")
+    }
+    // The same band walk drawn by Core Image as `FrameDecoder.add` draws it — each band's rows from the
+    // top, which are the image's h − r1 ..< h − r0 in Core Image's own y — against the whole picture
+    // rendered at once: a band upside down, or one row off, is a different frame.
+    //
+    // The picture is a float one of the frame's own size whose every pixel is its column and its row, so
+    // nothing is resampled and a row off shows as a whole code: placed flipped over the frame, its column
+    // comes back mirrored, its row as it is. (Enlarged, Core Image's own tiles round a row by a code of 255
+    // here and there whether it draws in bands or not, which is the decoder's already and not this.)
+    do {
+        let w = 2003, h = 2011
+        var source = [Float](repeating: 1, count: w * h * 4)
+        for y in 0..<h { for x in 0..<w { source[(y * w + x) * 4] = Float(x); source[(y * w + x) * 4 + 1] = Float(y) } }
+        let image = CIImage(bitmapData: source.withUnsafeBytes { Data($0) }, bytesPerRow: w * 16, size: CGSize(width: w, height: h),
+                            format: .RGBAf, colorSpace: nil)
+        let placed = rules.placeLaid(image, geometry(), 0, CGRect(x: 0, y: 0, width: 1, height: 1), CGSize(width: w, height: h), true, 0)
+        var piece = [Float](repeating: 0, count: w * h * 4)
+        let scratch = UnsafeMutableRawPointer.allocate(byteCount: PieceAdder.scratchBytes(width: w, height: h), alignment: 64)
+        defer { scratch.deallocate() }
+        piece.withUnsafeMutableBytes { buffer in
+            rules.expose(buffer.baseAddress!, w * h)
+            try? rules.lay(w, h, 1, buffer.baseAddress!, scratch) { band, rows in
+                context.render(placed, toBitmap: band, rowBytes: w * 16, bounds: CGRect(x: 0, y: h - rows.upperBound, width: w, height: rows.count),
+                               format: .RGBAf, colorSpace: nil)
+            }
+        }
+        var wrong = 0
+        for y in 0..<h {
+            for x in 0..<w where piece[(y * w + x) * 4] != Float(w - 1 - x) || piece[(y * w + x) * 4 + 1] != Float(y) || piece[(y * w + x) * 4 + 3] != 1 {
+                wrong += 1
+            }
+        }
+        expect(wrong == 0, "add: a picture drawn band by band as the decoder draws it, flipped over its frame, is every pixel where it belongs (\(wrong) are not)")
+    }
 
     // MARK: a frame's own print, cut into the film's
 

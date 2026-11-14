@@ -194,10 +194,12 @@ job decodes.
 
 ## 8. The ways in
 
-- **The library's grid** (`MacLibraryGrid`, `MacLibraryPage.makePair`): a picture's menu, **组成半格组 Make
-  Half-Frame Pair**, with one or two photographs chosen (a pair is never a hole of another). The frames are made
+- **图库 › 合成 › 半格组** (2026-11-12, `Mac/Layers/MacCombineMenu.swift`; before it a picture's menu said
+  组成半格组 Make Half-Frame Pair): the pull-down on the window's bar and the same item in a picture's menu, with
+  one or two photographs chosen (a pair is never a hole of another, and the item says so). The frames are made
   as Develop makes them, then `AppServices.makePair`. Two: the pair lands as a row of this library, chosen, the
-  library still in front. One: *Pair With* (`PairWay.ask`, `PairWithSheet` over `PairFramePicker`) asks for the
+  library still in front — **the first picked is the left frame** (`MacLibraryBrowser.picked`, `PickOrder`;
+  `makePair` lays two by the library's order, so `MacLibraryActions.makePair` swaps them where that differs). One: *Pair With* (`PairWay.ask`, `PairWithSheet` over `PairFramePicker`) asks for the
   second, then opens the pair's darkroom. **The frame the sheet was asked for is the pair's first hole, and stays
   in the pair** (`AppServices.makePair(…, beginsWithFirst:)`, `HalfFramePair.origin`).
 - **The Film Edge flow, on Half**: the Format line becomes the way into a pair (`PairFormatLink`).
@@ -207,10 +209,22 @@ job decodes.
   screen, `PairWay.leaveFilmEdge`), and *set one pushed page in another's place* (the stack keeps the page that
   was there and hands it the new id; `PairWay.make` sends the frame's page away first, without its animation).
 - **The pair's darkroom is the develop page** on the pair: one layer picked (`OpenFrameSession.layer`, `pick`), by
-  the switch or by a click on the piece, wearing the white frame. Film & Paper, the enlarger and Effects are the
-  develop page's own panels read for the layer; the frame's panels are the pair's own
-  (`Features/Develop/PairPanels.swift`). **The page a picture is placed on** is a cover over the darkroom
-  (`PairPlaceFlow`, `CoverRoute.pairPlace`), as Crop is for a photograph.
+  a row of the **图层 panel** (2026-11-12, `Features/Layers/`, `design/layers/LAYERS-SPEC.md`: 胶片 · 左格 · 右格,
+  turned 胶片 · 上格 · 下格, in the column under the histogram; the 44-unit switch under the picture is gone on the
+  Mac) or by a click on the piece, wearing the white frame. The views read one pick whichever piece it is
+  (`OpenFrameSession.layerPick`, `pick(row:)`). **胶片 picked, the column is the column**: Film & Paper and
+  Format, whose first section is the piece (`PairPiecePanel`). **A frame picked, the column is that frame's page**
+  and has no steps (`LayerPictureColumn`, the sections `LayerRules.page` names): 摆放, its own exposure with where
+  it lands and its meter (the wide column had the whole's alone until now), its white balance, its print
+  (`EnlargerGroup`, read for the layer), its date, and the photograph (replace, remove). Decode's White Balance
+  with 胶片 picked is one line and a way into each frame's (`LayerWhiteBalanceLinks`). **The pick is kept across
+  冲洗 and 编辑**: Edit works on the finished picture, so with a frame picked its tools stand down under a line that
+  says so (`LayerStandsDown`) — the two handlers in `DevelopWorkspace` that moved the pick to the film are gone.
+  **A picture is placed in the page** (`ArrangeStage`, 摆放, the bar's 裁剪 with a frame picked): the canvas is the
+  stage, every move written by `changePair` and developed where the pointer rests, the whole visit one step of
+  Undo (`OpenFrameSession.holdHistory`). The window pages' cover (`PairPlaceFlow`, `CoverRoute.pairPlace`) is
+  still what a narrow window shows. A pair has no crop in Edit: its finished picture is not cut
+  (`ExportService`).
 - A debug build opens the darkroom on a layer and a tab and makes an edit through `changePair` from launch
   arguments (`Features/Pair/PairDebug.swift`).
 

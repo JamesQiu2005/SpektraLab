@@ -223,6 +223,15 @@ takes a window of pull-backs on each side; on many frames the shadow side has no
 - `antihalation_removed` (RFC-044) is the film's backing layer, resolved by the engine's halation preset.
 - `digital_intermediate_blue_compensation` is sent only while the DI is on, so the Settings switch cannot move any
   other frame's stamp.
+- `scene_layers` (PRD-E's 场景 mask layers, RFC-052 §6, API-SPEC §23) is the stamp of the acting layers' set, sent
+  only where one acts; the planes and gains go beside it by `spk_set_scene_layers` (`SceneLayerWire`,
+  `SpkEngine.prepareSceneLayers`). It is a SHOOT field: the page asks a develop for it (`ChangeDescriber.layers` sees a
+  场景 layer's change as `.shoot`; a 成片 layer's never, §6.4), and a slider of a layer's page commits when the pointer
+  rests, as every film-side control (`OpenFrameSession.moveLayer`). With Apply Film Emulation off there is no engine:
+  the same stamp is put in the digital wire, and the host applies the layers on Apple's decode, linear ProPhoto in
+  float, by the node's expression (`SceneLayerHost`, `DigitalDecode.render(layers:)`, `EngineHost.digital`), before
+  the frame is encoded as the engine's result. That costs 16 B a pixel of the canvas while it runs, only where a layer
+  acts (M1a, 2026-11-13).
 
 ### 4.7 Black and white: what a host sends (2026-10-09)
 
@@ -238,6 +247,18 @@ off, in codes of 65,535):
 | no Extended Dynamic Range on the silver paper | `extended_dynamic_range` false | **refused**: "print profile 'ilford_multigrade_iv_rc' has no calibrated EDR tone map" — at the open, at an edit, and when a colour session with EDR on changes to the silver pair |
 | grain as one layer | `grain_sublayers_active` false on a black-and-white film, whatever the setting | the three sub-layers are the colour films' model and nothing on a black-and-white sheet supports the split |
 | each film's own grain | `grain_amount` = the slider × 1.70 (`kodak_tri_x_400`), 1.49 (`ilford_hp5_plus_400`), 0.74 (`kodak_tmax_100`), 0.64 (`fujifilm_neopan_acros_100_ii`), clamped to the wire's 0…2 | at the engine's own 1 the four render alike; at these they render the granularity each maker publishes |
+
+**Every colour film has its own grain too** (2026-11-11, the owner: "each colour film, negative and positive, has
+its own default grain"). The same multiplier, from the catalogue's `grain` (`tools/gen_catalog.py`, `COLOUR_GRAIN`):
+the Grain slider's 1 is the film's amount, sub-layers as the frame has them. Where the maker publishes a comparable
+diffuse RMS granularity (the slides, Vision3, Verita; CineStill 800T takes 500T's, its emulsion) the amount is that
+figure over what the engine renders at 1, measured 2026-10-07 (`research/colour-film-granularity.md`, ccbfadde):
+0.69 (50D) to 1.15 (Kodachrome 64). Kodak's still negatives publish only Print Grain Index and Fujifilm's negative
+figure is footnoted as not comparable — searched again on 2026-11-11, nothing — so theirs is the green-record
+granularity a Vision3 stock of the same speed has (4.498 × (ISO/50)^0.212, fitted on the four Vision3 sheets) over
+what the engine renders: Ektar 100 0.79, Portra 160 0.92, Gold 200 0.97, Portra 400 1.06, UltraMax 400 1.09,
+Portra 800 (and its pushes) 1.23, C200 0.70, X-TRA 400 0.74, Pro 400H 1.20. Every colour frame's wire moves by it,
+so every colour develop is made again; a paper has none.
 
 A black-and-white negative scanned (`scan_film`) needs none of the paper's three, and comes out grey (the largest
 channel spread 8 codes).
@@ -275,6 +296,9 @@ Not built: **a lens filter** (`camera_filter`, API-SPEC) and **the paper's grade
 - **The engine renders every job whole.** The scheduler still plans a mode — whole, bands, smaller bands — from its
   cost model (`CostModel`), and `.bands(rows)` is reported as the progress it planned, but nothing is handed to the
   engine for it (`SpkEngine.render`); the engine's own striped executor is not asked for (§4.2).
+- **A job's 场景 layers are priced** (`RenderJob.scenePlanes`, RFC-052 §8.5): their planes' bytes on its peak (16 bits
+  a texel of a plane at most 4,096 px long, 22 MB at most), and the node's time as API-SPEC §23 measured it (about
+  0.096 ms a megapixel of the canvas and 0.011 ms more a layer). `tools/scheduler_selftest.swift` holds both.
 - **`full` is never a reduced size.** A job below the full tier is decoded no larger than its canvas; a full-tier job
   decodes the original at its own size.
 
@@ -326,6 +350,30 @@ Not a job and not the engine: a pointwise pass on the GPU over a picture that is
 (`Engine/Layer2Renderer.swift`, `Layer2Kernel.swift`), which is why it follows the pointer. The page's picture, a tile's
 copy, an export and the zoom all run the same functions. `tools/layer2_selftest.swift` runs the kernels on the Mac's
 GPU against a reference.
+
+**成片 layers** (PRD-E, RFC-052 §7, 2026-11-13; `Engine/Layer2Local.swift`). A 成片 layer is a local amount of Edit's
+eleven scalar controls: per pixel `c(x) = c₀ + Σ kᵢ(x)·Δcᵢ` in the sliders' units, then the slider's own mapping
+(`Layer2Uniforms.tone`) in the kernel, then the tone as it is; the curve, colour balance, HSL, the mixer and the
+vignette stay the whole picture's. The local kernels are new entry points in a library of their own (`spkLayer2Local`,
+`…Float`, `…Histogram`, `spkLayer2OutLocal`, `spkLayer2Out8Local`, `spkFullDetailLocal`); their tone is made at run time
+from `Layer2Kernel.functions` with the block in thread memory (`Layer2Local.derived`), so it is not a second copy. With no
+acting layer every caller dispatches today's kernels, untouched. Each caller carries `FinishedLayers` (from
+`AppServices.finishedLayers`: the acting layers and the finished canvas → S, `MaskFrame.finished`, with a film edge's
+`pictureBox`) and composes its own place:
+
+| caller | its pixels | matrix | planes |
+|---|---|---|---|
+| the page (`Layer2Live`) and its histogram's copy | the finished canvas (the develop) | `toSource` | baked on the pass's queue before the pass |
+| a tile's copy (`Layer2Copies`) | the kept develop | `toSource` | on the copies' queue; the file's name carries the layers' key |
+| the zoom (`FullDetail`) | the full render, before the host's turns | `matrix(turnsAfter:)` | awaited before the detail task |
+| the export (`Layer2Export`, `ExportOrder.layers`) | the engine's result, before the host's turns | `matrix(turnsAfter:)` | on the engine's queue at delivery |
+
+Every surface reads the same canonical plane (`MaskBaker`, its store keyed by `planeKey`, the 场景 stage's too); Edit's
+crop is made after the pass everywhere, so it is in no matrix. No surface draws without its planes: the page keeps the
+picture it last showed until the pass lands; the zoom keeps its detail; a copy or an export whose plane cannot be made
+fails rather than lose the layer. A slide's HDR map is its curve's, not the ratio, under a layer as under Edit
+(`HDRGain.export`, `FrameEdit.editPassActs`). `tools/layer2_local_selftest.swift` holds the identity per control, half
+coverage, neutral to the bit and the geometry; `tools/finished_layers_check.sh` the five surfaces in the running app.
 
 ## 7. Analysis calls
 

@@ -61,6 +61,11 @@ struct Rules {
     var has: (WorkingCopies, UUID, String) -> Bool = { $0.has($1, named: $2) }
     /// A RAW's proxy written or read (`RawProxy`), in the copies' book and under their limit.
     var noteProxy: (WorkingCopies, URL, Int64) -> Void = { $0.noteProxy($1, bytes: $2) }
+    /// A proxy's name, by what it is of (`RawProxyName`): the frame is handed in so that a broken rule can use it.
+    var proxyName: (UUID, String, String, Int) -> String = { _, path, key, edge in
+        RawProxyName.of(sourcePath: path, pixelsKey: key, longEdge: edge, decoder: "decode.1", system: "test") }
+    /// Frames leave the library, with the proxies they named (`remove(_:proxies:)`).
+    var removeNamed: (WorkingCopies, [UUID], Set<String>) -> Void = { $0.remove($1, proxies: $2) }
     /// A full render written, shown or read: the most recently used, and the renders held to their limit.
     var noteFull: (WorkingCopies, URL, Int64) -> Void = { $0.noteFull($1, bytes: $2) }
     /// Which full renders go for what is left to fit their limit.
@@ -168,10 +173,50 @@ struct Rules {
         }
         rule("a proxy is not under the copies' limit") { r in
             r.noteProxy = { c, url, bytes in
-                let held = c.inUse
-                c.inUse = { Set(c.copies.keys).union(c.proxies.keys.compactMap(WorkingCopies.proxyFrame)) }
-                defer { c.inUse = held }
-                c.noteProxy(url, bytes: bytes)
+                let held = c.proxyNames
+                c.proxyNames = { _ in Set(c.proxies.keys).union([url.lastPathComponent]) }
+                defer { c.proxyNames = held }
+                holdingEverything(c) { c.noteProxy(url, bytes: bytes) }
+            }
+        }
+        rule("a proxy is named by its frame (2.3.x)") { r in
+            r.proxyName = { frame, path, key, edge in
+                frame.uuidString + "-" + RawProxyName.of(sourcePath: (path as NSString).lastPathComponent, pixelsKey: key, longEdge: edge,
+                                                         decoder: "decode.1", system: "test") }
+        }
+        rule("a proxy is named by its file's name, not its path") { r in
+            r.proxyName = { _, path, key, edge in
+                RawProxyName.of(sourcePath: (path as NSString).lastPathComponent, pixelsKey: key, longEdge: edge, decoder: "decode.1", system: "test") }
+        }
+        rule("a frame removed takes a proxy another frame names") { r in
+            r.removeNamed = { c, ids, named in
+                let all = c.proxyNames
+                c.proxyNames = { _ in [] }
+                defer { c.proxyNames = all }
+                c.remove(ids, proxies: named)
+            }
+        }
+        rule("a frame removed leaves its proxy") { $0.removeNamed = { c, ids, _ in c.remove(ids) } }
+        rule("the limit takes a proxy a frame being read names") { r in
+            r.setLimit = { c, limit in
+                let all = c.proxyNames
+                c.proxyNames = { _ in [] }
+                defer { c.proxyNames = all }
+                c.limit = limit
+            }
+        }
+        rule("the launch's sweep keeps a 2.3.x proxy whose frame is in the library") { r in
+            r.sweepLibrary = { c, known, library in
+                // As 2.3.x kept them: set aside past the sweep and put back.
+                let fm = FileManager.default
+                let kept = c.proxies.filter { !WorkingCopies.isSharedProxy($0.key) && (WorkingCopies.proxyFrame($0.key).map(library.contains) ?? false) }
+                let aside = fm.temporaryDirectory.appendingPathComponent("aside-" + UUID().uuidString, isDirectory: true)
+                try? fm.createDirectory(at: aside, withIntermediateDirectories: true)
+                for (name, p) in kept { try? fm.moveItem(at: p.url, to: aside.appendingPathComponent(name)) }
+                let n = c.sweep(known: known, library: library)
+                for (name, p) in kept { try? fm.moveItem(at: aside.appendingPathComponent(name), to: p.url) }
+                try? fm.removeItem(at: aside)
+                return n
             }
         }
         rule("a written full render does not hold the renders' limit") { r in
@@ -221,11 +266,18 @@ struct Rules {
         rule("a full render read is not a use") { r in
             r.noteFull = { c, url, bytes in if c.fulls[url.lastPathComponent] == nil { c.noteFull(url, bytes: bytes) } }
         }
-        rule("the launch's sweep takes a copied-in RAW's proxy") { r in
-            r.sweepLibrary = { c, known, _ in c.sweep(known: known) }
-        }
-        rule("the launch's sweep leaves a removed frame's proxy") { r in
-            r.sweepLibrary = { c, known, library in c.sweep(known: known, library: library.union(c.proxies.keys.compactMap(WorkingCopies.proxyFrame))) }
+        // The 2.3.x-and-before rule of this branch (64f0a15b, the review): every proxy no frame names went at launch,
+        // a frame's whose original is away (a drive unplugged) among them.
+        rule("the launch's sweep takes a proxy no frame names (an original away)") { r in
+            r.sweepLibrary = { c, known, library in
+                let n = c.sweep(known: known, library: library)
+                let named = c.proxyNames(nil)
+                for (name, proxy) in c.proxies where !named.contains(name) {
+                    try? FileManager.default.removeItem(at: proxy.url)
+                    _ = c.hasProxy(proxy.url)
+                }
+                return n
+            }
         }
         rule("the launch's sweep leaves what a fetch ended in the middle left") { r in
             r.sweep = { c, known in
@@ -538,16 +590,36 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
 
     // MARK: a RAW's proxy, in the copies' book
 
+    // A proxy is named by a file and its decode, not by a frame (PRD-G §5, 2026-11-13): two frames of one RAW with
+    // one decode — PRD-G's variants — share one, and so the book asks which frames name a proxy (`proxyNames`).
+    do {
+        let decode = "asShot|lens|raw=source-reference.2", other = "kelvin|5500|0|lens|raw=source-reference.2"
+        let v1 = UUID(), v2 = UUID()
+        let one = rules.proxyName(v1, "/Volumes/Card/DCIM/DSC00001.ARW", decode, 1920)
+        let two = rules.proxyName(v2, "/Volumes/Card/DCIM/DSC00001.ARW", decode, 1920)
+        expect(one == two, "two frames of one file and one decode name one proxy (\(one), \(two))")
+        expect(rules.proxyName(v2, "/Volumes/Card/DCIM/DSC00001.ARW", other, 1920) != one, "another white balance is another proxy")
+        expect(rules.proxyName(v2, "/Volumes/Card/DCIM/DSC00001.ARW", decode, 2560) != one, "another size is another proxy")
+        expect(rules.proxyName(v1, "/Volumes/Other/DCIM/DSC00001.ARW", decode, 1920) != one,
+               "two files of one name in two folders are two proxies")
+        expect(one.hasPrefix("raw-") && one.hasSuffix(".spkraw") && !one.contains(v1.uuidString) && WorkingCopies.isSharedProxy(one),
+               "and the name holds no frame (\(one))")
+    }
     do {
         let pfolder = ground.appendingPathComponent("WorkingCopiesProxies", isDirectory: true)
         let book = WorkingCopies(folder: pfolder, limit: 1000)
         book.now = { clock }
+        // The proxy each frame names now, as the app answers (`EngineRouter.proxyNames`).
+        var names: [UUID: String] = [:]
+        book.proxyNames = { ids in Set((ids.map(Array.init) ?? Array(names.keys)).compactMap { names[$0] }) }
         let photo = UUID(), b1 = UUID(), b2 = UUID(), b3 = UUID(), b4 = UUID(), gone = UUID()
-        /// A proxy of `frame` written at `seconds`, and told to the book.
+        /// A proxy of `frame`'s own file, written at `seconds`, and told to the book.
         @discardableResult
         func proxy(_ frame: UUID, _ bytes: Int, at seconds: TimeInterval) -> URL {
             clock = at(seconds)
-            let url = book.proxyFolder!.appendingPathComponent(frame.uuidString + "-0123456789abcdef.spkraw")
+            let name = rules.proxyName(frame, "/Volumes/Card/\(frame.uuidString).ARW", "asShot", 1920)
+            names[frame] = name
+            let url = book.proxyFolder!.appendingPathComponent(name)
             write(bytes, to: url)
             rules.noteProxy(book, url, Int64(bytes))
             return url
@@ -563,26 +635,61 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
         expect(!exists(p1) && exists(p2) && exists(p3), "and the proxy read longest ago goes as readily as a copy")
         book.inUse = { [b2] }
         let p4 = proxy(b4, 400, at: 50)
-        expect(exists(p2) && !exists(p3) && exists(p4), "a proxy of a frame being read is never taken: the next oldest goes")
+        expect(exists(p2) && !exists(p3) && exists(p4), "a proxy a frame being read names is never taken: the next oldest goes")
         book.inUse = { [] }
         let again = WorkingCopies(folder: pfolder, limit: 1000)
         expect(again.proxies.count == 2 && again.bytes == 800, "a launch finds the proxies in the folder (\(again.proxies.count), \(again.bytes) bytes)")
         // The launch's sweep: no frame of this library is read from Photos; b2 and b4 are copied-in RAWs.
-        let stray = book.proxyFolder!.appendingPathComponent(gone.uuidString + "-0123456789abcdef.spkraw")
-        write(100, to: stray)
+        // A frame of the library whose original is away (its drive unplugged): no frame names its proxy now
+        // (`EngineRouter.proxy` needs the file), but it is not gone.
+        let away = book.proxyFolder!.appendingPathComponent(rules.proxyName(gone, "/Volumes/Unplugged/away.ARW", "asShot", 1920))
+        write(100, to: away)
+        // A proxy of 2.3.x: its frame's id first. Its frame is still in the library, but no frame names it now.
+        let older = book.proxyFolder!.appendingPathComponent(b2.uuidString + "-0123456789abcdef.spkraw")
+        write(100, to: older)
         let partial = book.proxyFolder!.appendingPathComponent(".partial-" + UUID().uuidString)
         write(100, to: partial)
         let late = WorkingCopies(folder: pfolder, limit: 1000)
+        late.proxyNames = book.proxyNames
+        expect(late.proxies.count == 4, "a launch finds a 2.3.x proxy and today's side by side (\(late.proxies.count))")
         _ = rules.sweepLibrary(late, [], [b2, b4])
-        expect(exists(p2) && exists(p4), "the launch's sweep keeps the proxy of every frame in the library, from Photos or not")
-        expect(!exists(stray), "and takes the proxy of a frame no longer in it")
+        expect(exists(p2) && exists(p4), "the launch's sweep keeps every proxy a frame of the library names, from Photos or not")
+        expect(exists(away), "and leaves a proxy no frame names now -- its original away -- to the shared limit")
+        expect(!exists(older), "and takes a proxy of 2.3.x, its frame or not: its next open makes it again")
         expect(!exists(partial), "and what a proxy the app was ended in the middle of writing left")
         late.inUse = { [b4] }
         late.clear()
-        expect(!exists(p2) && exists(p4), "Clear Working Copies takes the proxies too, never one of a frame being read")
+        expect(!exists(p2) && exists(p4), "Clear Working Copies takes the proxies too, never one a frame being read names")
         late.inUse = { [] }
-        late.remove([b4])
-        expect(!exists(p4) && late.bytes == 0, "a frame that leaves the library takes its proxy with it")
+        let leaving = late.proxyNames([b4])
+        names[b4] = nil
+        rules.removeNamed(late, [b4], leaving)
+        expect(!exists(p4) && late.bytes == 0, "a frame that leaves the library takes the proxy it named with it")
+
+        // Two variants of one file and one decode: one proxy, kept while either names it (PRD-G §6.6).
+        let v1 = UUID(), v2 = UUID(), v3 = UUID()
+        let shared = rules.proxyName(v1, "/Volumes/Card/DSC07777.ARW", "asShot", 1920)
+        names[v1] = shared
+        names[v2] = rules.proxyName(v2, "/Volumes/Card/DSC07777.ARW", "asShot", 1920)
+        names[v3] = rules.proxyName(v3, "/Volumes/Card/DSC07777.ARW", "kelvin|3200|0", 1920)
+        let sharedURL = late.proxyFolder!.appendingPathComponent(shared)
+        clock = at(60); write(300, to: sharedURL); rules.noteProxy(late, sharedURL, 300)
+        let own = late.proxyFolder!.appendingPathComponent(names[v3]!)
+        clock = at(61); write(300, to: own); rules.noteProxy(late, own, 300)
+        expect(Set(late.proxies.keys) == [shared, names[v3]!], "two variants with one decode keep one proxy; another white balance, a second")
+        late.inUse = { [v2] }
+        rules.setLimit(late, 300)
+        expect(exists(sharedURL) && !exists(own), "the limit keeps the proxy the variant being read names, though another frame made it")
+        late.inUse = { [] }
+        rules.setLimit(late, 1000)
+        let ofV1 = late.proxyNames([v1])
+        names[v1] = nil
+        rules.removeNamed(late, [v1], ofV1)
+        expect(exists(sharedURL), "a variant removed leaves the proxy the other still names")
+        let ofV2 = late.proxyNames([v2])
+        names[v2] = nil
+        rules.removeNamed(late, [v2], ofV2)
+        expect(!exists(sharedURL), "and the last one removed takes it")
 
         // The full-size renders (`FullRender`): in the same book, under a limit of their own, an LRU by bytes.
         expect(rules.leavingFull([:], 0, []) == [], "no renders, none go")
@@ -632,7 +739,8 @@ func run(_ rules: Rules, quiet: Bool) -> (passed: Int, failed: [String]) {
         expect(relaunched.proxies.isEmpty, "and not among the proxies")
         // Their limit, not the copies': a proxy of 900 bytes under the copies' 1,000 stays beside 1,000 of renders.
         clock = at(115)
-        let px = fb.proxyFolder!.appendingPathComponent(r5.uuidString + "-0123456789abcdef.spkraw")
+        let px = fb.proxyFolder!.appendingPathComponent(RawProxyName.of(sourcePath: "/Volumes/Card/r5.ARW", pixelsKey: "asShot", longEdge: 1920,
+                                                                         decoder: "decode.1", system: "test"))
         write(900, to: px)
         rules.noteProxy(fb, px, 900)
         expect(exists(px) && exists(u4) && exists(u5), "the renders are not counted in the copies' limit, nor the copies in theirs")

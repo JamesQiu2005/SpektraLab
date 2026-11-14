@@ -534,7 +534,7 @@ struct HalfFramePair: Codable, Equatable, Sendable {
     /// `Session.derivedFilmFormatMM`. The engine is handed the whole piece,
     /// so its long edge is that many of the frame's.
     func filmFormatMM(frameLongMM: Double = 24) -> Double {
-        (pieceLongMM * frameLongMM / Self.holeMM.across).clamped(to: 4...200)
+        (pieceLongMM * frameLongMM / Self.holeMM.across).clamped(to: FilmParams.filmFormatRange)
     }
 
     /// `scene_latitude_split`: the middle of the gap along the piece's long
@@ -573,8 +573,10 @@ struct HalfFramePair: Codable, Equatable, Sendable {
     static func meterKey(hole: Hole, method: String) -> String {
         let d = hole.decode
         let g = hole.geometry
+        // The lens's fields where they are not at rest, and whose correction it is where the app corrects a frame by its
+        // name (a Sony's: `DecodeSettings.meterLensWord`): "" for every other frame, whose key is what it was.
         return [hole.frame?.uuidString ?? hole.path, d.whiteBalance.rawValue + d.exposureKey, String(d.temperature), String(d.tint),
-                String(d.lensCorrection), method,
+                String(d.lensCorrection) + d.meterLensWord(fileName: hole.path), method,
                 "\(g.crop.x),\(g.crop.y),\(g.crop.width),\(g.crop.height),\(g.quarterTurns)"].joined(separator: "|")
     }
 
@@ -1051,7 +1053,7 @@ extension HalfFramePair {
                 back.active = true
                 back.placement = .frame
                 // The data face prints between frames: without a strip there is nowhere for it.
-                if back.style == .data, !onStrip { back.style = .lcd }
+                if back.style == .perfs || (back.style == .data && !onStrip) { back.style = .lcd }
                 self[side.other]?.dated = false
             }
             self[side]?.dated = true

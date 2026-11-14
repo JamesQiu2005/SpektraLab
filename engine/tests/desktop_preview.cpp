@@ -300,7 +300,7 @@ void edit_controls(const fs::path& resources, const fs::path& raw, const fs::pat
     const std::array<Range, 8> ranges{{
         {&RenderSettings::print_exposure, 0.05, 20},
         {&RenderSettings::film_exposure_ev, -8, 8},
-        {&RenderSettings::film_format_mm, 4, 200},
+        {&RenderSettings::film_format_mm, 3, 300},
         {&RenderSettings::grain_amount, 0, 2},
         {&RenderSettings::halation_amount, 0, 4},
         {&RenderSettings::glare_amount, 0, 30},

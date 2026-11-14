@@ -32,7 +32,7 @@ struct ColourWheelsTool: View {
     static let column: CGFloat = 136
 
     var body: some View {
-        let balance = session.adjustments.colorBalance
+        let balance = session.shownAdjustments.colorBalance
         let masterH: CGFloat = balance.master.isNeutral ? 0 : 34
         GeometryReader { geo in
             let side = min(height - 52 - masterH - 20, geo.size.width - 12 - Self.column)
@@ -47,8 +47,8 @@ struct ColourWheelsTool: View {
                 }
                 .frame(maxWidth: .infinity)
                 EditSlider(title: L("Luminance"), value: Binding(
-                    get: { session.adjustments.colorBalance[zone].luminance * 100 },
-                    set: { v in session.changeEdit { $0.colorBalance[zone].luminance = v / 100 } }),
+                    get: { session.shownAdjustments.colorBalance[zone].luminance * 100 },
+                    set: { v in session.moveEdit { $0.colorBalance[zone].luminance = v / 100 } }),
                     range: -100...100, track: [Color(hex: 0x2A2A29), Color(hex: 0xBDBBB7)], detentAtRest: true,
                     editing: { $0 ? session.beganEdit() : session.endedEdit() })
                     .accessibilityIdentifier("adjust.wheels.luminance")

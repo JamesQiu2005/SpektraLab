@@ -53,7 +53,7 @@ enum LightTableSizing {
     ///
     /// so 172.7 × 5,000 / 105, rounded up: **8,224 px** (its short side 61.15 mm, 2,912). Every format is
     /// read pixel for pixel in a 5,000 px A6 export; only a film larger than that (a format to come) is read
-    /// shrunk to it. A plain frame (no film edge) can be up to 200 mm at its `filmFormatMM`, but the Mac lays
+    /// shrunk to it. A plain frame (no film edge) can be up to 300 mm at its `filmFormatMM`, but the Mac lays
     /// none on the table (`MacLightTableCarry.takes`); where one is laid, it too is read at most this.
     static let sourceCeiling: Int = {
         let densest = Double(LightTableExportPlan.shortEdges.upperBound)

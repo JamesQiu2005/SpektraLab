@@ -46,7 +46,11 @@ bool transfer(int fd, void* memory, size_t size, off_t offset, bool write) {
     return true;
 }
 }
-DiskCheckpoint& DiskCheckpoint::shared() { static DiskCheckpoint slot; return slot; }
+// Never destroyed (2026-11-13): a render may still be restoring or saving while a quit's `exit()` runs the statics'
+// destructors, which closed the file and destroyed the mutex under it ("mutex lock failed" at quit;
+// app/SpektraLab/tools/exit_render_check.swift). Its file is a `tmpfile()`, unlinked already: the process's end
+// takes it.
+DiskCheckpoint& DiskCheckpoint::shared() { static DiskCheckpoint& slot = *new DiskCheckpoint; return slot; }
 DiskCheckpoint::~DiskCheckpoint() { clear(); }
 void DiskCheckpoint::clear() {
     if (file_) std::fclose(file_);

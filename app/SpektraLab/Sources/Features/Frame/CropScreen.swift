@@ -242,6 +242,10 @@ private struct CropPage: View {
         .onReceive(NotificationCenter.default.publisher(for: MacDriver.cropFlip)) { _ in
             withAnimation(glide) { geometry.flipH.toggle() }
         }
+        // `crop.done` on the cover: its Done pressed (in the page, the header's Crop is `finishes`).
+        .onReceive(NotificationCenter.default.publisher(for: MacDriver.cropDone)) { _ in
+            if inline == nil { done() }
+        }
         #endif
     }
 
@@ -317,7 +321,9 @@ private struct CropPage: View {
     /// Edit keeps its own"). What is under way is not carried across — each is the crop it names.
     private var cropTargetSwitch: some View {
         HStack(spacing: 0) {
-            ForEach([CropTarget.source, .finished], id: \.self) { side in
+            // A double exposure has the finished picture's crop alone: each exposure is cut by its own photograph
+            // and laid by 摆放, and the whole wears no cut before the film (`FrameEdit.asDoubleLook`).
+            ForEach(frame.isDouble ? [CropTarget.finished] : [CropTarget.source, .finished], id: \.self) { side in
                 Button { switchCrop(to: side) } label: {
                     Text(side == .source ? L("The picture, before the film") : L("The finished picture"))
                         .font(Theme.Font.ui(12, target == side ? .semibold : .medium))
@@ -452,7 +458,7 @@ private struct CropPage: View {
             let session = model.openSession(frame.id)
             let base = DevelopedFrameView(frame: frame, edit: session?.edit, pointSize: points,
                                           developed: session?.developed, cropsPrint: false)
-            if let session, session.edit.adjustments.isActive, session.layer2.picture != nil {
+            if let session, session.edit.editPassActs, session.layer2.picture != nil {
                 Layer2Picture(live: session.layer2, pointSize: points) { base }
             } else {
                 base
@@ -1300,13 +1306,13 @@ private struct CropPage: View {
             let placed = framing
             let moves = heldByFilm && placed != frame.edit.filmEdge.framing
             if cut != frame.edit.geometry || moves {
-                model.change(frame.id) {
+                model.change(frame.id, as: .flow, .crop) {
                     $0.geometry = cut
                     if moves { $0.filmEdge.framing = placed }
                 }
             }
         case .finished:
-            if cut != frame.edit.printCrop { model.change(frame.id) { $0.printCrop = cut } }
+            if cut != frame.edit.printCrop { model.change(frame.id, as: .flow, .printCrop) { $0.printCrop = cut } }
         }
         close()
     }

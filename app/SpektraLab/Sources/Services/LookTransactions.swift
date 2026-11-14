@@ -4,7 +4,7 @@ extension AppServices {
     /// Shared by the visible Develop/Edit Paste action and its workflow check.
     @discardableResult func pasteSettings(into session: OpenFrameSession) -> Bool {
         guard let clip = library.clipboard, clip.missingMaterials.isEmpty else { return false }
-        applyLook(clip, to: session)
+        session.recording(.paste, .paste(from: clip.sourceName)) { applyLook(clip, to: session) }
         return true
     }
 
@@ -47,6 +47,18 @@ extension AppServices {
         } else {
             session.change { $0 = $0.resetting(scope) }
         }
+    }
+
+    /// **Paste Settings onto frames with no page open** (the Mac's grid, ⌘V over a selection): the library's
+    /// paste (`FrameCatalog.paste`), and one step of history on each frame it changed (PRD-F §3.3, §8.4).
+    /// Returns the frames that must develop again, as `FrameCatalog.paste` does.
+    @discardableResult
+    func pasteOntoLibrary(_ clip: SettingsClip, onto ids: Set<LibraryFrame.ID>) -> [LibraryFrame.ID] {
+        let before = Dictionary(ids.compactMap { id in historyRevision(id).map { (id, $0) } }, uniquingKeysWith: { a, _ in a })
+        let redo = library.paste(onto: ids, clip: clip)
+        let label = HistoryLabel.paste(from: clip.sourceName)
+        for (id, was) in before { recordStep(id, before: was, origin: .paste, label: label) }
+        return redo
     }
 
     /// Single photos use the same pure leaf transfer as the clipboard. On a

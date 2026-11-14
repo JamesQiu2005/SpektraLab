@@ -150,9 +150,15 @@ bool Pipeline::build(const Params& params, std::string& error) {
                 "engine; it always evaluates the exact spectral integral";
         return false;
     }
-    if (params_.camera.diffusion_filter.active || params_.enlarger.diffusion_filter.active) {
-        error = "diffusion filters are not implemented by the native engine";
+    // API-SPEC §21.5: the camera's diffusion filter is the lens pass's on the
+    // source (`lens.cpp`, `lens_source`); the enlarger's stays refused.
+    if (params_.enlarger.diffusion_filter.active) {
+        error = "the enlarger's diffusion filter is not implemented by the native engine";
         return false;
+    }
+    if (params_.camera.diffusion_filter.active) {
+        diffusion::Psf psf;
+        if (!diffusion::build_psf(params_.camera.diffusion_filter, psf, error)) return false;
     }
     if (params_.io.crop || params_.io.upscale_factor != 1.0) {
         error = "the legacy io.crop / io.upscale_factor path is not implemented by the native "
@@ -357,9 +363,11 @@ bool Pipeline::build(const Params& params, std::string& error) {
         baked_.di_curve_y = gpu_->upload_persistent_f32(di_.curve.y.data(), di_.curve.y.size(), error);
         if (!baked_.di_chd || !baked_.di_zero_base || !baked_.di_ixs || !baked_.di_curve_x ||
             !baked_.di_curve_inv || !baked_.di_curve_y) return false;
+        if (!spectral_rows(di_.chd, zero, di_.ixs, di_rows_, error)) return false;
     }
 
     // --- print curves -------------------------------------------------------
+    Vec print_curves_host;   // the paper's range, for `negative_hue_` below
     if (!params_.io.scan_film && !di_active_) {
         Vec morphed;
         if (!print_curves_morph(print.data.log_exposure, print.data.model,
@@ -374,6 +382,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
         baked_.print_curve_inv = gpu_->upload_persistent_f32(t.inv.data(), t.inv.size(), error);
         baked_.print_curve_y = gpu_->upload_persistent_f32(t.y.data(), t.y.size(), error);
         if (!baked_.print_curve_x || !baked_.print_curve_inv || !baked_.print_curve_y) return false;
+        print_curves_host = std::move(morphed);
     }
 
     // --- the scanner's spectral integral and its illuminant ----------------
@@ -393,6 +402,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
         baked_.scan_base = gpu_->upload_persistent_f32(sc.base_density.data(), sc.base_density.size(), error);
         baked_.scan_ixs = gpu_->upload_persistent_f32(sc.illum_x_sens.data(), sc.illum_x_sens.size(), error);
         if (!baked_.scan_chd || !baked_.scan_base || !baked_.scan_ixs) return false;
+        if (!spectral_rows(sc.channel_density, sc.base_density, sc.illum_x_sens, scan_rows_, error)) return false;
         if (scan_hdr_.active) {
             double table[6];
             scan_hdr_scan_table(scan_hdr_, table);
@@ -422,6 +432,39 @@ bool Pipeline::build(const Params& params, std::string& error) {
         transposed(m, row);   // spk_matmul3's convention
         baked_.xyz_to_rgb = gpu_->upload_persistent_f32(row, 9, error);
         if (!baked_.xyz_to_rgb) return false;
+
+        // --- the print's hue, from the negative (core/negative_hue.hpp) ------
+        // Every colour negative printed on a colour paper that no calibrated
+        // table covers. `SPK_V2_REFERENCE_OPTICAL` stays what the parity
+        // harnesses mean by it: the optical print and nothing else.
+        // `SPK_NEGATIVE_HUE=0` is the same for this node alone, and `=force`
+        // puts it in a catalogued pair's place (the comparison with its table).
+        negative_hue_active_ = false;
+#ifdef __APPLE__
+        {
+            const char* sw = std::getenv("SPK_NEGATIVE_HUE");
+            const bool off = std::getenv("SPK_V2_REFERENCE_OPTICAL") || (sw && std::string(sw) == "0");
+            const bool force = sw && std::string(sw) == "force" && !std::getenv("SPK_V2_REFERENCE_OPTICAL");
+            if (force && minilab_active_) { minilab_active_ = false; minilab_table_ = {}; }
+            // A colour negative on a colour paper, said positively: a black-and-white stock is
+            // "bw" here, three layers that record one thing, and has no hue to read.
+            std::string hue_error;
+            if (!off && !minilab_active_ && !di_active_ && !params_.io.scan_film &&
+                !film.info.is_positive() && !print.info.is_positive() &&
+                film.info.channel_model == "color" && print.info.channel_model == "color" &&
+                // A film this cannot be set up for prints as it always did: the optical print is
+                // a complete picture, and a refinement that cannot run is not a reason to refuse it.
+                negative_hue_constants(*colour_, *blob_, params_, tc_lut_host_, baked_.tc_lut_side, tc_b_host_,
+                                       sc, illum_xy, print_curves_host, negative_hue_, hue_error)) {
+                const NegativeHue& nh = negative_hue_;
+                negative_hue_layers_ = gpu_->upload_persistent_f32(nh.layers.data(), nh.layers.size(), error);
+                negative_hue_gamut_ = gpu_->upload_persistent_f32(nh.gamut.data(), nh.gamut.size(), error);
+                negative_hue_map_ = gpu_->upload_persistent_f32(nh.map.data(), nh.map.size(), error);
+                if (!negative_hue_layers_ || !negative_hue_gamut_ || !negative_hue_map_) return false;
+                negative_hue_active_ = true;
+            }
+        }
+#endif
     }
 
     // --- the output transfer function's near-identity matrix ---------------
@@ -520,23 +563,33 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += params_.camera.auto_exposure ? 1 : 0;                 // auto_exposure
     node_count_ += 1;                                                    // crop_rescale
     node_count_ += scene_latitude_wanted() ? 1 : 0;                      // RFC-023
+    node_count_ += scene_layers_wanted() ? 1 : 0;                        // RFC-052's 场景 layers
     node_count_ += scene_curve_wanted() ? 1 : 0;                         // the Decode curve
     node_count_ += 1;                                                    // upsample
-    node_count_ += 1;                                                    // exposure
+#ifndef __APPLE__
+    node_count_ += 1;                                                    // exposure (Metal: inside upsample)
+#endif
     node_count_ += 1;                                                    // boost
     node_count_ += params_.camera.lens_blur_um > 0.0 ? 1 : 0;            // lens_blur
-    node_count_ += (params_.film_render.overscan.active || params_.film_render.date_imprint.active) ? 1 : 0;  // overscan
+    node_count_ += (params_.film_render.overscan.active || params_.film_render.date_imprint.active ||
+                    params_.film_render.leak.kind != "off") ? 1 : 0;      // overscan (and a leak alone, §21.1)
     node_count_ += params_.film_render.overscan.active ? 1 : 0;           // film_present
     node_count_ += params_.film_render.overscan.active ? 1 : 0;           // the scan's view of the holes
     node_count_ += params_.film_render.halation.active ? 1 : 0;          // halation
     node_count_ += 1;                                                    // expose.log
-    node_count_ += 1;                                                    // develop.curves
+#ifndef __APPLE__
+    node_count_ += 1;                                                    // develop.curves (Metal: inside expose.log)
+#endif
     node_count_ += params_.film_render.dir_couplers.active ? 1 : 0;      // dir_couplers
     node_count_ += params_.film_render.grain.active ? 1 : 0;             // grain
     if (di_active_) {
         node_count_ += 1;                                                // digital_intermediate
     } else {
-    if (!params_.io.scan_film) node_count_ += minilab_active_ ? 1 : 3;                         // the printing stage
+    // `spk_print_fused` is the enlarger, the exposure, the curves, the scan and the hue as one node.
+    const bool fused = print_fused_wanted() && !contrast_mask_wanted();
+    if (!params_.io.scan_film) node_count_ += minilab_active_ ? 1 : (fused ? 1 : 3);            // the printing stage
+    node_count_ += (negative_hue_active_ && !fused) ? 1 : 0;             // the print's hue, from the negative
+    node_count_ -= fused ? 1 : 0;                                        // ... and the scan below is inside it
     node_count_ += contrast_mask_wanted() ? 1 : 0;                       // RFC-024 analysis
 #ifdef __APPLE__
     node_count_ += params_.io.output_gamut_compress.algorithm == "cam16ucs" ? 4 : 5; // scan..gamut
@@ -559,6 +612,41 @@ bool Pipeline::build(const Params& params, std::string& error) {
 // ---------------------------------------------------------------------------
 // small dispatch helpers
 // ---------------------------------------------------------------------------
+
+// **A wavelength no kernel needs to visit.** `prepare_spectral_constants` zeroes every row where
+// the film, the paper or the light is undefined -- in all three tables -- and the integral then
+// runs over all 81 anyway: density 0, transmittance exactly 1, times a weight of exactly 0, added
+// to the sum. `x + 0` is `x`, so those rows change no bit of any result, and Portra 400 through an
+// enlarger has 20 of them (380-395 and 705-780 nm), a paper under the scanner 22. This uploads the
+// tables without them, in the same order, and the kernels are handed the shorter count.
+//
+// Only rows zero in *all three* tables: there the density is 0 whatever the pixel holds, so the
+// product is +0 for every finite pixel. A row with a zero weight and a live dye would be +0 too,
+// but only while its transmittance is finite, and that is not a thing to rest "identical" on.
+bool Pipeline::spectral_rows(const Vec& chd, const Vec& base, const Vec& ixs, SpectralRows& out,
+                             std::string& error) {
+    std::vector<float> c, b, w;
+    const size_t rows = base.size();
+    for (size_t l = 0; l < rows; ++l) {
+        const float cf[3] = {float(chd[3 * l]), float(chd[3 * l + 1]), float(chd[3 * l + 2])};
+        const float wf[3] = {float(ixs[3 * l]), float(ixs[3 * l + 1]), float(ixs[3 * l + 2])};
+        const float bf = float(base[l]);
+        const bool dead = cf[0] == 0.0f && cf[1] == 0.0f && cf[2] == 0.0f && bf == 0.0f &&
+                          wf[0] == 0.0f && wf[1] == 0.0f && wf[2] == 0.0f;
+        if (dead) continue;
+        c.insert(c.end(), cf, cf + 3);
+        w.insert(w.end(), wf, wf + 3);
+        b.push_back(bf);
+    }
+    if (b.empty()) {   // nothing defined anywhere: one dead row, so the buffers exist and the sum is 0
+        c.assign(3, 0.0f); w.assign(3, 0.0f); b.assign(1, 0.0f);
+    }
+    out.n = uint32_t(b.size());
+    out.chd = gpu_->upload_persistent(c.data(), c.size() * sizeof(float), error);
+    out.base = gpu_->upload_persistent(b.data(), b.size() * sizeof(float), error);
+    out.ixs = gpu_->upload_persistent(w.data(), w.size() * sizeof(float), error);
+    return out.chd && out.base && out.ixs;
+}
 
 bool Pipeline::curve_interp(const Image& x, const gpu::BufferRef& xa, const gpu::BufferRef& inv,
                             const gpu::BufferRef& y, size_t k, Image& out, std::string& error) {
@@ -661,6 +749,38 @@ bool Pipeline::node_decode_input(const Image& in, Image& out, std::string& error
                           in.elements(), error);
 }
 
+void Pipeline::geometry_constants(const GeometryParams& g, uint32_t in_h, uint32_t in_w, float consts[16],
+                                  uint32_t meta[6]) {
+    // `utils/geometry.output_size`: the crop in source pixels, rounded, with
+    // the quarter turns swapping the axes.
+    const uint32_t turns = uint32_t(((g.quarter_turns % 4) + 4) % 4);
+    uint32_t oh = uint32_t(std::lround(g.crop_h * double(in_h)));
+    uint32_t ow = uint32_t(std::lround(g.crop_w * double(in_w)));
+    if (turns % 2 == 1) std::swap(oh, ow);
+    oh = std::max(oh, 1u);
+    ow = std::max(ow, 1u);
+    const uint32_t cw = turns % 2 == 0 ? ow : oh;   // the crop's own frame
+    const uint32_t ch = turns % 2 == 0 ? oh : ow;
+
+    const double a = g.rotation_deg * 3.14159265358979323846 / 180.0;
+    const double vals[8] = {
+        g.crop_w * double(in_w) / double(cw), g.crop_h * double(in_h) / double(ch),
+        g.crop_w * double(in_w) / 2.0, g.crop_h * double(in_h) / 2.0,
+        (g.crop_x + g.crop_w / 2.0) * double(in_w) - 0.5,
+        (g.crop_y + g.crop_h / 2.0) * double(in_h) - 0.5,
+        std::cos(a), std::sin(a),
+    };
+    // Each constant as a (hi, lo) float pair: the kernel carries the pixel
+    // mapping as a double-float because a float32 coordinate on an 8k axis is
+    // off by half a pixel at the far edge.
+    for (int i = 0; i < 8; ++i) {
+        consts[2 * i] = float(vals[i]);
+        consts[2 * i + 1] = float(vals[i] - double(consts[2 * i]));
+    }
+    const uint32_t flips = (g.flip_h ? 1u : 0u) | (g.flip_v ? 2u : 0u);
+    meta[0] = in_h; meta[1] = in_w; meta[2] = oh; meta[3] = ow; meta[4] = turns; meta[5] = flips;
+}
+
 bool Pipeline::node_geometry(const Image& in, Image& out, std::string& error) {
     // The pre-crop long edge is the film's, whatever part of the frame the
     // user kept -- so grain and halation do not coarsen when a crop is
@@ -678,44 +798,22 @@ bool Pipeline::node_geometry(const Image& in, Image& out, std::string& error) {
     // for the identical line: whoever takes the class off `geometry` should
     // take the shape as a parameter at the same time.
     source_long_edge_ = std::max(in.h, in.w);
+    // RFC-052 §3: the frame the cut is made of, which the scene layers' node
+    // maps its pixels back into. Recorded on both paths, as the edge above is.
+    geometry_in_h_ = in.h;
+    geometry_in_w_ = in.w;
     const GeometryParams& g = params_.io.geometry;
     if (g.is_identity()) { out = in; return true; }
     Timer t(this, "preprocess.geometry");
 
-    // `utils/geometry.output_size`: the crop in source pixels, rounded, with
-    // the quarter turns swapping the axes.
-    const uint32_t turns = uint32_t(((g.quarter_turns % 4) + 4) % 4);
-    uint32_t oh = uint32_t(std::lround(g.crop_h * double(in.h)));
-    uint32_t ow = uint32_t(std::lround(g.crop_w * double(in.w)));
-    if (turns % 2 == 1) std::swap(oh, ow);
-    oh = std::max(oh, 1u);
-    ow = std::max(ow, 1u);
-    const uint32_t cw = turns % 2 == 0 ? ow : oh;   // the crop's own frame
-    const uint32_t ch = turns % 2 == 0 ? oh : ow;
-
-    const double a = g.rotation_deg * 3.14159265358979323846 / 180.0;
-    const double vals[8] = {
-        g.crop_w * double(in.w) / double(cw), g.crop_h * double(in.h) / double(ch),
-        g.crop_w * double(in.w) / 2.0, g.crop_h * double(in.h) / 2.0,
-        (g.crop_x + g.crop_w / 2.0) * double(in.w) - 0.5,
-        (g.crop_y + g.crop_h / 2.0) * double(in.h) - 0.5,
-        std::cos(a), std::sin(a),
-    };
-    // Each constant as a (hi, lo) float pair: the kernel carries the pixel
-    // mapping as a double-float because a float32 coordinate on an 8k axis is
-    // off by half a pixel at the far edge.
     float consts[16];
-    for (int i = 0; i < 8; ++i) {
-        consts[2 * i] = float(vals[i]);
-        consts[2 * i + 1] = float(vals[i] - double(consts[2 * i]));
-    }
+    uint32_t meta[6];
+    geometry_constants(g, in.h, in.w, consts, meta);
     gpu::BufferRef g_buf = gpu_->upload(consts, sizeof consts, error);
     if (!g_buf) return false;
-    out.h = oh; out.w = ow; out.c = 3;
+    out.h = meta[2]; out.w = meta[3]; out.c = 3;
     out.buf = gpu_->alloc(out.bytes(), error);
     if (!out.buf) return false;
-    const uint32_t flips = (g.flip_h ? 1u : 0u) | (g.flip_v ? 2u : 0u);
-    const uint32_t meta[6] = {in.h, in.w, oh, ow, turns, flips};
     return gpu_->dispatch("spk_geometry_resample_df",
                           {gpu::Arg::buf(in.buf), gpu::Arg::buf(g_buf),
                            gpu::Arg::inline_bytes(meta, 6), gpu::Arg::buf(out.buf)},
@@ -906,12 +1004,15 @@ bool Pipeline::measure_meter_evs(const Image& in, ExposureEvs& out, std::string&
     // so the pitch state is put back afterwards; the timings are not this
     // render's either.
     const uint32_t saved_long_edge = source_long_edge_;
+    const uint32_t saved_geometry_h = geometry_in_h_, saved_geometry_w = geometry_in_w_;
     Progress* const saved_progress = progress_;
     progress_ = nullptr;
     Image cast, decoded, framed;
     const bool ok = node_input_cast(in, cast, error) &&
                     node_decode_input(cast, decoded, error) &&
                     node_geometry(decoded, framed, error);
+    geometry_in_h_ = saved_geometry_h;
+    geometry_in_w_ = saved_geometry_w;
     source_long_edge_ = saved_long_edge;
     progress_ = saved_progress;
     if (!ok) return false;
@@ -969,6 +1070,23 @@ bool Pipeline::node_upsample(const Image& in, Image& out, std::string& error) {
     return gpu_->dispatch("spk_lut2d_cubic",
                           {gpu::Arg::buf(tc.buf), gpu::Arg::buf(b), gpu::Arg::buf(baked_.tc_lut),
                            gpu::Arg::inline_bytes(meta, 2), gpu::Arg::buf(out.buf)},
+                          in.pixels(), error);
+}
+
+// The two nodes above as one kernel (`spk_upsample_expose`): 13.6 ms as two at 45 MP, and two
+// planes for (tc, b) that existed only between a pair of passes. The gain is narrowed as
+// `Blur::affine` narrows it.
+bool Pipeline::node_upsample_expose(const Image& in, Image& out, std::string& error) {
+    Timer t(this, "filming.expose.upsample");
+    const float gain = float(std::pow(2.0, params_.camera.exposure_compensation_ev));
+    const float st[6] = {gain, gain, gain, 0.0f, 0.0f, 0.0f};
+    gpu::BufferRef st_buf = gpu_->upload(st, sizeof st, error);
+    if (!st_buf) return false;
+    if (!alloc_like(in, out, error)) return false;
+    const uint32_t meta[2] = {uint32_t(baked_.tc_lut_side), uint32_t(in.pixels())};
+    return gpu_->dispatch("spk_upsample_expose",
+                          {gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.tc_b_matrix), gpu::Arg::buf(baked_.tc_lut),
+                           gpu::Arg::buf(st_buf), gpu::Arg::inline_bytes(meta, 2), gpu::Arg::buf(out.buf)},
                           in.pixels(), error);
 }
 
@@ -1287,13 +1405,13 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
     Image raw = in;
 
     if (!blurs.scatter.empty()) {
-        Image scattered;
-        if (!blur_.mixture(raw, blurs.scatter, scattered, error)) return false;
-        double a[3], b[3];
-        fill3(a, 1.0 - hal.scatter_amount);
-        fill3(b, hal.scatter_amount);
+        // `(1 - s) * raw + s * scattered`, in the mixture's own last pass (`Blur::Mix`).
+        Blur::Mix mix;
+        mix.x = &raw;
+        fill3(mix.a, 1.0 - hal.scatter_amount);
+        fill3(mix.b, hal.scatter_amount);
         Image mixed;
-        if (!blur_.lincomb(raw, scattered, a, b, mixed, error)) return false;
+        if (!blur_.mixture(raw, blurs.scatter, mixed, error, 3.0, &mix)) return false;
         raw = mixed;
     }
 
@@ -1311,10 +1429,11 @@ bool Pipeline::node_halation(const Image& in, Image& out, std::string& error) {
             fill3(a, 1.0);
             for (int c = 0; c < 3; ++c) b[c] = a_tot[c];
         }
-        Image hb;
-        if (!blur_.mixture(raw, blurs.bounces, hb, error)) return false;
+        Blur::Mix mix;
+        mix.x = &raw;
+        for (int c = 0; c < 3; ++c) { mix.a[c] = a[c]; mix.b[c] = b[c]; }
         Image mixed;
-        if (!blur_.lincomb(raw, hb, a, b, mixed, error)) return false;
+        if (!blur_.mixture(raw, blurs.bounces, mixed, error, 3.0, &mix)) return false;
         raw = mixed;
     }
     out = raw;
@@ -1352,6 +1471,26 @@ bool Pipeline::node_film_curves(const Image& in, Image& out, std::string& error)
     Timer t(this, "filming.develop.curves");
     return curve_interp(in, baked_.film_curve_x, baked_.film_curve_inv, baked_.film_curve_y,
                         baked_.film_curve_k, out, error);
+}
+
+// `node_expose_log` and `node_film_curves` as one kernel with both outputs (`spk_log_curves`).
+bool Pipeline::node_log_and_curves(const Image& in, Image& log, Image& cmy, std::string& error) {
+    Timer t(this, "filming.expose.log");
+    if (bw_active_ && params_.io.scan_film && params_.film.info.is_positive()) {
+        error = "black/white correction on a directly scanned positive film is not implemented "
+                "by the native engine";
+        return false;
+    }
+    const float k[3] = {1.0f, 1.0f, 1.0f};   // `node_expose_log`'s correction, which is 1
+    gpu::BufferRef k_buf = gpu_->upload(k, sizeof k, error);
+    if (!k_buf) return false;
+    if (!alloc_like(in, log, error) || !alloc_like(in, cmy, error)) return false;
+    const uint32_t meta[2] = {uint32_t(baked_.film_curve_k), uint32_t(in.pixels())};
+    return gpu_->dispatch("spk_log_curves",
+                          {gpu::Arg::buf(in.buf), gpu::Arg::buf(k_buf), gpu::Arg::buf(baked_.film_curve_x),
+                           gpu::Arg::buf(baked_.film_curve_inv), gpu::Arg::buf(baked_.film_curve_y),
+                           gpu::Arg::inline_bytes(meta, 2), gpu::Arg::buf(log.buf), gpu::Arg::buf(cmy.buf)},
+                          in.pixels(), error);
 }
 
 bool Pipeline::node_dir_couplers(const Image& cmy, const Image& log_raw, Image& out,
@@ -1605,6 +1744,7 @@ bool Pipeline::refresh_print_constants(std::string& error) {
     print_base_ = gpu_->upload_persistent_f32(sc.base_density.data(), sc.base_density.size(), error);
     print_ixs_ = gpu_->upload_persistent_f32(sc.illum_x_sens.data(), sc.illum_x_sens.size(), error);
     if (!print_chd_ || !print_base_ || !print_ixs_) return false;
+    if (!spectral_rows(sc.channel_density, sc.base_density, sc.illum_x_sens, print_rows_, error)) return false;
 
     for (int c = 0; c < 3; ++c) {
         print_gain_[c] = print_constants_.gain[c];
@@ -1684,8 +1824,8 @@ bool Pipeline::update_bw_references(std::string& error) {
 
 bool Pipeline::node_enlarger_spectral(const Image& in, Image& out, std::string& error) {
     Timer t(this, "printing.expose.enlarger_spectral");
-    return spectral(in, print_chd_, print_base_, print_ixs_, print_gain_, print_offset_,
-                    /*log_out=*/true, kNumWavelengths, out, error);
+    return spectral(in, print_rows_.chd, print_rows_.base, print_rows_.ixs, print_gain_, print_offset_,
+                    /*log_out=*/true, print_rows_.n, out, error);
 }
 
 bool Pipeline::node_print_exposure(const Image& in, Image& out, std::string& error) {
@@ -1721,8 +1861,8 @@ bool Pipeline::node_scan_spectral(const Image& in, Image& out, std::string& erro
     // `10 ** log10(max(v, 0) + 1e-10)` -- the reference's round trip, with the
     // log and the exponent cancelled rather than evaluated.
     if (!scan_hdr_.active)
-        return spectral(in, baked_.scan_chd, baked_.scan_base, baked_.scan_ixs, gain, offset,
-                        /*log_out=*/false, kNumWavelengths, out, error);
+        return spectral(in, scan_rows_.chd, scan_rows_.base, scan_rows_.ixs, gain, offset,
+                        /*log_out=*/false, scan_rows_.n, out, error);
     // `scan_hdr`: each layer read back from the develop's squeezed range (below
     // the clear base past its shoulder) in a pass of its own, then today's
     // integral. The scan's gain stays 1: the output's gamut compression reads
@@ -1738,8 +1878,8 @@ bool Pipeline::node_scan_spectral(const Image& in, Image& out, std::string& erro
                         {gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.scan_hdr_table),
                          gpu::Arg::inline_bytes(n, 1), gpu::Arg::buf(expanded.buf)},
                         in.pixels(), error)) return false;
-    return spectral(expanded, baked_.scan_chd, baked_.scan_base, baked_.scan_ixs, gain, offset,
-                    /*log_out=*/false, kNumWavelengths, out, error);
+    return spectral(expanded, scan_rows_.chd, scan_rows_.base, scan_rows_.ixs, gain, offset,
+                    /*log_out=*/false, scan_rows_.n, out, error);
 }
 
 // RFC-028. The negative read in printing density with the base removed per
@@ -1753,8 +1893,8 @@ bool Pipeline::node_digital_intermediate(const Image& in, Image& out, std::strin
     fill3(gain, 1.0);
     fill3(offset, 0.0);
     Image log_t, positive;
-    if (!spectral(in, baked_.di_chd, baked_.di_zero_base, baked_.di_ixs, gain, offset,
-                  /*log_out=*/true, kNumWavelengths, log_t, error)) return false;
+    if (!spectral(in, di_rows_.chd, di_rows_.base, di_rows_.ixs, gain, offset,
+                  /*log_out=*/true, di_rows_.n, log_t, error)) return false;
     if (!curve_interp(log_t, baked_.di_curve_x, baked_.di_curve_inv, baked_.di_curve_y,
                       di_.curve.k, positive, error)) return false;
     double live[3];
@@ -1899,16 +2039,156 @@ bool Pipeline::minilab_enlarger(float ep[6], std::string& error) {
 bool Pipeline::node_minilab(const Image& in, Image& out, std::string& error) {
     Timer t(this, "printing.minilab");
     if (!alloc_like(in, out, error)) return false;
-    const uint32_t meta[4] = {uint32_t(in.pixels()), kNumWavelengths, uint32_t(di_.curve.k), minilab_side_};
+    const uint32_t meta[4] = {uint32_t(in.pixels()), di_rows_.n, uint32_t(di_.curve.k), minilab_side_};
     float ep[6] = {1, 1, 1, 0, 0, 0};
     if (!minilab_enlarger(ep, error)) return false;
     return gpu_->dispatch("spk_minilab", {
-        gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.di_chd), gpu::Arg::buf(baked_.di_zero_base),
-        gpu::Arg::buf(baked_.di_ixs), gpu::Arg::inline_bytes(ep, 6), gpu::Arg::inline_bytes(meta, 4),
+        gpu::Arg::buf(in.buf), gpu::Arg::buf(di_rows_.chd), gpu::Arg::buf(di_rows_.base),
+        gpu::Arg::buf(di_rows_.ixs), gpu::Arg::inline_bytes(ep, 6), gpu::Arg::inline_bytes(meta, 4),
         gpu::Arg::buf(baked_.di_curve_x), gpu::Arg::buf(baked_.di_curve_inv), gpu::Arg::buf(baked_.di_curve_y),
         gpu::Arg::buf(minilab_table_), gpu::Arg::inline_bytes(minilab_lo_, 3),
         gpu::Arg::inline_bytes(minilab_inv_, 3), gpu::Arg::buf(out.buf)
     }, in.pixels(), error);
+}
+
+// The enlarger's filters, as the negative's reading sees them. A filter shift is a
+// colour balance: it multiplies each paper layer's exposure, which is the same as
+// the layer under it having recorded that much less density -- that much less
+// light, through the layer's own contrast. The ratios are the optical path's, at
+// mid-grey, exactly as `minilab_enlarger` takes them. At rest: zero.
+bool Pipeline::negative_hue_offsets(double out[3], std::string& error) {
+    out[0] = out[1] = out[2] = 0.0;
+    const EnlargerParams& en = params_.enlarger;
+    if (en.y_filter_shift == 0.0 && en.m_filter_shift == 0.0) return true;
+    Params rest = params_;
+    rest.enlarger.y_filter_shift = rest.enlarger.m_filter_shift = 0.0;
+    PrintConstants base;
+    if (!print_constants(*colour_, *blob_, rest, tc_lut_host_, baked_.tc_lut_side, base, error)) return false;
+    auto midgray = [](const PrintConstants& pc, double m[3]) {
+        m[0] = m[1] = m[2] = 0.0;
+        for (size_t l = 0; l < kNumWavelengths; ++l) {
+            const double t = std::pow(10.0, -pc.density_spectral_midgray[l]) * pc.print_illuminant[l];
+            if (!std::isfinite(t)) continue;
+            for (int c = 0; c < 3; ++c) m[c] += t * pc.paper_sensitivity[3 * l + size_t(c)];
+        }
+        for (int c = 0; c < 3; ++c) m[c] *= pc.gain[c];
+    };
+    double m_at[3], m_rest[3];
+    midgray(print_constants_, m_at);   // `refresh_print_constants` ran at the top of this print
+    midgray(base, m_rest);
+    for (int c = 0; c < 3; ++c)
+        out[c] = -std::log10(std::fmax(m_at[c], 1e-30) / std::fmax(m_rest[c], 1e-30)) / negative_hue_.gamma_ref[c];
+    return true;
+}
+
+bool Pipeline::negative_hue_params(float p[60], std::string& error) {
+    const NegativeHue& nh = negative_hue_;
+    double offset[3];
+    if (!negative_hue_offsets(offset, error)) return false;
+    for (int i = 0; i < 60; ++i) p[i] = 0.0f;
+    for (int c = 0; c < 3; ++c) {
+        p[c] = float(1.0 / nh.neutral[c]);
+        p[4 + c] = float(nh.layer_lo[c]);
+        p[36 + c] = float(nh.layer_scale[c]);
+    }
+    p[3] = float(1.0 / kNegativeHueLightness);
+    p[7] = float(kNegativeHueWeightFloor);
+    for (int i = 0; i < 9; ++i) {
+        p[9 + i] = float(nh.scan_to_d65[i]);
+        p[18 + i] = float(nh.d65_to_scan[i]);
+    }
+    for (int c = 0; c < 3; ++c) p[27 + c] = float(offset[c]);
+    p[30] = float(kNegativeHueChromaLo);
+    p[31] = float(1.0 / (kNegativeHueChromaHi - kNegativeHueChromaLo));
+    p[32] = float(kNegativeHueUnreliability);
+    p[33] = float(kNegativeHueGamutKnee);
+    p[34] = float(nh.gamut_l_lo);
+    p[35] = float(double(kNegativeHueGamutLevels - 1) / std::fmax(nh.gamut_l_hi - nh.gamut_l_lo, 1e-6));
+    // On a film-edge canvas the hue is the picture's alone. The rebate -- the edge print, the
+    // fog, the light through the perforations -- is light no scene produced: there is no colour
+    // "that went in" for the reading to return, and the edge print's colour was set against
+    // scans of real strips through the optical print (`overscan_checks.py`, CineStill's among
+    // them). So outside the gate's rectangle the print is the optical one, to the bit. The
+    // rectangle, not the gate's exact outline: its corners and wobble are a fraction of a
+    // millimetre, where the picture is already fading into the gate's shadow.
+    if (overscan_wanted() && overscan_.valid) {
+        const OverscanLayout& L = overscan_;
+        p[40] = 1.0f;
+        p[41] = float(L.canvas_w);
+        p[42] = float(band_row0_);
+        p[43] = float(L.px);
+        for (int i = 0; i < 4; ++i) p[44 + i] = float(L.A[i]);
+        p[48] = float(L.cs); p[49] = float(L.ct); p[50] = float(L.cu); p[51] = float(L.cv);
+        p[52] = float(L.gate_s0); p[53] = float(L.gate_t0);
+        p[54] = float(L.gate_along); p[55] = float(L.gate_across);
+        p[56] = float(L.pair_adv);
+    }
+    return true;
+}
+
+bool Pipeline::node_negative_hue(const Image& negative, const Image& in, Image& out, std::string& error) {
+    Timer t(this, "printing.negative_hue");
+    const NegativeHue& nh = negative_hue_;
+    float p[60];
+    if (!negative_hue_params(p, error)) return false;
+    gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
+    if (!p_buf) return false;
+    if (!alloc_like(in, out, error)) return false;
+    (void)nh;
+    const uint32_t meta[5] = {uint32_t(in.pixels()), kNegativeHueLayerSamples, kNegativeHueGamutHues,
+                              kNegativeHueGamutLevels, kNegativeHueMapSide};
+    return gpu_->dispatch("spk_negative_hue",
+                          {gpu::Arg::buf(negative.buf), gpu::Arg::buf(in.buf),
+                           gpu::Arg::buf(negative_hue_layers_), gpu::Arg::buf(p_buf),
+                           gpu::Arg::buf(negative_hue_gamut_), gpu::Arg::buf(negative_hue_map_),
+                           gpu::Arg::inline_bytes(meta, 5), gpu::Arg::buf(out.buf)},
+                          in.pixels(), error);
+}
+
+// The optical print as one pass (`spk_print_fused`): the same four kernels' arithmetic, and the
+// hue when the pair has it. Not for a minilab pair (its own node), a contrast mask (its epilogue
+// reads a grid) or `scan_hdr` (a positive, scanned): those keep the nodes they had.
+bool Pipeline::print_fused_wanted() const {
+#ifdef __APPLE__
+    return !std::getenv("SPK_PRINT_UNFUSED") && !minilab_active_ && !di_active_ && !params_.io.scan_film &&
+           !mask_on_ && !scan_hdr_.active;
+#else
+    return false;
+#endif
+}
+
+bool Pipeline::node_print_fused(const Image& in, Image& out, std::string& error) {
+    Timer t(this, "printing.fused");
+    const bool hue = negative_hue_active_;
+    float p[60] = {};
+    if (hue && !negative_hue_params(p, error)) return false;
+    float e[9];
+    for (int c = 0; c < 3; ++c) {
+        e[c] = float(print_gain_[c]);
+        e[3 + c] = float(print_offset_[c]);
+        e[6 + c] = float(print_exposure_gain_[c]);
+    }
+    gpu::BufferRef p_buf = gpu_->upload(p, sizeof p, error);
+    gpu::BufferRef e_buf = gpu_->upload(e, sizeof e, error);
+    if (!p_buf || !e_buf) return false;
+    if (!alloc_like(in, out, error)) return false;
+    // Without the hue its tables are never read; any buffer stands in for them.
+    const gpu::BufferRef& any = baked_.print_curve_x;
+    const uint32_t meta[9] = {uint32_t(in.pixels()), print_rows_.n, uint32_t(baked_.print_curve_k),
+                              kNegativeHueLayerSamples, hue ? 1u : 0u, kNegativeHueGamutHues,
+                              kNegativeHueGamutLevels, kNegativeHueMapSide, scan_rows_.n};
+    return gpu_->dispatch("spk_print_fused",
+                          {gpu::Arg::buf(in.buf), gpu::Arg::buf(print_rows_.chd), gpu::Arg::buf(print_rows_.base),
+                           gpu::Arg::buf(print_rows_.ixs), gpu::Arg::buf(e_buf),
+                           gpu::Arg::buf(baked_.print_curve_x), gpu::Arg::buf(baked_.print_curve_inv),
+                           gpu::Arg::buf(baked_.print_curve_y),
+                           gpu::Arg::buf(scan_rows_.chd), gpu::Arg::buf(scan_rows_.base),
+                           gpu::Arg::buf(scan_rows_.ixs),
+                           gpu::Arg::buf(hue ? negative_hue_layers_ : any),
+                           gpu::Arg::buf(p_buf), gpu::Arg::buf(hue ? negative_hue_gamut_ : any),
+                           gpu::Arg::buf(hue ? negative_hue_map_ : any),
+                           gpu::Arg::inline_bytes(meta, 9), gpu::Arg::buf(out.buf)},
+                          in.pixels(), error);
 }
 
 bool Pipeline::node_xyz_to_rgb(const Image& in, Image& out, std::string& error) {
@@ -1984,18 +2264,25 @@ bool Pipeline::node_unsharp(const Image& in, Image& out, std::string& error) {
     Timer t(this, "scanning.unsharp");
     double sigma[3];
     fill3(sigma, sigma_px);
-    Image blurred;
-    if (!blur_.gaussian(in, sigma, blurred, error)) return false;
-    // `rgb + amount * (rgb - blurred)`, folded into one pass.
-    double a[3], b[3];
-    fill3(a, 1.0 + amount);
-    fill3(b, -amount);
-    return blur_.lincomb(in, blurred, a, b, out, error);
+    // `rgb + amount * (rgb - blurred)`, as `(1 + amount) * rgb - amount * blurred`, in the blur's
+    // own last pass (`Blur::Mix`).
+    Blur::Mix mix;
+    mix.x = &in;
+    fill3(mix.a, 1.0 + amount);
+    fill3(mix.b, -amount);
+    return blur_.gaussian(in, sigma, out, error, 3.0, nullptr, nullptr, &mix);
 }
 
 bool Pipeline::node_cctf(const Image& in, Image& out, std::string& error) {
     if (!params_.io.output_cctf_encoding) { out = in; return true; }
     Timer t(this, "scanning.cctf");
+    if (defer_encode_) {
+        // The caller quantises this frame next and will encode it in that pass
+        // (`take_pending_encode`, `spk_cctf_to_rgba16`): the frame leaves here linear.
+        out = in;
+        encode_pending_ = true;
+        return true;
+    }
     if (!alloc_like(in, out, error)) return false;
     const uint32_t meta[2] = {uint32_t(in.pixels()), output_cctf_mode_};
     return gpu_->dispatch("spk_cctf_encode_matrix",
@@ -2076,6 +2363,22 @@ bool Pipeline::film_prefix(const Image& in, const FrameShape& frame, Image& cur,
     return true;
 }
 
+// RFC-052 §6.4's refusal, worded once for the session and the node.
+std::string scene_layers_mismatch(const std::string& wire, const SceneLayerSet* held) {
+    if (wire.empty() || (held && held->stamp == wire)) return "";
+    return "scene_layers: the render's wire names '" + wire + "' but the session holds " +
+           (held ? "'" + held->stamp + "'" : std::string("no set")) + " (spk_set_scene_layers)";
+}
+
+// RFC-052 §6.4: dispatched whenever the wire names a set, so that a stamp the
+// session does not hold is refused by the node rather than skipped; "" is no
+// layers, and the node is not in the graph (the bypass is structural, as
+// RFC-024's is). Not under `debug.lut_mode`: the print LUT bake stands for the
+// paper, as for the Decode curve.
+bool Pipeline::scene_layers_wanted() const {
+    return !params_.camera.scene_layers.empty() && !params_.debug.lut_mode;
+}
+
 uint32_t Pipeline::draw_film_seed() {
     const GrainParams& g = params_.film_render.grain;
     if (!(g.active && params_.settings.grain_sampler != "exact")) return 0x5EEDu;
@@ -2103,10 +2406,21 @@ bool Pipeline::film_scale_and_expose(const Chain& in, Chain& out, std::string& e
     // spectral reconstruction exactly (§12.2), and this is the band-able
     // stage, so the node strips with it.
     if (scene_latitude_wanted()) { SPK_NODE(node_scene_latitude(cur, next, error)); cur = next; }
+    // RFC-052 §6.2: the 场景 layers, after Scene Latitude (whose axis is
+    // before Exp. Comp.) and before the Decode curve (whose axis is after it),
+    // so a full-mask layer of e stops is Film Exposure + e to both; after the
+    // meter, which must not see a layer; before the spectral upsample, which a
+    // colour gain does not commute with; before `overscan`, so the rebate and
+    // the edge print are untouched. Not dispatched with no stamp on the wire.
+    if (scene_layers_wanted()) { SPK_NODE(node_scene_layers(cur, next, error)); cur = next; }
     // The Decode curve: the same axis, the same reasons to sit here.
     if (scene_curve_wanted()) { SPK_NODE(node_scene_curve(cur, next, error)); cur = next; }
+#ifdef __APPLE__
+    SPK_NODE(node_upsample_expose(cur, next, error)); cur = next;
+#else
     SPK_NODE(node_upsample(cur, next, error)); cur = next;
     SPK_NODE(node_exposure(cur, next, error)); cur = next;
+#endif
     out = in;
     out.cur = cur;
     return true;
@@ -2191,6 +2505,16 @@ bool Pipeline::film_blurs(const Chain& in, Chain& out, std::string& error) {
 bool Pipeline::film_log_and_curves(const Chain& in, Chain& out, std::string& error) {
     // Produces both of the chain's intermediates: the log-exposed frame and
     // the developed curve output. `log_e_film` is read twice downstream.
+#ifdef __APPLE__
+    {
+        Image log, developed;
+        SPK_NODE(node_log_and_curves(in.cur, log, developed, error));
+        out = in;
+        out.log_e_film = log;
+        out.cur = developed;
+        return true;
+    }
+#endif
     Image next;
     SPK_NODE(node_expose_log(in.cur, next, error));
     out = in;
@@ -2232,6 +2556,14 @@ bool Pipeline::print_spectral(const Chain& in, Chain& out, std::string& error) {
         out.cur = cur;
         return true;
     }
+    const Image negative = cur;   // what `node_negative_hue` reads; the caller holds it anyway
+    if (print_fused_wanted()) {
+        SPK_NODE(node_print_fused(cur, next, error)); cur = next;
+        SPK_NODE(node_bw_correction(cur, next, error)); cur = next;
+        out = in;
+        out.cur = cur;
+        return true;
+    }
     if (minilab_active_) {
         SPK_NODE(node_minilab(cur, next, error)); cur = next;
     } else if (!params_.io.scan_film) {
@@ -2241,6 +2573,7 @@ bool Pipeline::print_spectral(const Chain& in, Chain& out, std::string& error) {
         SPK_NODE(node_print_curves(cur, next, error)); cur = next;
     }
     SPK_NODE(node_scan_spectral(cur, next, error)); cur = next;
+    if (negative_hue_active_) { SPK_NODE(node_negative_hue(negative, cur, next, error)); cur = next; }
     SPK_NODE(node_bw_correction(cur, next, error)); cur = next;
     out = in;
     out.cur = cur;
@@ -2671,8 +3004,17 @@ bool Pipeline::print_segment(const Image& cmy, Image& out, std::string& error) {
     return true;
 }
 
+bool Pipeline::take_pending_encode(gpu::BufferRef& matrix, uint32_t& mode) {
+    if (!encode_pending_) return false;
+    encode_pending_ = false;
+    matrix = baked_.output_matrix;
+    mode = output_cctf_mode_;
+    return true;
+}
+
 bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::string& error) {
     if (!built_) { error = "pipeline was not built"; return false; }
+    encode_pending_ = false;
     progress_ = progress;
     if (pixel_size_um_ <= 0.0) {
         // Every reprint is preceded by the negative that produced its input,
@@ -2694,6 +3036,7 @@ bool Pipeline::run_print(const Image& cmy, Image& out, Progress* progress, std::
 bool Pipeline::run_print_striped(const Image& cmy, Image& out, Progress* progress,
                                  std::string& error) {
     if (!built_) { error = "pipeline was not built"; return false; }
+    encode_pending_ = false;
     progress_ = progress;
     if (pixel_size_um_ <= 0.0) {
         error = "run_print was called before any run_film, so the film's pixel pitch is unknown";

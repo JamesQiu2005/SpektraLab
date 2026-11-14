@@ -40,6 +40,8 @@ enum FullRender {
         var url: URL
         /// What the render is made from (`DevelopStamp.of` of the export's own request).
         var stamp: String
+        /// 镜头校正 as `stamp` names it: the render that is kept under it is decoded with this answer.
+        var lens: LensResolution? = nil
     }
 
     struct Header: Codable, Equatable, Sendable {

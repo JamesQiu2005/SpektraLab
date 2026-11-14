@@ -513,6 +513,8 @@ struct MacLibrarySidebar: View {
         rows.append((L("File Type"), (i.url.pathExtension.uppercased()) + (i.kind == .raw ? " · RAW" : "")))
         rows.append((L("Rating"), MacWords.rating(i.rating)))
         rows.append((L("Colour Label"), MacWords.colorName(i.colorLabel?.rawValue ?? 0)))
+        // Which of the image's variants this cell is (PRD-G §3), as the badge line numbers it.
+        if i.variantCount > 1 { rows.append((L("Variant"), L("\(i.variantNumber) of \(i.variantCount)"))) }
         if let d = i.develop {
             rows.append((L("Film"), [d.film, d.paper].compactMap { $0 }.joined(separator: " · ")))
         } else {

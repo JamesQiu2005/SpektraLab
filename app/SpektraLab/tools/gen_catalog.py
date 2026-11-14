@@ -24,7 +24,8 @@ the others do not, each absent on a colour stock so that no row of the 28 moved:
     emulsion or a silver paper. A silver film prints on a silver paper and a
     colour film on a colour one (`Model/Stock.swift`).
   * `grain`, a film's: what the Grain strength's 1 is on it, the `grain_amount`
-    at which the engine renders the granularity its maker publishes (`OWN_GRAIN`).
+    at which the engine renders the granularity its maker publishes (`OWN_GRAIN`,
+    `COLOUR_GRAIN`; a colour film with no comparable figure, its speed's).
   * `neutralPack`, a paper's: the enlarger's C, M, Y for it, which the host has
     to send because the engine's own table has no row for a silver paper. Read
     from the paper's grade table, Multigrade filter 2.
@@ -128,6 +129,31 @@ CHOSEN.update({
 # wire stops at 2, so Tri-X's ruler is at its end from 1.18 and HP5's from 1.34.
 OWN_GRAIN = {"kodak_tri_x_400": 1.70, "ilford_hp5_plus_400": 1.49, "kodak_tmax_100": 0.74,
              "fujifilm_neopan_acros_100_ii": 0.64}
+# What the Grain strength's 1 is on a colour film (2026-11-11, the owner: "each colour film, negative and
+# positive, has its own default grain"): the `grain_amount` at which the engine renders the film's granularity,
+# with the sub-layers on (the app's default), at 6 µm pixels. Two sources, never mixed in one row:
+# - SHEET: the maker's diffuse RMS granularity (48 µm, D 1.0) over what the engine renders at 1, measured
+#   2026-10-07 (research/colour-film-granularity.md §4, commit ccbfadde). Slides on the visual figure;
+#   Vision3 and Verita on the green record of their H-1 sheets' curves.
+# - ISO: no comparable figure is published. Kodak's still negatives carry only Print Grain Index, which Kodak
+#   says cannot be compared with RMS (E-58); Fujifilm's negative "4" is footnoted as not comparable with its
+#   reversal scale. Searched again 2026-11-11 (Kodak and Fujifilm sheets, JP editions, pre-1996 predecessors):
+#   nothing. So the target is the green record a Vision3 stock of that speed has, fitted on the four Vision3
+#   sheets, G = 4.498 × (ISO/50)^0.212, over what the engine renders in green at 1.
+# The pushed Portra 800 profiles take Portra 800's: the push is already in their profiles, which render grainier.
+COLOUR_GRAIN = {
+    # SHEET
+    "kodak_kodachrome_64": 1.15, "fujifilm_provia_100f": 0.96, "fujifilm_velvia_100": 0.99,
+    "kodak_ektachrome_100": 0.88, "kodak_vision3_500t": 1.01, "kodak_vision3_200t": 1.01,
+    "kodak_vision3_250d": 0.83, "kodak_vision3_50d": 0.69, "kodak_verita_200d": 1.06,
+    # CineStill 800T is Vision3 500T's emulsion (its profile is an alias of 500T's data) and publishes no sheet.
+    "cinestill_800t": 1.01,
+    # ISO
+    "kodak_portra_160": 0.92, "kodak_portra_400": 1.06, "kodak_portra_800": 1.23,
+    "kodak_portra_800_push1": 1.23, "kodak_portra_800_push2": 1.23,
+    "kodak_ektar_100": 0.79, "kodak_gold_200": 0.97, "kodak_ultramax_400": 1.09,
+    "fujifilm_c200": 0.70, "fujifilm_xtra_400": 0.74, "fujifilm_pro_400h": 1.20,
+}
 # A silver paper's grades as packs (`engine/resources_product/paper_grades.json`),
 # and the filter new prints are made through.
 PAPER_GRADES = REPO / "engine/resources_product/paper_grades.json"
@@ -177,6 +203,10 @@ def main() -> None:
                     raise SystemExit(f"no filter {GRADE} pack for the silver paper {sid} in {PAPER_GRADES.name}")
                 g = grades["grades"][GRADE]
                 stock["neutralPack"] = [0.0, g["m_filter_neutral"], g["y_filter_neutral"]]
+        if film and info.get("channel_model") != "bw":
+            if sid not in COLOUR_GRAIN:
+                raise SystemExit(f"no grain amount of its own for the colour film {sid}")
+            stock["grain"] = COLOUR_GRAIN[sid]
         stocks.append(stock)
     OUT.write_text(json.dumps({"stocks": stocks}, indent=1, ensure_ascii=False) + "\n")
     mono = [s["shortName"] for s in stocks if s.get("monochrome")]

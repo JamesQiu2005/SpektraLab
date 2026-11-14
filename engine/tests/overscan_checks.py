@@ -152,7 +152,8 @@ def main():
         px = 56.0 / 1000
         check("120 canvas spans the film's width and no more", 60.7 < m.shape[0] * px < 61.3, f"{m.shape[0] * px:.2f} mm")
 
-        date = render(e, img, {"date_imprint_active": True, "date_imprint_text": "'26 9 28", "film_format_mm": 36.0})
+        date = render(e, img, {"date_imprint_active": True, "date_imprint_text": "'26 9 28", "film_format_mm": 36.0,
+                                     "date_imprint_ev": 3.5})   # the area checks' EV (see DATE below)
         check("date alone keeps the frame's size", date.shape[:2] == (800, 1200))
         diff = np.abs(date.astype(int) - off.astype(int))[..., :3].sum(-1)
         ys, xs = np.nonzero(diff > 2000)
@@ -320,7 +321,11 @@ def main():
               str(m68.shape))
 
         # The date back's faces, corners and size, on the frame alone.
-        DATE = {"date_imprint_active": True, "date_imprint_text": "'26 10 1", "film_format_mm": 36.0}
+        # Placement and size, measured by a threshold on the lit area: held at the
+        # 3.5 EV these were written against, so the brighter default (5.5 since
+        # 2026-11-11, API-SPEC §21.2) and its glow do not read as a larger date.
+        DATE = {"date_imprint_active": True, "date_imprint_text": "'26 10 1", "film_format_mm": 36.0,
+                "date_imprint_ev": 3.5}
         def lit(rgba):
             dd = np.abs(rgba.astype(int) - off.astype(int))[..., :3].sum(-1)
             ys, xs = np.nonzero(dd > 2000)

@@ -23,6 +23,15 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case whiteBalance = "whiteBalance", temperature = "temperature", tint = "tint",
             lensCorrection = "lensCorrection", rawExposureTreatment = "rawExposureTreatment"
+        case lensProfile = "lensProfile", lensDistortion = "lensDistortion", lensLightFalloff = "lensLightFalloff",
+            lensHideDistortedAreas = "lensHideDistortedAreas"
+    }
+    /// 镜头校正's 配置文件 when it is not automatic: a lens of the app's lens database (`LensDatabase.Lens.key`, and its
+    /// name as it was shown, for a frame opened where the database no longer has it).
+    struct LensPick: Codable, Equatable, Hashable, Sendable {
+        enum CodingKeys: String, CodingKey { case key = "key", name = "name" }
+        var key: String
+        var name: String
     }
     enum RawExposureTreatment: String, Codable, Sendable {
         case legacy = "legacy.1"
@@ -63,14 +72,35 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
     /// camera's, filled in after the first decode; for presets the preset's.
     var temperature: Double = 5500
     var tint: Double = 0
-    /// Apply the lens's own distortion and vignetting correction at decode: a
-    /// RAW-only decode setting (`CIRAWFilter.isLensCorrectionEnabled`), and
-    /// deliberately not an engine parameter. Off by default: it changes the
-    /// frame's geometry.
+    /// 镜头校正 on or off: the lens's distortion corrected at decode — by Core
+    /// Image, by the app from the file's own parameters or a database profile,
+    /// as resolved (`LensResolver`). A RAW-only decode setting, and deliberately
+    /// not an engine parameter. Off for a new `DecodeSettings` (it changes the
+    /// frame's geometry); a newly imported RAW starts with it on (`ImportService`).
     var lensCorrection: Bool = false
     /// New sources keep the decoder's exposure reference without shadow subtraction.
     /// Absent in an old sidecar means the exact old decode, not today's default.
     var rawExposureTreatment: RawExposureTreatment = .sourceReferencePlusOne
+
+    // **镜头校正, the rest of the control** (2.4.0, Capture One's: 配置文件, 隐藏畸变区域, 畸变, 光衰减). Each is
+    // written only when it is not at its default, so an edit that never moved them is the same JSON as before they
+    // existed, and every key made from it is what it was (`LensCorrection.word` adds to a key only what is not at
+    // rest). Who corrects the frame with them is resolved once per open (`LensResolver`): where Core Image corrects
+    // the amounts change nothing (it is all or nothing), and the word says so.
+
+    /// The profile: nil is automatic (Core Image's, the file's own, or the database's exact EXIF match, in that
+    /// order); a database lens otherwise. `lensCorrection` off is "none".
+    var lensProfile: LensPick? = nil
+    /// 畸变, 0–100 (100: the profile's whole correction). Live where the app corrects.
+    var lensDistortion: Double = DecodeSettings.defaultLensDistortion
+    /// 光衰减, 0–100, 0 by default as Capture One's. Live only for a database lens whose profile has a vignette model.
+    var lensLightFalloff: Double = DecodeSettings.defaultLensLightFalloff
+    /// 隐藏畸变区域: the corrected picture enlarged just enough that no empty corner shows (the app's step's, on).
+    var lensHideDistortedAreas: Bool = true
+
+    static let defaultLensDistortion = 100.0
+    static let defaultLensLightFalloff = 0.0
+    static let lensAmountRange: ClosedRange<Double> = 0...100
 
     init() {}
 
@@ -81,7 +111,74 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
         tint = try c.decode(Double.self, forKey: .tint)
         lensCorrection = try c.decode(Bool.self, forKey: .lensCorrection)
         rawExposureTreatment = try c.decodeIfPresent(RawExposureTreatment.self, forKey: .rawExposureTreatment) ?? .legacy
+        // Absent in every edit before 2.4.0: the defaults. A later build's pick this one cannot read is automatic.
+        lensProfile = (try? c.decodeIfPresent(LensPick.self, forKey: .lensProfile)) ?? nil
+        lensDistortion = (try? c.decodeIfPresent(Double.self, forKey: .lensDistortion)).flatMap { $0 }
+            .map { min(max($0, Self.lensAmountRange.lowerBound), Self.lensAmountRange.upperBound) } ?? Self.defaultLensDistortion
+        lensLightFalloff = (try? c.decodeIfPresent(Double.self, forKey: .lensLightFalloff)).flatMap { $0 }
+            .map { min(max($0, Self.lensAmountRange.lowerBound), Self.lensAmountRange.upperBound) } ?? Self.defaultLensLightFalloff
+        lensHideDistortedAreas = (try? c.decodeIfPresent(Bool.self, forKey: .lensHideDistortedAreas)).flatMap { $0 } ?? true
     }
+
+    /// As the synthesised encoding wrote the five fields 2.3 had, in its order, and the lens's others only when they
+    /// are not at rest: a decode that never moved them is the same JSON as before they existed.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(whiteBalance, forKey: .whiteBalance)
+        try c.encode(temperature, forKey: .temperature)
+        try c.encode(tint, forKey: .tint)
+        try c.encode(lensCorrection, forKey: .lensCorrection)
+        try c.encode(rawExposureTreatment, forKey: .rawExposureTreatment)
+        try c.encodeIfPresent(lensProfile, forKey: .lensProfile)
+        if lensDistortion != Self.defaultLensDistortion { try c.encode(lensDistortion, forKey: .lensDistortion) }
+        if lensLightFalloff != Self.defaultLensLightFalloff { try c.encode(lensLightFalloff, forKey: .lensLightFalloff) }
+        if !lensHideDistortedAreas { try c.encode(lensHideDistortedAreas, forKey: .lensHideDistortedAreas) }
+    }
+
+    /// The lens correction's own fields (the profile, the amounts, hide distorted areas), as one value: what a copy
+    /// that keeps a frame's lens correction keeps, and what a reset of the white balance leaves alone.
+    struct LensFields: Equatable, Hashable, Sendable {
+        var on: Bool
+        var profile: LensPick?
+        var distortion: Double
+        var lightFalloff: Double
+        var hideDistortedAreas: Bool
+    }
+    var lensFields: LensFields {
+        get { LensFields(on: lensCorrection, profile: lensProfile, distortion: lensDistortion, lightFalloff: lensLightFalloff,
+                         hideDistortedAreas: lensHideDistortedAreas) }
+        set {
+            lensCorrection = newValue.on; lensProfile = newValue.profile; lensDistortion = newValue.distortion
+            lensLightFalloff = newValue.lightFalloff; lensHideDistortedAreas = newValue.hideDistortedAreas
+        }
+    }
+
+    /// The lens fields that are not at rest, as a word ("" when none is): what a meter's key adds, where no file is
+    /// known to resolve a corrector by (`HalfFramePair.meterKey`, `DoubleExposure.meterKey`).
+    var lensRestWord: String {
+        var w = ""
+        if let p = lensProfile { w += "|lp=" + p.key }
+        if lensDistortion != Self.defaultLensDistortion { w += "|ld=" + Self.amountWord(lensDistortion) }
+        if lensLightFalloff != Self.defaultLensLightFalloff { w += "|lv=" + Self.amountWord(lensLightFalloff) }
+        if !lensHideDistortedAreas { w += "|lh=0" }
+        return w
+    }
+
+    /// The extensions of Sony's RAW files, whose lens the app corrects from the file's own parameters (no Sony ARW is
+    /// supported by Core Image's lens correction: measured, macOS 15–27; `LensCorrection`).
+    static let sonyRAWExtensions: Set<String> = ["arw", "sr2", "srf"]
+
+    /// What a meter's key of a picture of a piece adds for its lens (`HalfFramePair.meterKey`, `DoubleExposure.meterKey`):
+    /// the fields not at rest (`lensRestWord`), and, with it on, the app's word for a Sony's file by its name — a reading
+    /// taken before 2.4.0 corrected it is of another picture. "" for every other picture, whose key is what it was.
+    func meterLensWord(fileName: String?) -> String {
+        guard lensCorrection else { return lensRestWord }
+        let ext = ((fileName ?? "") as NSString).pathExtension.lowercased()
+        return lensRestWord + (Self.sonyRAWExtensions.contains(ext) ? "|lens=sony-embedded.1" : "")
+    }
+
+    /// An amount as a key spells it: "50", "37.5".
+    static func amountWord(_ v: Double) -> String { String(format: "%g", v) }
 
     /// Shared by canvas, export, stock cards and pair source identity. Legacy
     /// keys stay byte-for-byte unchanged so existing developed copies survive.
@@ -181,7 +278,9 @@ struct FrameEdit: Codable, Equatable, Sendable {
     ///
     /// **By default** (the owner, 2026-11-03: "one toggle in the settings as 'enable HDR by default'"): a frame
     /// whose toggle was never touched follows Settings' Enable HDR by Default (`hdrByDefault`); once the
-    /// toggle is set — here, by Copy Settings or a preset — the frame keeps its own choice (`hdrChoice`).
+    /// toggle is set — here, by Copy Settings or a preset — the frame keeps its own choice (`hdrChoice`). The page's
+    /// switch also moves that default (2.4.0, `OpenFrameSession.switchHDR`), so a frame that never chose shows the
+    /// state the person last chose.
     /// **Compare by `hdrChoice`, never by `hdr`**: the setter writes the choice, so `x.hdr =
     /// y.hdr` turns a frame that never chose into one that chose off, and every comparison after it differs.
     var hdr: Bool {
@@ -190,6 +289,33 @@ struct FrameEdit: Codable, Equatable, Sendable {
     }
     /// The frame's own choice; nil follows the default.
     var hdrChoice: Bool?
+
+    /// **漏光** (PRD-D §3.3, `Model/LensEdge.swift`): light on the film, with or without a film edge. Shoot layer.
+    /// Written only once it is not at rest, so an edit without one is the same JSON as before the field existed.
+    var leak = LeakSettings()
+    /// **镜头**'s 柔光镜 and 像差 (PRD-D §3.4), in front of the lens: shoot layer, they re-develop. Boxed (`Boxed`):
+    /// kept on the heap. Written only once it is not at rest.
+    var lens: LensSettings {
+        get { lensBox.value }
+        set { lensBox.value = newValue }
+    }
+    private var lensBox = Boxed(LensSettings())
+
+    /// **蒙版图层, the photograph's mask layers** (PRD-E, RFC-052 §8.1, `Model/LocalLayers.swift`). One value in
+    /// memory — Undo, Copy Settings and the history's snapshot see one edit — nil when there is no layer, and then
+    /// absent from the JSON, so an edit without layers is today's byte for byte. **Not written into `library.json`**:
+    /// the library keeps it in a record of its own beside the edit (`LayerShelf`), which a 2.3.x build neither reads
+    /// nor rewrites; that build's coder would drop the key at its next write. A 场景 layer reaches the develop as the
+    /// `scene_layers` stamp and the planes handed beside it (`SceneLayerWire`); a 成片 layer is Edit's, no develop.
+    /// Read with `try?`: a later build's layers this build cannot read are not a reason to refuse the edit.
+    var layers: LocalLayers? = nil
+
+    /// Whether Edit's pass draws anything on this edit: switched on, and its own controls or a 成片 layer move
+    /// something (`Layer2Local.acts`, PRD-E). What a surface asks before it lays the pass on; `adjustments.isActive` alone
+    /// misses a layer over a neutral whole.
+    var editPassActs: Bool {
+        adjustments.isActive || (adjustments.enabled && !(layers?.active(.finished).isEmpty ?? true))
+    }
 
     /// **HDR 峰值亮度, HDR Peak Brightness** (PRD-B, 2026-11-09): how far past SDR white this frame's HDR goes, in
     /// stops — the curve's H (`HDRSessionCurve.request(headroom:)`, H = 2^stops), so the canvas and the file's map
@@ -244,6 +370,8 @@ struct FrameEdit: Codable, Equatable, Sendable {
             rawExposureFacts = "rawExposureFacts", printCrop = "printCrop", filmOff = "filmOff"
         case hdr = "hdr"
         case hdrPeak = "hdrPeak"
+        case leak = "leak", lens = "lens"
+        case layers = "layers"
     }
 
     /// Every field as schema 3 read it — those it required, still required —
@@ -266,6 +394,9 @@ struct FrameEdit: Codable, Equatable, Sendable {
         filmOff = try c.decodeIfPresent(FilmOff.self, forKey: .filmOff)
         hdrChoice = try c.decodeIfPresent(Bool.self, forKey: .hdr)
         hdrPeakStops = try c.decodeIfPresent(Double.self, forKey: .hdrPeak)
+        leak = (try? c.decodeIfPresent(LeakSettings.self, forKey: .leak)) ?? LeakSettings()
+        lensBox = Boxed((try? c.decodeIfPresent(LensSettings.self, forKey: .lens)) ?? LensSettings())
+        layers = ((try? c.decodeIfPresent(LocalLayers.self, forKey: .layers)) ?? nil)?.kept
         schemaVersion = max(schemaVersion, Self.currentSchema)
     }
 
@@ -295,6 +426,11 @@ struct FrameEdit: Codable, Equatable, Sendable {
         try c.encodeIfPresent(hdrChoice, forKey: .hdr)
         // Only once moved off 2 stops (PRD-B): an edit that never moved it is the same JSON as before.
         try c.encodeIfPresent(hdrPeakStops, forKey: .hdrPeak)
+        // Only once set (PRD-D): an edit without a leak or a lens is the same JSON as before.
+        if !leak.isAtRest { try c.encode(leak, forKey: .leak) }
+        if !lens.isAtRest { try c.encode(lens, forKey: .lens) }
+        // Only with a layer (PRD-E): an edit without one is the same JSON as before the field existed.
+        try c.encodeIfPresent(layers?.kept, forKey: .layers)
     }
 
     /// What changed against the defaults a new frame starts with, as the Info
@@ -321,6 +457,9 @@ struct FrameEdit: Codable, Equatable, Sendable {
         if params.effects.grain != d.effects.grain { parts.append(L("Grain ") + Fmt.times(params.effects.grain)) }
         if params.effects.halation != d.effects.halation { parts.append(L("Halation ") + Fmt.times(params.effects.halation)) }
         if !geometry.isIdentity || !printCrop.isIdentity { parts.append(L("Crop")) }
+        if leak.kind != .off { parts.append(L("Light Leak") + " " + leak.kind.label) }
+        if let f = lens.filter { parts.append(f.label + " " + SoftFilter.strengthText(lens.strength)) }
+        if FeatureFlags.lensCharacter, let ch = lens.character { parts.append(ch.label) }
         if adjustments.isActive { parts.append(contentsOf: adjustments.changedTools.map(\.title)) }
         return parts.isEmpty ? L("Nothing yet") : parts.joined(separator: " · ")
     }
@@ -329,6 +468,10 @@ struct FrameEdit: Codable, Equatable, Sendable {
 /// RFC-039: a page owns explicit leaves, never an entire surface or effects struct.
 enum PageResetScope: String, CaseIterable, Sendable, Identifiable {
     case filmExposure, format, light, curve, colour, enlarger, placement, decode, sceneCurve, couplers, effects, preflash, crop, filmEdge, dateBack
+    /// 冲洗 › 格式 › 效果's 漏光 (PRD-D §3.3), reset with the format's effects.
+    case leak
+    /// 编辑 › 镜头 (PRD-D §3.4): the vignette (Layer 2's) and the 柔光镜 and 像差.
+    case lens
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -347,6 +490,8 @@ enum PageResetScope: String, CaseIterable, Sendable, Identifiable {
         case .crop: L("Crop")
         case .filmEdge: L("Film Edge")
         case .dateBack: L("Date Back")
+        case .leak: L("Light Leak")
+        case .lens: L("Lens", as: "the edit section")
         }
     }
 }
@@ -375,11 +520,11 @@ extension FrameEdit {
         case .placement:
             e.params.sceneLatitude = SceneLatitudeSettings(); e.placementNeedsFit = false
         case .decode:
-            // Lens correction is Settings' for the whole library (2026-10-21), not this page's to reset.
-            let lens = e.decode.lensCorrection
+            // Lens correction is the frame's own control (镜头校正), not the white balance's to reset.
+            let lens = e.decode.lensFields
             e.decode = asShot ?? e.decode
             e.decode.whiteBalance = .asShot
-            e.decode.lensCorrection = lens
+            e.decode.lensFields = lens
         case .sceneCurve: e.params.sceneCurve = CurveSet()
         case .couplers:
             e.params.effects.couplers = d.effects.couplers
@@ -405,6 +550,10 @@ extension FrameEdit {
             e.filmEdge = FilmEdgeSettings()
             e.filmEdge.cameraSeed = body
         case .dateBack: e.dateBack = DateBackSettings()
+        case .leak: e.leak = LeakSettings()
+        case .lens:
+            e.adjustments.vignette = Vignette()
+            e.lens = LensSettings()
         }
         return e
     }
@@ -446,8 +595,9 @@ extension FrameEdit {
     /// on the crop's shape (Side Short on a 1:1 is the square's side), so a
     /// full-height 1:1 out of a 3:2 135 frame — a 24 × 24 mm square of the same
     /// negative — keeps the grain it had, and a crop to half the frame at the
-    /// same 3:2 is sent twice the millimetres. Capped by the engine's 200 mm,
-    /// which a crop to about a fifth of a 135 frame's long edge reaches.
+    /// same 3:2 is sent twice the millimetres. Capped by the engine's 300 mm
+    /// (`FilmParams.filmFormatRange`), which a crop to about an eighth of a 135
+    /// frame's long edge reaches.
     ///
     /// Off (the default, as in v1.3.3), and under a film edge — where the crop
     /// is the picture's placement in the gate and the gate's own millimetres
@@ -459,8 +609,8 @@ extension FrameEdit {
         let w = geometry.crop.width.clamped(to: 1e-4...1) * Double(photo.width)
         let h = geometry.crop.height.clamped(to: 1e-4...1) * Double(photo.height)
         let cropLong = max(w, h), cropShort = min(w, h)
-        let side = FilmSide(rawValue: params.filmSide) ?? .short
-        let cropLongMM = side == .short ? params.sideLengthMM * cropLong / cropShort : params.sideLengthMM
-        return (cropLongMM * Double(photo.longEdge) / cropLong).clamped(to: 4...200)
+        // A sheet's crop is the largest cut of its shape inside the sheet (`FilmParams.frameLongMM`).
+        let cropLongMM = params.frameLongMM(long: cropLong, short: cropShort)
+        return (cropLongMM * Double(photo.longEdge) / cropLong).clamped(to: FilmParams.filmFormatRange)
     }
 }

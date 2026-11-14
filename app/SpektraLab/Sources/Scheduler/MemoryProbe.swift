@@ -2,8 +2,16 @@
 //
 //  Two different questions (RFC-036 §2.1):
 //
-//  - **the app's allowance**: on the Mac there is none, so the physical memory
-//    stands in (`appAvailable`);
+//  - **the app's allowance**: on the Mac there is no per-app limit, and the
+//    physical memory stood in for one until 2026-11-13 — a constant 36 GB here,
+//    16 GB on the reporter's Mac, whatever the machine had left — so a forced
+//    start held only to it (`RenderQueue.forcedPlan`) ignored the host, and the
+//    watch's allowance test could never trip (DIAG-2026-11-13 Part 2 item 3).
+//    **On the Mac it is what the host can give before it swaps** (`macAllowance`):
+//    free + inactive + purgeable pages, and half of what the compressor holds —
+//    the share a job someone waits on already counts on
+//    (`BudgetTuning.askedCompressedShare`). It moves with the machine and with
+//    its RAM;
 //  - **the machine's headroom**: free + inactive + purgeable pages
 //    (`host_statistics64`).
 //
@@ -33,13 +41,35 @@ struct MemoryReading: Codable, Equatable, Sendable {
 enum MemoryProbe {
     static func read() -> MemoryReading {
         let (free, inactive, purgeable, wired, compressed) = hostPages()
-        return MemoryReading(appAvailable: appAvailable(), free: free, inactive: inactive,
-                             purgeable: purgeable, wired: wired, compressed: compressed,
-                             footprint: footprint())
+        return reading(free: free, inactive: inactive, purgeable: purgeable, wired: wired, compressed: compressed,
+                       footprint: footprint())
     }
 
-    /// The Mac has no per-app allowance, so the physical memory stands in and only
-    /// the machine's headroom binds.
+    /// A reading of these host pages: the arithmetic of `read`, apart from the system calls, so a check can hand
+    /// it the pages of a Mac it is not running on.
+    static func reading(free: UInt64, inactive: UInt64, purgeable: UInt64, wired: UInt64, compressed: UInt64,
+                        footprint: UInt64) -> MemoryReading {
+        #if targetEnvironment(macCatalyst) || os(macOS)
+        let available = macAllowance(free: free, inactive: inactive, purgeable: purgeable, compressed: compressed)
+        #else
+        let available = appAvailable()
+        #endif
+        return MemoryReading(appAvailable: available, free: free, inactive: inactive, purgeable: purgeable, wired: wired,
+                             compressed: compressed, footprint: footprint)
+    }
+
+    /// The share of the compressor's pages the Mac's allowance counts on: `BudgetTuning.askedCompressedShare`'s.
+    static let macCompressedShare = 0.5
+
+    /// **The Mac's allowance**: what the host can give this app before it swaps — its headroom, and half of
+    /// what the compressor holds (`macCompressedShare`). Read from the host every time: it is the machine's
+    /// state, not its size.
+    static func macAllowance(free: UInt64, inactive: UInt64, purgeable: UInt64, compressed: UInt64) -> UInt64 {
+        free + inactive + purgeable + UInt64(Double(compressed) * macCompressedShare)
+    }
+
+    /// The allowance where the operating system gives none to read: the physical memory. Off the Mac only; on
+    /// the Mac `macAllowance` answers.
     static func appAvailable() -> UInt64 {
         return ProcessInfo.processInfo.physicalMemory
     }

@@ -91,6 +91,59 @@ func wordChecks(_ c: inout Checker, words: (String) -> [String]) {
     c.expect(words("Print lab") == ["Print ", "lab"] && words("Web") == ["Web"] && words("").isEmpty, "a saved name breaks at its spaces, and nowhere else")
 }
 
+/// The file's name (issue #111; 1.x's `NamingRule`): the parts on, in the chips' order, joined; never empty; never a
+/// path; kept and read back as written, leniently.
+func namingChecks(_ c: inout Checker) {
+    typealias N = ExportRecipe.Naming
+    let day = DateComponents(calendar: Calendar(identifier: .gregorian), timeZone: .current, year: 2026, month: 11, day: 3).date!
+    let ctx = N.Context(originalName: "X-E5_0084", filmStock: "Pro_400H", printStock: "Crystal_Archive_Type_II", date: day)
+    var n = N()
+    c.expect(n.stem(ctx) == "X-E5_0084" && n.chosen == [.originalName], "a new recipe names a file by its original name alone")
+    n.toggle(.originalName)
+    c.expect(n.chosen == [.originalName], "the last part on stays on")
+    c.expect(N.withStocks.stem(ctx) == "X-E5_0084_Pro_400H_Crystal_Archive_Type_II", "1.x's three: the original, the film, the paper")
+    n = N.withStocks
+    n.toggle(.date)
+    c.expect(n.stem(ctx) == "X-E5_0084_Pro_400H_Crystal_Archive_Type_II_2026-11-03", "the date as 2026-11-03, after the paper")
+    n.move(.date, before: .originalName)
+    c.expect(n.chosen == [.date, .originalName, .filmStock, .printStock] && n.stem(ctx).hasPrefix("2026-11-03_X-E5"),
+             "a chip dropped on the first takes its place, and the name follows the chips")
+    n.shift(.date, by: 1)
+    c.expect(n.order.prefix(2) == [.originalName, .date], "a chip moved one place later")
+    n.separator = "-"
+    c.expect(n.stem(ctx) == "X-E5_0084-2026-11-03-Pro_400H-Crystal_Archive_Type_II", "the separator joins the parts")
+    var slide = ctx
+    slide.printStock = ""
+    c.expect(N.withStocks.stem(slide) == "X-E5_0084_Pro_400H", "a slide has no paper: no part, and no separator left behind")
+    var nothing = N()
+    nothing.toggle(.printStock); nothing.toggle(.originalName)
+    c.expect(nothing.stem(slide) == "X-E5_0084", "every part on empty: the original name, never an empty one")
+    var path = ctx
+    path.filmStock = "a/b\\c:d"
+    c.expect(!N.withStocks.stem(path).contains("/") && !N.withStocks.stem(path).contains(":") && !N.withStocks.stem(path).contains("\\"),
+             "no path separator survives a stock's name")
+    c.expect(N.token("Kodak Portra 400") == "Portra_400" && N.token("Fujifilm Pro 400H") == "Pro_400H"
+             && N.token("Kodak Professional Portra Endura") == "Portra_Endura" && N.token("CineStill 800T") == "CineStill_800T",
+             "a stock as a name carries it: no maker in front, underscores for spaces")
+    var r = ExportRecipe(format: .jpeg, colour: .sRGB)
+    r.naming = N.withStocks
+    c.expect(r.fileName(ctx) == "X-E5_0084_Pro_400H_Crystal_Archive_Type_II.jpg", "the recipe's file name: the parts and the extension")
+    r.size = .preview
+    c.expect(r.fileName(ctx) == "X-E5_0084_Pro_400H_Crystal_Archive_Type_II_preview.jpg", "the preview's mark after the parts")
+    // Kept and read back.
+    let back = (try? JSONEncoder().encode(n)).flatMap { try? JSONDecoder().decode(N.self, from: $0) }
+    c.expect(back == n, "a naming is written and read back the same")
+    let odd = #"{"order":["date","dimensions","date"],"tokens":["counter"],"separator":"/"}"#
+    let lenient = try? JSONDecoder().decode(N.self, from: Data(odd.utf8))
+    c.expect(lenient?.order == [.date, .originalName, .filmStock, .printStock] && lenient?.chosen == [.originalName]
+             && lenient?.separator == "", "a part this build does not know is dropped, none on is the original, a path separator is not one")
+    var a = ExportRecipe(format: .jpeg, colour: .sRGB), b = a
+    b.naming = N.withStocks
+    c.expect(!a.sameSettings(as: b), "two recipes that name their files differently are different recipes")
+    a.naming = N.withStocks
+    c.expect(a.sameSettings(as: b), "and alike again when they name them alike")
+}
+
 @MainActor
 func recipeChecks(_ c: inout Checker, scratch: URL) {
     // The owner's list, 2026-10-08: HEIF, JPG, PNG, TIFF; sRGB, Adobe RGB, Display P3, ProPhoto RGB.
@@ -134,6 +187,9 @@ func recipeChecks(_ c: inout Checker, scratch: URL) {
     let read = try? JSONDecoder().decode(ExportRecipe.self, from: Data(old.utf8))
     c.expect(read?.format == .tiff && read?.size == .longEdge(2048) && read?.colour == .proPhoto && read?.quality == 90
              && read?.destination == .files && read?.title == nil, "a recipe kept by a build before recipes had names reads as it was")
+    c.expect(read?.naming.chosen == [.originalName] && read?.naming.separator == "_",
+             "a recipe kept before naming came back (issue #111) names its files as it always did: the original name alone")
+    namingChecks(&c)
     // A window's recipe for the Photos library, which this app does not have: it saves to Files.
     let photos = #"{"format":"HEIF","colour":"Display P3","quality":80,"destination":"Photos"}"#
     let toFiles = try? JSONDecoder().decode(ExportRecipe.self, from: Data(photos.utf8))

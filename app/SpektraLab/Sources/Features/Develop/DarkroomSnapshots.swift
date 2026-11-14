@@ -155,9 +155,6 @@ enum DarkroomSnapshots {
             SnapshotPage("C4-pro-couplers", "Develop · Effects, pro · Couplers") { model in
                 DevelopPane(frameID: pro(model), opening: DevelopOpening(tab: .effects, effectsPage: .couplers))
             },
-            SnapshotPage("C5-lens", "Develop · Scene · Lens") { model in
-                DevelopPane(frameID: pro(model), opening: DevelopOpening(tab: .scene, sceneTool: .lens))
-            },
             // A slide under Effects: the paper's veil has no paper.
             SnapshotPage("C4-slide", "Develop · Effects, a slide") { model in
                 DevelopPane(frameID: slide(model), opening: .tab(.effects))

@@ -99,7 +99,7 @@ enum MacCatalogCheck {
         r.check(move.destination.path == expected, "the default place is ~/Pictures/SpektraLab Library.spkcatalog (\(move.destination.path))")
 
         // What the owner's library has none of: two favourites, and a linked folder of two pictures.
-        let eligible = library.frames.filter { !$0.isDemo && !$0.isPair && $0.picture.fileURL != nil }
+        let eligible = library.frames.filter { !$0.isDemo && !$0.isComposite && $0.picture.fileURL != nil }
         let favourites = eligible.filter { $0.picture.fileURL.map { fm.fileExists(atPath: $0.path) } ?? false }.prefix(2).map(\.id)
         for id in favourites { library.update(id) { $0.isFavourite = true } }
         let linked = out.appending(path: "work/Linked folder")

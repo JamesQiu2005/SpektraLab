@@ -7,7 +7,7 @@
 //  read.
 //
 //      WorkingCopies/<the frame's id>/<the original's own name>
-//      WorkingCopies/.proxies/<the frame's id>-<what it is of>.spkraw
+//      WorkingCopies/.proxies/raw-<what it is of>.spkraw                  (`RawProxy`: a file and its decode, whoever reads it)
 //      WorkingCopies/.proxies/<the frame's id>-<what it is of>.spkfull   (`FullRender`: their own limit, below)
 //
 //  **A RAW's proxy is kept here too** (`RawProxy`, 2026-10-20: "we maintain
@@ -17,6 +17,17 @@
 //  longest ago going first, whichever kind it is — never one of a frame in
 //  use, and *Clear Working Copies* takes them with the copies. A proxy is
 //  written on the engine's queue and told to the book after (`noteProxy`).
+//
+//  **A proxy is of a file and its decode settings, not of a frame** (PRD-G §5, 2026-11-13): two frames of one
+//  RAW with one white balance — PRD-G's variants — read one proxy, so it is decoded once. So the book cannot
+//  tell from a proxy's name whose it is: it asks the app which proxies frames name now (`proxyNames`, the
+//  frames' file and decode as they stand), and a proxy goes **only when no frame names it**:
+//  - **the limit** never takes one named by a frame in use;
+//  - **a frame removed** takes the proxies it named, unless another frame names them too (`remove(_:proxies:)`);
+//  - **the launch's tidy** takes every proxy of 2.3.x and before, `<the frame's id>-<…>.spkraw`, whose name no
+//    frame makes any more (each frame's next open makes its own again, one decode; they are not renamed: their
+//    name cannot say which file they were of), and files the book does not know. It leaves a `raw-…` proxy no
+//    frame names now to the limit: it may be of a frame whose original is merely away (review, 2026-11-13).
 //
 //  - **Nothing here is the only copy of anything.** A working copy can always
 //    be had again from where its original is ("They come back when a frame
@@ -82,8 +93,13 @@ final class WorkingCopies {
     var now: () -> Date = Date.init
 
     private(set) var copies: [UUID: Copy] = [:]
-    /// The RAWs' proxies, by file name (`RawProxy.fileName`: the frame's id first).
+    /// The RAWs' proxies, by file name (`RawProxy.fileName`: a file and its decode, `raw-…`; a 2.3.x one's is its
+    /// frame's id first).
     private(set) var proxies: [String: Copy] = [:]
+    /// **The proxies frames name now**, by file name: those of `frames` (nil: every frame of the library), each
+    /// frame's file and decode as they stand (`EngineRouter.proxyNames`). Asked whenever a proxy might go.
+    /// Nil-safe for a book of no library: none is named, and the limit takes proxies oldest first.
+    var proxyNames: (_ frames: Set<UUID>?) -> Set<String> = { _ in [] }
     /// The full-size renders (`FullRender.fileName`: the frame's id first), under `fullLimit`.
     private(set) var fulls: [String: Copy] = [:]
     /// The most the full-size renders may take together (`AppSettings.fullRenderCacheLimit`). Lowered,
@@ -119,8 +135,12 @@ final class WorkingCopies {
     /// Where the proxies are; nil where nothing is kept.
     var proxyFolder: URL? { folder?.appendingPathComponent(Self.proxyFolderName, isDirectory: true) }
 
-    /// The frame a proxy is of, from its name.
+    /// The frame a full render — or a proxy of 2.3.x and before — is of, from its name. A proxy of now
+    /// (`raw-…`) has none: it is of a file and its decode (`proxyNames`).
     nonisolated static func proxyFrame(_ name: String) -> UUID? { UUID(uuidString: String(name.prefix(36))) }
+
+    /// A proxy's name as this build makes it: `raw-<32 hex>.spkraw` (`RawProxy.fileName`).
+    nonisolated static func isSharedProxy(_ name: String) -> Bool { name.hasPrefix("raw-") && name.hasSuffix(".spkraw") }
 
     /// A proxy was written or read: it is the most recently read, and the
     /// copies and proxies are held to the limit. One written for a frame that
@@ -135,7 +155,7 @@ final class WorkingCopies {
         let name = url.lastPathComponent
         let arrived = proxies[name] == nil
         proxies[name] = Copy(url: url, bytes: bytes, used: at)
-        trim(keeping: Self.proxyFrame(name).map { [$0] } ?? [])
+        trim(keepingProxies: [name])
         if arrived { onChange?() }
     }
 
@@ -286,9 +306,12 @@ final class WorkingCopies {
 
     /// The copies read longest ago go until what is left is within the limit.
     /// Never one in use, and never one of `keeping` — the copy that has just
-    /// arrived, which is about to be read.
-    func trim(keeping: Set<UUID> = []) {
-        let going = Self.leaving(copies: copies, proxies: proxies, limit: limit, held: inUse().union(keeping))
+    /// arrived, which is about to be read — nor a proxy a frame in use names,
+    /// nor one of `keepingProxies` (the one just written or read).
+    func trim(keeping: Set<UUID> = [], keepingProxies: Set<String> = []) {
+        let held = inUse().union(keeping)
+        let going = Self.leaving(copies: copies, proxies: proxies, limit: limit, held: held,
+                                 heldProxies: proxyNames(held).union(keepingProxies))
         for item in going {
             switch item {
             case .copy(let id): if let copy = copies[id] { take(id, copy) }
@@ -306,10 +329,13 @@ final class WorkingCopies {
 
     /// Which copies and proxies go, in the order they go, for what is left to
     /// be within `limit`: one queue of both, the one read longest ago first,
-    /// never one of a frame in `held`, and no more of them than it takes.
-    nonisolated static func leaving(copies: [UUID: Copy], proxies: [String: Copy], limit: Int64, held: Set<UUID>) -> [Item] {
-        var all: [(item: Item, frame: UUID?, copy: Copy)] = copies.map { (.copy($0.key), $0.key, $0.value) }
-        all += proxies.map { (.proxy($0.key), proxyFrame($0.key), $0.value) }
+    /// never one of a frame in `held` nor a proxy in `heldProxies` (those the
+    /// frames in use name), and no more of them than it takes.
+    nonisolated static func leaving(copies: [UUID: Copy], proxies: [String: Copy], limit: Int64, held: Set<UUID>,
+                                    heldProxies: Set<String> = []) -> [Item] {
+        var all: [(item: Item, held: Bool, copy: Copy)] = copies.map { (.copy($0.key), held.contains($0.key), $0.value) }
+        // A proxy is held by its name; one of 2.3.x, by the frame its name begins with.
+        all += proxies.map { (.proxy($0.key), heldProxies.contains($0.key) || (proxyFrame($0.key).map(held.contains) ?? false), $0.value) }
         all.sort { a, b in
             if a.copy.used != b.copy.used { return a.copy.used < b.copy.used }
             if a.copy.bytes != b.copy.bytes { return a.copy.bytes > b.copy.bytes }
@@ -317,7 +343,7 @@ final class WorkingCopies {
         }
         var bytes = all.reduce(Int64(0)) { $0 + $1.copy.bytes }
         var going: [Item] = []
-        for entry in all where !(entry.frame.map(held.contains) ?? false) {
+        for entry in all where !entry.held {
             guard bytes > limit else { break }
             going.append(entry.item)
             bytes -= entry.copy.bytes
@@ -349,7 +375,8 @@ final class WorkingCopies {
             freed += copy.bytes
             take(id, copy)
         }
-        for (name, proxy) in proxies where !(Self.proxyFrame(name).map(held.contains) ?? false) {
+        let named = proxyNames(held)
+        for (name, proxy) in proxies where !named.contains(name) && !(Self.proxyFrame(name).map(held.contains) ?? false) {
             freed += proxy.bytes
             takeProxy(name, proxy)
         }
@@ -362,8 +389,10 @@ final class WorkingCopies {
         return freed
     }
 
-    /// The frames have left the library: their copies go with them, in use or not.
-    func remove(_ ids: some Sequence<UUID>) {
+    /// The frames have left the library: their copies go with them, in use or not, and the proxies they named
+    /// (`proxies`, asked of them before they left: `EngineRouter.proxyNames(of:)`) unless a frame still in the
+    /// library names them too (`proxyNames`) — a variant of the same file and decode.
+    func remove(_ ids: some Sequence<UUID>, proxies named: Set<String> = []) {
         var gone = false
         let ids = Set(ids)
         for id in ids {
@@ -371,7 +400,9 @@ final class WorkingCopies {
             take(id, copy)
             gone = true
         }
-        for (name, proxy) in proxies where Self.proxyFrame(name).map(ids.contains) ?? false {
+        let stillNamed = named.isEmpty ? [] : proxyNames(nil)
+        for (name, proxy) in proxies where (named.contains(name) && !stillNamed.contains(name))
+            || (Self.proxyFrame(name).map(ids.contains) ?? false) {
             takeProxy(name, proxy)
             gone = true
         }
@@ -395,8 +426,14 @@ final class WorkingCopies {
     /// At launch: whatever in the folder is not a copy of one of `known` — a
     /// frame removed while the app was not looking, a fetch the app was ended
     /// in the middle of, a file nobody put there — goes. Returns how many
-    /// things went. A proxy is of any RAW, not only one read from Photos: it
-    /// stays while its frame is one of `library` (nil: of `known`).
+    /// things went. A proxy of 2.3.x (`<frame>-…`) goes whatever its frame — no
+    /// frame names one now, and none ever will. A proxy of now (`raw-…`) stays,
+    /// named or not: one no frame names may be a frame's whose original is
+    /// away (`EngineRouter.proxy` needs the file: a drive unplugged, a Photos
+    /// original not here) and is wanted again when it is back, so it is left to
+    /// the shared limit, oldest first, as an old white balance's always was. A
+    /// file the book does not know goes. A full render stays while its frame
+    /// is one of `library` (nil: of `known`).
     @discardableResult
     func sweep(known: Set<UUID>, library: Set<UUID>? = nil) -> Int {
         guard let folder else { return 0 }
@@ -406,7 +443,7 @@ final class WorkingCopies {
             gone += 1
         }
         let frames = library ?? known
-        for (name, proxy) in proxies where !(Self.proxyFrame(name).map(frames.contains) ?? false) {
+        for (name, proxy) in proxies where !Self.isSharedProxy(name) {
             takeProxy(name, proxy)
             gone += 1
         }
@@ -473,7 +510,8 @@ final class WorkingCopies {
         guard let proxyFolder else { return }
         for file in (try? files.contentsOfDirectory(at: proxyFolder, includingPropertiesForKeys: keys)) ?? [] {
             let name = file.lastPathComponent
-            guard Self.proxyFrame(name) != nil, name.hasSuffix(".spkraw") || name.hasSuffix(Self.fullSuffix),
+            // A proxy of now (`raw-…`), one of 2.3.x and a full render (both `<frame>-…`): the sweep sorts them.
+            guard Self.isSharedProxy(name) || Self.proxyFrame(name) != nil, name.hasSuffix(".spkraw") || name.hasSuffix(Self.fullSuffix),
                   let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
             let copy = Copy(url: file, bytes: Int64(values.fileSize ?? 0), used: values.contentModificationDate ?? .distantPast)
             if name.hasSuffix(Self.fullSuffix) { fulls[name] = copy } else { proxies[name] = copy }

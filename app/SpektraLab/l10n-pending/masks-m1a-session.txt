@@ -1,0 +1,19 @@
+This picture is being exported. Its layers wait until the export is done.
+这张照片正在导出。它的图层要等导出完成后才能更改。
+這張照片正在輸出。它的圖層要等輸出完成後才能更改。
+この写真は書き出し中です。レイヤーは書き出しが終わるまで変更できません。
+
+New Layer
+新建图层
+新增圖層
+新規レイヤー
+
+Delete Layer
+删除图层
+刪除圖層
+レイヤーを削除
+
+Duplicate Layer
+复制图层
+複製圖層
+レイヤーを複製

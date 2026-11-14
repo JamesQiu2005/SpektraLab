@@ -23,7 +23,10 @@ struct Mutation: Equatable {
                       "wrong-capture-rule", "no-second-capture", "renders-as-asked",
                       "camera-never-warm", "camera-stays-warm", "darkroom-open-beside-camera",
                       "print-layers-free", "previews-wait-their-turn", "previews-jump-the-queue",
-                      "previews-not-coalesced"].map(Mutation.init)
+                      "previews-not-coalesced",
+                      "double-open-unpriced", "double-hook-ignored", "raw-double-priced-as-heif",
+                      "raw-open-priced-as-heif", "prefetch-ignores-ram", "mac-allowance-constant",
+                      "idle-trims-at-once", "idle-never-trims", "mac-asked-starves", "scene-planes-free"].map(Mutation.init)
 }
 
 @MainActor
@@ -51,6 +54,7 @@ final class Held: @unchecked Sendable {
     init(_ mb: UInt64) { self.mb = mb }
     var value: UInt64 { lock.lock(); defer { lock.unlock() }; return mb }
     func take() -> UInt64 { lock.lock(); defer { lock.unlock() }; let v = mb; mb = 0; return v }
+    @discardableResult func add(_ n: UInt64) -> UInt64 { lock.lock(); defer { lock.unlock() }; mb += n; return mb }
 }
 let frame48 = PixelSize(width: 8064, height: 6048), frame12 = PixelSize(width: 4032, height: 3024)
 let canvas = PixelSize(width: 2400, height: 1600)
@@ -124,6 +128,35 @@ func run(_ mutation: Mutation) async -> Checks {
            "cost: a 12 MP HEIF's open is 355-406 MB (iPhone 17)")
     c.near(Double(BandGeometry(canvas: frame48).bytesPerRow) / Double(MB), 0.554, within: 0.01, "cost: a band row is 6 planes x 12 B x width (0.554 MB at 48 MP)")
 
+    // ---- Settings' Preview size up to 3,840 px (2.4.0; the owner, 2026-11-13: "up to 3840px long edge") ----
+    // The list Settings offers, and nothing in the scheduler's arithmetic that stops below it: a canvas develop is
+    // priced by its pixels, so 3,840 x 2,880 is 2.25x 2,560 x 1,920 in memory and in time, not a 2,560 px price.
+    c.expect(DevicePolicy.previewEdges.contains(3840) && DevicePolicy.previewEdges.max() == 3840,
+             "preview: Settings offers 3,840 px, and it is the largest (\(DevicePolicy.previewEdges))")
+    c.expect(DevicePolicy.previewEdges.contains(2560) && DevicePolicy.previewEdges == DevicePolicy.previewEdges.sorted(),
+             "preview: 2,560 px is still offered, and the list is in order")
+    c.expect(DevicePolicy.previewEdges.allSatisfy { (800...8192).contains($0) },
+             "preview: every size is one the wire takes (preview_long_edge 800...8192)")
+    let page2560 = PixelSize(width: 2560, height: 1920), page3840 = PixelSize(width: 3840, height: 2880)
+    let dev2560 = model.seed(job(.canvasDevelop, page2560, tier: .live, layers: [.shoot]), mode: .whole)
+    let dev3840 = model.seed(job(.canvasDevelop, page3840, tier: .live, layers: [.shoot]), mode: .whole)
+    c.near(Double(dev3840.peakBytes) / Double(dev2560.peakBytes), 2.25, within: 0.01,
+           "preview: a 3,840 px develop is forecast at 2.25x the memory of a 2,560 px one")
+    c.near(dev3840.seconds / dev2560.seconds, 2.25, within: 0.01, "preview: and at 2.25x its time")
+    let raw3840 = model.seed(RenderJob(frameID: UUID(), kind: .canvasDevelop, tier: .live, canvas: PixelSize(width: 3840, height: 2560),
+                                       layers: [.shoot], what: "test", decodesOriginal: true, bandable: true,
+                                       original: PixelSize(width: 8256, height: 5504), rawDecode: true), mode: .whole)
+    // A RAW's first open (`RawOpen`, fitted at 2,560 px) at a larger canvas: the decode's price and the session's growth
+    // over the bench's 2,560 x 1,920 (measured 2,024-2,230 MB at 3,840 px for a 45 MP NEF against 1,900 priced alone).
+    let raw2560 = model.seed(RenderJob(frameID: UUID(), kind: .canvasDevelop, tier: .live, canvas: PixelSize(width: 2560, height: 1707),
+                                       layers: [.shoot], what: "test", decodesOriginal: true, bandable: true,
+                                       original: PixelSize(width: 8256, height: 5504), rawDecode: true), mode: .whole)
+    let rawAlone = RawOpen.base + RawOpen.bytesPerPixel * 8256 * 5504
+    c.expect(raw2560.peakBytes == UInt64(rawAlone), "preview: a 45 MP RAW's first open at 2,560 px is the decode's price alone (\(raw2560.peakBytes.megabytes) MB)")
+    c.near(raw3840.peakBytes.megabytes, rawAlone / 1_048_576 + 560 * (3840.0 * 2560 / (2560 * 1920)) - 560, within: 0.01,
+           "preview: at 3,840 px it is that and the canvas's growth over 2,560 x 1,920 (\(raw3840.peakBytes.megabytes) MB, measured 2,024-2,230)")
+    c.expect(raw3840.peakBytes.megabytes >= 2230, "preview: never under the measured 45 MP first open at 3,840 px (2,230 MB)")
+
     // ---- a pair's frames that print as their own (`RenderJob.printLayers`) ----
     // Each is a print more of the job's negative, cut into its result: one more result held while
     // it is made (rgba16, 8 B a pixel of the canvas), and a print pass more. Arithmetic, not a
@@ -155,6 +188,199 @@ func run(_ mutation: Mutation) async -> Checks {
     c.near(model.seed(export12own, mode: bands12).seconds - model.seed(export12, mode: bands12).seconds,
            2 * (0.69 + 0.060 * Double(BandGeometry(canvas: frame12).bandCount(rows: 760))), within: 0.02,
            "layers: in bands each layer is the develop again (t0 + c_band x bands)")
+
+    // ---- a double exposure's open (`RenderJob.composition`, RFC-048 §5) ----
+    // Each exposure is decoded in turn beside the piece, and one scratch band is held through it: the
+    // open is the largest of the decodes' peaks and the scratch, its time the decodes' summed, and what it
+    // teaches is learned apart. Priced by the Mac's measured composed open (`ComposedOpen`, 2026-11-11).
+    // `double-open-unpriced` hands the model a double's job without what its open composes.
+    func composed(_ j: RenderJob, _ decodes: [PixelSize], scratch: UInt64 = 64 * MB) -> RenderJob {
+        mutation.name == "double-open-unpriced" ? j : j.composed(RenderJob.Composition(decodes: decodes, scratchBytes: scratch))
+    }
+    do {
+        let mp48 = Double(frame48.width * frame48.height) / 1e6, mp12 = Double(frame12.width * frame12.height) / 1e6
+        // Two 48 MP photographs, a 48 MP frame: the piece, one decode and 64 MB, and both decodes' time.
+        let px48 = Double(frame48.width * frame48.height), px12 = Double(frame12.width * frame12.height)
+        let photo = job(.export, frame48, decodes: true, original: frame48)
+        let double = composed(photo, [frame48, frame48])
+        for mode in [RenderMode.bands(rows: 280), .whole] {
+            let p = model.seed(photo, mode: mode), d = model.seed(double, mode: mode)
+            let open = ComposedOpen.fullPieceBytesPerPixel * px48 + ComposedOpen.fullOtherBase + ComposedOpen.fullOtherBytesPerPixel * px48
+            // The job's peak is the larger of its render and its open (the photograph's open is under the double's).
+            c.expect(d.peakBytes == max(p.peakBytes, UInt64(open) + 64 * MB),
+                     "double: two 48 MP exposures open at the piece, one decode and the scratch band, \(mode.name) (\(d.peakBytes.megabytes) MB against \(p.peakBytes.megabytes))")
+            c.near(d.seconds - p.seconds, 2 * ComposedOpen.fullOtherSecondsPerMP * mp48 - 0.009 * mp48, within: 0.001,
+                   "double: and both decodes' time, \(mode.name)")
+            c.expect(d.phoneBytes - d.peakBytes == p.phoneBytes - p.peakBytes, "double: the source plane is the frame's, \(mode.name)")
+        }
+        // A 48 MP bottom over a 12 MP top makes a ~12 MP frame: the dearer decode is the 48's.
+        let small = job(.export, frame12, decodes: true, original: frame48)
+        let mixed = composed(job(.export, frame12, decodes: true, original: frame48), [frame48, frame12])
+        let mixedOpen = ComposedOpen.fullPieceBytesPerPixel * px12 + ComposedOpen.fullOtherBase + ComposedOpen.fullOtherBytesPerPixel * px48
+        c.expect(model.seed(mixed, mode: .bands(rows: 280)).peakBytes == max(model.seed(small, mode: .bands(rows: 280)).peakBytes, UInt64(mixedOpen) + 64 * MB),
+                 "double: a 48 MP and a 12 MP exposure open at the larger decode's peak and the scratch, not the sum of both")
+        c.near(model.seed(mixed, mode: .whole).seconds - model.seed(small, mode: .whole).seconds,
+               ComposedOpen.fullOtherSecondsPerMP * (mp48 + mp12) - 0.009 * mp12, within: 0.001,
+               "double: their decodes' times are summed, each at its own size")
+        // What the darkroom hands over for that double (`Darkroom.note` -> `Composition.decode`), not a
+        // composition built here: at the full tier the 48 MP bottom is asked at the frame's ~4032 px, and
+        // **a RAW is decoded whole by Core Image and scaled after** (`RawExposure.prepare`), so it is priced
+        // by its own 48 MP; a HEIF of it is reduced by ImageIO, so by the size it is made at. The 2026-11-07
+        // review found the RAW priced as a 12 MP decode, its open 0.2-0.35 GB under.
+        func noted(_ tier: RenderTier, bottomRAW: Bool, edge: Int? = 4032) -> [PixelSize] {
+            [RenderJob.Composition.decode(tier: tier, own: frame48, original: frame48, longEdge: edge, isRAW: bottomRAW),
+             RenderJob.Composition.decode(tier: tier, own: frame12, original: frame12, longEdge: nil, isRAW: false)]
+        }
+        c.expect(noted(.full, bottomRAW: true) == [frame48, frame12],
+                 "double: a 48 MP RAW bottom asked at 4032 px is priced whole, as Core Image holds it (\(noted(.full, bottomRAW: true)))")
+        c.expect(noted(.full, bottomRAW: false) == [frame12, frame12],
+                 "double: a 48 MP HEIF bottom asked at 4032 px is priced at that size, as ImageIO reduces it (\(noted(.full, bottomRAW: false)))")
+        c.expect(noted(.full, bottomRAW: true, edge: nil) == [frame48, frame12] && noted(.full, bottomRAW: false, edge: nil) == [frame48, frame12],
+                 "double: a decode made whole is priced whole, RAW or not")
+        c.expect(noted(.live, bottomRAW: true) == [frame48, frame12] && noted(.preview, bottomRAW: false) == [frame48, frame12],
+                 "double: below the full tier each decode is priced by its original, RAW or not")
+        let rawDouble = job(.export, frame12, decodes: true, original: frame48)
+            .composed(RenderJob.Composition(decodes: noted(.full, bottomRAW: true), scratchBytes: 64 * MB))
+        let heifDouble = job(.export, frame12, decodes: true, original: frame48)
+            .composed(RenderJob.Composition(decodes: noted(.full, bottomRAW: false), scratchBytes: 64 * MB))
+        c.expect(model.seed(rawDouble, mode: .bands(rows: 280)) == model.seed(mixed, mode: .bands(rows: 280)),
+                 "double: the darkroom's composition of a 48 MP RAW over a 12 MP photo is the one priced above")
+        let rawOpen = Double(model.seed(rawDouble, mode: .bands(rows: 280)).peakBytes)
+        let heifOpen = Double(model.seed(heifDouble, mode: .bands(rows: 280)).peakBytes)
+        c.near(rawOpen - heifOpen, ComposedOpen.fullOtherBytesPerPixel * (px48 - px12), within: 0.001,
+               "double: a decode made whole is priced by its whole original, dearer than ImageIO's reduced one")
+        // And a RAW in it at the full tier: Core Image's whole decode, measured nearly flat at ~2 GB on the Mac.
+        let rawFull = job(.export, frame12, decodes: true, original: frame48)
+            .composed(RenderJob.Composition(decodes: noted(.full, bottomRAW: true), scratchBytes: 64 * MB, raw: true))
+        c.near(Double(model.seed(rawFull, mode: .bands(rows: 280)).peakBytes) - rawOpen,
+               ComposedOpen.fullRAWBase - ComposedOpen.fullOtherBase + (ComposedOpen.fullRAWBytesPerPixel - ComposedOpen.fullOtherBytesPerPixel) * px48,
+               within: 1, "double: a RAW's full open is Core Image's whole decode, priced apart from a HEIF's")
+        // Below the full tier each decode is priced by its original, as a photograph's preview is.
+        let page = PixelSize(width: 1280, height: 960)
+        let preview = job(.canvasDevelop, page, tier: .live, decodes: true, original: frame48)
+        let previewDouble = composed(preview, [frame48, frame12], scratch: UInt64(1280 * 960 * 16))
+        let pp = model.seed(preview, mode: .whole), pd = model.seed(previewDouble, mode: .whole)
+        c.expect(pd.peakBytes == UInt64(ComposedOpen.belowOtherBase + ComposedOpen.belowOtherBytesPerPixel * px48) + UInt64(1280 * 960 * 16),
+                 "double: a page's open of two exposures is the dearer original's and the scratch band (\(pd.peakBytes.megabytes) MB against \(pp.peakBytes.megabytes))")
+        c.near(pd.seconds - pp.seconds, ComposedOpen.belowOtherSecondsPerMP * (mp48 + mp12) - 0.003 * mp48, within: 0.001,
+               "double: and both decodes' time, by their originals")
+        // Learned apart, and only where there is an open: a reprint of a double is a reprint.
+        c.expect(CostModel.key(double, mode: .whole) != CostModel.key(photo, mode: .whole) && CostModel.key(double, mode: .whole).hasSuffix("|double"),
+                 "double: its open's corrections are learned apart (\(CostModel.key(double, mode: .whole)))")
+        c.expect(!CostModel.key(photo, mode: .whole).contains("double"), "double: a photograph's key is what it was")
+        // A RAW in it: below the full tier Core Image holds ~62 B a pixel of its original (the Mac, 2026-11-11:
+        // a 24 MP ARW double grew 1,788-2,150 MB on a preview where 9 B a pixel priced it at 483), and it is
+        // learned apart from a HEIF's -- one correction for both had the HEIF's low peaks price a RAW's under.
+        var rawComposition = RenderJob.Composition(decodes: [frame48, frame12], scratchBytes: UInt64(1280 * 960 * 16), raw: true)
+        if mutation.name == "raw-double-priced-as-heif" { rawComposition.raw = false }
+        let previewRAW = preview.composed(rawComposition)
+        let pr = model.seed(previewRAW, mode: .whole)
+        c.near(Double(pr.peakBytes) - Double(pd.peakBytes),
+               ComposedOpen.belowRAWBase - ComposedOpen.belowOtherBase + (ComposedOpen.belowRAWBytesPerPixel - ComposedOpen.belowOtherBytesPerPixel) * px48,
+               within: 1, "double: a RAW's page open is priced as Core Image's decode, over a HEIF's (\(pr.peakBytes.megabytes) MB against \(pd.peakBytes.megabytes))")
+        let keyRAW = CostModel.key(previewRAW, mode: .whole)
+        c.expect(keyRAW != CostModel.key(previewDouble, mode: .whole) && keyRAW.hasSuffix("|double|raw"),
+                 "double: a RAW's open is learned apart from a HEIF's (\(keyRAW))")
+        c.expect(!CostModel.key(previewDouble, mode: .whole).contains("raw"), "double: a HEIF double's key is what it was")
+        let reprint = job(.canvasReprint, page, tier: .live, layers: [.print])
+        let reprintDouble = reprint.composed(RenderJob.Composition(decodes: [frame48, frame12], scratchBytes: 64 * MB))
+        c.expect(model.seed(reprintDouble, mode: .whole) == model.seed(reprint, mode: .whole)
+                 && CostModel.key(reprintDouble, mode: .whole) == CostModel.key(reprint, mode: .whole),
+                 "double: a job that opens nothing costs what any reprint does")
+        c.expect(model.seed(photo.composed(nil), mode: .whole) == model.seed(photo, mode: .whole), "double: a job with no composition costs what it did")
+    }
+
+    // ---- a photograph's RAW, first opened below the full tier (`RenderJob.rawDecode`, `RawOpen`) ----
+    // DIAG-2026-11-13: the job log's first opens added 2.6-2.9 GB where the model priced 0.4-1.1 GB, so the
+    // gate did not protect them. Measured on the Mac after the decode was banded by its original
+    // (`FrameDecoder.rawBandSourcePixels`): the app's own record (`openPeakFootprint - footprintBefore`,
+    // `tools/raw_open_probe.swift`'s figure where it was higher), a 2,560 px canvas, lens correction on.
+    // The model must price every one at or over what it took, and not wildly over (3.5x: the cameras differ by 3x at one
+    // size, and the correction learns the person's own down).
+    do {
+        let page = PixelSize(width: 2560, height: 1707)
+        let measured: [(String, PixelSize, Double)] = [
+            ("8 MP ORF (decoder 7)", PixelSize(width: 3264, height: 2448), 320),
+            ("24 MP A7 III ARW", PixelSize(width: 6000, height: 4000), 573),
+            ("24 MP S1M2 RW2", PixelSize(width: 6000, height: 4000), 977),
+            ("45 MP Z7 II NEF", PixelSize(width: 8256, height: 5504), 922),
+            ("60 MP A7R V ARW", PixelSize(width: 9504, height: 6336), 706),
+            ("60 MP Q3 DNG", PixelSize(width: 9520, height: 6336), 2317),
+            ("102 MP GFX100RF RAF", PixelSize(width: 11648, height: 8736), 2385),
+        ]
+        for (what, original, mb) in measured {
+            let first = RenderJob(frameID: UUID(), kind: .canvasDevelop, tier: .live, canvas: page, what: "test", decodesOriginal: true,
+                                  original: original, rawDecode: mutation.name != "raw-open-priced-as-heif")
+            let priced = model.seed(first, mode: .whole).peakBytes.megabytes
+            c.expect(priced >= mb && priced <= 3.5 * mb,
+                     "raw open: a \(what)'s first open is priced at or over what it took, and under 3.5x (\(Int(priced)) MB against \(Int(mb)))")
+        }
+        let raw = RenderJob(frameID: UUID(), kind: .canvasDevelop, tier: .live, canvas: page, what: "test", decodesOriginal: true,
+                            original: PixelSize(width: 6000, height: 4000), rawDecode: mutation.name != "raw-open-priced-as-heif")
+        let heif = RenderJob(frameID: UUID(), kind: .canvasDevelop, tier: .live, canvas: page, what: "test", decodesOriginal: true,
+                             original: PixelSize(width: 6000, height: 4000))
+        c.expect(CostModel.key(raw, mode: .whole) != CostModel.key(heif, mode: .whole) && CostModel.key(raw, mode: .whole).hasSuffix("|raw"),
+                 "raw open: learned apart from a HEIF's of the same size (\(CostModel.key(raw, mode: .whole)))")
+        // The proxy's later opens are the canvas's price, and learned with the HEIF's (no `rawDecode`).
+        c.expect(!CostModel.key(heif, mode: .whole).contains("raw"), "raw open: a HEIF's key is what it was")
+        // Learning from a first open moves the first opens' price, not a HEIF's.
+        var learner = CostModel(policy: policy)
+        learner.learn(raw, mode: .whole, measuredPeakBytes: 4 * model.seed(raw, mode: .whole).peakBytes, measuredSeconds: 0.5)
+        c.expect(learner.estimate(heif, mode: .whole) == model.estimate(heif, mode: .whole),
+                 "raw open: a first open's measurement leaves a HEIF's price alone")
+    }
+
+    // ---- PRD-E's 场景 layers: a job's planes (`RenderJob.scenePlanes`, RFC-052 §8.5) ----
+    // Each plane is the host's beside the render, 22 MB at most (21.3 MB measured at 4,096 × 2,731); the node's time
+    // as API-SPEC §23 measured it (45 MP: 4.7–5.2 ms for one layer, 8.0–8.5 for eight).
+    do {
+        let MB = 1_048_576.0
+        let full = PixelSize(width: 8256, height: 5504)
+        let plane = 4096 * 2731 * 2
+        func layered(_ n: Int, tier: RenderTier, canvas: PixelSize) -> RenderJob {
+            let free = mutation.name == "scene-planes-free"
+            return RenderJob(frameID: UUID(), kind: tier == .full ? .export : .canvasDevelop, tier: tier, canvas: canvas,
+                             what: "test", decodesOriginal: tier == .full, original: tier == .full ? full : nil,
+                             scenePlanes: free ? 0 : n, scenePlaneBytes: free ? 0 : UInt64(n * plane))
+        }
+        for (tier, canvas) in [(RenderTier.live, PixelSize(width: 2560, height: 1707)), (.full, full)] {
+            let none = model.seed(layered(0, tier: tier, canvas: canvas), mode: .whole)
+            for n in [1, 4, 8] {
+                let with = model.seed(layered(n, tier: tier, canvas: canvas), mode: .whole)
+                let added = Double(with.peakBytes) - Double(none.peakBytes)
+                c.expect(abs(added - Double(n * plane)) < MB && Double(n * plane) / MB <= 22 * Double(n),
+                         "scene layers: \(n) plane\(n == 1 ? "" : "s") at the \(tier) tier add their \(n * plane >> 20) MB (\(Int(added / MB)) MB)")
+                c.expect(with.seconds > none.seconds, "scene layers: \(n) at the \(tier) tier take the node's time")
+            }
+        }
+        let node8 = model.seed(layered(8, tier: .full, canvas: full), mode: .whole).seconds - model.seed(layered(0, tier: .full, canvas: full), mode: .whole).seconds
+        c.expect(mutation.name == "scene-planes-free" || (node8 > 0.005 && node8 < 0.02),
+                 "scene layers: eight at 45 MP, the node's 8.0–8.5 ms measured (\(String(format: "%.1f", node8 * 1000)) ms)")
+    }
+
+    // ---- the full-size prefetch, by the Mac's memory (`PrefetchPolicy`; the owner, 2026-11-13) ----
+    // On a Mac with 16 GB or less, only the next frame the way the person is going (+1); above it, today's
+    // +1, -1, +2, -2. None while the host's headroom would fall under the floor once the prefetch is paid.
+    // The memory is injected: the 16 GB rule is checked on whatever Mac runs this.
+    do {
+        let GB: UInt64 = 1 << 30
+        let ram: (UInt64) -> UInt64 = { mutation.name == "prefetch-ignores-ram" ? 36 * GB : $0 }
+        let small = PrefetchPolicy(physicalMemory: ram(16 * GB)), smaller = PrefetchPolicy(physicalMemory: ram(8 * GB))
+        let large = PrefetchPolicy(physicalMemory: 36 * GB)
+        c.expect(small.offsets(direction: 1, reach: 2) == [1], "prefetch: 16 GB makes +1 only (\(small.offsets(direction: 1, reach: 2)))")
+        c.expect(small.offsets(direction: -1, reach: 2) == [-1], "prefetch: 16 GB, going back, makes the frame behind only (\(small.offsets(direction: -1, reach: 2)))")
+        c.expect(smaller.offsets(direction: 1, reach: 2) == [1], "prefetch: 8 GB makes +1 only (\(smaller.offsets(direction: 1, reach: 2)))")
+        c.expect(PrefetchPolicy(physicalMemory: ram(17_179_869_184)).offsets(direction: 1, reach: 2) == [1],
+                 "prefetch: a 16 GB Mac's physical memory as it reports it (17,179,869,184 B) is a 16 GB Mac")
+        c.expect(large.offsets(direction: 1, reach: 2) == [1, -1, 2, -2], "prefetch: 36 GB keeps +1, -1, +2, -2 (\(large.offsets(direction: 1, reach: 2)))")
+        c.expect(large.offsets(direction: -1, reach: 2) == [-1, 1, -2, 2], "prefetch: 36 GB going back keeps -1, +1, -2, +2")
+        // The floor: what the host keeps once a prefetch is paid for.
+        let cost = 2 * GB
+        c.expect(!small.allows(cost: cost, headroom: cost + small.floorBytes - 1), "prefetch: none when the headroom left would be under the floor")
+        c.expect(small.allows(cost: cost, headroom: cost + small.floorBytes), "prefetch: one when the headroom left is the floor")
+        c.expect(!large.allows(cost: cost, headroom: cost + large.floorBytes - 1), "prefetch: above 16 GB too, none under the floor")
+        c.expect(small.floorBytes >= 2 * GB, "prefetch: the floor holds the critical level and a first open (\(small.floorBytes.megabytes) MB)")
+    }
 
     // ---- the band arithmetic against the engine's (probes/engine/band_asked.py, 2026-10-03) ----
     // The engine cuts rows = floor8(budget / per_row - above - halo). Measured on a 36 mm frame:
@@ -363,6 +589,30 @@ func run(_ mutation: Mutation) async -> Checks {
         c.expect(ran, "wait: a job waiting for memory has the engine's idle pool given back, and runs")
         c.expect(held.value == 0 || mutation.name == "never-trim", "wait: the pool was trimmed")
         s.cancel(id)
+    }
+    // The queue idle: the engine's pool goes back once it has stayed idle a spell (`idleTrimAfter`), and not at
+    // every gap between two jobs -- a slider's reprints leave the queue idle for milliseconds, and a pool given back
+    // there is allocated again by the next. Until 2026-11-13 the idle trim was called at once and freed nothing
+    // (`SpkEngine.trim` returned 0); now it frees, so when it is called matters.
+    do {
+        let held = Held(300)
+        let engine = SimulatedEngine(policy: policy, speed: 50)
+        let count = Held(0)
+        engine.onTrim = { _ = count.add(1); return held.take() * MB }
+        var trims: UInt64 { count.value }
+        let s = RenderQueue(engine: engine, policy: policy, defaults: nil)
+        s.readMemory = { reading(app: 6000, phone: 6000) }
+        s.idleTrimAfter = mutation.name == "idle-trims-at-once" ? 0 : (mutation.name == "idle-never-trims" ? 30 : 0.3)
+        let first = s.submit(job(.canvasReprint, canvas, tier: .live, layers: [.print]))
+        _ = await s.outcome(of: first)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        c.expect(trims == 0, "idle: the pool is not given back the moment the queue empties (\(trims) trims after 0.1 s)")
+        let second = s.submit(job(.canvasReprint, canvas, tier: .live, layers: [.print]))
+        _ = await s.outcome(of: second)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        c.expect(trims == 0, "idle: a job inside the spell starts it again (\(trims) trims)")
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        c.expect(trims == 1 && held.value == 0, "idle: after the spell the pool is given back, once (\(trims) trims, \(held.value) MB left)")
     }
     // Critical pressure: the job is cancelled and runs again in a smaller mode.
     do {
@@ -579,6 +829,39 @@ func run(_ mutation: Mutation) async -> Checks {
         c.expect(over && !rounded && !smaller, "log: larger than asked is over; the canvas to a pixel's rounding, or a smaller frame, is not")
     }
 
+    // A double exposure's job is told what its open composes when it is submitted (the darkroom's
+    // `composition(of:)`, RFC-048 §5), and is planned and recorded at that price: the 2026-10-12 kills
+    // were a plan that believed the wrong size. `double-hook-ignored` submits it as it was asked.
+    do {
+        let engine = SimulatedEngine(policy: policy, speed: 50)
+        let s = RenderQueue(engine: engine, policy: policy, defaults: nil)
+        s.readMemory = { reading(app: 6000, phone: 6000) }
+        let doubleFrame = UUID()
+        // A RAW in it: on the Mac a HEIF double's measured open (`ComposedOpen`) is under what the photograph's
+        // own below-full price says (240 MB + 7.6 B a pixel), so the comparison is made with a RAW's.
+        let told = RenderJob.Composition(decodes: [frame48, frame12], scratchBytes: 64 * MB, raw: true)
+        if mutation.name != "double-hook-ignored" {
+            s.composition = { $0.frameID == doubleFrame ? told : nil }
+        }
+        // The page's first develop of it, where the open is the job's peak (a 48 MP original's).
+        let page = PixelSize(width: 1280, height: 960)
+        let asked = job(.canvasDevelop, page, tier: .live, frame: doubleFrame, decodes: true, original: frame48)
+        let photo = job(.canvasDevelop, page, tier: .live, decodes: true, original: frame48)
+        let id = s.submit(asked), other = s.submit(photo)
+        let submitted = s.snapshots.first { $0.id == id }?.job
+        c.expect(submitted?.composition == told, "double: a double's job is priced with what its open composes, told when it is submitted")
+        c.expect(s.snapshots.first { $0.id == other }?.job.composition == nil, "double: and a photograph's is not")
+        _ = await s.outcome(of: id); _ = await s.outcome(of: other)
+        let a = s.records.last { $0.jobID == id }, b = s.records.last { $0.jobID == other }
+        if let a, let b {
+            c.expect(a.predictedPeakBytes > b.predictedPeakBytes,
+                     "double: its record predicts the composed open's peak, over the photograph's (\(a.predictedPeakBytes.megabytes) MB against \(b.predictedPeakBytes.megabytes))")
+        } else {
+            c.expect(false, "double: both jobs ran and were recorded")
+        }
+        c.expect(s.costModel.corrections.keys.contains { $0.hasSuffix("|double|raw") }, "double: and what it teaches is learned under its own key")
+    }
+
     // ---- Develop's strips: a stock's preview (design/v4 §6) ----
     // A card is the frame through one film and paper at the live tier's smallest (800 px), opened at
     // the meter's 1,600 px. The page's own develop always wins: a card starts only when nothing else
@@ -680,6 +963,56 @@ func run(_ mutation: Mutation) async -> Checks {
         if case .finished = out { c.expect(waited && mode == Planner.ladder(for: job(.export, frame48, decodes: true)).last?.name,
                                             "reclaim: with nothing left to give back an export waits a moment, then runs in its smallest mode (\(mode))") }
         else { c.expect(false, "reclaim: the export runs in the end") }
+    }
+    do {
+        // **The Mac's forced start is held to the host** (DIAG-2026-11-13 Part 2 item 3). Until 2026-11-13 the
+        // Mac's allowance was its physical memory, so a job someone waits on started after 1.5 s whatever the
+        // host had left -- here 700 MB of headroom on a 36 GB Mac, for a 48 MP export -- and the rest was swap.
+        // Now the allowance is the host's: its headroom and half its compressor (`MemoryProbe.macAllowance`).
+        let headroomOnly = MemoryProbe.reading(free: 700 * MB, inactive: 0, purgeable: 0, wired: 0, compressed: 0, footprint: 0)
+        let tight = mutation.name == "mac-allowance-constant"
+            ? MemoryReading(appAvailable: 36 << 30, free: 700 * MB, inactive: 0, purgeable: 0, wired: 0, compressed: 0, footprint: 0)
+            : headroomOnly
+        c.expect(tight.appAvailable == 700 * MB || mutation.name == "mac-allowance-constant",
+                 "mac: the allowance is the host's headroom, not the physical memory (\(tight.appAvailable.megabytes) MB)")
+        let s = scheduler(memory: { tight })
+        s.forceAfter = 0.05
+        s.forceAnywayAfter = 30
+        let export = s.submit(job(.export, frame48, decodes: true))
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        c.expect(s.snapshots.first { $0.id == export }?.state == .waiting(.memory) && !s.records.contains { $0.jobID == export },
+                 "mac: a job someone waits on is not forced past what the host has left")
+        s.cancelAll(frameID: s.snapshots.first { $0.id == export }?.job.frameID ?? UUID())
+        // **But it never starves** (review, 2026-11-13): on macOS nothing frees memory for us under pressure,
+        // so a job someone waits on that has waited `forceAnywayAfter` -- the reclaim's rungs run, and
+        // the footprint given its time to show them -- starts anyway, in its smallest mode, the watch on it.
+        do {
+            let t = scheduler(memory: { tight })
+            t.forceAfter = 0.05
+            t.forceAnywayAfter = mutation.name == "mac-asked-starves" ? nil : 0.6
+            let started = Date()
+            let held = t.submit(job(.export, frame48, decodes: true))
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            c.expect(!t.records.contains { $0.jobID == held }, "mac: not forced before the longer bound (at 0.3 s)")
+            var ran: JobRecord?
+            for _ in 0..<300 where ran == nil {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                ran = t.records.first { $0.jobID == held && $0.outcome == "done" }
+            }
+            let after = ran.map { $0.at.timeIntervalSince(started) } ?? -1
+            c.expect(ran != nil && after >= 0.6, "mac: a job someone waits on starts by the bound however tight the host (\(String(format: "%.2f", after)) s)")
+            c.expect(ran?.mode == Planner.ladder(for: job(.export, frame48, decodes: true)).last?.name,
+                     "mac: and in its smallest mode (\(ran?.mode ?? "none"))")
+            t.cancelAll(frameID: t.snapshots.first { $0.id == held }?.job.frameID ?? UUID())
+        }
+        // With the compressor holding other apps' pages, half of them count, and the same job starts in the end.
+        let roomy = MemoryProbe.reading(free: 700 * MB, inactive: 0, purgeable: 0, wired: 0, compressed: 8 << 30, footprint: 0)
+        c.expect(roomy.appAvailable == 700 * MB + (4 << 30), "mac: half of the compressor's pages count (\(roomy.appAvailable.megabytes) MB)")
+        let r = scheduler(memory: { roomy })
+        r.forceAfter = 0.05
+        let started = r.submit(job(.export, frame48, decodes: true))
+        let out = await r.outcome(of: started)
+        if case .finished = out { c.expect(true, "") } else { c.expect(false, "mac: a forced start the host can hold still runs (\(out))") }
     }
     do {
         // Not past the allowance: an export the app's own allowance cannot hold still waits.

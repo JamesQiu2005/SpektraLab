@@ -66,6 +66,17 @@ func L(_ text: String) -> String { text }
         registry.perform(command("+", .command)); registry.perform(command("=", .command))
         expect(Array(hits.suffix(2)) == ["zoom", "zoom"], "canonical shortcut and keyboard-layout alias dispatch the same action")
         expect(Set(MacShortcut.column.bindings).isDisjoint(with: MacShortcut.browser.bindings), "approved Browser and column bindings do not collide")
+        // PRD-G: Capture One's F2 New Variant and F3 Clone Variant, and no other binding of the app's on either key.
+        let variantKeys = Set(MacShortcut.newVariant.bindings + MacShortcut.cloneVariant.bindings)
+        let others = MacShortcut.allCases.filter { $0 != .newVariant && $0 != .cloneVariant }.flatMap(\.bindings)
+        expect(MacShortcut.newVariant.bindings == [MacKeySpec(input: UIKeyCommand.f2)] && MacShortcut.cloneVariant.bindings == [MacKeySpec(input: UIKeyCommand.f3)]
+               && variantKeys.isDisjoint(with: others), "F2 is New Variant, F3 Clone Variant, and nothing else has either")
+        let variant = UUID()
+        registry.register(variant, entry: .init(specs: MacShortcut.newVariant.bindings, title: "New Variant", enabled: true, action: { hits.append("new variant") }))
+        registry.perform(command(UIKeyCommand.f2))
+        expect(hits.last == "new variant" && registry.keyCommands.contains { $0.input == UIKeyCommand.f2 && $0.modifierFlags.isEmpty },
+               "F2 with no modifier reaches New Variant, and is a key command of the window's")
+        registry.unregister(variant)
         let identities = registry.keyCommands.compactMap { $0.propertyList as? String }
         expect(identities.count == registry.keyCommands.count && Set(identities).count == identities.count,
                "menu commands sharing a selector have unique non-nil identities")
@@ -111,6 +122,42 @@ func L(_ text: String) -> String { text }
         registry.unregister(copy)
         expect(!registry.canPerformStandard(#selector(UIResponder.copy(_:))) && registry.canPerformStandard(#selector(UIResponder.paste(_:))),
                "with no Copy Settings registered Edit's Copy is left alone")
+        // The mask tools' plain keys (MASKS-SPEC §8, `MaskKey`): bound to nothing else of the app's; plain (no ⌘ or ⌃);
+        // ⇧[ and ⇧] reach Softer and Harder however the layout spells them, and plain [ ] Smaller and Larger; ⌥M is
+        // not M; none while a field is edited; Esc too.
+        let maskSpecs = MaskKey.allCases.flatMap(\.specs)
+        let appSpecs = Set(MacShortcut.allCases.flatMap(\.bindings))
+        expect(Set(maskSpecs).isDisjoint(with: appSpecs) && Set(maskSpecs).count == maskSpecs.count,
+               "the mask keys collide with no binding of the app's, nor with each other")
+        expect(maskSpecs.allSatisfy { $0.flags.intersection([.command, .control]).isEmpty }, "the mask keys are plain (⇧ and ⌥ at most)")
+        var owners: [MaskKey: UUID] = [:]
+        for key in MaskKey.allCases {
+            let o = UUID(); owners[key] = o
+            registry.register(o, entry: .init(specs: key.specs, title: key.title, enabled: true, action: { hits.append("\(key)") }))
+        }
+        for (cmd, want) in [(command("["), "smaller"), (command("]"), "larger"), (command("{", .shift), "softer"), (command("[", .shift), "softer"),
+                            (command("}", .shift), "harder"), (command("]", .shift), "harder"), (command("m"), "showMask"),
+                            (command("m", .alternate), "maskAlone"), (command("µ", .alternate), "maskAlone"), (command("b"), "brush"),
+                            (command("e"), "eraser"), (command(UIKeyCommand.inputEscape), "putDown")] {
+            registry.perform(cmd)
+            expect(hits.last == want, "\(cmd.input ?? "?") with \(cmd.modifierFlags.rawValue) reaches \(want) (\(hits.last ?? "nothing"))")
+        }
+        let beforeTyping = hits.count
+        MacLibraryBrowser.shared.typing = true
+        for key in MaskKey.allCases { for spec in key.specs { registry.perform(command(spec.input, spec.flags)) } }
+        expect(hits.count == beforeTyping && !registry.keyCommands.contains { c in maskSpecs.contains { $0.input == c.input && $0.flags == c.modifierFlags } },
+               "no mask key acts while a field is edited, and none is offered to the menu then")
+        MacLibraryBrowser.shared.typing = false
+        for o in owners.values { registry.unregister(o) }
+        // ⌫: the layer's (registered by the page) answers while the Curve's Delete Point is not registered or disabled;
+        // the registry answers with the last enabled registration, so a disabled one after it takes nothing.
+        let layerDelete = UUID(), curveDelete = UUID()
+        registry.register(layerDelete, entry: .init(specs: [.init(input: UIKeyCommand.inputDelete)], title: "Delete Layer", enabled: true, action: { hits.append("layer") }))
+        registry.register(curveDelete, entry: .init(specs: [.init(input: UIKeyCommand.inputDelete)], title: "Delete Point", enabled: false, action: { hits.append("point") }))
+        registry.perform(command(UIKeyCommand.inputDelete))
+        expect(hits.last == "layer", "⌫ with no curve point chosen is the layer's")
+        registry.unregister(layerDelete); registry.unregister(curveDelete)
+
         print("shortcut selftest: \(failures.count) failures")
         exit(failures.isEmpty ? 0 : 1)
     }

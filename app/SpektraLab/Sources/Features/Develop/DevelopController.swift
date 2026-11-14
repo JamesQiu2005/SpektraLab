@@ -12,9 +12,15 @@
 //  What it shows: viewing, `ViewerPane` — picture, filmstrip, the viewer's bar; developing, the
 //  develop page in the column.
 //
-//  **One session per page** (`DevelopPane`): a frame changed from the filmstrip or the arrow keys is a
-//  new `DevelopPane` (`.id(frame)`), so the last frame's session leaves and the next one's enters.
-//  Viewing holds no session and asks for no render: the picture is the frame's kept develop.
+//  **One session per frame, one page across frames** (`DevelopPane`, 2.4.0 A2b): a frame changed from the
+//  browser or the arrow keys hands the page the next frame — the last frame's session leaves and the next
+//  one's enters — and only what depends on the frame is made again (the canvas, what holds the session's
+//  histogram or its strip). Until then the page was made again from nothing at every change of frame
+//  (`.id(frame)`): ~280 ms to the first frame of the next photograph on 45 MP, Debug, nearly all of it
+//  SwiftUI making, laying out and drawing the column again. Where something on the page is held — a
+//  control's drag, a field being typed in, a popover, the crop, a sheet — the page is still made again
+//  (`made`), so nothing of the gesture goes to the next frame. Viewing holds no session and asks for no
+//  render: the picture is the frame's kept develop.
 
 import SwiftUI
 
@@ -51,6 +57,9 @@ final class DevelopController {
     var stripHidden = false
     /// How the next develop page opens: where ‹ goes, and the state carried from the last frame.
     private(set) var opening: DevelopOpening
+    /// The develop page's identity: counted up only when a change of frame must make the page again (`select`'s
+    /// `remake`), so every other change of frame keeps the page and hands it the next frame (2.4.0 A2b).
+    private(set) var made = 0
     /// the
     /// frames chosen in the filmstrip beside the open one — ⌘-click, ⇧-click, a drag across it, as Capture
     /// One's filmstrip — which Export takes as one batch (`exportIDs`). Empty: the open frame alone. A plain
@@ -102,10 +111,14 @@ final class DevelopController {
     /// otherwise be silently refused by `LibraryBrowser.select`, leaving the browser showing one picture
     /// and the canvas another (the owner, 2026-10-26: "it selects it but the canvas keeps showing the old
     /// picture" — the strip held the one carried frame, `ids=1`).
-    func select(_ id: LibraryFrame.ID, carrying: DevelopOpening? = nil, strip: [LibraryFrame.ID]? = nil) {
+    ///
+    /// `remake`: the page is made again for `id`, as it was for every change of frame until 2.4.0 — where something
+    /// on the page is held that must not go to the next frame (`DevelopWorkspace.pageHolds`).
+    func select(_ id: LibraryFrame.ID, carrying: DevelopOpening? = nil, strip: [LibraryFrame.ID]? = nil, remake: Bool = false) {
         chosen = []
         anchor = id
         guard id != current else { return }
+        if remake { made &+= 1 }
         if let carrying {
             var o = carrying
             o.back = opening.back
@@ -171,12 +184,16 @@ struct DevelopWindowContent: View {
     }
 
     var body: some View {
+        #if DEBUG && SPK_ENGINE
+        let _ = TransitionMarks.mark("host.body")
+        #endif
         ZStack {
             Theme.background.ignoresSafeArea()
             if let id = pad.current {
                 if pad.developing {
-                    // A new frame is a new page: its own session, the last one's left.
-                    DevelopPane(frameID: id, opening: pad.opening).id(id)
+                    // Another frame is the same page with the next frame's session (`DevelopPane.switchSession`); made
+                    // again only where the change asked for it (`made`).
+                    DevelopPane(frameID: id, opening: pad.opening).id(pad.made)
                 } else {
                     ViewerPane(frameID: id)
                 }

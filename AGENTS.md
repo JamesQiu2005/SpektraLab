@@ -160,7 +160,14 @@ Full text in `docs/agents/TRAPS.md`. 1–13 are the upstream Python/MLX engine's
 
 ## Do not
 
-- Do not commit or push unless asked.
+- Do not push, and do not merge into `main`, without the owner's approval. **New work goes on a branch of its own
+  in a worktree of its own** (`git worktree add -b <area>/<topic>-<date> .claude/worktrees/<topic> <base>`), cut
+  from the latest release line, and **is committed there locally** as it reaches a green gate. It is merged back
+  into `main` only after the owner has checked it by hand and approved it.
+- Do not leave a worktree behind. Once its branch is merged (or dropped by the owner), remove it:
+  `git worktree remove .claude/worktrees/<topic>`, `git branch -d <branch>`, and its build products and scratch
+  files with it (a debug build's `build/` is gigabytes). Never remove another session's worktree, or one whose
+  branch holds commits that are not merged.
 - Do not edit `AGENTS.md`, `ARCHITECTURE.md`, `API-SPEC-*` or `CONTRACT-*`
   without saying so first — they belong to nobody in particular, and a peer
   session may be reading them.

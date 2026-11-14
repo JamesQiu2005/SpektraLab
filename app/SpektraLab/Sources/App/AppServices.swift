@@ -50,10 +50,19 @@ final class AppServices {
     let filmGeometry: any FilmGeometrySource = PortedFilmGeometry()
     /// True inside the snapshot harness.
     let isSnapshot: Bool
+    /// Where the model's own settings are kept: the app's domain, or a check's suite (`init`).
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private var filmEdges: [FilmEdgeKey: ResolvedFilmEdge?] = [:]
-    @ObservationIgnored private var signals: SchedulerSignals?
+    /// Each frame's last `finishedLayers`, by what it was made of: a page asks on every redraw, and a layer's key is
+    /// an encoding and a hash.
+    @ObservationIgnored private var finishedMade: [LibraryFrame.ID: (of: FinishedLayersOf, made: FinishedLayers?)] = [:]
+    @ObservationIgnored private(set) var signals: SchedulerSignals?
     /// The develop pages that are open, by frame: where a canvas's picture goes.
     @ObservationIgnored private var sessions: [LibraryFrame.ID: WeakSession] = [:]
+    /// Every frame's edit history (PRD-F): `EditHistory/history.sqlite` beside the library where a library is
+    /// kept on disk, in memory otherwise (the drawings' own, the snapshot harness, a test). Every session reads
+    /// and writes it through this one line, and so does every change made with no page open (`recordStep`).
+    @ObservationIgnored let history: EditHistoryLine
     /// Frames whose own develop reads an original that stays in Photos, in
     /// the order they were asked for: one at a time has its original brought
     /// and is developed (`awaitOriginal`).
@@ -72,9 +81,10 @@ final class AppServices {
 
     /// `pinnedNow` fixes the clock (the snapshot harness: the drawings' own
     /// day). `persists` false keeps nothing in UserDefaults. `realLibrary`
-    /// reads the library kept on disk, and keeps it (a host).
+    /// reads the library kept on disk, and keeps it (a host). `defaults` is where the model's own settings
+    /// are kept: the app's domain, or a check's suite (`--defaults-suite`, AGENTS.md trap 24).
     init(scenario: DemoLibrary.Scenario = .home, pinnedNow: Date? = nil, persists: Bool = true,
-         isSnapshot: Bool = false, engineSpeed: Double = 1, realLibrary: Bool = false) {
+         isSnapshot: Bool = false, engineSpeed: Double = 1, realLibrary: Bool = false, defaults: UserDefaults = .standard) {
         // The user's own library is developed by the engine. The drawings' own
         // never is: its pictures are SpektraLab's prints already.
         let darkroom = EngineRouter(wantsEngine: realLibrary && !isSnapshot, simulatedSpeed: engineSpeed)
@@ -84,7 +94,8 @@ final class AppServices {
         GamutProof.shared.darkroom = darkroom   // the numbers a page's proof into a smaller space uses
         #endif
         self.isSnapshot = isSnapshot
-        scheduler = RenderQueue(engine: darkroom.engine, defaults: persists ? .standard : nil)
+        self.defaults = defaults
+        scheduler = RenderQueue(engine: darkroom.engine, defaults: persists ? defaults : nil)
         // The window's profile of the budget where the app runs on one (`BudgetTuning.window`).
         scheduler.tuning = .forThisDevice
         // Nothing develops while a camera session runs (the owner, 2026-10-08). The app
@@ -92,10 +103,10 @@ final class AppServices {
         scheduler.developsBesideCamera = false
         library = FrameCatalog(DemoLibrary.seed(scenario, now: pinnedNow))
         presets = PresetStore(url: realLibrary && persists ? ImportService.root.appendingPathComponent("look-presets.json") : nil)
-        settings = AppSettings(defaults: persists ? .standard : nil)
+        settings = AppSettings(defaults: persists ? defaults : nil)
         // Kept only where the library is: the drawings' own library, and a test, save nothing.
         recipes = ExportRecipeStore(url: realLibrary && persists ? ImportService.root.appendingPathComponent(ExportRecipeStore.fileName) : nil,
-                                    defaults: realLibrary && persists ? .standard : nil)
+                                    defaults: realLibrary && persists ? defaults : nil)
         // Working copies are kept only where the library is.
         originals = Originals(library: library, folder: realLibrary && persists ? ImportService.workingCopies : nil,
                               limit: settings.workingCopiesLimit)
@@ -107,13 +118,23 @@ final class AppServices {
         // Sent only from a build with the sending compiled (`SPK_LOG_UPLOAD`): any other keeps it.
         #if SPK_LOG_UPLOAD
         diagnostics = Diagnostics(folder: realLibrary && persists && !isSnapshot ? ImportService.logs : nil,
-                                  endpoint: .launch(), defaults: persists ? .standard : nil)
+                                  endpoint: .launch(), defaults: persists ? defaults : nil)
         #else
         diagnostics = Diagnostics(folder: realLibrary && persists && !isSnapshot ? ImportService.logs : nil)
         #endif
         router = AppRouter()
+        // Opened on its first call, on the store's actor: nothing of it runs at launch on the main thread.
+        let keepsHistory = realLibrary && persists && !isSnapshot
+        history = EditHistoryLine(store: keepsHistory ? SQLiteEditHistoryStore(url: SQLiteEditHistoryStore.file(in: ImportService.root))
+                                                      : InMemoryEditHistoryStore())
+        // 镜头校正's lens database and Core Image's verdicts (`LensResolver`): opened on their first ask, off the main
+        // thread. A test or a snapshot library keeps none: no database lens is resolved there.
+        LensResolver.configure(database: keepsHistory ? LensDatabase(url: LensDatabase.file(in: ImportService.root)) : nil)
         exporter.film = { [weak self] frame in self?.exportFilm(frame) }
+        LensLibrary.shared.changed = { [weak self] in self?.lensDatabaseChanged() }
+        exporter.finishedLayers = { [weak self] frame in self?.finishedLayers(frame) }
         exporter.cropIsFrame = { [settings] in settings.cropRemapsFrame }
+        exporter.variantNumber = { [weak self] id in self?.macLibrary.variantNumber(of: id) }
         darkroom.originals = originals
         // The page's zoom renders a frame as its export at Full would (`FullRender`), so that export is made of it.
         darkroom.fullPlan = { [weak exporter] frame in
@@ -123,6 +144,12 @@ final class AppServices {
             return (made.plan, source, made.isRAW)
         }
         originals.copies.inUse = { [weak self] in self?.originalsInUse() ?? [] }
+        // A RAW's proxy is of a file and its decode, not of a frame (PRD-G §5): the book asks which frames name one.
+        originals.copies.proxyNames = { [weak self] ids in
+            guard let self else { return [] }
+            let frames = ids.map { $0.compactMap { self.library.frame($0) } } ?? self.library.frames
+            return self.darkroom.proxyNames(of: frames)
+        }
         // The full-size renders' own limit, and the ones being shown, read or made (`WorkingCopies.fullLimit`).
         originals.copies.fullLimit = settings.fullRenderCacheLimit
         originals.copies.fullInUse = { [weak self] in self?.fullRendersInUse() ?? [] }
@@ -160,6 +187,9 @@ final class AppServices {
             ThumbnailStore.shared.trim()
             stockPreviews?.trim()
             self?.releaseFullSize()
+            // The rest of what can be drawn again (`MemoryRelease`): the pages' develops between edits, Edit's
+            // copies, the gamut proofs, the rail's pictures, the canvas's corrected pictures.
+            MemoryRelease.post()
         }
         // A job someone waits on cannot fit: more goes than on a warning (`RenderQueue.reclaim`).
         scheduler.onReclaim = {
@@ -174,14 +204,27 @@ final class AppServices {
         darkroom.onAsShot = { [weak self] frame, temperature, tint in self?.readAsShot(frame, temperature, tint) }
         darkroom.onRawExposure = { [weak self] frame, facts in self?.readRawExposure(frame, facts) }
         darkroom.onMetered = { [weak self] pair, index, ev, key in self?.metered(pair, index, ev, key) }
+        // A double exposure's exposure metered alone (RFC-048 §4): kept in the double, under what it was
+        // read for, so it is read once (`meteredDouble`, DoubleKeeping.swift).
+        darkroom.onDoubleMetered = { [weak self] id, position, ev, key in self?.meteredDouble(id, position.rawValue, ev, key) }
+        // What a double exposure's open decodes, for the scheduler's price of the job (RFC-048 §5).
+        scheduler.composition = { [weak darkroom] job in darkroom?.composition(of: job.id) }
         // Where a pair's two frames are on the strip its page has just developed: the page's to know.
         darkroom.onGates = { [weak self] pair, rects in self?.openSession(pair)?.located(rects) }
         darkroom.bodySeed = { [settings] in settings.bodySeed }
         darkroom.cropIsFrame = { [settings] in settings.cropRemapsFrame }
         darkroom.frames = { [library] id in library.frame(id) }
         if realLibrary {
+            // The found masks' files (PRD-E, RFC-052 §8.2): the library's own `Masks/`, beside `library.json` and
+            // `layers.json`, read by every bake of a found part on every surface (`MaskStore.foundPicture`). Set before
+            // anything can develop; a demo library has none, so a found part there fails loudly.
+            FoundMaskFiles.shared.use(FoundMaskFiles.folder(in: ImportService.root))
             library.load(from: LibraryPersistence())
             ImportService(model: self).adoptOrphans()
+            // The double exposures held to the library as it was read: what an older build did meanwhile
+            // (`LibraryShelf`) -- a photograph removed, a guide swept -- mended before the tidy keeps what
+            // the library names.
+            holdDoublesToTheLibrary()
             // What the app keeps on disk, held to the library as it was read: files
             // of frames that are gone go, and what Photos no longer has is marked.
             tidyStorage()
@@ -189,7 +232,6 @@ final class AppServices {
             // working copy is here moves in before the rest are marked missing.
             keepPhotosOriginals()
             originals.reconcile()
-            holdLensCorrection()
             holdPairsToTheirFrames()
             holdRAWsToTheirFiles(keeping: persists)
             holdCameraCrops()
@@ -199,6 +241,7 @@ final class AppServices {
                 guard let scheduler else { return false }
                 return scheduler.isIdle && !scheduler.frontend.cameraLive
             }
+            Layer2Copies.shared.finishedLayers = { [weak self] frame in self?.finishedLayers(frame) }
             Layer2Copies.shared.watch(library)
             // The log: which build on which reference device, then the library in numbers once what the
             // app keeps has been measured (at launch the figures are not in yet), and again
@@ -276,7 +319,14 @@ final class AppServices {
         // host does, so the engine has frames of the user's to develop there.
         if let i = arguments.firstIndex(of: "--library"), i + 1 < arguments.count, arguments[i + 1] == "real" { real = true }
         if real { scenario = .empty }
-        let model = AppServices(scenario: scenario, realLibrary: real)
+        var defaults = UserDefaults.standard
+        #if DEBUG
+        // `--defaults-suite <name>`: a check's launch keeps the model's settings in a suite of its own, never the
+        // app's domain, which `CFFIXED_USER_HOME` does not move (`tools/history_check.sh`; AGENTS.md trap 24).
+        if let i = arguments.firstIndex(of: "--defaults-suite"), i + 1 < arguments.count,
+           let suite = UserDefaults(suiteName: arguments[i + 1]) { defaults = suite }
+        #endif
+        let model = AppServices(scenario: scenario, realLibrary: real, defaults: defaults)
         #if SPK_LOG_UPLOAD
         // The ask to share the log is the user's to see: a launch with arguments is a check's.
         model.diagnostics.asksByItself = arguments.count <= 1 || arguments.contains("--ask-diagnostics")
@@ -304,6 +354,17 @@ final class AppServices {
         }
         #if DEBUG
         if real { FolderHarness.run(model, arguments: arguments) }   // `--link-folder`, `--reconnect-folder` (FolderHarness.swift)
+        // `--double-check [--frames BOTTOM TOP] [--out DIR]`: a double exposure walked on the engine (`DoubleHarness`).
+        if real { DoubleHarness.run(model, arguments: arguments) }
+        if real { MacLayersCheck.run(model, arguments: arguments) }
+        #if SPK_ENGINE
+        // `--finished-layers-check [--out DIR]`: PRD-E's 成片 layers on the page, the histogram, the zoom, a tile and the export.
+        if real { MacFinishedLayersCheck.run(model, arguments: arguments) }
+        // `--masks-check OUT [--masks-check-relaunch RUN1]`: a photograph's mask layers in the window (M1a).
+        if real { MacMasksCheck.run(model, arguments: arguments) }
+        // `--lens-check OUT [--lens-check-relaunch RUN1]`: 镜头校正's panel, popup and Settings row (tools/lens_check.sh).
+        if real { MacLensCheck.run(model, arguments: arguments) }
+        #endif
         #endif
         // `--settings-recipes`: Settings open on its Recipes page (a drive's way in).
         if arguments.contains("--settings-recipes") {
@@ -344,6 +405,22 @@ final class AppServices {
             }
             NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in
                 AgentServer.shared.stop()
+            }
+        }
+        // The step-naming table is made once, at launch, not inside the first step's 1 ms (PRD-F §5).
+        _ = HistoryFields.table.count
+        // **At quit** the library is written as it stands and the edit history's line run out, for at most half a
+        // second. Measured on this Mac (2026-11-13, `tools/history_check.sh`'s quits, every notification logged from
+        // `NSApplication terminate:` on): a Catalyst quit posts `didEnterBackground` and `UISceneDidDisconnect` within
+        // ~0.1 s on the main thread, and then nothing — no `willTerminate`, no `applicationWillTerminate`, with
+        // sudden termination held off or not — and the process is gone about 5 s later, its main queue not run
+        // meanwhile: a library save waiting out its second and the steps in the history's line were lost. So the
+        // writing is done on entering the background, which a quit always passes through (and a hidden app too, where
+        // writing early costs nothing). `willTerminate` is kept for a quit that does post it.
+        for name in [UIApplication.didEnterBackgroundNotification, UIApplication.willTerminateNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak model] _ in
+                guard Thread.isMainThread else { return }
+                MainActor.assumeIsolated { model?.settleForQuit() }
             }
         }
         return model
@@ -439,6 +516,59 @@ final class AppServices {
         return made
     }
 
+    /// **A frame's 成片 layers for Edit's pass** (PRD-E, RFC-052 §3, §7): the ones that act, with the finished canvas
+    /// → S (`MaskFrame.finished`: the picture's cut, and under a film edge the gate's place on the film's canvas, the
+    /// numbers the guide is drawn from, `FilmGeometry.pictureBox`). The same value for the page, the zoom, a tile's copy
+    /// and the export: each surface composes it with its own place (`FinishedLayers.matrix(turnsAfter:)`), and Edit's
+    /// crop, made after the pass on every surface, is in none of them. Nil where none acts or Edit is off; for a piece
+    /// made of frames (M1 is single photographs, PRD-E §3); and under a film edge whose layout is not to be had — the
+    /// layers stand down rather than land off their subject.
+    func finishedLayers(_ frame: LibraryFrame, edit: FrameEdit? = nil) -> FinishedLayers? {
+        let e = edit ?? frame.edit
+        guard !frame.isComposite, e.adjustments.enabled, let layers = e.layers, !layers.active(.finished).isEmpty else { return nil }
+        guard let (picture, film) = finishedPlace(frame, e) else { return nil }
+        let of = FinishedLayersOf(layers: layers, enabled: e.adjustments.enabled, picture: picture, film: film, source: frame.originalSize)
+        if let kept = finishedMade[frame.id], kept.of == of { return kept.made }
+        let made = FinishedLayers.of(layers, adjustments: e.adjustments, source: frame.originalSize,
+                                     toSource: MaskFrame.finished(picture: picture, source: CGSize(width: frame.originalSize.width,
+                                                                                                   height: frame.originalSize.height), film: film))
+        if finishedMade.count > 64 { finishedMade.removeAll(keepingCapacity: true) }
+        finishedMade[frame.id] = (of, made)
+        return made
+    }
+
+    /// The picture's cut and, under a film edge, the gate's place on the film's canvas: what `MaskFrame.finished` is
+    /// made of for this frame and edit. Nil under a film edge whose layout is not to be had.
+    private func finishedPlace(_ frame: LibraryFrame, _ e: FrameEdit) -> (Geometry, MaskFrame.FilmBox?)? {
+        let picture = e.pictureGeometry(source: frame.originalSize)
+        var film: MaskFrame.FilmBox?
+        if e.filmEdge.effective {
+            guard let resolved = filmEdge(for: frame, edit: e) else { return nil }
+            let g = resolved.geometry, (box, tilt, centre) = g.pictureBox
+            film = MaskFrame.FilmBox(canvasMM: g.canvasMM, box: box, tilt: tilt, centre: centre)
+        }
+        return (picture, film)
+    }
+
+    /// **The finished canvas → S for a frame and an edit** (`MaskFrame.finished`): the matrix Edit's pass is handed
+    /// (`finishedLayers`), and the one the page's mask tools compose with the view's own place (`MaskStage`, through
+    /// `MaskFrame.view`). One function, so the overlay and the pass cannot disagree. Nil for a piece made of frames, and
+    /// under a film edge whose layout is not to be had.
+    func finishedToSource(_ frame: LibraryFrame, edit: FrameEdit? = nil) -> MaskMatrix? {
+        let e = edit ?? frame.edit
+        guard !frame.isComposite, let (picture, film) = finishedPlace(frame, e) else { return nil }
+        return MaskFrame.finished(picture: picture, source: CGSize(width: frame.originalSize.width, height: frame.originalSize.height), film: film)
+    }
+
+    /// What `finishedLayers` is made of, for its memo.
+    struct FinishedLayersOf: Equatable {
+        var layers: LocalLayers
+        var enabled: Bool
+        var picture: Geometry
+        var film: MaskFrame.FilmBox?
+        var source: PixelSize
+    }
+
     /// A frame's film edge as an export needs it: the host's cut and turn of
     /// the picture, and the film's canvas round a framing of any size — the
     /// same layout the page's film is drawn from, asked at the export's own
@@ -485,26 +615,163 @@ final class AppServices {
         if let held = heldSession(frameID) { return held }
         let session = OpenFrameSession(frameID: frameID, library: library, scheduler: scheduler, settings: settings,
                                      darkroom: darkroom)
+        // Edit's 成片 layers, with the finished canvas's matrix (PRD-E): the page's pass and its histogram carry them.
+        session.finishedLayers = { [weak self] frame, edit in self?.finishedLayers(frame, edit: edit) }
+        // A layer act waits while an export batch reads this frame (AGENTS.md trap 34), as Go to This Step does.
+        session.exportHolds = { [weak self] in self?.historyRefusal(frameID) != nil }
         // The page leaves a picture that is not of the edit as it stands: this one frame's develop, asked.
         session.onStale = { [weak self] in self?.develop(frameID) }
         session.onRestoreRevision = { [weak self, weak session] revision in
             guard let self, let session else { return }
             var changedSources: [UUID] = []
+            var before: [UUID: DecodeSettings] = [:]
             for (id, decode) in revision.sourceDecodes where self.library.frame(id)?.edit.decode != decode {
-                guard self.library.frame(id) != nil else { continue }
+                guard let was = self.library.frame(id) else { continue }
+                before[id] = was.edit.decode
                 self.library.update(id) { $0.edit.decode = decode }
                 changedSources.append(id)
             }
             if let pair = revision.pair {
                 self.changePair(frameID) { piece, look in piece = pair; look = revision.edit }
+            } else if let double = revision.double {
+                // A double exposure's piece and look together, as one edit (RFC-050 §3); its photographs'
+                // decodes are back above, and `changeDouble` reads them into the piece again.
+                self.changeDouble(frameID) { piece, look in piece = double; look = revision.edit }
             } else {
                 session.change { $0 = revision.edit }
             }
             for id in changedSources { self.develop(id) }
+            // An Undo of the piece that put a photograph's decode back is a step of that photograph's own.
+            if !changedSources.isEmpty { self.recordMembers(of: frameID, before: before) }
         }
+        // A step of the piece that moved a photograph's decode is that photograph's too (PRD-F §3.3).
+        session.onMembersChanged = { [weak self] before in self?.recordMembers(of: frameID, before: before) }
+        // The frame's history, from the store: what the page undoes, across pages and launches (PRD-F §3.2).
+        session.attachHistory(history)
         sessions = sessions.filter { $0.value.session != nil }
         sessions[frameID] = WeakSession(session: session)
         return session
+    }
+
+    /// Everything unsaved written now: `library.json` (its save waits a second after a change) and the history's line
+    /// run out, capped (`EditHistoryLine.drainAtQuit`). On entering the background, which a quit passes through.
+    func settleForQuit() {
+        library.flush()
+        history.drainAtQuit(within: 0.5)
+    }
+
+    // MARK: the edit history's one door (PRD-F §3.3)
+
+    /// A frame's history state as it stands: its page's snapshot where a page is open, the library's otherwise.
+    func historyRevision(_ frameID: LibraryFrame.ID) -> DevelopRevision? {
+        if let held = heldSession(frameID) { return held.historySnapshot() }
+        return library.frame(frameID).map { OpenFrameSession.revision(of: $0, darkroom: darkroom) }
+    }
+
+    /// **A person's change to a frame's edit made with no page open on it**: one step in that frame's history,
+    /// from `before` (the frame's state just before the change, `historyRevision`) to the frame as it is now. The
+    /// store reconciles `before` with what it holds first (`HistoryAppend.Before.reconciles`). A frame with a page
+    /// open records through its session instead, as every control does.
+    /// `label` nil: named from what changed (`HistoryLabels.develop`), as a step of the page is.
+    func recordStep(_ frameID: LibraryFrame.ID, before: DevelopRevision, origin: HistoryOrigin, label: HistoryLabel?) {
+        guard !replayingStep, heldSession(frameID) == nil, let after = historyRevision(frameID), after != before else { return }
+        let step = HistoryAppend(before: before, after: after, origin: origin,
+                                 label: label ?? HistoryLabels.develop(from: before.keepingReports(from: after), to: after), at: Date(), mode: .reconciles)
+        history.send("append") { try await $0.append(frameID, step) }
+    }
+
+    /// A step of the history being put back on a frame with no page open (`goToStep`): what that writes is the
+    /// cursor's move, never a step of its own.
+    @ObservationIgnored private var replayingStep = false
+
+    /// Why a step of this frame's history cannot be gone to now, or nil: an export is reading it (AGENTS.md trap 34 —
+    /// the frame's edit must not move under the file being written). A batch's frames are held for the whole batch.
+    func historyRefusal(_ frameID: LibraryFrame.ID) -> String? {
+        guard exporter.isExporting, exporter.batch?.items.contains(where: { $0.id == frameID }) == true else { return nil }
+        return L("This picture is being exported. Go to This Step waits until the export is done.")
+    }
+
+    /// **Go to This Step** (PRD-F §4, the history page): the frame's edit put back to step `seq` and the cursor moved
+    /// there — no step, the redo tail kept until the next edit, the same as that many ⌘Z or ⇧⌘Z. With the frame open
+    /// in Develop it is the page's session's (`OpenFrameSession.goTo`: the canvas follows). With none, the state is
+    /// read from the store and written to the library as the session's Undo writes it (`onRestoreRevision`: the
+    /// members' decodes, a pair's or a double's piece and look together), the members whose decode it moved given
+    /// their own step (PRD-F §3.3), and the frame's preview developed, as a paste's is (`DevelopCause.asked`).
+    /// False where it was refused (`historyRefusal`) or the history holds no such step.
+    @discardableResult
+    func goToStep(_ frameID: LibraryFrame.ID, _ seq: Int) async -> Bool {
+        guard historyRefusal(frameID) == nil else { return false }
+        if let session = heldSession(frameID) { return session.goTo(seq) }
+        // The history held to the library's edit first, as a page's opening holds it (the store's guard, PRD-F §3.2):
+        // an edit changed where no step was kept (an older build, a restored backup) becomes a step of its own before
+        // the library's edit is overwritten, so the jump never loses it. Where that step took the place of the redo
+        // tail and `seq` with it, there is no such step any more: refused, not guessed (the page reads the history
+        // again and shows the new step).
+        guard let current = historyRevision(frameID) else { return false }
+        let read = try? await history.ask("go", writes: true) { store -> DevelopRevision? in
+            _ = try await store.open(frameID, current: current, radius: 0, at: Date())
+            return try await store.state(frameID, seq: seq)
+        }
+        guard let saved = read ?? nil else { return false }
+        // While it was read, a page may have opened on the frame or an export begun: theirs, then.
+        guard historyRefusal(frameID) == nil else { return false }
+        if let session = heldSession(frameID) { return session.goTo(seq) }
+        guard let now = historyRevision(frameID), let item = library.frame(frameID) else { return false }
+        let revision = saved.keepingReports(from: now)
+        replayingStep = true
+        defer { replayingStep = false }
+        var before: [UUID: DecodeSettings] = [:]
+        for (id, decode) in revision.sourceDecodes where id != frameID {
+            guard let was = library.frame(id), was.edit.decode != decode else { continue }
+            before[id] = was.edit.decode
+            library.update(id) { $0.edit.decode = decode }
+        }
+        if let pair = revision.pair, item.pair != nil {
+            changePair(frameID) { piece, look in piece = pair; look = revision.edit }
+        } else if let double = revision.double, item.double != nil {
+            changeDouble(frameID) { piece, look in piece = double; look = revision.edit }
+        } else {
+            library.update(frameID) { $0.edit = revision.edit }
+            develop(frameID)
+        }
+        history.send("move") { try await $0.move(frameID, to: seq) }
+        for id in before.keys { develop(id) }
+        if !before.isEmpty { recordMembers(of: frameID, before: before) }
+        return true
+    }
+
+    /// **Clear History** (PRD-F §4), once asked: the frame's edit as it stands is its history's base, *Original*, and
+    /// nothing else is kept. Through the page's session where one is open (its Undo forgets with it), the store's
+    /// otherwise.
+    func clearHistory(_ frameID: LibraryFrame.ID) {
+        if let session = heldSession(frameID) { session.clearHistory(); return }
+        guard let now = historyRevision(frameID) else { return }
+        history.send("clear") { try await $0.clear(frameID, keeping: now) }
+    }
+
+    /// Settings › Storage's *Clear All…* (PRD-F §4): every frame's history, gone; an open page's frame keeps its edit
+    /// as it stands as its new Original.
+    func clearAllHistory() {
+        // A page's session numbers its steps as the store does: its frame is cleared as Clear History clears it (the
+        // cursor's state kept as the base, at its number), not emptied under it.
+        let open = Set(sessions.compactMap { id, weak in weak.session?.isHeld == true ? id : nil })
+        for id in open { heldSession(id)?.clearHistory() }
+        history.send("clear all") { try await $0.clearAll(except: open) }
+    }
+
+    /// A pair's or a double's step moved its photographs' decodes: one `composite` step on each photograph, named
+    /// with the piece's name (PRD-F §3.3). `before` is each photograph's decode before it.
+    private func recordMembers(of compositeID: LibraryFrame.ID, before: [UUID: DecodeSettings]) {
+        let name = library.frame(compositeID)?.fileName ?? ""
+        // A photograph is never on a page of its own while its piece's page is open (one develop page at a time),
+        // so the step is the door's.
+        for (id, decode) in before where id != compositeID {
+            guard heldSession(id) == nil, let now = historyRevision(id) else { continue }
+            var was = now
+            was.edit.decode = decode
+            let step = HistoryAppend(before: was, after: now, origin: .composite, label: .composite(name), at: Date(), mode: .reconciles)
+            history.send("append") { try await $0.append(id, step) }
+        }
     }
 
     /// The session a page has open on this frame, if one has: for the app's
@@ -522,23 +789,28 @@ final class AppServices {
     /// open under it — one develop is asked for, as when a film-side control
     /// is released, and its picture lands on that page. With no page open the
     /// edit goes into the library and the frame's kept develop is made again.
-    func change(_ frameID: LibraryFrame.ID, _ mutate: (inout FrameEdit) -> Void) {
-        change(frameID, cause: .asked, mutate)
+    /// Either way it is one step of the frame's history, of `origin` and `label` (PRD-F §3.3).
+    func change(_ frameID: LibraryFrame.ID, as origin: HistoryOrigin, _ label: HistoryLabel, _ mutate: (inout FrameEdit) -> Void) {
+        change(frameID, cause: .asked, as: origin, label, mutate)
     }
 
-    /// `change`, saying why: a setting held over the library (`holdLensCorrection`) is a `sweep`, which
-    /// on the Mac develops nothing (`DevelopCause`).
-    private func change(_ frameID: LibraryFrame.ID, cause: DevelopCause, _ mutate: (inout FrameEdit) -> Void) {
+    /// `change`, saying why: a setting held over the library is a `sweep`, which on the Mac develops nothing
+    /// (`DevelopCause`).
+    private func change(_ frameID: LibraryFrame.ID, cause: DevelopCause, as origin: HistoryOrigin, _ label: HistoryLabel,
+                        _ mutate: (inout FrameEdit) -> Void) {
         if let session = heldSession(frameID) {
-            session.began(.shoot)
-            session.change(mutate)
-            session.ended()
+            session.recording(origin, label) {
+                session.began(.shoot)
+                session.change(mutate)
+                session.ended()
+            }
         } else {
-            guard let before = library.frame(frameID)?.edit else { return }
+            guard let before = library.frame(frameID)?.edit, let was = historyRevision(frameID) else { return }
             var after = before
             mutate(&after)
             guard after != before else { return }
             library.update(frameID) { $0.edit = after }
+            recordStep(frameID, before: was, origin: origin, label: label)
             // Edit's layer alone (Light, Curve, Colour) is the same develop: its edited copy follows instead.
             var beside = after
             beside.adjustments = before.adjustments
@@ -572,26 +844,6 @@ final class AppServices {
     @discardableResult
     func keepPhotosOriginals() -> Int {
         originals.keepInApp(library.frames.filter(\.readsFromPhotos).map(\.id))
-    }
-
-    /// Settings › Develop › *Lens Correction*, held over the library: every RAW
-    /// photograph's decode records what Settings says (the edit stays the whole
-    /// recipe, and a develop's stamp follows it), and a frame it changes is
-    /// developed again — through its page where one is open, in the queue
-    /// otherwise (`change`) — and so is a pair that holds one. At launch, and
-    /// whenever the switch moves. How many frames it changed.
-    @discardableResult
-    func holdLensCorrection() -> Int {
-        let on = settings.lensCorrection
-        let moved = library.frames.filter { $0.isRAW && !$0.isPair && !$0.isDemo && $0.edit.decode.lensCorrection != on }.map(\.id)
-        guard !moved.isEmpty else { return 0 }
-        for id in moved { change(id, cause: .sweep) { $0.decode.lensCorrection = on } }
-        let changed = Set(moved)
-        for item in library.frames where item.isPair && heldSession(item.id) == nil && !item.develop.isBusy {
-            if darkroom.sources(of: item).contains(where: { changed.contains($0.id) }) { develop(item.id, cause: .sweep) }
-        }
-        Log.note(.library, "lens correction held to Settings", ["on": on, "frames": moved.count])
-        return moved.count
     }
 
     /// The camera's crop (`CameraCrop`, 2026-11-05) for the frames made before it was read: 2.1.3 made
@@ -651,6 +903,15 @@ final class AppServices {
     /// re-develops the open frame at once"). Nothing else is queued: every other develop, card and
     /// export reads the setting when its wire is made (`EngineRouter.cropIsFrame`), and a kept picture's
     /// stamp says which it was made with.
+    /// The lens database changed (Settings' install, add or remove; the popup's Add .lcp File…): every kept resolution is
+    /// forgotten and every open photograph resolved again (`OpenFrameSession.resolveLens`), so one the change corrects
+    /// now, or no longer, is developed again. A frame with no page open is resolved when it is next opened.
+    func lensDatabaseChanged() {
+        LensResolver.forgetAll()
+        for case let session? in sessions.values.map(\.session) where session.isHeld { session.resolveLens() }
+        Log.note(.library, "lens database changed", ["lenses": LensLibrary.shared.lensCount])
+    }
+
     func cropRemapsFrameChanged() {
         for case let session? in sessions.values.map(\.session) { session.filmSizeRuleChanged() }
         Log.note(.library, "crop re-maps the frame", ["on": settings.cropRemapsFrame])
@@ -675,7 +936,7 @@ final class AppServices {
     /// 2026-10-24: "adding into the .spkcatalog or .spksession does not mean automatic calculation, it's
     /// triggered on user behaviour"). A frame that arrives (`ImportService.arrive`: every frame the Mac's
     /// library makes for an export, a carry into Develop or the Light Table), the launch's catch-up
-    /// (`developStale`) and a setting held over the library (`holdLensCorrection`, `resized`) queue
+    /// (`developStale`) and a setting held over the library (`resized`) queue
     /// nothing there: such a frame shows its file's own preview (`FrameView`) until it is opened in
     /// Develop — whose page develops it and leaves its picture behind as the frame's (`OpenFrameSession.close`)
     /// — or exported, which develops from the original anyway. Until 2026-10-24 exporting or carrying 500
@@ -701,7 +962,10 @@ final class AppServices {
                             decodesOriginal: true, original: darkroom.openSize(frame, edit: frame.edit),
                             printLayers: darkroom.printLayers(frame, edit: frame.edit),
                             // A cropped frame's decode is larger than its canvas (`previewDevelopLongEdge`).
-                            opens: frame.previewDevelopOpens(frame.edit))
+                            opens: frame.previewDevelopOpens(frame.edit),
+                            rawDecode: darkroom.decodesRAW(frame, edit: frame.edit),
+                            scenePlanes: frame.isComposite ? 0 : SceneLayerWire.priced(frame.edit.layers, source: frame.originalSize).planes,
+                            scenePlaneBytes: frame.isComposite ? 0 : SceneLayerWire.priced(frame.edit.layers, source: frame.originalSize).bytes)
         // The frame's file, its decode and its whole wire, as they are now. A
         // frame the engine has nothing to develop from — a demo picture, an
         // original that is away — is not queued: it keeps the picture it has.
@@ -783,8 +1047,10 @@ final class AppServices {
         for (id, kept) in sessions where kept.session?.isHeld == true { ids.insert(id) }
         if let exporting = exporter.reading { ids.insert(exporting) }
         for id in ids {
-            guard let frame = library.frame(id), frame.isPair else { continue }
-            ids.formUnion(darkroom.sources(of: frame).map(\.id))
+            guard let frame = library.frame(id) else { continue }
+            if frame.isPair { ids.formUnion(darkroom.sources(of: frame).map(\.id)) }
+            // A double exposure's photographs, as its piece names them (`composedOf`).
+            else if frame.isDouble { ids.formUnion(frame.composedOf) }
         }
         return ids
     }
@@ -793,20 +1059,34 @@ final class AppServices {
     /// them: their queued work, their own copies and preview copies, their
     /// kept develops and their working copies. Never an original in Photos or
     /// in a linked folder.
-    func remove(_ ids: Set<LibraryFrame.ID>) {
+    ///
+    /// **A double exposure's photograph removed leaves its layer empty** (RFC-047 §5, `emptyDoubles`), and
+    /// one left with no exposure goes with its last photograph; a double exposure removed leaves both.
+    func remove(_ asked: Set<LibraryFrame.ID>) {
+        let ids = asked.union(doublesLeftEmpty(by: asked))
         let frames = ids.compactMap { library.frame($0) }
+        // The proxies they name, asked while they are still frames: those no frame left names go with them.
+        let proxies = darkroom.proxyNames(of: frames)
         for id in ids { scheduler.cancelAll(frameID: id) }
         queuedDevelops.removeAll { ids.contains($0.id) }
         library.remove(ids)
+        emptyDoubles(holding: ids)
+        // Their found masks' folders, each file another frame still names handed to it first (RFC-052 §8.2).
+        let remaining = Dictionary(library.frames.map { ($0.id, $0.edit) }, uniquingKeysWith: { a, _ in a })
+        Task.detached(priority: .utility) { await FoundMaskKeeping.framesRemoved(ids, remaining: remaining) }
+        // Their histories go with them (PRD-F §3.3); a file that moved keeps its frame, and so its history.
+        history.send("remove") { try await $0.remove(ids) }
         // The library is written before the files go: one that still named
         // them after the app was ended would come back with frames of nothing.
         library.flush()
-        originals.copies.remove(ids)
+        originals.copies.remove(ids, proxies: proxies)
         stockPreviews.discard(Array(ids))
         Task.detached(priority: .utility) { ImportService.discard(frames) }
         LibraryPreviews.forget(ids)
         // A pair's file in the app's storage, and its row in the Mac library (`MacPairRows.swift`).
         macLibrary.pairsRemoved(frames)
+        // A double exposure's recipe and its row, the same way (`MacDoubleRows.swift`).
+        macLibrary.doublesRemoved(frames)
     }
 
     /// Whether a develop that reads an original in Photos is waiting its turn
@@ -926,13 +1206,13 @@ final class AppServices {
     /// any frame is held before its export is planned (`ExportService`).
     private func holdRAWsToTheirFiles(keeping: Bool) {
         guard keeping else { return }
-        if UserDefaults.standard.bool(forKey: Self.rawSizesHeldKey) { holdRAWsStillOwed() } else { holdRAWsToTheirFiles() }
+        if defaults.bool(forKey: Self.rawSizesHeldKey) { holdRAWsStillOwed() } else { holdRAWsToTheirFiles() }
     }
 
     /// A later launch's part: the frames the library's one reading found
     /// away, asked again.
     func holdRAWsStillOwed() {
-        let owed = Set((UserDefaults.standard.stringArray(forKey: Self.rawSizesOwedKey) ?? []).compactMap { UUID(uuidString: $0) })
+        let owed = Set((defaults.stringArray(forKey: Self.rawSizesOwedKey) ?? []).compactMap { UUID(uuidString: $0) })
         if !owed.isEmpty { holdRAWsToTheirFiles(only: owed) }
     }
 
@@ -949,8 +1229,8 @@ final class AppServices {
                 if !self.originals.isHeld(id), self.library.frame(id)?.readsFromPhotos == false { owed.append(id.uuidString) }
             }
             guard !Task.isCancelled else { return }
-            UserDefaults.standard.set(true, forKey: Self.rawSizesHeldKey)
-            UserDefaults.standard.set(owed, forKey: Self.rawSizesOwedKey)
+            self?.defaults.set(true, forKey: Self.rawSizesHeldKey)
+            self?.defaults.set(owed, forKey: Self.rawSizesOwedKey)
         }
     }
     private static let rawSizesHeldKey = "library.rawSizesHeld"
@@ -975,6 +1255,8 @@ final class AppServices {
             }
             if library.frame(item.id)?.develop.isBusy == false, heldSession(item.id) == nil { develop(item.id, cause: .sweep) }
         }
+        // A double exposure holding it is sized again too (RFC-048 §5).
+        resizedDoubles(holding: id)
         guard let frame = library.frame(id), !frame.develop.isBusy, heldSession(id) == nil else { return }
         develop(id, cause: .sweep)
     }
@@ -992,6 +1274,10 @@ final class AppServices {
             .compactMap { $0?.fileURL?.lastPathComponent })
         let frames = Set(library.frames.map(\.id))
         let limit = library.storage.previewCopiesLimit
+        // The found masks' folders of frames the library no longer has (a frame `layers.json` still names is kept).
+        let edits = Dictionary(library.frames.map { ($0.id, $0.edit) }, uniquingKeysWith: { a, _ in a })
+        let shelf = library.persistence?.layersURL
+        Task.detached(priority: .utility) { await FoundMaskKeeping.launchTidy(edits: edits, layersFile: shelf) }
         // A develop kept in a catalog's or a session's previews (`LibraryPreviews`, 2026-11-05) is of that
         // library until the frame is carried from another: read from the paths alone, no disk is asked.
         LibraryPreviews.remember(library.frames.compactMap { f in f.developed?.picture.fileURL.map { (f.id, $0) } })

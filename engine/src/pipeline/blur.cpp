@@ -27,8 +27,15 @@ bool Blur::alloc_like(const Image& img, Image& out, std::string& error) {
     return static_cast<bool>(out.buf);
 }
 
+gpu::BufferRef Blur::upload_mix(const Mix& mix, std::string& error) {
+    // Narrowed exactly as `lincomb` narrows them.
+    const float ab[6] = {float(mix.a[0]), float(mix.a[1]), float(mix.a[2]),
+                         float(mix.b[0]), float(mix.b[1]), float(mix.b[2])};
+    return gpu_->upload(ab, sizeof ab, error);
+}
+
 bool Blur::fir(const Image& img, const double sigmas[3], double truncate, const bool active[3],
-               Image& out, std::string& error, const Image* acc, const double* weight) {
+               Image& out, std::string& error, const Image* acc, const double* weight, const Mix* mix) {
     // (3, 2R+1) weights, a delta for every inactive channel, so one kernel
     // handles a mix of blurred and pass-through channels in one pass.
     Vec kernels[3];
@@ -38,7 +45,7 @@ bool Blur::fir(const Image& img, const double sigmas[3], double truncate, const 
         else { kernels[c].assign(1, 1.0); radii[c] = 0; }
     }
     const size_t R = std::max(radii[0], std::max(radii[1], radii[2]));
-    if (R == 0 && active[0] && active[1] && active[2] && !acc) { out = img; return true; }
+    if (R == 0 && active[0] && active[1] && active[2] && !acc && !mix) { out = img; return true; }
 
     std::vector<float> table(3 * (2 * R + 1), 0.0f);
     for (int c = 0; c < 3; ++c) {
@@ -57,17 +64,27 @@ bool Blur::fir(const Image& img, const double sigmas[3], double truncate, const 
 
     // The reference runs vertical then horizontal, and the fused multiply-add
     // rides on the second pass.
+    // An `acc` with no buffer is a sum that is still zero (`mixture`'s first component): mode 2.
+    const gpu::BufferRef& dummy = acc && acc->buf ? acc->buf : img.buf;
+    const size_t n = img.pixels();
     Image tmp;
     if (!alloc_like(img, tmp, error)) return false;
     if (!alloc_like(img, out, error)) return false;
-    const gpu::BufferRef& dummy = acc ? acc->buf : img.buf;
     const uint32_t meta_v[6] = {img.h, img.w, uint32_t(R), 0, 0, 0};
-    const uint32_t meta_h[6] = {img.h, img.w, uint32_t(R), 1, acc ? 1u : 0u, 0};
-    const size_t n = img.pixels();
+    const uint32_t meta_h[6] = {img.h, img.w, uint32_t(R), 1, acc ? (acc->buf ? 1u : 2u) : 0u, 0};
     if (!gpu_->dispatch("spk_sep_fir_acc",
                         {gpu::Arg::buf(img.buf), gpu::Arg::buf(w), gpu::Arg::buf(dummy),
                          gpu::Arg::buf(wt_buf), gpu::Arg::inline_bytes(meta_v, 6), gpu::Arg::buf(tmp.buf)},
                         n, error)) return false;
+    if (mix) {
+        gpu::BufferRef ab = upload_mix(*mix, error);
+        if (!ab) return false;
+        return gpu_->dispatch("spk_sep_fir_fin",
+                              {gpu::Arg::buf(tmp.buf), gpu::Arg::buf(w), gpu::Arg::buf(dummy),
+                               gpu::Arg::buf(wt_buf), gpu::Arg::inline_bytes(meta_h, 6), gpu::Arg::buf(out.buf),
+                               gpu::Arg::buf(mix->x->buf), gpu::Arg::buf(ab)},
+                              n, error);
+    }
     return gpu_->dispatch("spk_sep_fir_acc",
                           {gpu::Arg::buf(tmp.buf), gpu::Arg::buf(w), gpu::Arg::buf(dummy),
                            gpu::Arg::buf(wt_buf), gpu::Arg::inline_bytes(meta_h, 6), gpu::Arg::buf(out.buf)},
@@ -75,7 +92,7 @@ bool Blur::fir(const Image& img, const double sigmas[3], double truncate, const 
 }
 
 bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
-               Image& out, std::string& error, const Image* acc, const double* weight) {
+               Image& out, std::string& error, const Image* acc, const double* weight, const Mix* mix) {
     float coef[24] = {};
     uint32_t act[3] = {0, 0, 0};
     bool any = false;
@@ -91,7 +108,7 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
         act[c] = 1;
         any = true;
     }
-    if (!any && !acc) { out = img; return true; }
+    if (!any && !acc && !mix) { out = img; return true; }
 
     gpu::BufferRef coef_buf = gpu_->upload(coef, sizeof coef, error);
     gpu::BufferRef act_buf = gpu_->upload_u32(act, 3, error);
@@ -111,7 +128,7 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
     // back. Those are gone, and the arithmetic is untouched -- the same
     // instructions in the same order, at different addresses.
     if (!alloc_like(img, out, error)) return false;
-    const Image* dummy = acc ? acc : &img;
+    const Image* dummy = acc && acc->buf ? acc : &img;   // no buffer: the sum is still zero, mode 2
     // **Horizontal first, and the order is not a detail.** The reference's
     // `_gaussian_filter_2d_large` is `_iir_horizontal` then `_iir_vertical`,
     // and a separable IIR's two passes commute in exact arithmetic and *not* in
@@ -126,13 +143,22 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
     // The first pass is plain and the second carries the mixture's multiply-add,
     // which is also where the fused multiply-add landed in the transposed path.
     const uint32_t meta_h[4] = {img.h, img.w, 0u, 1u};
-    const uint32_t meta_v[4] = {img.h, img.w, acc ? 1u : 0u, 0u};
+    const uint32_t meta_v[4] = {img.h, img.w, acc ? (acc->buf ? 1u : 2u) : 0u, 0u};
     if (!gpu_->dispatch("spk_iir_df_acc",
                         {gpu::Arg::buf(img.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
                          gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
                          gpu::Arg::inline_bytes(meta_h, 4), gpu::Arg::buf(out.buf)},
                         size_t(img.h) * 3, error)) return false;
-    if (!gpu_->dispatch("spk_iir_df_acc",
+    if (mix) {
+        gpu::BufferRef ab = upload_mix(*mix, error);
+        if (!ab) return false;
+        if (!gpu_->dispatch("spk_iir_df_fin",
+                            {gpu::Arg::buf(out.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
+                             gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
+                             gpu::Arg::inline_bytes(meta_v, 4), gpu::Arg::buf(out.buf),
+                             gpu::Arg::buf(mix->x->buf), gpu::Arg::buf(ab)},
+                            size_t(img.w) * 3, error)) return false;
+    } else if (!gpu_->dispatch("spk_iir_df_acc",
                         {gpu::Arg::buf(out.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
                          gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
                          gpu::Arg::inline_bytes(meta_v, 4), gpu::Arg::buf(out.buf)},
@@ -186,7 +212,7 @@ Blur::Demand Blur::merge(const Demand& a, const Demand& b) {
 }
 
 bool Blur::gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,
-                    double truncate, const Image* acc, const double* weight) {
+                    double truncate, const Image* acc, const double* weight, const Mix* mix) {
     bool use_fir[3], use_iir[3];
     bool any_fir = false, any_iir = false;
     for (int c = 0; c < 3; ++c) {
@@ -195,29 +221,44 @@ bool Blur::gaussian(const Image& img, const double sigma[3], Image& out, std::st
         any_fir |= use_fir[c];
         any_iir |= use_iir[c];
     }
+#ifndef __APPLE__
+    const bool fold = false;   // the two `_fin` kernels are Metal's
+#else
+    // The mix rides in the last pass when one kernel makes the final value: FIR alone, or IIR alone.
+    const bool fold = mix && (any_fir != any_iir);
+#endif
+    if (mix && !fold) {
+        Image blurred;
+        if (!gaussian(img, sigma, blurred, error, truncate, acc, weight, nullptr)) return false;
+        return lincomb(*mix->x, blurred, mix->a, mix->b, out, error);
+    }
     if (!acc) {
         Image cur = img;
         if (any_fir) {
             Image next;
-            if (!fir(cur, sigma, truncate, use_fir, next, error, nullptr, nullptr)) return false;
+            if (!fir(cur, sigma, truncate, use_fir, next, error, nullptr, nullptr, fold ? mix : nullptr)) return false;
             cur = next;
         }
         if (any_iir) {
             Image next;
-            if (!iir(cur, sigma, use_iir, next, error, nullptr, nullptr)) return false;
+            if (!iir(cur, sigma, use_iir, next, error, nullptr, nullptr, fold ? mix : nullptr)) return false;
             cur = next;
         }
         out = cur;
         return true;
     }
-    if (!any_iir) return fir(img, sigma, truncate, use_fir, out, error, acc, weight);
-    if (!any_fir) return iir(img, sigma, use_iir, out, error, acc, weight);
-    // Mixed FIR / IIR channels: blur fully, then one fused multiply-add.
+    if (!any_iir) return fir(img, sigma, truncate, use_fir, out, error, acc, weight, fold ? mix : nullptr);
+    if (!any_fir) return iir(img, sigma, use_iir, out, error, acc, weight, fold ? mix : nullptr);
     Image blurred;
     if (!gaussian(img, sigma, blurred, error, truncate)) return false;
     const double a[3] = {1.0, 1.0, 1.0};
     double b[3];
     broadcast3(weight, b, 1.0);
+    if (!acc->buf) {
+        // The sum is still zero: `0 * y + b * y` is `1 * 0 + b * y` for every finite y.
+        const double zero[3] = {0.0, 0.0, 0.0};
+        return lincomb(blurred, blurred, zero, b, out, error);
+    }
     return lincomb(*acc, blurred, a, b, out, error);
 }
 
@@ -237,34 +278,37 @@ void Blur::exponential_components(const double decay[3], const double weight[3],
 }
 
 bool Blur::mixture(const Image& img, const std::vector<Component>& components, Image& out,
-                   std::string& error, double truncate) {
+                   std::string& error, double truncate, const Mix* mix) {
     bool have_acc = false;
     Image acc;
-    for (const Component& comp : components) {
+    for (size_t i = 0; i < components.size(); ++i) {
+        const Component& comp = components[i];
+        // The mix that follows the mixture is folded into its last component's last pass.
+        const Mix* fin = (mix && i + 1 == components.size()) ? mix : nullptr;
         const bool identity = comp.sigma[0] <= 0.0 && comp.sigma[1] <= 0.0 && comp.sigma[2] <= 0.0;
         if (!have_acc) {
             if (identity) {
-                // `G(0)` is the input; the reference still forms
-                // `0 * img + weight * img` so the accumulator exists.
                 const double a[3] = {0.0, 0.0, 0.0};
                 if (!lincomb(img, img, a, comp.weight, acc, error)) return false;
+                if (fin) {
+                    Image mixed;
+                    if (!lincomb(*fin->x, acc, fin->a, fin->b, mixed, error)) return false;
+                    acc = mixed;
+                }
             } else {
+                // The sum so far is zero. It used to be a plane of zeros, written by the host and
+                // read back by the first pass: 2.6-25 ms a mixture at 45 MP (three mixtures a
+                // render), for a value every kernel already knows. An `acc` with no buffer says so.
                 Image zero;
                 zero.h = img.h; zero.w = img.w; zero.c = img.c;
-                zero.buf = gpu_->alloc_zeroed(img.bytes(), error);
-                if (!zero.buf) return false;
-                if (!gaussian(img, comp.sigma, acc, error, truncate, &zero, comp.weight)) return false;
+                if (!gaussian(img, comp.sigma, acc, error, truncate, &zero, comp.weight, fin)) return false;
             }
             have_acc = true;
         } else {
             Image next;
-            if (!gaussian(img, comp.sigma, next, error, truncate, &acc, comp.weight)) return false;
+            if (!gaussian(img, comp.sigma, next, error, truncate, &acc, comp.weight, fin)) return false;
             acc = next;
         }
-        // A mixture is where one node holds the most memory: halation's
-        // scatter is four components and each IIR pass needs a transpose, a
-        // result, and a transpose back. Evaluating between components lets the
-        // previous component's scratch be the next one's.
         if (!gpu_->flush(error)) return false;
     }
     if (!have_acc) { error = "blur mixture with no components"; return false; }

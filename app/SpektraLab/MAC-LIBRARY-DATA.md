@@ -86,7 +86,8 @@ A row (`MacImage`) carries:
 - `rating`, `colorLabel`, `cameraMake`, `cameraModel`, `lens`, `exposure` ("1/250 s · f/5.6 · ISO 100")
   and `pixelSize`;
 - its state: `isOffline`, `isTrashed`, `isRemoved` and `fromCaptureOne`, plus `primaryVariant` and
-  `variantCount`;
+  `variantCount` (the image's), `variant` and `variantNumber` (the cell's own: a row is a **cell**, one per
+  present variant of the image, §2l);
 - `develop: MacDevelopInfo?`, which holds the frame's id, its `film` and `paper` (display names) and
   its `state` (developed, in the queue, failed, or not developed). It is nil until the picture has been
   opened in Develop.
@@ -105,7 +106,7 @@ Calls:
 | `synchronize(_:)` | A Capture One catalog is read again if it changed; any other source's folders are walked |
 | `remove(source:)` | Takes it off the list. Nothing on disk is deleted |
 | `detail(of:)` | Variants (with Capture One's own rating and label beside SpektraLab's), albums, file size |
-| `setRating`, `setColorLabel` | Every helper source. On a Capture One catalog the value is SpektraLab's override in the mirror (`meta.set`; Capture One's file is never written, and a sync never touches an override). The app library has none (`readOnly`). The loaded rows are changed in place and only the facets are read again. A picture not among the loaded rows (an agent names any, ARCHITECTURE.md §7.16) has its first variant asked of the helper (2026-11-09) |
+| `setRating`, `setColorLabel` | Every helper source. On a Capture One catalog the value is SpektraLab's override in the mirror (`meta.set`; Capture One's file is never written, and a sync never touches an override). The app library has none (`readOnly`). The loaded rows are changed in place and only the facets are read again. Written to **the cell's own variant** (`meta.set {variants[]}`, 2026-11-13, §2l); a picture not among the loaded rows (an agent names any, ARCHITECTURE.md §7.16) has the variant its id names, else its first, asked of the helper (2026-11-09) |
 | `openInDevelop(_:)` | Develop, on the picture's frame |
 | `putOnLightTable(_:)` | The Light Table, with the chosen pictures it takes laid on it (`MacLightTableCarry.takes`: a frame of SpektraLab's with a film size recorded, a film edge on or a pair); no frame is made; none it takes is refused (`notForTable`); nothing chosen opens it as it is (§2c) |
 | `openInDevelop(_:focus:)` | Develop on `focus`, its filmstrip the given pictures in that order (`MacDevelopCarry`) instead of the whole app library; at most `carryLimit` (500). Frames are made for the ones without, in one arrival; offline ones are left out. The set is also kept as a session of the app's own, by reference, in `Libraries/Carried/<time>/` (the last carry only; cleared at start) |
@@ -584,6 +585,136 @@ was opened from, as Capture One keeps a catalog's `Cache/Previews` in the `.coca
   leaving the develop marked missing, the migration, re-rooting after the move, and missing after the
   `Cache` goes.
 
+## 2k. A double exposure is a row (2026-11-11, `Sources/Mac/Library/MacDoubleRows.swift`)
+
+The double exposure (RFC-047/048) is kept as §2i keeps a pair, on the owner's same rule. It is kept in
+`LibraryShelf`'s `doubles.json` beside `library.json`, the guard an older build needs (2.3.x reads
+`library.json` whole and would drop a frame it cannot decode), and has a row of its own.
+
+- **The row's file is the double's recipe**, `Doubles/<the double's name>.spektradouble` beside
+  `library.json` (§3): `DoubleExposure`'s own JSON (each exposure's photograph by id, its decode and cut,
+  its placement and flip, its own stops and meter, the readings), and under `spektralab` (kind
+  `double_exposure`) the double's id, its two photographs (id, file, name) and where its look is kept
+  (`doubles.json`, by that id). Written on every keep and every change that moves the piece (`doubleKept`).
+- **The row** is added by reference into the library holding the double's **bottom** photograph (the one
+  that sets the frame), found as a pair's is (`pairHome`). spklib 0.3.1 has no kind for `.spektradouble`:
+  the row's kind is `other` until `kind_for_extension` in `SpektraLab_library` names it (one line, not made).
+  Where each went is `MacLibrary/doubles.json` (double id → source, image, path; the pair's record's shape).
+- **The join**: `refreshFrameIndex` maps the recipe's path to the double, so the row opens the double.
+- **Removing it** (`AppServices.remove`) deletes the recipe and forgets the row (`doublesRemoved`). Removing
+  one of its photographs empties that exposure (the double stays with one exposure, which cannot export,
+  `DoubleRules.exportRefusal`; with none left, it is removed). **Doubles made before** get files and rows at the store's start
+  (`placeDoubles`, after `placePairs`).
+- **The way in is 图库 › 合成 › 多重曝光** (2026-11-12, `Mac/Layers/MacCombineMenu.swift`; the host logic is phase
+  1's: `AppServices.makeDouble`, `keepDouble`, `AppServices+DoubleDarkroom.swift`). Two pictures chosen make it at
+  once, **the first picked its bottom** (`MacLibraryBrowser.picked`: the selection is a set, and `PickOrder`
+  follows each change of it — rows that join together keep the grid's order; `makeDouble(keepsOrder:)`). One
+  chosen asks for the second (`MacPhotoPicker` over the library: pick, then Create; a double click does both), the
+  double then beginning with it; the same picture twice starts with its top flipped. **The picker lists the
+  library's rows**, a frame made for the one chosen (`frames(for:)`), where the window pages' `PairFramePicker`
+  lists the app's frames — on the Mac only the pictures opened so far. It is what a layer's Add and Replace show
+  too (`LayerSheets`).
+- **Where it lands**: its row is the helper's, in the catalog, so a collection that does not hold it (an import's
+  session, a filter) never shows it. `MacLibraryActions.land` waits three seconds for the row among those shown,
+  then selects All Images, where it is chosen.
+- **Its darkroom is the develop page's 图层 panel** (`Features/Layers`, `PAGES.md` §6). Debug: `tools/double_check.sh
+  BOTTOM TOP` (phase 1's walk) and `--layers-check` (`Mac/Layers/MacLayersCheck.swift`: the order kept, the panel's
+  rows, the canvas against the export, one exposure alone, 摆放's one step of Undo, 漏光 · 片边 · 日期后背 · Edit's
+  crop on a double, and the one refusal), each under a scratch `CFFIXED_USER_HOME` with two photographs imported.
+
+## 2l. A variant is a frame of its own (2026-11-13, PRD-G part 1; spklib 0.4.0)
+
+Capture One's variants, in SpektraLab's library: one photograph, several edits. Part 1 is the model and the calls;
+part 2 (below, "The acts") the menus, the keys, the badge, Info and the export names. The helper is 0.4.0
+(`variant.delete`; rating, colour and keyword filters match an image when one of its variants does;
+`API-SPEC-library-helper.md` §4).
+
+- **A frame per (file, variant).** `LibraryFrame.variant` is the helper's variant uuid (`StoredFrame.variant`). A
+  frame with one is kept in **`variants.json`** beside `library.json`, never in it (below: the older-build guard). A
+  frame without one is the image's **primary** variant (its first present one,
+  the helper's `kPrimary`) — every frame of 2.3.x, so a library opens unchanged — and is the file's own, shared by
+  every library that references the file, as before. A frame of another variant belongs to that library's image only
+  (its uuids are its own).
+- **The join** (`CatalogSourcesStore.frameID(path:variant:primary:)`): `frameIndex[path#variant]`, else, for the
+  primary only, `frameIndex[path]`. A second variant without a frame of its own has none — it never shows, opens or
+  pastes onto the primary's edit. `ImportService.adoptLibraryFiles` and the 2026-11-05 one-at-a-time making in
+  `frames(for:)` hold **one frame per (file, variant)** (`MacClipboardCheck` step 6, three cells raced by two pastes).
+- **A cell is a variant** (`MacImage.ID.variant`, nil for an image with one, so every id of a single-variant picture
+  is what it was): an image's present variants are adjacent cells in its sort place, in `variants[]`' order, numbered
+  by their index there (`variantNumber`; never `position`, which keeps its gaps after a delete). Each has its own
+  rating, label and frame (`develop`). Under a rating or colour filter only the matching variants' cells are shown,
+  as Capture One filters variants; a keyword or a smart album's criteria show all of the image's (the row cannot judge
+  them per variant). `total` and every count stay **images**; `hasMore` / `loadedImageCount` page by images, and
+  `images.count` is not compared with `total` anywhere. "N selected" counts cells (variants), as Capture One counts
+  the variants chosen.
+- **Rating and label** are the cell's variant's (`meta.set {variants[]}`); `detail(of:)` reads the variant its id
+  names. Trash and Move to Trash are the image's (a flag of the image's; its cells name it once).
+- **The calls**: `CatalogSourcesStore.newVariant(of:clone:)` — `variant.create`, then New's frame with
+  the edit a fresh open gets (`adoptLibraryFile(_:variant:…)`) or Clone's with a copy of the cell's frame's whole edit
+  (`ImportService.cloneFrame`), each with no history, Clone's preview developed at once — and
+  `deleteVariant(_:)` — `variant.delete`, then the frame with its develops, previews, full renders, history and the
+  proxy no other frame names (`AppServices.remove`); never the file. Refused: the last variant (`lastVariant`), one of
+  Capture One's in a mirror (`readOnly`), a pair's or a double's row (`notForVariants`). A frame a pair or a double is
+  made of is kept when its variant is deleted (the piece keeps the frame it was made from). So is the primary's frame
+  (no variant: the file's own, joined by path) where another source on the list lists the file (`images.lookup`; a
+  source that cannot be asked counts as listing it): deleting a variant in one catalog never takes another catalog's
+  edit, develops or history (2026-11-13, `MacVariantCheck` F).
+- **Capture One's own variants** are cells too, each opening a frame of its own from SpektraLab's default edit, as a
+  Capture One picture does (the owner's catalog: 9,659 images in 9,663 cells, three images with 2, 3 and 2 variants;
+  read through a scratch mirror 2026-11-13, the catalog's 41,359 entries and its database unchanged).
+- **What is keyed how** (two frames of one file):
+
+  | | Keyed by | Two variants |
+  |---|---|---|
+  | Edit, history (`EditHistory/history.sqlite`), kept develop `dev-<frame>-…`, full renders, stock previews, Layer 2 copies, the render cache, the Light Table, the carried strip | frame | separate, as they must be |
+  | RAW proxy `raw-<hash>.spkraw` (2026-11-13, `RawProxyName`) | file + decode settings | shared while the decode is the same (one 2.6–2.9 GB first decode, not two); another white balance is another proxy |
+  | Thumbnail of the file `f:<path>` (`ThumbnailStore`) | file | shared on purpose: it is the file's own embedded preview, shown until a variant has a develop |
+  | An export's file name | the frame's stem; a clash gets `-2` (`MacExportRun.place`, never overwritten) | part 2 names `<name>-2` by variant |
+  | The import page's grid, a drop | the file (nothing is a variant before it is imported) | — |
+
+- **The acts** (part 2, `Mac/LibraryUI/MacVariantActions.swift`): *New Variant*, *Clone Variant*, then *Delete Variant*
+  where the image has more than one, in a cell's menu (the grid's and Develop browser's) and in the menu bar's
+  **Image** menu (the open frame in 冲洗/编辑, else the chosen cells); **F2** New, **F3** Clone (Capture One's own keys on
+  the Mac; registered with the shell's keys, listed under Keyboard Shortcuts; Delete has none, as in Capture One).
+  - Several chosen: one new variant per image, of its focused variant (else its first chosen). The new cells are chosen,
+    the focused one in focus; in 冲洗/编辑 it is opened on the page (`MacDevelopBar.open`).
+  - Delete asks first (the edit and history cannot be had back; the file stays). A variant open on the page is left for
+    its neighbour first (the next at its place, else the one before), as Capture One moves on. Refused with the reason:
+    the last variant, every variant of an image at once, a frame an export batch holds (trap 34), one of Capture One's
+    in a mirror (the helper's `read_only`, said in its own words).
+  - A pair or a double: New and Clone greyed and the reason under them (§7.5), in the cell's menu and the Image menu.
+- **What it looks like**: the badge line says "2 / 3" (`variantNumber` / `variantCount`) where an image has more than
+  one; a line too narrow for all of it takes "2/3", then the rating as "★5" (`MacBadgeRow`, `ViewThatFits`: nothing
+  covers anything, nothing is cut with "…"). Info (the sidebar's and the sheet) has a *Variant* row, "2 of 3".
+- **Export names** a variant beyond the first `<name>-2`, `-3` by its number whatever naming parts are on
+  (`Naming.Context.variant`, `ExportService.variantNumber` → `CatalogSourcesStore.variantNumber(of:)`, from the cells
+  loaded this launch). Not a fifth chip: one that could be switched off would let two variants of one picture take each
+  other's name. A frame no cell has joined this launch is named as before.
+- **Paging**: one `loadMore` at a time (two at once both appended the same page — the grid's last cell's `onAppear`
+  and a caller's loop; `main` had the same race).
+- **Checks**: `tools/variant_check.sh` (`MacVariantCheck`: §6.1–6.7 in the running app, twice, under a scratch home
+  and a defaults suite; a Capture One catalog built on the SDK's schema by `tools/variant_c1_fixture.py`), and its third
+  run, `MacVariantActsCheck` (the acts through the Image menu and the cells' menus, greyed items, export names, paging,
+  the Light Table, the shared RAW proxy read as a proxy, window captures in English and 简体中文). `--keys` presses F2
+  and F3 for real (`tools/post_keys.swift`); `--context-menu` captures a cell's menu (`tools/capture_windows.swift`).
+- **Not in this round**: variants of a pair or a double (PRD-G §7.5); promote/demote (`variant.move`, reserved).
+- **The older-build guard: `variants.json`** (2026-11-13, a departure from PRD-G §2's "in `library.json`", the
+  orchestrator's, told to the owner). 2.3.2 reading variant frames in `library.json` shows them as more frames of the
+  file, joins the file's row to whichever it indexed last, and at its next save writes the file back **without**
+  `variant` (its `StoredFrame` has no such key): this build then read every one as a primary, the image's other cells
+  had no frame, and its first cell joined a former variant's edit — silently. So, as `doubles.json` (`LibraryShelf`,
+  `LibraryPersistence`): every frame with a `variant` is written to `variants.json` (`{"schemaVersion": 1, "frames":
+  [StoredFrame…]}`), never to `library.json`; each item read by itself, one this build does not read written back as
+  it was, a file that does not read set aside (`variants.unreadable-<date>.json`) and not written over, none made
+  while the library has no variant's frame, an entry dropped only when its frame is removed; the shelves written
+  before `library.json`. 2.3.x never opens it: it sees and changes the primaries only, joined as it always did.
+  A library written on this branch before the shelf (variant frames inside `library.json`) is read once and moved at
+  the next write. Measured by `tools/variant_check.sh` with 2.3.2's own coder (`tools/variant_keep_old.sh`, from
+  88685135) between run 1 and its relaunch, and run 2b (the old layout read and moved).
+- **A primary deleted where another library lists the file** keeps the file's frame (above); the image's next variant,
+  its primary now, is given a frame of its own first if it has none (one of Capture One's never opened), stamped with
+  its variant, with the edit a fresh open gets — it never joins the other library's frame (`frameForNewPrimary`).
+
 ## 3. Storage, under `~/Library/Application Support/<bundle id>/`
 
 The debug build's bundle id is `com.spektralab.mac.local`.
@@ -594,7 +725,11 @@ The debug build's bundle id is `com.spektralab.mac.local`.
 | `Libraries/Linked/<document UUID>.spkcatalog` | A Capture One catalog's mirror, keyed by Capture One's document UUID so that a moved catalog finds it again (the helper's) |
 | `Libraries/Sources/<source id>.spkcatalog` | The catalogs the app makes for a Capture One session or a linked folder |
 | `Pairs/<name>.spektrapair`, `MacLibrary/pairs.json` | Each half-frame pair's recipe, the file its row points at, and which library each row went into (§2i) |
+| `Doubles/<name>.spektradouble`, `MacLibrary/doubles.json` | Each double exposure's recipe, the file its row points at, and which library each row went into (§2k) |
+| `doubles.json` | The double exposures' looks, beside `library.json`, which an older build reads whole (§2k) |
 | `library.json`, `Originals/`, `Previews/`, … | The app library (`FrameCatalog`). Frames made by `openInDevelop` live here; their develops are in their library's `Cache/Previews` since 2026-11-05 (§2j) |
+| `Masks/<frame id>/<asset>.spkmask` | The found masks (主体, 背景, 人 n, 全部人物; PRD-E §5.3, RFC-052 §8.2, M1c): each an immutable picture in S and its provenance, named by 32 hex of SHA-256 over both (`FoundMaskFiles`, `Engine/MaskStore.swift`), named in turn by a part of `layers.json` (`MaskPart.asset`). **The edit's own files, not a cache**: never under `WorkingCopies`, `Previews` or Caches, so neither *Clear Working Copies*, the working copies' limit, the previews' and cards' tidies nor a 2.3.x build's launch (its tidy walks `Previews` and `WorkingCopies` only, at 88685135; `tools/found_mask_selftest.sh` runs 2.3.2's own two files over such a library) touch them; kept in backups. Keyed by **the frame** (as `layers.json`, the history and the develops are: a variant has its own layers); a Clone Variant's or a pasted layer's asset is read from whichever folder holds it and copied into the frame's own at its page's open and close (`adopt`). A file goes only when no frame's edit, no state of the frame's edit history and no text of `layers.json` (an entry this build cannot read) names it, older than 2 minutes, at the page's close (`FoundMaskKeeping.pageClosed`); never when the history cannot be read. A frame removed takes its folder, handing on any file another frame names (`framesRemoved`); at launch, folders of frames neither the library nor `layers.json` has go (`launchTidy`). 重新查找 writes a new file; the old one stays while Undo can bring it back. 30–620 kB a mask at the 2,048 px rendition (zlib; measured by `tools/subject_find.sh`, a person's soft mask the largest) |
+| `EditHistory/history.sqlite` (+ `-wal`, `-shm`) | Every frame's edit history, keyed by `LibraryFrame.ID` beside the edit it is of (PRD-F, 2026-11-13: `SQLiteEditHistoryStore`, schema 2; schema 1 is moved). 256 steps a frame; removed with its frame (`AppServices.remove`); *Clear Working Copies* leaves it; Settings › Storage's *Clear All…* empties it. A newer build's file is neither read nor written. **At quit** (`AppServices.settleForQuit`, on `didEnterBackground`: a Catalyst ⌘Q posts no `willTerminate` and the process is gone ~5 s later without its main queue running, measured) `library.json` is written and the history's line waited for, at most 0.5 s: what a stuck store still holds then is lost, and the next open reconciles to the library |
 
 A SpektraLab catalog or session the user creates lives where the user puts it; `~/Pictures` is the
 sensible default for a save panel. A catalog is `<Name>.spkcatalog/Library.spkdb`, with `Originals/`

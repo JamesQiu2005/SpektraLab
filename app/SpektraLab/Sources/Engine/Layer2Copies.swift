@@ -20,6 +20,11 @@
 //    takes them; any other `edit-` file is the app's own leftover and goes.
 //    (`StorageTidy` does not know the name, and leaves these alone.)
 //
+//  - **With 成片 layers** (PRD-E, RFC-052 §7): the copy is the page's local pass on the kept develop — the finished
+//    canvas, so the layers' own matrix — with their planes baked on the copies' queue before it (`MaskBaker`'s store,
+//    the planes the page reads). The name carries the layers' key beside the edit's, so a delta, an opacity, an eye or
+//    a mask is a new copy; a frame without layers keeps today's name and today's file.
+//
 //  Not seen on a host: its time and its memory are this Mac's in a simulator.
 
 import CoreGraphics
@@ -46,6 +51,8 @@ final class Layer2Copies {
     private(set) var copies: [UUID: Copy] = [:]
     /// Whether a copy may be made now: nothing in the scheduler, no camera. Set by the app's model.
     @ObservationIgnored var canRun: () -> Bool = { true }
+    /// A frame's 成片 layers (`AppServices.finishedLayers`). Set by the app's model.
+    @ObservationIgnored var finishedLayers: (LibraryFrame) -> FinishedLayers? = { _ in nil }
     @ObservationIgnored private weak var library: FrameCatalog?
     @ObservationIgnored private var held: Set<UUID> = []
     @ObservationIgnored private var soon: Task<Void, Never>?
@@ -64,7 +71,7 @@ final class Layer2Copies {
     /// is made, so a tile does not go back to the unedited picture for the
     /// length of a copy. Nil everywhere else: the develop, as before.
     func served(_ frame: LibraryFrame) -> PictureRef? {
-        guard frame.edit.adjustments.isActive, let copy = copies[frame.id], let developed = frame.developed,
+        guard frame.edit.editPassActs, let copy = copies[frame.id], let developed = frame.developed,
               copy.of == developed.stamp else { return nil }
         return copy.picture
     }
@@ -115,11 +122,13 @@ final class Layer2Copies {
     }
 
     /// What a frame's copy would be, if it is to have one.
-    private func wanted(_ frame: LibraryFrame) -> (source: URL, of: String, key: String, name: String)? {
+    private func wanted(_ frame: LibraryFrame) -> (source: URL, of: String, key: String, name: String, layers: FinishedLayers?)? {
         let a = frame.edit.adjustments
-        guard !frame.isDemo, a.isActive, let developed = frame.shownDevelop, let url = developed.picture.fileURL else { return nil }
-        let key = key(frame.id, a)
-        return (url, developed.stamp, key, Self.name(frame.id, of: developed.stamp, key: key))
+        let layers = frame.edit.editPassActs ? finishedLayers(frame) : nil
+        guard !frame.isDemo, Layer2Local.acts(a, layers), let developed = frame.shownDevelop, let url = developed.picture.fileURL else { return nil }
+        // Today's key without layers (so today's copies keep their names); the layers' beside it with them.
+        let key = key(frame.id, a) + (layers.map { "|" + $0.key } ?? "")
+        return (url, developed.stamp, key, Self.name(frame.id, of: developed.stamp, key: key), layers)
     }
 
     /// A layer's key, kept per frame: the library changes at every step of a
@@ -143,7 +152,7 @@ final class Layer2Copies {
     /// no longer carries an edit.
     func reconcile() {
         guard let library else { return }
-        var next: (id: UUID, source: URL, of: String, key: String, name: String, adjustments: Adjustments)?
+        var next: (id: UUID, source: URL, of: String, key: String, name: String, adjustments: Adjustments, layers: FinishedLayers?)?
         for frame in library.frames {
             guard let w = wanted(frame) else {
                 if copies[frame.id] != nil { drop(frame.id) }
@@ -156,7 +165,7 @@ final class Layer2Copies {
                 continue
             }
             if next == nil, !held.contains(frame.id) {
-                next = (frame.id, w.source, w.of, w.key, w.name, frame.edit.adjustments)
+                next = (frame.id, w.source, w.of, w.key, w.name, frame.edit.adjustments, w.layers)
             }
         }
         // A frame gone from the library takes its copy with it.
@@ -165,15 +174,16 @@ final class Layer2Copies {
         keys = keys.filter { here.contains($0.key) }
         guard let next, making == nil else { return }
         guard canRun() else { reconcileSoon(after: 1); return }
-        make(next.id, source: next.source, of: next.of, key: next.key, name: next.name, adjustments: next.adjustments)
+        make(next.id, source: next.source, of: next.of, key: next.key, name: next.name, adjustments: next.adjustments, layers: next.layers)
     }
 
-    private func make(_ id: UUID, source: URL, of stamp: String, key: String, name: String, adjustments: Adjustments) {
+    private func make(_ id: UUID, source: URL, of stamp: String, key: String, name: String, adjustments: Adjustments,
+                      layers: FinishedLayers?) {
         making = id
         let target = ImportService.previews.appendingPathComponent(name)
         worker.async { [weak self] in
             let started = DispatchTime.now().uptimeNanoseconds
-            let outcome = Result { try autoreleasepool { try Self.write(source, adjustments, to: target) } }
+            let outcome = Result { try autoreleasepool { try Self.write(source, adjustments, layers: layers, to: target) } }
             let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
             Task { @MainActor in
                 guard let self else { return }
@@ -209,17 +219,17 @@ final class Layer2Copies {
         worker.async { try? FileManager.default.removeItem(at: url) }
     }
 
-    /// The develop at `source`, with the layer, written to `target`: HEIF where
+    /// The develop at `source`, with the layer and its 成片 layers, written to `target`: HEIF where
     /// this system writes it, Display P3, its profile in the file — as a kept
-    /// develop is written (`EngineHost.write`). Any thread.
-    nonisolated static func write(_ source: URL, _ adjustments: Adjustments, to target: URL) throws {
+    /// develop is written (`EngineHost.write`). Any thread but the main one (the planes are baked on it).
+    nonisolated static func write(_ source: URL, _ adjustments: Adjustments, layers: FinishedLayers? = nil, to target: URL) throws {
         guard let renderer = Layer2Renderer.shared else { throw Layer2Kernel.Failure.noDevice }
         guard let file = CGImageSourceCreateWithURL(source as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               let image = CGImageSourceCreateImageAtIndex(file, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else {
             throw Layer2Renderer.Failure.picture("the develop could not be read")
         }
         let picture = try renderer.source(image)
-        let (made, _) = try renderer.image(picture, adjustments)
+        let (made, _) = try renderer.image(picture, adjustments, local: try Layer2Work.local(layers, adjustments, renderer))
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = target.deletingLastPathComponent().appendingPathComponent("." + target.lastPathComponent)
         for type in [UTType.heic, UTType.jpeg] {

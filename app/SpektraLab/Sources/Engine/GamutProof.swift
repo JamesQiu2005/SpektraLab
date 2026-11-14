@@ -37,7 +37,29 @@ final class GamutProof {
     @ObservationIgnored private var asked: Set<CanvasGamut> = []
     @ObservationIgnored private var kept: [(source: CGImage, gamut: CanvasGamut, made: CGImage)] = []
     private static let keepCount = 12
+    @ObservationIgnored private var warning: NSObjectProtocol?
     #endif
+
+    init() {
+        #if SPK_ENGINE
+        // The host is short of memory (`MemoryRelease`): the proofs go, and are made again as they are drawn.
+        warning = NotificationCenter.default.addObserver(forName: .spkMemoryWarning, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.kept.removeAll()
+                MemoryRelease.tally("gamut_proofs")
+            }
+        }
+        #endif
+    }
+
+    /// How many proofs are kept, for the check (`MemoryRelease.counts`).
+    var keptCount: Int {
+        #if SPK_ENGINE
+        return kept.count
+        #else
+        return 0
+        #endif
+    }
 
     /// `image` as a file in `gamut` holds it; the image itself where nothing is to be proofed or cannot be.
     func proofed(_ image: CGImage, _ gamut: CanvasGamut?) -> CGImage {

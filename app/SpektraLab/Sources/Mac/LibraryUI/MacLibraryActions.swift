@@ -23,6 +23,12 @@ final class MacLibraryActions {
     var confirmingRemoval = false
     /// A pair just made: its frame, until its row lands in the library and is chosen there.
     var landing: LibraryFrame.ID?
+    /// A double exposure's second exposure is being asked for, over the library (`SecondExposurePicker`).
+    struct SecondExposure: Identifiable, Equatable {
+        var first: LibraryFrame.ID
+        var id: LibraryFrame.ID { first }
+    }
+    var secondExposure: SecondExposure?
 
     /// Remove, asked first.
     func ask(_ ids: Set<LibraryFrame.ID>) {
@@ -101,11 +107,15 @@ final class MacLibraryActions {
             do {
                 let (frames, _) = try await store.frames(for: images.map(\.id), focus: images[0].id)
                 let ids = images.compactMap { frames[$0.id] }
-                guard let first = ids.first, !ids.contains(where: { model.library.frame($0)?.isPair != false }) else { return }
+                guard let first = ids.first, !ids.contains(where: { model.library.frame($0)?.isComposite != false }) else { return }
                 if ids.count > 1 {
                     guard let pair = model.makePair(ids[0], ids[1]) else {
                         refusal = L("This half-frame pair could not be made.")
                         return
+                    }
+                    // The first picked is the left frame (R6): `makePair` lays two by the library's order.
+                    if model.library.frame(pair)?.pair?.left?.frame != ids[0], ids[0] != ids[1] {
+                        model.changePair(pair) { piece, look in piece.swap(look: &look.params) }
                     }
                     landing = pair
                 } else {
@@ -115,6 +125,55 @@ final class MacLibraryActions {
                 refusal = error.localizedDescription
             }
         }
+    }
+
+    /// **合成 › 多重曝光** (PRD-D §3.6, LAYERS-SPEC §6.1): the chosen pictures' frames, then `AppServices.makeDouble`.
+    /// `images` come **in the order they were picked** (`MacLibraryBrowser.picked`, R6): two make the double at
+    /// once, the first picked its bottom, and it lands as a row, chosen; one asks for the second exposure
+    /// (`secondExposure`, `SecondExposurePicker`), the double then beginning with it.
+    func makeDouble(_ images: [MacImage], store: any MacLibraryData, model: AppServices) {
+        guard (1...2).contains(images.count), !images.contains(where: { $0.kind == .pair }) else { return }
+        Task {
+            do {
+                let (frames, _) = try await store.frames(for: images.map(\.id), focus: images[0].id)
+                let ids = images.compactMap { frames[$0.id] }
+                guard let first = ids.first, !ids.contains(where: { model.library.frame($0)?.isComposite != false }) else { return }
+                if ids.count > 1 {
+                    guard let double = model.makeDouble(ids[0], ids[1], keepsOrder: true) else {
+                        refusal = L("This double exposure could not be made.")
+                        return
+                    }
+                    await land(double, store: store)
+                } else {
+                    secondExposure = SecondExposure(first: first)
+                }
+            } catch {
+                refusal = error.localizedDescription
+            }
+        }
+    }
+
+    /// The second exposure was chosen for a double that begins with `first`: made, and landed.
+    func makeDouble(from first: LibraryFrame.ID, with second: LibraryFrame.ID, model: AppServices) {
+        secondExposure = nil
+        guard let double = model.makeDouble(first, second, beginsWithFirst: true) else {
+            refusal = L("This double exposure could not be made.")
+            return
+        }
+        Task { await land(double, store: MacLibraryUI.store(model)) }
+    }
+
+    /// A double just made is chosen where its row is. Its row is the helper's, in the catalog (`placeDouble`):
+    /// a collection that does not hold it — an import's session, a filter — never shows it, and a piece made
+    /// and nowhere to be seen reads as nothing having happened. Waited for a moment; then All Images.
+    private func land(_ double: LibraryFrame.ID, store: any MacLibraryData) async {
+        landing = double
+        for _ in 0..<12 {
+            try? await Task.sleep(for: .milliseconds(250))
+            if landing == nil { return }
+            if store.images.contains(where: { $0.develop?.frameID == double }) { return }
+        }
+        if store.selectedCollectionID != store.tree.defaultSelection { await store.select(collection: store.tree.defaultSelection) }
     }
 
     /// The library a pair's frames are judged by (`model.library`, the app's one store).
@@ -246,10 +305,14 @@ final class MacLibraryActions {
         guard !frames.isEmpty else { return Pasted() }
         var library: Set<LibraryFrame.ID> = []
         for id in frames {
-            if let session = model.openSession(id) { model.applyLook(clip, to: session) } else { library.insert(id) }
+            if let session = model.openSession(id) {
+                // Through the open page: one step of its history (PRD-F §3.3).
+                session.recording(.paste, .paste(from: clip.sourceName)) { model.applyLook(clip, to: session) }
+            } else { library.insert(id) }
         }
         let before = Dictionary(library.compactMap { id in model.library.frame(id).map { (id, $0.edit) } }, uniquingKeysWith: { a, _ in a })
-        let redo = Set(model.library.paste(onto: library, clip: clip))
+        // One step of history on each frame the paste changed (`pasteOntoLibrary`).
+        let redo = Set(model.pasteOntoLibrary(clip, onto: library))
         // What must be developed again: what `paste` says (a film-side change), and a frame with no develop
         // of its own whose edit the paste changed at all — Edit's layer alone has nothing to lie on there
         // (`Layer2Copies` copies a develop). In the order pasted (the grid's), so the tiles fill in order.
@@ -417,6 +480,8 @@ struct MacLibraryDialogs: ViewModifier {
             } message: {
                 Text(L("The files go to the system's Trash, where Finder can still put them back."))
             }
+            // Delete Variant's question (MacVariantActions.swift), on the same pages.
+            .modifier(MacVariantDialogs())
     }
 }
 

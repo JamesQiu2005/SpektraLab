@@ -1,0 +1,274 @@
+Layers
+图层
+圖層
+レイヤー
+
+Balance
+平衡
+平衡
+バランス
+
+Top’s share
+上层占比
+上層佔比
+上層の割合
+
+Top alone
+仅上层
+僅上層
+上層のみ
+
+Bottom alone
+仅下层
+僅下層
+下層のみ
+
+Add Exposure
+添加曝光
+加入曝光
+露光を追加
+
+Add a photograph
+添加照片
+加入照片
+写真を追加
+
+Swap Top and Bottom
+交换上下层
+交換上下層
+上層と下層を入れ替え
+
+Arrange
+摆放
+擺放
+配置
+
+Flip Horizontally
+水平翻转
+水平翻轉
+左右反転
+
+Show Alone
+单独查看
+單獨檢視
+単独で表示
+
+Show Both Exposures
+显示两次曝光
+顯示兩次曝光
+両方の露光を表示
+
+Replace Photograph…
+替换照片…
+替換照片…
+写真を置き換え…
+
+Remove Photograph
+移除照片
+移除照片
+写真を取り除く
+
+Advanced
+进阶
+進階
+詳細
+
+Meter
+测光
+測光
+測光
+
+Balance →
+平衡 →
+平衡 →
+バランス →
+
+White balance is written to this photograph in the library.
+白平衡会写入图库中的这张照片。
+白平衡會寫入圖庫中的這張照片。
+ホワイトバランスはライブラリのこの写真に書き込まれます。
+
+Photograph
+照片
+照片
+写真
+
+Not in the library
+不在图库中
+不在圖庫中
+ライブラリにありません
+
+It is in the library by itself as well.
+图库里也有它单独的一张。
+圖庫裡也有它單獨的一張。
+ライブラリには単独の写真としてもあります。
+
+An empty layer is unexposed film: the frame develops with the other exposure’s light alone.
+空着的一层是未曝光的胶片：画面只按另一次曝光冲洗。
+空著的一層是未曝光的底片：畫面只按另一次曝光沖洗。
+空のレイヤーは未露光のフィルムです。もう一方の露光だけで現像されます。
+
+An empty hole is unexposed film.
+空着的一格是未曝光的胶片。
+空著的一格是未曝光的底片。
+空のコマは未露光のフィルムです。
+
+The double exposure began with this photograph: it stays. Swap Top and Bottom moves it.
+多重曝光从这张照片开始，它留在其中；交换上下层可换位置。
+多重曝光從這張照片開始，它留在其中；交換上下層可換位置。
+この多重露光はこの写真から始まったため、外せません。上層と下層の入れ替えで位置を変えられます。
+
+This photograph is no longer in the library. Replace or remove it.
+这张照片已不在图库中。请替换或移除它。
+這張照片已不在圖庫中。請替換或移除它。
+この写真はライブラリにありません。置き換えるか取り除いてください。
+
+Film, paper and effects belong to Film
+胶片、相纸与效果属于「胶片」
+底片、相紙與效果屬於「底片」
+フィルム、印画紙、エフェクトは「フィルム」のものです
+
+White balance belongs to each exposure.
+白平衡属于每一次曝光。
+白平衡屬於每一次曝光。
+ホワイトバランスは露光ごとに設定します。
+
+White balance belongs to each frame.
+白平衡属于每一格。
+白平衡屬於每一格。
+ホワイトバランスはコマごとに設定します。
+
+Double Exposure
+多重曝光
+多重曝光
+多重露光
+
+The bottom sets the frame and the date
+下层决定画幅与日期
+下層決定畫幅與日期
+下層が画面サイズと日付を決めます
+
+"%@ has no edits of its own. Edit works on the whole film."
+「%@」没有自己的编辑。编辑作用于整张胶片。
+「%@」沒有自己的編輯。編輯作用於整張底片。
+「%@」には固有の編集がありません。編集はフィルム全体に適用されます。
+
+Select Film
+选择胶片
+選擇底片
+フィルムを選択
+
+Zoom
+缩放
+縮放
+ズーム
+
+Turn 90°
+旋转 90°
+旋轉 90°
+90°回転
+
+Drag the picture to move it. It develops on film, at Balance, when you stop.
+拖动画面即可移动。停下后按胶片冲洗，并计入平衡。
+拖動畫面即可移動。停下後按底片沖洗，並計入平衡。
+ドラッグして写真を動かします。止めると、バランスを含めてフィルムで現像されます。
+
+Drag the picture to move it. It develops on film when you stop.
+拖动画面即可移动。停下后按胶片冲洗。
+拖動畫面即可移動。停下後按底片沖洗。
+ドラッグして写真を動かします。止めるとフィルムで現像されます。
+
+Combine
+合成
+合成
+合成
+
+Two exposures on one frame of film
+两次曝光叠在同一格底片上
+兩次曝光疊在同一格底片上
+1コマのフィルムに2回の露光
+
+Two half frames on one piece of film
+两张各占半格，排在同一段胶片上
+兩張各佔半格，排在同一段底片上
+ハーフ2コマを1本のフィルムに
+
+Choose the second exposure, on the same frame of film
+选择第二次曝光，叠在同一格底片上
+選擇第二次曝光，疊在同一格底片上
+同じコマに重ねる2回目の露光を選んでください
+
+Same one, mirrored
+同一张 · 镜像
+同一張 · 鏡像
+同じ写真・反転
+
+"Replace %@"
+替换%@
+替換%@
+%@を置き換え
+
+"Choose a photograph for %@; the old one stays in the library"
+选一张照片放进%@；原来的那张仍在图库中
+選一張照片放進%@；原來的那張仍在圖庫中
+%@に入れる写真を選んでください。元の写真はライブラリに残ります
+
+In this double exposure
+已在此多重曝光中
+已在此多重曝光中
+この多重露光で使用中
+
+"“%@” can’t be exported"
+无法导出「%@」
+無法匯出「%@」
+「%@」は書き出せません
+
+Choose one or two photographs
+选择一张或两张照片
+選擇一張或兩張照片
+写真を1枚か2枚選んでください
+
+A pair or a double exposure cannot be combined again
+半格组与多重曝光不能再合成
+半格組與多重曝光不能再合成
+ハーフのペアや多重露光はさらに合成できません
+
+This double exposure could not be made.
+无法创建此多重曝光。
+無法建立此多重曝光。
+この多重露光を作成できませんでした。
+
+Previous Layer
+上一图层
+上一圖層
+前のレイヤー
+
+Next Layer
+下一图层
+下一圖層
+次のレイヤー
+
+shown alone
+单独显示
+單獨顯示
+単独表示
+
+not shown
+未显示
+未顯示
+非表示
+
+Layer actions
+图层操作
+圖層操作
+レイヤーの操作
+
+Shows the layers
+显示图层
+顯示圖層
+レイヤーを表示
+
+Folds the layers away
+收起图层
+收起圖層
+レイヤーを折りたたむ

@@ -68,8 +68,21 @@ struct ExportPlan: Equatable, Sendable {
     /// is the file after it, and the decode is sized for that.
     var printCrop: Geometry?
 
-    /// The engine's range for `film_format_mm` (`engine/src/core/params.cpp`).
-    static let filmFormatRange = 4.0...200.0
+    /// The frame the engine opens (`frame`), as a job made of this plan is priced to open it (`RenderJob.opens`):
+    /// nil where the canvas has at least its pixels, which is every plan but two. **135 Full Width as a strip**:
+    /// the gate (36 mm) is wider than the film (35), so the canvas is the film and narrower across than the frame
+    /// handed over, and a job priced at the canvas alone refused its own decode at the full tier -- the page's
+    /// zoom ("Full size unavailable") and every export at Full: "decoded 4128x8256 exceeds the priced open
+    /// 4013x8432" (a Z7 II NEF upright, 2026-11-11; `RenderJob.isOverOpened`). And a crop the engine makes
+    /// (`engineCuts`), whose frame is the whole decode. The full tier's price does not read it (`CostModel`), so
+    /// no job's cost moves; below the full tier it prices the open as the frame it is.
+    var opens: PixelSize? {
+        frame.width * frame.height > engineCanvas.width * engineCanvas.height ? frame : nil
+    }
+
+    /// The engine's range for `film_format_mm` (`engine/src/core/params.cpp`): `FilmParams.filmFormatRange`,
+    /// written again because the export's checks compile without the model (`crop_selftest` holds them equal).
+    static let filmFormatRange = 3.0...300.0
 
     /// The plan for one frame. `canvas` is the film's canvas round a framing
     /// of a given size — the engine's own layout, as the page's film is drawn

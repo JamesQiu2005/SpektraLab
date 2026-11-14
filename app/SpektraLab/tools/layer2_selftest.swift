@@ -224,7 +224,28 @@ func run(_ m: Mutation) -> Checks {
     pad(c)
     gpu(c)
     gpuNewSteps(c)
+    neutralPick(c)
     return c
+}
+
+/// Edit › Temperature's neutral-grey eyedropper (2026-11-11, `NeutralPick.printBalance`): the temperature and
+/// tint it solves, put through the very gains the kernel applies (`Layer2Uniforms.tone`'s `wbGain`, its first
+/// step), make the sampled print grey; out of the sliders' reach it says so and stays inside them.
+func neutralPick(_ c: Checks) {
+    let prints: [SIMD3<Double>] = [[0.52, 0.45, 0.38], [0.31, 0.36, 0.44], [0.6, 0.55, 0.62], [0.18, 0.2, 0.19], [0.5, 0.5, 0.5]]
+    for p in prints {
+        guard let b = NeutralPick.printBalance(r: p.x, g: p.y, b: p.z) else { c.expect(false, "a print of \(p) has a balance"); continue }
+        let u = Layer2Uniforms.tone(temperature: b.temperature, tint: b.tint, exposure: 0, contrast: 0, brightness: 0,
+                                    saturation: 0, highlights: 0, shadows: 0, blackPoint: 0, whitePoint: 0)
+        let out = SIMD3(p.x * Double(u.wbGain.x), p.y * Double(u.wbGain.y), p.z * Double(u.wbGain.z))
+        let spread = max(out.x, out.y, out.z) - min(out.x, out.y, out.z)
+        c.expect(!b.clamped && spread < 1e-5, "the eyedropper's balance makes \(p) grey through the kernel's gains (spread \(spread))")
+    }
+    if let far = NeutralPick.printBalance(r: 0.9, g: 0.2, b: 0.1) {
+        c.expect(far.clamped && abs(far.temperature) <= 100 && abs(far.tint) <= 100,
+                 "a colour no slider reaches is said so, and the balance stays in the sliders' range")
+    }
+    c.expect(NeutralPick.printBalance(r: 0, g: 0.1, b: 0.1) == nil, "black has no colour to balance")
 }
 
 /// An edit's Layer 2 as the build before vibrance, HSL and the channel mixer wrote it: printed by
@@ -273,8 +294,15 @@ func oldRecords(_ c: Checks) {
 
 func adjustTools(_ c: Checks) {
     c.expect(AdjustTool.allCases.map(\.rawValue) == ["brightness", "contrast", "tone", "hsl", "channel", "wheels",
-                                                      "vibrance", "saturation", "temperature", "curve", "vignette"],
-             "the strip is Litti's list without Fade, then Vignette")
+                                                      "vibrance", "saturation", "temperature", "curve", "lens"],
+             "the strip is Litti's list without Fade, then Lens (the vignette's tile went into it, PRD-D §3.4)")
+    // A column order kept before Lens names `vignette`: dropped without complaint, nothing repeated, Lens at the end.
+    let kept = AdjustTool.order(from: ["curve", "vignette", "brightness", "curve", "nonsense"])
+    c.expect(kept.first == .curve && kept[1] == .brightness && kept.last == .lens && kept.count == AdjustTool.allCases.count
+             && Set(kept).count == kept.count, "an old order that names vignette reads leniently: \(kept.map(\.rawValue))")
+    c.expect(AdjustTool.order(from: []) == AdjustTool.allCases, "no kept order is the strip's own")
+    c.expect(AdjustTool.lens.controls == [.vignette, .vignetteMidpoint] && AdjustTool.lens.group == .light,
+             "Lens holds the vignette's two sliders, in Layer 2's Light as before")
     // Every field of the layer is some tile's: all the 🗑s together are the whole layer.
     var a = everything()
     for tool in AdjustTool.allCases { tool.reset(&a) }
@@ -299,8 +327,12 @@ func adjustTools(_ c: Checks) {
         c.expect(only.changedTools == [tool.group], "\(tool.rawValue) alone makes \(tool.group.rawValue) edited, and nothing else")
     }
     var mid = Adjustments(); mid.vignette.midpoint = 30
-    c.expect(AdjustTool.vignette.isNeutral(in: mid) && !AdjustTool.vignette.isAtRest(in: mid),
-             "a midpoint alone draws nothing, and is still Vignette's to put back")
+    c.expect(AdjustTool.lens.isNeutral(in: mid) && !AdjustTool.lens.isAtRest(in: mid),
+             "a midpoint alone draws nothing, and is still Lens's to put back")
+    var filtered = LensSettings(); filtered.filter = .blackMist
+    c.expect(!AdjustTool.lens.isAtRest(in: Adjustments(), lens: filtered) && AdjustTool.lens.isAtRest(in: Adjustments(), lens: LensSettings())
+             && AdjustTool.curve.isAtRest(in: Adjustments(), lens: filtered),
+             "Lens's dot and ↺ see its soft filter; no other tool does")
     c.expect(AdjustTool.brightness.controls == [.brightness, .exposure], "Exposure is under Brightness")
     c.expect(AdjustTool.tone.controls == [.highlights, .shadows, .whites, .blacks], "Tone is Litti's highlights and shadows, and the two points")
     // Copy Settings' Colour carries the new tools, and Light and Curve do not.
@@ -718,6 +750,8 @@ func codable(_ c: Checks) {
         if var back = o["dateBack"] as? [String: Any] {
             if back["brightness"] == nil { back["brightness"] = 1.0 }
             if back["alsoData"] == nil { back["alsoData"] = false }
+            // 2026-11-11 (PRD-D §6 q2, the owner): a kept 3.5 EV date is the LED glow's 5.5, read and written so.
+            if (back["brightnessEV"] as? Double) == 3.5 { back["brightnessEV"] = 5.5 }
             o["dateBack"] = back
         }
         return try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys])

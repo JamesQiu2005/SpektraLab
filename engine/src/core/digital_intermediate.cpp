@@ -177,6 +177,19 @@ void di_linear(const DiConstants& k, const double log_t[3], double lin[3]) {
 
 }  // namespace
 
+bool di_inside_pointer(double x, double y) { return inside_pointer(x, y); }
+
+// `FilmHost` for a caller outside this file (`negative_hue.cpp`): the same flat-field chain, many patches.
+void film_host_develop(const Params& params, const Vec& tc_lut, size_t side, const Mat3& tc_b,
+                       const double* rgb, size_t n, double* cmy) {
+    const FilmHost host(params, tc_lut, side, tc_b);
+    for (size_t i = 0; i < n; ++i) {
+        double raw[3];
+        host.raw(rgb + 3 * i, raw);
+        host.develop(raw, cmy + 3 * i);
+    }
+}
+
 bool di_constants(const Colour& colour, const Blob& blob, const Params& params,
                   const Vec& tc_lut, size_t side, const Mat3& tc_b, const Vec& film_sensitivity,
                   DiConstants& out, std::string& error, bool log_positive_only) {

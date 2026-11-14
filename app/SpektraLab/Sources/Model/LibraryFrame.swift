@@ -146,6 +146,14 @@ struct LibraryFrame: Identifiable, Equatable, Sendable {
     /// itself is the host's composing (`EngineRouter`, `PairDevelop.swift`).
     /// Nil for a photograph.
     var pair: HalfFramePair? = nil
+    /// **A double exposure** (`DoubleExposure`, RFC-047): this item is one frame of film exposed twice,
+    /// with two of the library's photographs on it, not a photograph. Its `edit` is the whole's look —
+    /// one film, one paper, one print, one film edge, one date — as a pair's item keeps the pair's;
+    /// `originalSize` is the frame at the size neither exposure is enlarged in (`DoubleExposure.frameSize`);
+    /// `picture` is its guide until the engine has developed it (`DoubleGuide`). Nil for a photograph and
+    /// for a pair: an item is one of the three. On the Mac it is also a row of its library, as a pair is
+    /// (`Mac/Library/MacDoubleRows.swift`).
+    var double: DoubleExposure? = nil
     /// Shot by the host app's camera; kept as the library file has it (this app sets it on
     /// nothing). Nil for anything brought in.
     var shotHere: Bool? = nil
@@ -155,12 +163,35 @@ struct LibraryFrame: Identifiable, Equatable, Sendable {
     /// (`ImportService.frame`). Nil for a frame made before 2026-11-05 until the launch's catch-up has
     /// read its file (`AppServices.holdCameraCrops`), and for a frame that file has not been readable for.
     var cameraCropRead: Bool? = nil
+    /// **A variant** (PRD-G, 2026-11-13; Capture One's word): the helper's variant uuid of the photograph's row in the
+    /// Mac library that this frame is the edit of — a second print from the same negative, with its own edit, history,
+    /// develop, rating and label. Nil for the image's **primary** variant, which is what every frame was before 2.4.0:
+    /// a library written by 2.3.x opens unchanged and needs no migration, and a file two catalogs both reference still
+    /// has one primary frame, whichever library it is opened from (each library's variant uuids are its own). The Mac
+    /// library joins a cell to its frame by (file, variant) — `CatalogSourcesStore.frameID(path:variant:primary:)` —
+    /// so one file may have several frames, but only one per variant. Never set on a pair or a double exposure.
+    var variant: String? = nil
+
+    /// The library photographs this item is made of: a pair's frames, a double exposure's exposures — each
+    /// once, in their own order. Empty for a photograph.
+    var composedOf: [LibraryFrame.ID] {
+        if let pair { return [pair.left?.frame, pair.right?.frame].compactMap { $0 } }
+        if let double { return double.frameIDs }
+        return []
+    }
 
     /// "_DSC0061": the name without its extension, for Export's title and the
     /// exported file.
     var stem: String { (fileName as NSString).deletingPathExtension }
 
     var isPair: Bool { pair != nil }
+    /// A double exposure's item (`double`).
+    var isDouble: Bool { double != nil }
+    /// **A piece made of other photographs**: a pair or a double exposure (RFC-047 §1). Code that means
+    /// "made of frames" — removal, the export's source, "not a frame of another piece" —
+    /// asks this; code that means the pair's own geometry keeps asking `isPair` (RFC-047 §6, lane A
+    /// classifies the sites).
+    var isComposite: Bool { isPair || isDouble }
 
     /// Picked from the Photos library: read where it is there, or its original
     /// kept in the app (2026-10-21) — which Photos may then delete without the

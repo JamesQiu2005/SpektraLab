@@ -89,11 +89,11 @@ struct PairStart: Equatable {
             // A pair is a piece of film, not a photograph: it fills no hole.
             let picks = [first, second].compactMap { $0 }
                 .sorted { (order.firstIndex(of: $0) ?? .max) < (order.firstIndex(of: $1) ?? .max) }
-                .compactMap { library.frame($0) }.filter { !$0.isPair }
+                .compactMap { library.frame($0) }.filter { !$0.isComposite }
             return start(frames: picks, keepFilmEdge: false)
 
         case .halfFrame(let id):
-            return start(frames: [library.frame(id)].compactMap { $0 }.filter { !$0.isPair }, keepFilmEdge: true)
+            return start(frames: [library.frame(id)].compactMap { $0 }.filter { !$0.isComposite }, keepFilmEdge: true)
         }
     }
 

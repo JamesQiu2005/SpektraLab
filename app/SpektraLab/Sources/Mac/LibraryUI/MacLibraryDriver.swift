@@ -43,6 +43,8 @@ enum MacLibraryDriver {
             }
         }
         guard arguments.contains("--mac-drive") else { return }
+        // The 图层 panel's steps are beside its check (`MacLayersDrive.steps`, 2026-11-12): double.make, layer.film
+        // · top · bottom · left · right, eye.top, balance.30, arrange.open · drag · done, double.swap, export, …
         let browser = MacLibraryBrowser.shared
         func apply(_ edit: @escaping (inout MacImageQuery) -> Void) {
             var q = store.query
@@ -180,7 +182,7 @@ enum MacLibraryDriver {
                 ]
                 NSLog("mac library drive: import state %@", "\(state)")   // the console: the log is inert until started
             }),
-        ]
+        ] + MacLayersDrive.steps(model: model, store: store, browser: browser)   // the 图层 panel's (`MacLayersCheck.swift`)
         for (name, step) in steps {
             var token: Int32 = 0
             notify_register_dispatch("com.spektralab.mac.lib" + MacWindowCapture.notifyTag(arguments) + "." + name, &token, .main) { _ in

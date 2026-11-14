@@ -19,6 +19,12 @@
 //    (`wantsHistogram`): about 0.3 MP, a few hundred samples a bin.
 //  - **A neutral layer runs nothing**: the canvas shows the develop as before,
 //    and `shown` is let go.
+//  - **成片 layers** (PRD-E, RFC-052 §7): the session hands them beside the edit (`show(layers:)`, from
+//    `AppServices.finishedLayers`); the pass then runs the local variant (`Layer2Local`) on the page's picture and on
+//    the histogram's copy, both the finished canvas, so both read the layers' one matrix. Their planes are baked on the
+//    pass's own queue before the pass (`FinishedLayers.planesBlocking`, kept by key in `MaskBaker`'s store): a pass
+//    never runs with a plane missing, and until it lands the page keeps the picture it last showed, as it does while
+//    any pass is out. A layer that cannot be baked is logged and draws nothing new.
 //
 //  The snapshot harness draws a page still: `renderedNow` makes the picture on
 //  the spot, on the calling thread, for a page that must be complete when it
@@ -63,6 +69,10 @@ final class Layer2Live {
     /// it can adjust as the page shows it (`picture(for:)`).
     private(set) var picture: PictureRef?
     @ObservationIgnored private(set) var adjustments = Adjustments()
+    /// The edit's 成片 layers, with the finished canvas's matrix: nil, today's pass.
+    @ObservationIgnored private(set) var layers: FinishedLayers?
+    /// Whether the pass draws anything: the edit's controls, or a layer of it (`Layer2Local.acts`).
+    var isActive: Bool { Layer2Local.acts(adjustments, layers) }
     @ObservationIgnored private var displayPixel: Int?
     @ObservationIgnored private var inFlight = false
     @ObservationIgnored private var again = false
@@ -70,6 +80,7 @@ final class Layer2Live {
     @ObservationIgnored private var still: (key: String, image: CGImage)?
     @ObservationIgnored nonisolated(unsafe) private var warning: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var reclaiming: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var short: NSObjectProtocol?
     @ObservationIgnored private let log = Logger(subsystem: "com.spektralab.mac", category: "layer2")
 
     init() {
@@ -78,11 +89,18 @@ final class Layer2Live {
                                                          object: nil, queue: .main) { [weak work] _ in work?.drop() }
         // And when a job someone waits on cannot fit (`RenderQueue.reclaim`).
         reclaiming = NotificationCenter.default.addObserver(forName: .spkReclaim, object: nil, queue: .main) { [weak work] _ in work?.drop() }
+        // And on the scheduler's word for memory pressure (`MemoryRelease`): the operating system's dispatch source
+        // reaches it on any Mac, where UIKit's warning may never come (DIAG-2026-11-13).
+        short = NotificationCenter.default.addObserver(forName: .spkMemoryWarning, object: nil, queue: .main) { [weak work] _ in
+            work?.drop()
+            MainActor.assumeIsolated { MemoryRelease.tally("layer2") }
+        }
     }
 
     deinit {
         if let warning { NotificationCenter.default.removeObserver(warning) }
         if let reclaiming { NotificationCenter.default.removeObserver(reclaiming) }
+        if let short { NotificationCenter.default.removeObserver(short) }
     }
 
     /// The picture Layer 2 adjusts on the page: the page's own develop, or the
@@ -92,7 +110,8 @@ final class Layer2Live {
     static func picture(for frame: LibraryFrame?, developed: DevelopedPicture?, edit: FrameEdit) -> PictureRef? {
         guard let frame else { return nil }
         if let made = developed ?? frame.shownDevelop { return made.picture }   // never a develop whose file is gone
-        guard !frame.isPair, edit.geometry.isIdentity, !edit.filmEdge.effective, !edit.dateBack.active else { return nil }
+        // A pair's or a double exposure's own picture is its guide, not a develop: nothing to adjust.
+        guard !frame.isComposite, edit.geometry.isIdentity, !edit.filmEdge.effective, !edit.dateBack.active else { return nil }
         return frame.picture
     }
 
@@ -106,10 +125,23 @@ final class Layer2Live {
 
     func show(adjustments next: Adjustments) {
         guard next != adjustments else { return }
-        let was = adjustments.isActive
+        let was = isActive
         adjustments = next
-        if !next.isActive {
+        if !isActive {
             // Nothing to draw: the picture and the pass's copy of the page's picture go.
+            shown = nil
+            if was { work.dropDisplay() }
+        }
+        schedule()
+    }
+
+    /// The edit's 成片 layers (`AppServices.finishedLayers`): a delta, an opacity or an eye re-runs the pass only; a new
+    /// mask is a new plane key, baked before the pass that reads it.
+    func show(layers next: FinishedLayers?) {
+        guard next != layers else { return }
+        let was = isActive
+        layers = next
+        if !isActive {
             shown = nil
             if was { work.dropDisplay() }
         }
@@ -139,11 +171,11 @@ final class Layer2Live {
 
     private func schedule() {
         guard picture != nil else { return }
-        let wantsImage = adjustments.isActive && displayPixel != nil
+        let wantsImage = isActive && displayPixel != nil
         guard wantsImage || wantsHistogram else { return }
         if inFlight { again = true; return }
         inFlight = true
-        let ask = Layer2Work.Ask(picture: picture!, displayPixel: displayPixel, adjustments: adjustments,
+        let ask = Layer2Work.Ask(picture: picture!, displayPixel: displayPixel, adjustments: adjustments, layers: layers,
                                  wantsImage: wantsImage, wantsHistogram: wantsHistogram)
         work.run(ask) { [weak self] answer in
             Task { @MainActor in self?.landed(ask, answer) }
@@ -151,11 +183,14 @@ final class Layer2Live {
     }
 
     private func landed(_ ask: Layer2Work.Ask, _ answer: Layer2Work.Answer) {
+        #if DEBUG && SPK_ENGINE
+        TransitionMarks.mark("layer2.landed")
+        #endif
         inFlight = false
         // Only what is still of the page's picture and its layer: a pass for an
         // edit since put back to zero is not drawn.
         if ask.picture == picture {
-            if let image = answer.image, adjustments.isActive { shown = image }
+            if let image = answer.image, isActive { shown = image }
             if let h = answer.histogram, wantsHistogram { histogram = h }
         }
         if let t = answer.timing {
@@ -171,12 +206,14 @@ final class Layer2Live {
     /// page drawn still (the snapshot harness). Kept for the same picture, size
     /// and layer, so a page drawn twice is not made twice.
     func renderedNow(maxPixel: Int) -> CGImage? {
-        guard let picture, adjustments.isActive, let renderer = Layer2Renderer.shared else { return nil }
-        let key = "\(picture)|\(maxPixel)|\(adjustments.key)"
+        guard let picture, isActive, let renderer = Layer2Renderer.shared else { return nil }
+        let key = "\(picture)|\(maxPixel)|\(adjustments.key)|\(layers?.key ?? "")"
         if let still, still.key == key { return still.image }
+        // No layer's plane, no picture: never the picture without its layer.
         guard let image = Layer2Work.image(of: picture, maxPixel: maxPixel),
               let source = try? renderer.source(image, maxPixel: maxPixel),
-              let (made, _) = try? renderer.image(source, adjustments) else { return nil }
+              let local = Result(catching: { try Layer2Work.local(layers, adjustments, renderer) }).succeeded,
+              let (made, _) = try? renderer.image(source, adjustments, local: local) else { return nil }
         still = (key, made)
         return made
     }
@@ -189,6 +226,7 @@ final class Layer2Work: @unchecked Sendable {
         var picture: PictureRef
         var displayPixel: Int?
         var adjustments: Adjustments
+        var layers: FinishedLayers?
         var wantsImage: Bool
         var wantsHistogram: Bool
     }
@@ -214,15 +252,17 @@ final class Layer2Work: @unchecked Sendable {
             autoreleasepool {
                 guard let renderer = Layer2Renderer.shared else { answer.failure = "no Metal device"; return }
                 do {
+                    // The 成片 layers' planes, here on the pass's queue: one set for the picture and the histogram.
+                    let local = try Self.local(ask.layers, ask.adjustments, renderer)
                     if ask.wantsImage, let px = ask.displayPixel {
                         let source = try self.source(ask.picture, px, &display, renderer)
-                        let (image, timing) = try renderer.image(source, ask.adjustments, pool: pool)
+                        let (image, timing) = try renderer.image(source, ask.adjustments, local: local, pool: pool)
                         answer.image = image
                         answer.timing = timing
                     }
                     if ask.wantsHistogram {
                         let source = try self.source(ask.picture, Self.histogramPixel, &small, renderer)
-                        let (h, ms) = try renderer.histogram(source, ask.adjustments)
+                        let (h, ms) = try renderer.histogram(source, ask.adjustments, local: local)
                         answer.histogram = h
                         answer.histogramMilliseconds = ms
                     }
@@ -232,6 +272,13 @@ final class Layer2Work: @unchecked Sendable {
             }
             done(answer)
         }
+    }
+
+    /// The layers as the page's surfaces read them (the finished canvas: their own matrix), their planes baked on the
+    /// calling thread — the pass's queue, or a still page's (`renderedNow`). Nil without layers: today's kernels.
+    static func local(_ layers: FinishedLayers?, _ a: Adjustments, _ renderer: Layer2Renderer) throws -> Layer2LocalPass? {
+        guard let layers else { return nil }
+        return Layer2LocalPass(layers, planes: try layers.planesBlocking(device: renderer.device), adjustments: a, matrix: layers.toSource)
     }
 
     /// The display's copy of the picture and its buffers go; the histogram's small copy stays.
@@ -273,4 +320,9 @@ final class Layer2Work: @unchecked Sendable {
         case .file, .sample: ThumbnailStore.shared.load(picture, maxPixel: maxPixel)?.cgImage
         }
     }
+}
+
+extension Result {
+    /// The success, or nil: a `try?` that keeps an optional success (no layers) apart from a failure (no plane).
+    var succeeded: Success? { if case .success(let v) = self { return v } else { return nil } }
 }

@@ -61,6 +61,14 @@ struct EdgeLook: Sendable {
     /// them, so this is for the picture a build without the engine draws.
     var ink135: (Double, Double, Double) = (1, 0.80, 0.50)
     var ink120: (Double, Double, Double) = (1, 0.80, 0.55)
+    /// Fujifilm's 135 stripes for a stock whose family does not carry them (`stripes135`).
+    var stripes = false
+
+    /// Fujifilm's red and green factory stripes on every 135-gauge edge (135, half, XPan, 135 Full Width), never
+    /// on 120: the colour negatives' edge (the owner, 2026-11-11), so every stock with Fujifilm's negative 135
+    /// layout carries them and a Fujifilm negative added later needs only its row; never the slides' layout
+    /// (Velvia, Provia, Acros). The engine's `edge_stripes_135` (overscan.cpp).
+    var stripes135: Bool { k135 == .fujiNeg || stripes }
 
     static let fallback = EdgeLook(k135: .kodak, k120: .kodak)
 
@@ -232,15 +240,21 @@ extension Stock {
 
     /// Whether this stock was ever made on the film a format runs on. Cine
     /// negative is the same film as 135, loaded into cassettes by hand, so it
-    /// is not ruled out of the 135 formats; it carries no DX code.
-    func isMade(in format: FilmEdgeFormat) -> Bool {
-        if isCine { return format.gauge == "135" }
+    /// is not ruled out of the 135 formats; it carries no DX code. The four
+    /// Vision3 stocks are made in 65 mm too and sold cut to 120 (PRD-D §3.2,
+    /// `FilmEdgePerforation.cine65Stocks`), where they open with the keyholes
+    /// on — on an engine that draws them (`keyholes`); Verita 200D is not.
+    func isMade(in format: FilmEdgeFormat, keyholes: Bool = EngineFeatures.offers(.keyholes)) -> Bool {
+        if isCine { return format.gauge == "135" || (keyholes && FilmEdgePerforation.cine65Stocks.contains(id)) }
         guard let gauges = StockGauges.table[id] else { return true }
         return gauges.contains(format.gauge)
     }
 
-    /// "Gold 200: 135 and 120" — the Film step's line beside *Format*.
+    /// "Gold 200: 135 and 120" — the Film step's line beside *Format*; "Vision3 250D: 135 and 120 (65mm)".
     var madeInText: String {
+        if isCine, EngineFeatures.offers(.keyholes), FilmEdgePerforation.cine65Stocks.contains(id) {
+            return "\(shortName): 135" + L(" and ") + "120 (\(FilmEdgePerforation.filmName))"
+        }
         let gauges = isCine ? ["135"] : (StockGauges.table[id] ?? ["135", "120"])
         return "\(shortName): " + gauges.joined(separator: L(" and "))
     }

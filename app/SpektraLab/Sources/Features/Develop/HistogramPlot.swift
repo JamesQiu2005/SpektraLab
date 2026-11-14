@@ -9,6 +9,7 @@
 //  `binCount`, which the HDR span needs. What differs on the Mac: the SDR and HDR words under the plot are in
 //  the theme's type (`Theme.Font.ui`), as every other word in the column is, not a bare system size.
 
+import Accelerate
 import SwiftUI
 
 /// How the histogram is drawn. RFC-051: the panel is Capture One style only and the ⋯ menu is gone; the other style
@@ -32,6 +33,9 @@ struct HistogramPlot: View {
     private var strip: CGFloat { labelSize * 1.3 + 4 }
 
     var body: some View {
+        #if DEBUG && SPK_ENGINE
+        let _ = TransitionMarks.mark(h == nil ? "histogram.empty" : "histogram")
+        #endif
         let hdr = (zone?.stops ?? 0) > 0.05 ? zone : nil
         let shown: HistogramDisplay? = hdr.map { HistogramDisplay(counts: $0.combined(), clipsWhite: false) } ?? h.map { HistogramDisplay($0) }
         return Canvas { ctx, size in draw(ctx, size, shown: shown, stops: hdr?.stops) }
@@ -157,7 +161,8 @@ struct HistogramDisplay {
         let lines = counts.map { Self.smoothed($0, sigma: 1.2) }
         let top = max(1, counts.map { Self.smoothed($0, sigma: 6).max() ?? 0 }.max() ?? 0) * 1.1
         self.top = top
-        rows = lines.map { row in row.map { min(1, ($0 / top).squareRoot()) } }
+        // min(1, √(line / top)), a row at a time (the lines and the top are never negative).
+        rows = lines.map { row in vDSP.clip(vForce.sqrt(vDSP.divide(row, top)), to: 0...1) }
     }
 
     /// Bins across the plot.
@@ -166,14 +171,26 @@ struct HistogramDisplay {
     subscript(channel: Layer2Histogram.Channel) -> [Float] { rows[channel.rawValue] }
 
     /// A Gaussian of `sigma` bins across the row, the ends held at the row's own ends.
+    ///
+    /// The row held at its ends `r` bins either side, then Accelerate's correlation with the kernel (made once for
+    /// each of the two sigmas): the same weights as the loop it replaces, summed in another order (a few parts in 10⁷).
+    /// As `map`s over arrays the plot cost ~6 ms of the main thread at every histogram in a Debug build — each develop,
+    /// and each change of picture (2.4.0 A2b, by `sample`).
     private static func smoothed(_ row: [Float], sigma: Float) -> [Float] {
+        let (kernel, sum) = sigma == 1.2 ? fine : sigma == 6 ? broad : Self.kernel(sigma)
+        let r = kernel.count / 2, n = row.count
+        guard let first = row.first, let last = row.last else { return [] }
+        let held = [Float](repeating: first, count: r) + row + [Float](repeating: last, count: r)
+        var out = [Float](repeating: 0, count: n)
+        vDSP_conv(held, 1, kernel, 1, &out, 1, vDSP_Length(n), vDSP_Length(kernel.count))
+        return vDSP.divide(out, sum)
+    }
+
+    private static let fine = kernel(1.2), broad = kernel(6)
+
+    private static func kernel(_ sigma: Float) -> ([Float], Float) {
         let r = Int(3 * sigma) + 1
         let kernel = (-r...r).map { exp(-0.5 * pow(Float($0) / sigma, 2)) }
-        let sum = kernel.reduce(0, +)
-        return row.indices.map { i in
-            var v: Float = 0
-            for (j, k) in kernel.enumerated() { v += k * row[min(max(i + j - r, 0), row.count - 1)] }
-            return v / sum
-        }
+        return (kernel, kernel.reduce(0, +))
     }
 }

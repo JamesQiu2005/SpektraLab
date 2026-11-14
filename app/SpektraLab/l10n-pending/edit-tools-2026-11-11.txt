@@ -1,0 +1,84 @@
+Click a neutral grey in the picture
+在画面中点击一处中性灰
+在畫面中點按一處中性灰
+画像の中のニュートラルグレーをクリック
+
+Measuring the grey…
+正在测量灰点…
+正在測量灰點…
+グレーを測定中…
+
+"Put %@ away"
+收起%@
+收起%@
+%@を閉じる
+
+"Open %@"
+打开%@
+打開%@
+%@を開く
+
+Drag to move
+拖动以移动
+拖移以移動
+ドラッグして移動
+
+Not on a half-frame pair
+半格拼片不可用
+半格拼片不可用
+ハーフフレームのペアでは使えません
+
+RAW files only
+仅限 RAW 文件
+僅限 RAW 檔案
+RAW ファイルのみ
+
+Not with a film edge on
+开启片边时不可用
+開啟片邊時不可用
+フィルムエッジがオンのときは使えません
+
+Click on the picture
+请点击画面
+請點按畫面
+画像をクリックしてください
+
+The picture is still developing
+画面仍在冲洗中
+畫面仍在沖洗中
+画像はまだ現像中です
+
+Too dark to have a colour: choose a lighter grey
+太暗，无法判断颜色：请选择更亮的灰色
+太暗，無法判斷顏色：請選擇更亮的灰色
+暗すぎて色を判断できません：もっと明るいグレーを選んでください
+
+As near grey as Temperature and Tint reach
+色温与色调已调到最接近中性灰的位置
+色溫與色調已調到最接近中性灰的位置
+色温度と色合いで届く限りグレーに近づけました
+
+"Temperature %@, Tint %@"
+色温 %@，色调 %@
+色溫 %@，色調 %@
+色温度 %@、色合い %@
+
+"White balance %@ K, tint %@"
+白平衡 %@ K，色调 %@
+白平衡 %@ K，色調 %@
+ホワイトバランス %@ K、色合い %@
+
+As near grey as the white balance reaches
+白平衡已调到最接近中性灰的位置
+白平衡已調到最接近中性灰的位置
+ホワイトバランスで届く限りグレーに近づけました
+
+Neutral grey
+中性灰
+中性灰
+ニュートラルグレー
+
+Closed
+已收起
+已收起
+閉じています

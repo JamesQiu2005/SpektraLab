@@ -43,6 +43,6 @@ extension FrameCatalog {
 
     /// Pair pickers offer every photograph, independently of the grid filter.
     func photographs(oldestFirst: Bool = false) -> [LibraryFrame] {
-        grouped(frames.filter { !$0.isPair }, oldestFirst: oldestFirst).flatMap(\.frames)
+        grouped(frames.filter { !$0.isComposite }, oldestFirst: oldestFirst).flatMap(\.frames)
     }
 }

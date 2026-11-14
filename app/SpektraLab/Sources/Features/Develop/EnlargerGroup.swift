@@ -100,33 +100,20 @@ struct EnlargerGroup: View {
                        set: { v in model.changePair(id) { piece, look in piece.print(field, v, on: session.layer, look: &look.params) } })
     }
 
-    /// The group's fold and its ↺, a step under Decode's title, as 高动态范围's.
+    /// The group's fold and its ↺: Decode's folding header, a step in (its chevron under Decode's name), as
+    /// 高动态范围's.
     private var title: some View {
-        HStack(spacing: 8) {
-            Text(L("Enlarger")).font(Theme.Font.ui(12.5, .medium)).foregroundStyle(Theme.secondaryText)
-                .fixedSize().accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            RoundButton(diameter: 28, label: L("Reset") + " " + L("Enlarger"), action: {
+        ColumnSectionHeader(title: L("Enlarger"), folded: prefs.enlargerCollapsed, id: "enlarger",
+                            rule: false, indent: HighDynamicRangeGroup.indent,
+                            toggleFold: { prefs.enlargerCollapsed.toggle() }) {
+            RoundButton(diameter: 22, label: L("Reset") + " " + L("Enlarger"), action: {
                 model.resetPage(.enlarger, in: session)
                 model.resetPage(.preflash, in: session)
             }) {
-                Icon(.reset, size: 16)
+                Icon(.reset, size: 13)
             }
             .rowEnabled(reason == nil && moved)
             .accessibilityIdentifier("v5.develop.enlarger.reset")
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { prefs.enlargerCollapsed.toggle() }
-            } label: {
-                Icon(.chevronDown, size: 13, color: Theme.secondaryText)
-                    .rotationEffect(.degrees(prefs.enlargerCollapsed ? -90 : 0))
-                    .frame(width: 32, height: HighDynamicRangeGroup.titleHeight).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(prefs.enlargerCollapsed ? L("Show the controls") : L("Fold the controls away"))
-            .accessibilityValue(L("Enlarger"))
-            .accessibilityIdentifier("v5.develop.fold.enlarger")
         }
-        .padding(.leading, 16).padding(.trailing, 4)
-        .frame(height: HighDynamicRangeGroup.titleHeight)
     }
 }

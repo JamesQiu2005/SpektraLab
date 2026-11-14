@@ -30,6 +30,8 @@ struct MacLibraryGrid: View {
     /// 组成半格组: a half-frame pair of these one or two pictures (`MacLibraryPage.makePair`). Nil where
     /// the page that owns the pair's flow and its refusals is not the one showing the browser.
     var makePair: (([MacImage]) -> Void)? = nil
+    /// 合成 › 多重曝光, beside the pair (`MacCombineMenu`); nil where the page does not own its flow.
+    var makeDouble: (([MacImage]) -> Void)? = nil
     /// Remove's confirmation, which the library page's own alert asks. Nil: the item is not offered.
     var confirmRemoval: ((Set<LibraryFrame.ID>) -> Void)? = nil
     /// The bar this grid draws itself (`MacBrowserHeader`).
@@ -324,9 +326,12 @@ struct MacLibraryGrid: View {
                        line: layout.line, selected: browser.selection.contains(image.id),
                        focused: browser.focus == image.id && browser.selection.count > 1)
             // The store pages its rows: the next page when the last one shows.
-            .onAppear { if image.id == rows.last?.id, rows.count < store.total { Task { await store.loadMore() } } }
+            .onAppear { if image.id == rows.last?.id, store.hasMore { Task { await store.loadMore() } } }
             .modifier(MacClick { flags in click(image, flags) })
             .contextMenu { menu(image) }
+            #if DEBUG
+            .modifier(MacCellFrameProbe(id: image.id))
+            #endif
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(image.fileName)
             .accessibilityAddTraits(browser.selection.contains(image.id) ? [.isButton, .isSelected] : .isButton)
@@ -368,8 +373,12 @@ struct MacLibraryGrid: View {
         // one asks for the second, as the window library's Pair does. A pair is not a frame of another pair.
         // Not offered where the page showing the browser does not own the pair's flow and its refusals.
         if let makePair {
-            Button { makePair(chosen) } label: { Label(L("Make Half-Frame Pair"), systemImage: "rectangle.split.2x1") }
-                .disabled(!(1...2).contains(chosen.count) || chosen.contains { $0.kind == .pair || $0.develop.flatMap { library.frame($0.frameID) }?.isPair == true })
+            // 合成 (PRD-D §3.6): the double exposure and the pair under one name, of the pictures in the order
+            // they were picked (`MacLibraryBrowser.picked`).
+            let picked = many ? browser.picked(in: rows) : [image]
+            Menu {
+                MacCombineItems(chosen: picked, makeDouble: makeDouble, makePair: makePair)
+            } label: { Label(L("Combine"), systemImage: "square.2.layers.3d") }
         }
         if let id = image.develop?.frameID, library.frame(id) != nil {
             Button { router.present(.info(id)) } label: { Label(L("Info"), systemImage: "info.circle") }
@@ -378,6 +387,11 @@ struct MacLibraryGrid: View {
                 Label(frames.count > 1 ? L("Export \(frames.count)") : L("Export"), systemImage: "square.and.arrow.up")
             }
             Button { router.present(.copySettings(id)) } label: { Label(L("Copy Settings"), systemImage: "square.on.square") }
+            // 编辑历史 (PRD-F §4): one picture's history; not offered for several, whose histories are each their own.
+            if !many {
+                Button { router.present(.history(id)) } label: { Label(L("Edit History…"), systemImage: "clock.arrow.circlepath") }
+                    .accessibilityIdentifier("library.menu.history")
+            }
             pasteItem(chosen)
             // Previews of an edit they no longer have, made again (a Stop, or the app quit mid-way). Which
             // of them are owed is asked when it is pressed (`developPreviews`): a menu is built with its cell,
@@ -398,6 +412,10 @@ struct MacLibraryGrid: View {
             Divider()
             pasteItem(chosen)
         }
+        // 新建变体 · 克隆变体, then 删除变体 where the image has more than one (PRD-G §3): on a cell among several chosen,
+        // one new variant per chosen image. A pair's or a double's are greyed with the reason (§7.5), not left out.
+        Divider()
+        MacVariantItems(chosen: chosen)
         // 从 SpektraLab 中移除 for every picture, edited or not: it goes into its source's 回收站 (an edited
         // one's frame asked about first, `MacLibraryActions.removeFromSpektraLab`). In 回收站, and only
         // there, 放回 and 移到废纸篓 instead. Offered where the page has the library's dialogs.
@@ -489,7 +507,22 @@ struct MacBadgeLine: View {
     @Environment(AppServices.self) private var model
 
     var body: some View {
-        ZStack {
+        // The variant's number where the image has more than one (PRD-G §3: "2 / 3", from `variantNumber` and
+        // `variantCount`, never the helper's `position`). A line too narrow for it all (the smallest cell, five stars, a
+        // label) takes the next of these that fits — "2/3", then the rating as "★5" — and nothing overlaps or is cut
+        // with "…" (`MacBadgeRow`; measured at 9 pt: "2 / 3" 20 pt, "2/3" 15, "★★★★★" 47, the smallest cell 64).
+        ViewThatFits(in: .horizontal) {
+            row(spaced: true, compactStars: false)
+            row(spaced: false, compactStars: false)
+            row(spaced: false, compactStars: true)
+        }
+        .frame(maxWidth: .infinity)
+        .clipped()
+        .accessibilityHidden(true)
+    }
+
+    private func row(spaced: Bool, compactStars: Bool) -> some View {
+        MacBadgeRow(gap: MacMetric.pt(4)) {
             HStack(spacing: MacMetric.pt(4)) {
                 if let id = image.develop?.frameID, let frame = library.frame(id) {
                     StockDot(color: StockCatalog.shared.stock(frame.edit.params.filmStock)?.color ?? Theme.card, diameter: MacMetric.pt(6))
@@ -498,19 +531,59 @@ struct MacBadgeLine: View {
                         Image(systemName: "arrow.triangle.2.circlepath").font(MacMetric.font(9)).foregroundStyle(Theme.secondaryText)
                     }
                 }
-                Spacer(minLength: 0)
+                if image.variantCount > 1 {
+                    Text(spaced ? "\(image.variantNumber) / \(image.variantCount)" : "\(image.variantNumber)/\(image.variantCount)")
+                        .font(MacMetric.font(9)).monospacedDigit().foregroundStyle(Theme.secondaryText)
+                        .fixedSize()
+                        .accessibilityIdentifier("mac.library.cell.variant")
+                }
+            }
+            .fixedSize()
+            if image.rating > 0 {
+                Text(compactStars ? "★\(image.rating)" : String(repeating: "★", count: image.rating))
+                    .font(MacMetric.font(9)).foregroundStyle(Theme.secondaryText)
+                    .fixedSize()
+            } else {
+                Color.clear.frame(width: 0, height: 0)
+            }
+            HStack(spacing: MacMetric.pt(4)) {
                 MacColorTag(label: image.colorLabel)
                 if image.isOffline {
                     Image(systemName: "externaldrive.badge.xmark").font(MacMetric.font(9)).foregroundStyle(Theme.danger)
                 }
             }
-            if image.rating > 0 {
-                Text(String(repeating: "★", count: image.rating)).font(MacMetric.font(9)).foregroundStyle(Theme.secondaryText)
-                    .fixedSize()
-            }
+            .fixedSize()
         }
-        .frame(maxWidth: .infinity)
-        .accessibilityHidden(true)
+    }
+}
+
+/// The badge line's three parts — what is at the left, the rating, what is at the right — laid out so that none covers
+/// another: the rating in the middle of the line where it clears both sides (as it always was), else in the middle of
+/// the room between them. Its ideal width is the least that holds all three apart, so `ViewThatFits` can tell when a
+/// line does not hold them and take a shorter form.
+struct MacBadgeRow: Layout {
+    /// The least room between two parts (`MacMetric.pt(4)`, the line's own spacing).
+    let gap: CGFloat
+
+    private func widths(_ subviews: Subviews) -> [CGFloat] { subviews.map { $0.sizeThatFits(.unspecified).width } }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = widths(subviews)
+        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        let middle = w.count > 1 ? w[1] : 0
+        let least = w.reduce(0, +) + (middle > 0 ? gap * 2 : gap)
+        return CGSize(width: proposal.width ?? least, height: proposal.height ?? height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let w = widths(subviews)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing, proposal: .unspecified)
+        let left = bounds.minX + w[0] + (w[0] > 0 ? gap : 0), right = bounds.maxX - w[2] - (w[2] > 0 ? gap : 0)
+        var x = bounds.midX - w[1] / 2
+        if x < left || x + w[1] > right { x = (left + right) / 2 - w[1] / 2 }
+        subviews[1].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: .unspecified)
     }
 }
 

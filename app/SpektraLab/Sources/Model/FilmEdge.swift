@@ -28,6 +28,12 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     /// The panoramic long formats: in the engine since 2026-10-03 (desktop
     /// `unpublished-revision`), square gates until real strips are measured, no date back.
     case xpan = "135_xpan"
+    /// **135 全宽, 135 Full Width** (API-SPEC §21.4; PRD-D §3.1): a toy panorama's frame, 72 mm
+    /// along and the whole 35 mm across, so the picture runs over the perforations and under the film's own
+    /// edge print. The gate (36 mm) is wider than the film: the film's own edges bound the picture. Square gate
+    /// only, holes start Black, no date back (the panoramic rule), no half-frame pair (the engine refuses it).
+    /// Offered only on an engine that knows it (`EngineFeatures.fullWidth135`).
+    case sprocket135 = "135_sprocket"
     case f6x12 = "120_6x12"
     case f6x17 = "120_6x17"
 
@@ -37,11 +43,46 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case film135 = "35 mm", film120 = "120", panoramic = "Panoramic"
     }
 
+    /// **片幅 the format cards' filter** (PRD-D §3.1): 全部 · 135 · 120 · 宽幅, each a `Group` but All. Kept in the
+    /// app's defaults (`DevelopPanelPrefs.filmEdgeFilter`), All until chosen.
+    enum Filter: String, CaseIterable, Identifiable, Sendable {
+        case all = "all", film135 = "135", film120 = "120", panoramic = "wide"
+        var id: String { rawValue }
+        var group: Group? {
+            switch self {
+            case .all: nil
+            case .film135: .film135
+            case .film120: .film120
+            case .panoramic: .panoramic
+            }
+        }
+        var label: String {
+            switch self {
+            case .all: L("All", as: "formats")
+            case .film135: "135"
+            case .film120: "120"
+            case .panoramic: L("Wide", as: "formats")
+            }
+        }
+        /// The cards it shows, in the engine's order, of the formats `offered`. With a format chosen
+        /// that it hides, the row still names it (`FilmStepPanel`): nothing chosen is ever unseen.
+        func formats(of offered: [FilmEdgeFormat] = FilmEdgeFormat.offered) -> [FilmEdgeFormat] {
+            guard let group else { return offered }
+            return offered.filter { $0.group == group }
+        }
+    }
+
+    /// The formats a card is drawn for: every one but those the engine does not know (135 Full Width before
+    /// API-SPEC §21). A frame that already has one keeps it (the row names it).
+    static var offered: [FilmEdgeFormat] {
+        allCases.filter { $0 != .sprocket135 || EngineFeatures.offers(.fullWidth135) }
+    }
+
     var group: Group {
         switch self {
         case .f135, .half: .film135
         case .f645, .f6x6, .f6x7, .f6x8, .f6x9: .film120
-        case .xpan, .f6x12, .f6x17: .panoramic
+        case .xpan, .sprocket135, .f6x12, .f6x17: .panoramic
         }
     }
 
@@ -56,10 +97,16 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .f6x8: "6×8"
         case .f6x9: "6×9"
         case .xpan: "XPan"
+        case .sprocket135: L("135 Full Width")
         case .f6x12: "6×12"
         case .f6x17: "6×17"
         }
     }
+
+    /// A card's two lines: its name and the gate's shape — and for 135 Full Width, whose name does not fit a
+    /// 72 pt card, "135" over "Full Width" (its shape is in its help and its line).
+    var cardTitle: String { self == .sprocket135 ? "135" : label }
+    var cardDetail: String { self == .sprocket135 ? L("Full Width") : aspectText }
 
     /// The card's second line: the gate's shape.
     var aspectText: String {
@@ -72,6 +119,7 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .f6x8: "1.36"
         case .f6x9: "3:2"
         case .xpan: "2.7"
+        case .sprocket135: "2:1"
         case .f6x12: "2:1"
         case .f6x17: "3:1"
         }
@@ -85,6 +133,8 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         switch self {
         case .f135: 24.3
         case .half, .xpan: 24.0
+        // Wider than the 35 mm film: the film's own edges bound the picture (`kFormats`).
+        case .sprocket135: 36.0
         default: 56.0
         }
     }
@@ -98,11 +148,32 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .f6x8: 76.0
         case .f6x9: 84.0
         case .xpan: 65.0
+        case .sprocket135: 72.0
         case .f6x12: 112.0
         case .f6x17: 168.0
         }
     }
-    var isPerforated: Bool { self == .f135 || self == .half || self == .xpan }
+    var isPerforated: Bool { self == .f135 || self == .half || self == .xpan || self == .sprocket135 }
+    /// A 120 format: the only ones a leak's 120 window (`spot`) and the cine film's keyholes (`ks65`) are on.
+    var is120: Bool { gauge == "120" }
+
+    /// `overscan_falloff`: the engine's cos⁴ lens falloff inside the gate, × this (API-SPEC §21.4).
+    /// **0 on every format** (the owner, 2026-11-11: "the default vignette is too much"): Edit › 镜头 › 暗角 is the
+    /// only vignette, on 135 Full Width as on any other. Still sent, at 0, with every film edge to an engine that
+    /// knows it (`FilmEdgeSettings.wire`), so an engine's own default never reaches the picture. **The one place to
+    /// change it.**
+    var falloff: Double { 0 }
+
+    /// The view this format is drawn as whatever the frame keeps (`FilmEdgeSettings.view`); nil where the person
+    /// chooses. **135 Full Width is a strip** (the owner, 2026-11-11: the View row greyed there, not hidden): its
+    /// picture runs over the whole 35 mm, so the strip -- the film's whole width -- is the picture and its film
+    /// edge, and a filed carrier's sliver of rebate round the gate has no rebate to show; the engine's filed canvas
+    /// would be the gate and 1.1 mm past it, wider than the film itself.
+    var fixedView: FilmEdgeView? { self == .sprocket135 ? .strip : nil }
+
+    /// What the holes start as when this format is picked: 135 Full Width's reference strip is a darkroom print
+    /// (black holes); every other format keeps the frame's own.
+    var startingHoles: FilmEdgeHoles? { self == .sprocket135 ? .black : nil }
     /// The gate families its real cameras have, for `gate = auto`, in the
     /// engine's order (the camera seed picks one).
     var families: [FilmEdgeGate] {
@@ -190,17 +261,48 @@ enum FilmEdgeHoles: String, CaseIterable, Identifiable, Codable, Sendable {
     var label: String { self == .white ? L("White") : L("Black") }
 }
 
+/// `overscan_perforation` (API-SPEC §21.3): the holes a 120 film carries. `ks65` is 120 cut from 65 mm
+/// motion-picture film (the "65mm" film) whose KS perforations survive the slit and bite about 1.3 mm into the
+/// picture on both long edges. With it the engine draws no 120 edge print on any stock (`FilmLayout` matches).
+///
+/// **The person's choice on any 120 film edge** (the owner, 2026-11-11, PRD-D §3.2 as rewritten): 齿孔 无 · 有,
+/// None until chosen — but a Vision3 stock opens its 120 formats with it on (`starting(stockID:)`). On 135 and its
+/// panoramic formats the engine refuses it, so the wire sends `none` there whatever is kept (`on(_:)`).
+enum FilmEdgePerforation: String, CaseIterable, Codable, Identifiable, Sendable {
+    case none = "none", ks65 = "ks65"
+    var id: String { rawValue }
+
+    var label: String { self == .none ? L("None", as: "perforations") : L("Keyhole", as: "perforations") }
+
+    /// The motion-picture stocks known to be made in 65 mm and sold cut to 120 (the owner, 2026-11-09: "limit to
+    /// 电影卷 first"): the ones `Stock.isMade` lets onto 120, and that open there with the keyholes on. Verita 200D
+    /// is not known in 65 mm and stays 135-only; CineStill 800T is not a cine stock in the catalogue and keeps its
+    /// own 120, unperforated.
+    static var cine65Stocks: Set<String> { FilmFrame.cine65Stocks }
+
+    /// What a 120 format starts with on this stock: the keyholes on a Vision3 film, none on any other.
+    static func starting(stockID: String) -> FilmEdgePerforation { cine65Stocks.contains(stockID) ? .ks65 : .none }
+
+    /// What the wire carries on `format`: the kept choice on 120, `none` elsewhere (the engine refuses `ks65` there).
+    func on(_ format: FilmEdgeFormat) -> FilmEdgePerforation { format.is120 ? self : .none }
+
+    /// **65mm**, the cine 120's name in the app, zh and en alike (the owner, 2026-11-11, PRD-D §6 q1: never the IMAX
+    /// mark). The one place to change it: 格式's size card on a Vision3 stock and the Film step's line.
+    static var filmName: String { FilmFrame.cine65Name }
+}
+
 /// **Film Edge** (overscan): the film outside the frame.
 struct FilmEdgeSettings: Codable, Equatable, Sendable {
     /// The keys as they are written: renaming a property must not move its key.
     enum CodingKeys: String, CodingKey {
         case active = "active", format = "format", mode = "mode", gate = "gate", holes = "holes", fog = "fog",
             leaks = "leaks", turn = "turn", cameraSeed = "cameraSeed", frameNumber = "frameNumber", framing = "framing",
-            edgeBrightness = "edgeBrightness"
+            edgeBrightness = "edgeBrightness", perforation = "perforation"
     }
     var active = false
     var format = FilmEdgeFormat.f135
-    /// `overscan_mode`; the page calls it View.
+    /// The View the person chose; the page calls it View. Kept as chosen on every format, so it comes back when a
+    /// format that draws one view (`FilmEdgeFormat.fixedView`) is left -- what is drawn is `view`.
     var mode = FilmEdgeView.strip
     var gate = FilmEdgeGate.auto
     var holes = FilmEdgeHoles.white
@@ -225,6 +327,9 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
     /// unchanged. The engine has no edge gain, so every film edge is printed at 1×, as the
     /// film was measured; the Edge Print ruler shows the value greyed (`FilmEdgeSteps`).
     var edgeBrightness = 1.0
+    /// 齿孔 on a 120 film edge (`FilmEdgePerforation`): kept, and written only once it is not None, so an edit
+    /// without it is the same JSON as before the field existed.
+    var perforation = FilmEdgePerforation.none
 
     static let fogRange = 0.0...4.0
     static let leaksRange = 0.0...4.0
@@ -254,15 +359,48 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
         frameNumber = try c.decodeIfPresent(Int.self, forKey: .frameNumber) ?? d.frameNumber
         framing = try? c.decodeIfPresent(Geometry.self, forKey: .framing)
         edgeBrightness = try c.decodeIfPresent(Double.self, forKey: .edgeBrightness) ?? d.edgeBrightness
+        perforation = (try? c.decodeIfPresent(FilmEdgePerforation.self, forKey: .perforation)) ?? d.perforation
+    }
+
+    /// As the synthesised encoding wrote it, and `perforation` only when it is not None.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(active, forKey: .active)
+        try c.encode(format, forKey: .format)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(gate, forKey: .gate)
+        try c.encode(holes, forKey: .holes)
+        try c.encode(fog, forKey: .fog)
+        try c.encode(leaks, forKey: .leaks)
+        try c.encode(turn, forKey: .turn)
+        try c.encode(cameraSeed, forKey: .cameraSeed)
+        try c.encode(frameNumber, forKey: .frameNumber)
+        try c.encodeIfPresent(framing, forKey: .framing)
+        try c.encode(edgeBrightness, forKey: .edgeBrightness)
+        if perforation != .none { try c.encode(perforation, forKey: .perforation) }
+    }
+
+    /// A format card picked (the flow's and the column's `pick`): the format, and what it starts with — the
+    /// holes 135 Full Width's strip has, and on coming onto 120 the keyholes a Vision3 stock opens with (between
+    /// two 120 formats the choice is kept; off 120 it goes, the engine refusing it there).
+    mutating func take(format new: FilmEdgeFormat, stockID: String) {
+        let was120 = format.is120
+        format = new
+        if let h = new.startingHoles { holes = h }
+        if !new.is120 { perforation = .none } else if !was120 { perforation = FilmEdgePerforation.starting(stockID: stockID) }
     }
 
     /// True when the engine draws the film.
     var effective: Bool { FeatureFlags.filmEdge && active }
 
+    /// `overscan_mode`, the View drawn: the format's own where it has one (135 Full Width: Strip), else the kept
+    /// `mode`. The wire, the layout, the price and the row's value read this, never `mode`.
+    var view: FilmEdgeView { format.fixedView ?? mode }
+
     /// "135 · Strip · Square": the Frame tab's row. The gate is named as it
     /// was made — `Auto` says nothing about the picture.
     func rowValue(resolvedGate: FilmEdgeGate) -> String {
-        "\(format.label) · \(mode.label) · \(resolvedGate.label)"
+        "\(format.label) · \(view.label) · \(resolvedGate.label)"
     }
 
     /// "Film 90° · name on the right".
@@ -288,7 +426,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
         let vertical = format.runsDown(frame: picture)
         let alongPx = vertical ? h : w
         let marginMM: Double, acrossMM: Double
-        switch mode {
+        switch view {
         case .strip:
             marginMM = format == .half ? 0.5 : (format.isPerforated ? 0.95 : 2.35)
             // The film's width (120's is cut to ±0.15) and nothing past it.
@@ -297,7 +435,11 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
             marginMM = 1.0
             acrossMM = (vertical ? w : h) * px + 2.2
         }
-        let along = Int(alongPx + 2 * (marginMM / px).rounded()), across = Int((acrossMM / px).rounded())
+        let along = Int(alongPx + 2 * (marginMM / px).rounded())
+        // Never under the picture across the film: 135 Full Width's gate (36 mm) is wider than its film (35), so
+        // its canvas is narrower than the frame it is handed, and a develop priced at the canvas alone refused its
+        // own decode ("decoded 1920x960 exceeds the priced open 1970x933", the integration build, 2026-11-11).
+        let across = max(Int((acrossMM / px).rounded()), vertical ? picture.width : picture.height)
         return vertical ? PixelSize(width: across, height: along) : PixelSize(width: along, height: across)
     }
 
@@ -323,6 +465,12 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
     /// are the same film turned half round: the host turns the picture before
     /// the call and the canvas back after it, until the wire has `overscan_turn`
     /// (design/overscan §8.1).
+    ///
+    /// **API-SPEC §21** (§21.3, §21.4): `overscan_falloff` (0 on every format, `FilmEdgeFormat.falloff`) and
+    /// `overscan_perforation` (the kept choice on 120, `none` elsewhere) are sent every time the film edge is on —
+    /// so going back to 0 and `none` reaches an open session — **on an engine that knows them**: one that does
+    /// not refuses a whole open over a name it does not know, and has neither 135 Full Width nor keyholes to
+    /// draw. When the film edge goes off they go back to their rest (`FilmParams.sometimesSent`).
     func wire(edgeText: String, frameSeed: Int, fNumber: Double) -> [(name: String, value: ParamValue, layer: ParamLayer)] {
         var fields: [(name: String, value: ParamValue, layer: ParamLayer)] = [
             ("overscan_active", .bool(effective), .shoot),
@@ -330,7 +478,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
         guard effective else { return fields }
         fields += [
             ("overscan_format", .string(format.rawValue), .shoot),
-            ("overscan_mode", .string(mode.rawValue), .shoot),
+            ("overscan_mode", .string(view.rawValue), .shoot),
             ("overscan_gate", .string(gate.rawValue), .shoot),
             ("overscan_holes", .string(holes.rawValue), .shoot),
             ("overscan_camera_seed", .double(Double(cameraSeed.clamped(to: Self.seedRange))), .shoot),
@@ -342,6 +490,12 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
             ("overscan_edge_text", .string(edgeText), .shoot),
             ("overscan_f_number", .double(fNumber.clamped(to: 0...64)), .shoot),
         ]
+        if EngineFeatures.knows(.fullWidth135) {
+            fields.append(("overscan_falloff", .double(format.falloff), .shoot))
+        }
+        if EngineFeatures.knows(.keyholes) {
+            fields.append(("overscan_perforation", .string(perforation.on(format).rawValue), .shoot))
+        }
         return fields
     }
 }
@@ -356,14 +510,32 @@ enum DateBackFace: String, CaseIterable, Identifiable, Codable, Sendable {
     case dots = "dots"
     /// Shooting data in a 5 × 7 face, between frames (135) or in the margin (645).
     case data = "data"
+    /// **孔间数据 Perforation Data** (API-SPEC §21.2; PRD-D §3.2b, 2026-11-11): the shooting data one field
+    /// per gap between the perforations along the camera's top edge — mode, metering, shutter, aperture,
+    /// compensation, from the file's EXIF (`PerforationLine`). On the wire it is the `data` style with
+    /// `date_imprint_data_placement = perfs`. Needs a film edge on a perforated 135 format (135, Half); a date in
+    /// the frame beside it is not offered, nor the roll's leader. Offered on an engine that has it
+    /// (`EngineFeatures.ledGlow`, whose field is the placement). The raw value is the edit's word, not the wire's.
+    case perfs = "perfs"
     var id: String { rawValue }
     var label: String {
         switch self {
         case .lcd: "LCD"
         case .dots: L("Dots")
         case .data: L("Data")
+        case .perfs: L("Perforation Data")
         }
     }
+
+    /// `date_imprint_style`: Perforation Data is the data style placed between the holes.
+    var wireStyle: String { self == .perfs ? DateBackFace.data.rawValue : rawValue }
+
+    /// The faces a date back has had since 1.x: what a half-frame pair's panels offer (Perforation Data is a single
+    /// frame's).
+    static let dateFaces: [DateBackFace] = [.lcd, .dots, .data]
+
+    /// The faces a single frame's pages offer: Perforation Data only on an engine that draws it.
+    static var offered: [DateBackFace] { allCases.filter { $0 != .perfs || EngineFeatures.offers(.ledGlow) } }
 }
 
 /// Raw value: `date_imprint_placement`. `between` is the wire's `rebate`.
@@ -417,7 +589,10 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     var insetXMM = 3.0             // 0…30
     var insetYMM = 2.4             // 0…30
     var size = 1.0                 // 0.4…3
-    var brightnessEV = 3.5         // −2…8
+    /// 5.5 since 2026-11-11 (PRD-D §6 q2, the owner: yes): the engine lights every date as an LED through the base,
+    /// and its base is 5.5; an edit that kept 1.x's 3.5 reads it as 5.5 (`init(from:)`), so every old date looks
+    /// like a new one.
+    var brightnessEV = DateBackSettings.glowBaseEV   // −2…8
     /// The user's own text, which wins over the frame's date when set.
     var customText: String? = nil
     /// **The data line as well as the date** (the owner, 2026-10-20: "data and
@@ -451,7 +626,9 @@ struct DateBackSettings: Codable, Equatable, Sendable {
         insetXMM = try c.decodeIfPresent(Double.self, forKey: .insetXMM) ?? d.insetXMM
         insetYMM = try c.decodeIfPresent(Double.self, forKey: .insetYMM) ?? d.insetYMM
         size = try c.decodeIfPresent(Double.self, forKey: .size) ?? d.size
-        brightnessEV = try c.decodeIfPresent(Double.self, forKey: .brightnessEV) ?? d.brightnessEV
+        // The base every edit kept before the LED glow, 3.5, is the glow's 5.5 (PRD-D §6 q2): read so, never kept apart.
+        let stored = try c.decodeIfPresent(Double.self, forKey: .brightnessEV) ?? d.brightnessEV
+        brightnessEV = abs(stored - Self.storedBaseEV) < 1e-9 ? Self.glowBaseEV : stored
         customText = try c.decodeIfPresent(String.self, forKey: .customText)
         alsoData = try c.decodeIfPresent(Bool.self, forKey: .alsoData) ?? d.alsoData
         brightness = try c.decodeIfPresent(Double.self, forKey: .brightness) ?? d.brightness
@@ -483,6 +660,8 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     /// in the margin (645) and neither exists on the bare picture.
     func prints(_ face: DateBackFace, filmEdge: FilmEdgeSettings) -> Bool {
         guard camera(filmEdge: filmEdge).draws(face) else { return false }
+        // Between frames and between the holes both need the film; the holes, an engine that draws the line there.
+        if face == .perfs { return filmEdge.effective && EngineFeatures.knows(.ledGlow) }
         return face == .data ? filmEdge.effective : true
     }
 
@@ -494,6 +673,7 @@ struct DateBackSettings: Codable, Equatable, Sendable {
                                        : L("No \(camera.label) camera's back printed a date.")
         }
         if face == .data && !filmEdge.effective { return L("Data prints between frames: it needs Film Edge.") }
+        if face == .perfs && !filmEdge.effective { return L("Perforation Data prints between the holes: it needs Film Edge.") }
         return nil
     }
 
@@ -501,20 +681,23 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     /// to print, and — between frames — a film edge to print it on.
     func effective(filmEdge: FilmEdgeSettings) -> Bool {
         guard FeatureFlags.dateBack, active, prints(style, filmEdge: filmEdge) else { return false }
-        return style == .data || placement == .frame || filmEdge.effective
+        return style == .data || style == .perfs || placement == .frame || filmEdge.effective
     }
 
     /// Whether the data line prints beside a date face: asked for, a date face
     /// (under *Data* the data is the date's own text), and somewhere for it —
     /// between frames, so a film edge on a camera whose back printed data.
     func printsDataLine(filmEdge: FilmEdgeSettings) -> Bool {
-        alsoData && style != .data && prints(.data, filmEdge: filmEdge)
+        alsoData && style != .data && style != .perfs && prints(.data, filmEdge: filmEdge)
     }
 
     /// Whether a face's card is lit: the date faces one at a time, Data
     /// beside either of them or by itself.
     func shows(_ face: DateBackFace) -> Bool {
-        face == .data ? (style == .data || alsoData) : style == face
+        switch face {
+        case .data: style == .data || (alsoData && style != .perfs)
+        default: style == face
+        }
     }
 
     /// A face's card tapped ("Data an independent switch alongside the date
@@ -525,11 +708,17 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     /// nothing: the switch above turns the whole back off).
     mutating func tap(_ face: DateBackFace) {
         switch face {
+        case .perfs:
+            // Its own line, alone: a date in the frame beside it is not offered.
+            style = .perfs
+            alsoData = false
         case .data:
             if style == .data { return }
+            if style == .perfs { style = .data; return }
             alsoData.toggle()
         case .lcd, .dots:
-            if style == .data { style = face; alsoData = true }
+            if style == .perfs { style = face }
+            else if style == .data { style = face; alsoData = true }
             else if style == face, alsoData { style = .data; alsoData = false }
             else { style = face }
         }
@@ -539,6 +728,10 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     var wireEV: Double {
         (brightnessEV + log2(brightness.clamped(to: FilmEdgeSettings.brightnessRange))).clamped(to: Self.brightnessRange)
     }
+
+    /// The date's base before the LED glow (1.x … 2.3.2), and the glow's (API-SPEC §21.2). The one place to change them.
+    static let storedBaseEV = 3.5
+    static let glowBaseEV = 5.5
 
     /// The size the wire carries: capped where the face has no room. The data
     /// line between half frames has only the 1 mm gap, and the engine sizes
@@ -551,7 +744,7 @@ struct DateBackSettings: Codable, Equatable, Sendable {
     /// "LCD · ’26 10 1": the Frame tab's row.
     /// "LCD + Data · ’26 10 1" when the data line prints beside the date.
     func rowValue(text: String) -> String {
-        let face = alsoData && style != .data ? style.label + " + " + DateBackFace.data.label : style.label
+        let face = alsoData && style != .data && style != .perfs ? style.label + " + " + DateBackFace.data.label : style.label
         return "\(face) · " + text.replacingOccurrences(of: "'", with: "’")
     }
 
@@ -573,7 +766,7 @@ struct DateBackSettings: Codable, Equatable, Sendable {
             fields.append(("overscan_format", .string(camera.rawValue), .shoot))
         }
         fields += [
-            ("date_imprint_style", .string(style.rawValue), .shoot),
+            ("date_imprint_style", .string(style.wireStyle), .shoot),
             ("date_imprint_text", .string(customText ?? text), .shoot),
             ("date_imprint_placement", .string(placement.rawValue), .shoot),
             ("date_imprint_corner", .string(corner.rawValue), .shoot),
@@ -583,6 +776,9 @@ struct DateBackSettings: Codable, Equatable, Sendable {
             ("date_imprint_ev", .double(wireEV), .shoot),
             ("date_imprint_data_text", .string(dataLine ? dataText : ""), .shoot),
         ]
+        // Perforation Data: the data line between the holes (API-SPEC §21.2). Sent only then; `gap` is the rest it goes
+        // back to (`FilmParams.sometimesSent`), so no engine without the field is ever named it. No leader.
+        if style == .perfs { fields.append(("date_imprint_data_placement", .string("perfs"), .shoot)) }
         return fields
     }
 }

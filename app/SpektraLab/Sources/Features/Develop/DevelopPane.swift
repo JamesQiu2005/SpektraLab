@@ -9,6 +9,7 @@
 //  it says what is catching up. The page is `DevelopWorkspace`, placed in the
 //  column (`PadDevelopPage.swift`).
 
+import QuartzCore
 import SwiftUI
 
 /// How the page opens. A running app opens it on Film with nothing folded;
@@ -81,38 +82,45 @@ struct DevelopPane: View {
     }
 
     var body: some View {
+        #if DEBUG && SPK_ENGINE
+        let _ = TransitionMarks.mark("pane.body")
+        #endif
         ZStack {
             Theme.background.ignoresSafeArea()
             if let session, let frame = session.frame {
                 DevelopWorkspace(session: session, frame: frame, back: back, opening: opening, stockStrip: stockStrip)
             }
         }
-        // One session per page: it holds what the controls want against what
-        // the picture shows, and it leaves nothing queued when the page goes.
+        // One session per frame: it holds what the controls want against what the picture shows, and it leaves
+        // nothing queued when the page goes or moves to another frame.
         .onAppear {
-            if session == nil {
-                stockStrip = model.stockPreviews.strip(for: frameID)
-                session = model.session(for: frameID)
-                session?.enter()
-                // A snapshot's own: the pair's darkroom on the layer its drawing shows.
-                if let layer = opening.layer { session?.pick(layer) }
-            }
+            #if DEBUG && SPK_ENGINE
+            TransitionMarks.mark("pane.appear>")
+            defer { TransitionMarks.mark("pane.appear<") }
+            #endif
+            if session == nil { take(frameID) }
             // With an engine that makes pictures the canvas develops once as the
             // page opens, so the next edit is a reprint from its negative.
             session?.open()
+            // 主体 · 背景 · 人's finder on this frame, a clone's found masks adopted, the missing ones marked (M1c).
+            if let session { MaskFinding.shared.pageOpened(session) }
         }
-        .onChange(of: session?.developed?.stamp) { _, stamp in
-            // Photos recovery/open may have left cards waiting for the page's decode.
-            if stamp != nil { stockStrip?.refresh() }
-        }
-        .onChange(of: session?.frame?.original) { _, _ in stockStrip?.refresh() }
-        .onChange(of: session?.frame?.picture) { _, _ in stockStrip?.refresh() }
-        .onChange(of: session?.frame?.pair) { _, _ in stockStrip?.refresh() }
+        // The session's edit, develop and frame watched in a view of their own (`OwnReads`): read in this body, every
+        // step and every develop re-made the page under it, its canvas and column (2.4.0 A2).
+        .background { OwnReads { watches } }
+        // Another frame on the same page (2.4.0 A2b, `DevelopController.made`): the next frame's session taken, then
+        // the last one's let go — the order a page made again had (the next page appeared before the last one went),
+        // the letting go and the next develop once the next frame is on the screen.
+        .onChange(of: frameID) { _, next in switchSession(to: next) }
         // The page is gone (a cover over it is not a disappearance): it lets
         // go of the session, which closes when nothing else holds it.
         .onDisappear {
-            stockStrip?.leave(); stockStrip = nil
-            session?.leave()
+            #if DEBUG && SPK_ENGINE
+            TransitionMarks.mark("pane.gone>")
+            defer { TransitionMarks.mark("pane.gone<") }
+            #endif
+            Self.release(session, stockStrip, model: model)
+            stockStrip = nil
             session = nil
         }
         // The frame's own picture, small and off the main thread, before
@@ -126,6 +134,90 @@ struct DevelopPane: View {
             _ = await ThumbnailStore.shared.image(picture, maxPixel: 768)
         }
     }
+
+    /// The frame's session and its stock strip taken up: the page holds them while it shows the frame.
+    private func take(_ id: LibraryFrame.ID) {
+        stockStrip = model.stockPreviews.strip(for: id)
+        session = model.session(for: id)
+        session?.enter()
+        // A snapshot's own: the pair's darkroom on the layer its drawing shows.
+        if let layer = opening.layer { session?.pick(layer) }
+        #if DEBUG && SPK_ENGINE
+        TransitionMarks.mark("pane.taken")
+        #endif
+    }
+
+    /// A frame's session and strip let go: the strip's cards, the finder's focus (its found masks' folder adopted and
+    /// swept, `FoundMaskKeeping`), the session (it closes when nothing else holds it).
+    private static func release(_ session: OpenFrameSession?, _ strip: StockStrip?, model: AppServices) {
+        strip?.leave()
+        #if DEBUG && SPK_ENGINE
+        TransitionMarks.mark("release.strip")
+        #endif
+        if let session { MaskFinding.shared.pageClosed(session, model: model) }
+        #if DEBUG && SPK_ENGINE
+        TransitionMarks.mark("release.finder")
+        #endif
+        session?.leave()
+    }
+
+    /// Another frame on this page: its session in at once — the page draws the frame's kept picture with it — and the
+    /// finder on it; once that frame is on the screen, its develop asked and the last frame's session let go.
+    ///
+    /// Asked in the same turn, the develop's submission wrote the queue the page's status line reads, inside SwiftUI's
+    /// update (this `onChange`), and the graph was flushed again under it before the first frame of the next picture
+    /// could be committed: ~30 ms of the switch's main thread, by `sample` (2.4.0 A2b). A frame later it costs the
+    /// picture nothing, and the develop, hundreds of ms on a RAW, starts ~10 ms later.
+    private func switchSession(to id: LibraryFrame.ID) {
+        #if DEBUG && SPK_ENGINE
+        TransitionMarks.mark("pane.switch>")
+        defer { TransitionMarks.mark("pane.switch<") }
+        #endif
+        guard session?.frameID != id else { return }
+        let last = session, lastStrip = stockStrip
+        // Drawn as it is, not animated to (`switchFrame`'s transaction).
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) { take(id) }
+        let next = session, model = model
+        // The finder on the next frame at once (it only starts a task), so the last one's close finds it moved on.
+        if let next { MaskFinding.shared.pageOpened(next) }
+        // Two frames: the display link's first callback after the commit may come before the frame is on the screen.
+        AfterFrame.run(after: 2) {
+            // Still this page's (not left since, which `leave` says by letting go of it): its develop asked.
+            if let next, next.isHeld { next.open() }
+            Self.release(last, lastStrip, model: model)
+            #if DEBUG && SPK_ENGINE
+            TransitionMarks.mark("pane.followed")
+            #endif
+        }
+    }
+
+    /// What follows the session's edit, its develop and its frame: the finder's focus, the found masks, the stock cards.
+    private var watches: some View {
+        Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
+            // The decode's geometry moved under the masks (镜头校正 switched, another corrector or distortion,
+            // `OpenFrameSession.lensWord`): a find under way is dropped and the next looks again. Another frame on the
+            // same page (A2b) is not that: its finder was focused as its session was taken (`switchSession`).
+            .onChange(of: session.map { LensGeometry(frame: $0.frameID, word: "\($0.edit.decode.lensCorrection)" + $0.lensWord) }) { was, now in
+                if was?.frame == now?.frame, let session { MaskFinding.shared.refocus(session) }
+            }
+            // An act or an Undo: which found masks have no file now.
+            .onChange(of: session?.edit.layers) { _, _ in if let session { MaskFinding.shared.layersChanged(session) } }
+            .onChange(of: session?.developed?.stamp) { _, stamp in
+                // Photos recovery/open may have left cards waiting for the page's decode.
+                if stamp != nil { stockStrip?.refresh() }
+            }
+            .onChange(of: session?.frame?.original) { _, _ in stockStrip?.refresh() }
+            .onChange(of: session?.frame?.picture) { _, _ in stockStrip?.refresh() }
+            .onChange(of: session?.frame?.pair) { _, _ in stockStrip?.refresh() }
+    }
+}
+
+/// What the masks' geometry hangs on, for one frame: 镜头校正 and who corrects (`DevelopPane.watches`).
+private struct LensGeometry: Equatable {
+    let frame: LibraryFrame.ID?
+    let word: String
 }
 
 extension OpenFrameSession {
@@ -142,5 +234,35 @@ extension OpenFrameSession {
             guard let self else { return }
             if down { self.began(layer) } else { self.ended() }
         }
+    }
+}
+
+/// Work that waits for the next display frame: run at the display link's next callback, after the commit of the
+/// turn that asked (the frame it carries is the render server's to show from then on).
+@MainActor
+enum AfterFrame {
+    private final class Tick: NSObject {
+        private var work: (() -> Void)?
+        private var link: CADisplayLink?
+        private var me: Tick?
+        init(_ work: @escaping () -> Void) { self.work = work }
+        func start() {
+            me = self
+            let l = CADisplayLink(target: self, selector: #selector(fired(_:)))
+            l.add(to: .main, forMode: .common)
+            link = l
+        }
+        @objc func fired(_ l: CADisplayLink) {
+            link?.invalidate(); link = nil
+            let w = work
+            work = nil; me = nil
+            MainActor.assumeIsolated { w?() }
+        }
+    }
+
+    /// `work` after `frames` display frames: the first frame of a change on the screen before it starts.
+    static func run(after frames: Int = 1, _ work: @escaping () -> Void) {
+        guard frames > 1 else { Tick(work).start(); return }
+        Tick { run(after: frames - 1, work) }.start()
     }
 }

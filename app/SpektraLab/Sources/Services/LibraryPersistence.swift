@@ -33,7 +33,8 @@ struct StoredFrame: Codable {
             originalSize = "originalSize", previewSize = "previewSize", isRAW = "isRAW", source = "source",
             original = "original", assetIdentifier = "assetIdentifier", picture = "picture",
             originalPicture = "originalPicture", developed = "developed", isFavourite = "isFavourite", edit = "edit",
-            importedAt = "importedAt", pair = "pair", shotHere = "shotHere", cameraCropRead = "cameraCropRead"
+            importedAt = "importedAt", pair = "pair", double = "double", shotHere = "shotHere", cameraCropRead = "cameraCropRead",
+            variant = "variant"
     }
     enum Picture: Codable {
         /// The keys as they are written: a case's name and its labels are keys, and must not move with a rename.
@@ -69,12 +70,24 @@ struct StoredFrame: Codable {
     /// A half-frame pair's piece. Absent for a photograph, and in a library
     /// written before 2026-10-09.
     var pair: HalfFramePair? = nil
+    /// A double exposure's piece (RFC-047 §2). Absent for a photograph or a pair, and in a library written
+    /// before 2026-11-11: additive, a library from before reads with none.
+    ///
+    /// **Written only to `doubles.json`, never to `library.json`** (`LibraryShelf`, the older-build guard):
+    /// 2.3.x reads `library.json` with no `double` key and would show the item as a photograph whose picture
+    /// is the guide. It is read from either, so a library a development build put one in still opens.
+    var double: DoubleExposure? = nil
     /// Shot by this app's camera. Absent for anything brought in, and in a library written
     /// before 2026-10-20.
     var shotHere: Bool? = nil
     /// The camera's crop has been read for it (`LibraryFrame.cameraCropRead`). Absent in a library
     /// written before 2026-11-05, and for a frame whose file has not been read since.
     var cameraCropRead: Bool? = nil
+    /// The helper's variant uuid of the image this frame is a variant's edit of (`LibraryFrame.variant`, PRD-G). Absent
+    /// for an image's primary variant — every frame a library written before 2026-11-13 has, so it reads unchanged —
+    /// and never written then (an Optional is encoded only when present). A build before it reads the key as nothing:
+    /// it would show such a frame as a second frame of the file, and join the file's row to whichever it indexed last.
+    var variant: String? = nil
 
     struct Developed: Codable {
         /// The keys as they are written: renaming a property must not move its key.
@@ -112,17 +125,20 @@ struct StoredFrame: Codable {
         picture = Self.picture(f.picture); originalPicture = f.originalPicture.map(Self.picture)
         developed = f.developed.map { Developed(picture: Self.picture($0.picture), size: $0.size, stamp: $0.stamp) }
         isFavourite = f.isFavourite; edit = f.edit; importedAt = f.importedAt
-        pair = f.pair; shotHere = f.shotHere; cameraCropRead = f.cameraCropRead
+        pair = f.pair; double = f.double; shotHere = f.shotHere; cameraCropRead = f.cameraCropRead
+        variant = f.variant
     }
 
     var frame: LibraryFrame {
-        LibraryFrame(id: id, fileName: fileName, captureDate: captureDate, camera: camera, exposure: exposure,
+        var f = LibraryFrame(id: id, fileName: fileName, captureDate: captureDate, camera: camera, exposure: exposure,
                      originalSize: originalSize, previewSize: previewSize, isRAW: isRAW, source: source,
                      original: original, assetIdentifier: assetIdentifier, picture: Self.ref(picture),
                      originalPicture: originalPicture.map(Self.ref),
                      developed: developed.map { DevelopedPicture(picture: Self.ref($0.picture), size: $0.size, stamp: $0.stamp) },
                      develop: .developed, isFavourite: isFavourite,
-                     edit: edit, importedAt: importedAt, pair: pair, shotHere: shotHere, cameraCropRead: cameraCropRead)
+                     edit: edit, importedAt: importedAt, pair: pair, double: double, shotHere: shotHere, cameraCropRead: cameraCropRead)
+        f.variant = variant
+        return f
     }
 }
 
@@ -172,27 +188,100 @@ struct StoredLibrary: Codable {
 
 /// Reads the library once, and writes it after changes — a moment after the
 /// last of a burst, on a background queue, atomically.
+///
+/// **Two files** since 2026-11-11 (`LibraryShelf`): `library.json`, every
+/// photograph and pair, which every build reads; and `doubles.json` beside it, the double exposures,
+/// which a build before them never opens — so 2.3.x shows the library without them rather than each as
+/// a broken photograph, and never writes over them. **Three** since 2026-11-13 (PRD-G): `variants.json`, the frames
+/// of an image's other variants (`LibraryFrame.variant`), kept from 2.3.x the same way (`LibraryShelf`): 2.3.2 would
+/// drop their `variant` at its next save and the picture would show another variant's edit.
 @MainActor
 final class LibraryPersistence {
     static let fileName = "library.json"
     let url: URL
+    /// The double exposures' own file (`LibraryShelf.doublesURL`).
+    let doublesURL: URL
+    /// The mask layers' own record (`LayerShelf.url`, PRD-E): every frame's layers, which `library.json` never holds.
+    let layersURL: URL
+    /// The variants' frames' own file (`LibraryShelf.variantsURL`).
+    let variantsURL: URL
     private var pending: Task<Void, Never>?
+    /// The items of `doubles.json` this build did not read (a later build's), written back as they were
+    /// (`LibraryShelf.read`); and whether the file was there and did not read at all, so that it is not
+    /// written over (`LibraryShelf.writes`). Both as `load` found them, for the rest of the launch.
+    private var unreadDoubles: [ShelfJSON] = []
+    private var doublesUnreadable = false
+    /// `layers.json`'s entries this build did not read, and whether the file did not read at all (`LayerShelf`).
+    private var unreadLayers: [UUID: ShelfJSON] = [:]
+    private var layersUnreadable = false
+    /// The same for `variants.json`.
+    private var unreadVariants: [ShelfJSON] = []
+    private var variantsUnreadable = false
 
     init(url: URL = ImportService.root.appendingPathComponent(fileName)) {
         self.url = url
+        doublesURL = LibraryShelf.doublesURL(beside: url)
+        layersURL = LayerShelf.url(beside: url)
+        variantsURL = LibraryShelf.variantsURL(beside: url)
     }
 
     /// The library as it was kept; nil when there is none, or none this build can read. A file that
     /// does not decode is copied aside first (`KeptFileAside`): the empty library the next change
     /// writes then goes over the file, never over the only copy of the person's edits.
+    ///
+    /// The double exposures of `doubles.json` follow `library.json`'s frames, **each read by itself**
+    /// (`LibraryShelf.read`): one this build cannot read is not shown and is written back as it was. A
+    /// `doubles.json` that does not read at all shows none, is copied aside and is not written over.
     func load() -> StoredLibrary? {
         guard let data = try? Data(contentsOf: url) else { return nil }
+        var stored: StoredLibrary
         do {
-            return try Self.read(data)
+            stored = try Self.read(data)
         } catch {
             KeptFileAside.setAside(url, error: error)
             return nil
         }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let shelf = LibraryShelf.read(try? Data(contentsOf: doublesURL), as: StoredFrame.self, with: decoder)
+        unreadDoubles = shelf.unread
+        doublesUnreadable = shelf.unreadable
+        if shelf.unreadable {
+            let aside = LibraryShelf.setAside(doublesURL)
+            Log.warn(.library, "doubles.json does not read: kept as it is, not written over",
+                     ["aside": aside?.lastPathComponent ?? "nowhere"])
+        }
+        if !shelf.unread.isEmpty {
+            Log.warn(.library, "doubles.json: double exposures this build does not read, kept", ["count": shelf.unread.count])
+        }
+        stored.frames = LibraryShelf.joined(stored.frames, shelf.frames.filter { $0.double != nil }, id: \.id)
+        // The variants' frames, the same way. A library that kept them inside `library.json` (this branch's, before the
+        // shelf) is read from there, once: `library.json` comes first in the join, and the next write moves them.
+        let variants = LibraryShelf.read(try? Data(contentsOf: variantsURL), as: StoredFrame.self, with: decoder)
+        unreadVariants = variants.unread
+        variantsUnreadable = variants.unreadable
+        if variants.unreadable {
+            let aside = LibraryShelf.setAside(variantsURL)
+            Log.warn(.library, "variants.json does not read: kept as it is, not written over",
+                     ["aside": aside?.lastPathComponent ?? "nowhere"])
+        }
+        if !variants.unread.isEmpty {
+            Log.warn(.library, "variants.json: variants' frames this build does not read, kept", ["count": variants.unread.count])
+        }
+        stored.frames = LibraryShelf.joined(stored.frames, variants.frames.filter { $0.variant != nil }, id: \.id)
+        // The mask layers, from their own record (`LayerShelf`): put into each frame's edit by its id.
+        let layers = LayerShelf.read(try? Data(contentsOf: layersURL))
+        unreadLayers = layers.unread
+        layersUnreadable = layers.unreadable
+        if layers.unreadable {
+            let aside = LayerShelf.setAside(layersURL)
+            Log.warn(.library, "layers.json does not read: kept as it is, not written over", ["aside": aside?.lastPathComponent ?? "nowhere"])
+        }
+        if !layers.unread.isEmpty {
+            Log.warn(.library, "layers.json: layers this build does not read, kept", ["count": layers.unread.count])
+        }
+        stored.frames = LayerShelf.joined(stored.frames, layers, id: \.id, edit: \.edit)
+        return stored
     }
 
     /// `library.json` as `load` reads it: dates in ISO 8601.
@@ -204,15 +293,23 @@ final class LibraryPersistence {
 
     /// Writes what is given, a second after the last call. A folder with no
     /// bookmark (the demo's) is not a folder of this host's and is left out.
+    ///
+    /// The frames are mapped to their stored form when the second is up, not at each call (2026-11-11): a slider
+    /// dragged on a develop page changes the frame at every write, and mapping every frame of the library each
+    /// time was main-thread work for a file written once a second later — 4 % of the main thread in a sampled
+    /// Brightness drag on a library of two frames, growing with the library.
     func save(_ frames: [LibraryFrame], folders: [LinkedFolder] = [], selectedID: UUID?) {
-        let stored = StoredLibrary(frames: frames.filter { !$0.isDemo }.map(StoredFrame.init), selectedID: selectedID,
-                                   folders: folders.filter { $0.bookmark != nil }.map(StoredFolder.init))
-        let url = self.url
+        let url = self.url, doublesURL = self.doublesURL, variantsURL = self.variantsURL, layersURL = self.layersURL
         pending?.cancel()
-        pending = Task.detached(priority: .utility) {
+        // Unsaved for that second: a quit then writes it first (`AppServices.settleForQuit`, on entering the
+        // background, which a Catalyst quit passes through: `flush`, `saveNow`).
+        pending = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            Self.write(stored, to: url)
+            guard !Task.isCancelled, let self else { return }
+            let stored = self.stored(frames, folders: folders, selectedID: selectedID)
+            await Task.detached(priority: .utility) {
+                Self.write(stored, to: url, doublesTo: doublesURL, variantsTo: variantsURL, layersTo: layersURL)
+            }.value
         }
     }
 
@@ -224,16 +321,74 @@ final class LibraryPersistence {
     func saveNow(_ frames: [LibraryFrame], folders: [LinkedFolder] = [], selectedID: UUID?) {
         pending?.cancel()
         pending = nil
-        Self.write(StoredLibrary(frames: frames.filter { !$0.isDemo }.map(StoredFrame.init), selectedID: selectedID,
-                                 folders: folders.filter { $0.bookmark != nil }.map(StoredFolder.init)), to: url)
+        Self.write(stored(frames, folders: folders, selectedID: selectedID), to: url, doublesTo: doublesURL, variantsTo: variantsURL,
+                   layersTo: layersURL)
     }
 
-    nonisolated private static func write(_ stored: StoredLibrary, to url: URL) {
+    /// What is written, split by file (`LibraryShelf.split`): the photographs, pairs and every image's primary variant
+    /// for `library.json`; the double exposures for `doubles.json`; the other variants' frames for `variants.json` — in
+    /// each shelf the ones this build reads, then the ones it kept unread.
+    ///
+    /// The mask layers are taken out of every edit first — a variant's and a double's too — and kept in their own
+    /// record (`LayerShelf`): none of the three files ever carries them, so no older build's coder can drop them.
+    private func stored(_ frames: [LibraryFrame], folders: [LinkedFolder], selectedID: UUID?) -> StoredFiles {
+        let (bare, record, madeLayers) = LayerShelf.split(frames.filter { !$0.isDemo }.map(StoredFrame.init), unread: unreadLayers,
+                                                          id: \.id, edit: \.edit)
+        let (rest, doubles) = LibraryShelf.split(bare, isDouble: { $0.double != nil })
+        let (kept, variants) = LibraryShelf.split(rest, isDouble: { $0.variant != nil })
+        return StoredFiles(library: StoredLibrary(frames: kept, selectedID: selectedID,
+                                                  folders: folders.filter { $0.bookmark != nil }.map(StoredFolder.init)),
+                           doubles: .init(items: doubles.map { ShelfItem.read($0) } + unreadDoubles.map { .unread($0) },
+                                          made: doubles.count, unreadable: doublesUnreadable),
+                           variants: .init(items: variants.map { ShelfItem.read($0) } + unreadVariants.map { .unread($0) },
+                                           made: variants.count, unreadable: variantsUnreadable),
+                           layers: record, madeLayers: madeLayers, layersUnreadable: layersUnreadable)
+    }
+
+    /// One shelf file's contents, and what decides whether it is written (`LibraryShelf.writes`).
+    private struct Shelf {
+        var items: [ShelfItem<StoredFrame>]
+        var made: Int
+        var unreadable: Bool
+    }
+
+    /// The four files' contents: the library, its two shelves, and the layers' record with what decides whether it is
+    /// written (`LayerShelf.writes`).
+    private struct StoredFiles {
+        var library: StoredLibrary
+        var doubles: Shelf
+        var variants: Shelf
+        var layers: LayerShelf.Record
+        var madeLayers: Int
+        var layersUnreadable: Bool
+    }
+
+    /// `doubles.json` first, then `library.json`, each atomically (`LibraryShelf`: what an app ended between
+    /// the two leaves). A library with no double exposure and no `doubles.json` makes none: the library on
+    /// disk of someone who never made one is the one file it was.
+    nonisolated private static func write(_ stored: StoredFiles, to url: URL, doublesTo doublesURL: URL, variantsTo variantsURL: URL,
+                                          layersTo layersURL: URL) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(stored) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // The layers' record first (`LayerShelf`): an app ended before `library.json` leaves layers a step ahead of
+        // their edit, never an edit whose layers are gone.
+        if LayerShelf.writes(entries: stored.layers.frames.count, made: stored.madeLayers,
+                             fileExists: FileManager.default.fileExists(atPath: layersURL.path), unreadable: stored.layersUnreadable),
+           let data = LayerShelf.encode(stored.layers) {
+            try? data.write(to: layersURL, options: .atomic)
+        }
+        // The shelves next, then `library.json`: an app ended between them leaves a shelf one change newer, never a
+        // variant's frame on no file at all (it would be read from neither).
+        for (shelf, file) in [(stored.doubles, doublesURL), (stored.variants, variantsURL)] {
+            if LibraryShelf.writes(doubles: shelf.made, unread: shelf.items.count - shelf.made,
+                                   fileExists: FileManager.default.fileExists(atPath: file.path), unreadable: shelf.unreadable),
+               let data = try? encoder.encode(StoredDoubles(frames: shelf.items)) {
+                try? data.write(to: file, options: .atomic)
+            }
+        }
+        guard let data = try? encoder.encode(stored.library) else { return }
         try? data.write(to: url, options: .atomic)
     }
 

@@ -167,7 +167,7 @@ struct MacColourWheelControl: View {
     private static let doubleClick: TimeInterval = 0.5
 
     var body: some View {
-        let value = session.adjustments.colorBalance[zone]
+        let value = session.shownAdjustments.colorBalance[zone]
         GeometryReader { geo in
             let layout = MacColourWheel.Layout(geo.size)
             MacColourWheelFace(zone: value, active: press?.part ?? hover)
@@ -235,7 +235,7 @@ struct MacColourWheelControl: View {
     /// The press with its anchor at the pointer and the value as it now is.
     private func anchored(_ pr: Press, at p: CGPoint) -> Press {
         var pr = pr
-        let z = session.adjustments.colorBalance[zone]
+        let z = session.shownAdjustments.colorBalance[zone]
         pr.anchor = p
         pr.anchorPuck = MacColourWheel.puck(z)
         pr.anchorValue = pr.part == .lightness ? z.luminance : MacColourWheel.reach(z.saturation)
@@ -271,35 +271,35 @@ struct MacColourWheelControl: View {
     }
 
     private func apply(_ part: Part, puck: CGPoint = .zero, value: Double = 0) {
-        let now = session.adjustments.colorBalance[zone]
+        let now = session.shownAdjustments.colorBalance[zone]
         var next = now
         switch part {
         case .disc: next = MacColourWheel.zone(now, puck: puck)
         case .strength: next.saturation = (MacColourWheel.saturation(reach: value) * 10_000).rounded() / 10_000
         case .lightness: next.luminance = (min(max(value, -1), 1) * 100).rounded() / 100
         }
-        if next != now { session.changeEdit { $0.colorBalance[zone] = next } }
+        if next != now { session.moveEdit { $0.colorBalance[zone] = next } }
     }
 
     /// A double click: the disc's hue and strength, or an arc's value, back to rest. One step of Undo.
     private func reset(_ part: Part) {
-        var z = session.adjustments.colorBalance[zone]
+        var z = session.shownAdjustments.colorBalance[zone]
         switch part {
         case .disc: z.hue = 0; z.saturation = 0
         case .strength: z.saturation = 0
         case .lightness: z.luminance = 0
         }
-        guard z != session.adjustments.colorBalance[zone] else { return }
-        session.changeEdit { $0.colorBalance[zone] = z }
+        guard z != session.shownAdjustments.colorBalance[zone] else { return }
+        session.moveEdit { $0.colorBalance[zone] = z }
     }
 
     /// VoiceOver's swipe: a tenth of the way out or in along the puck's hue.
     private func step(_ by: Double) {
-        let z = session.adjustments.colorBalance[zone]
+        let z = session.shownAdjustments.colorBalance[zone]
         var next = z
         next.saturation = MacColourWheel.saturation(reach: (MacColourWheel.reach(z.saturation) + by * 0.1).clamped(to: 0...1))
         next.saturation = (next.saturation * 10_000).rounded() / 10_000
-        if next != z { session.changeEdit { $0.colorBalance[zone] = next } }
+        if next != z { session.moveEdit { $0.colorBalance[zone] = next } }
     }
 }
 

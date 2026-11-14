@@ -38,6 +38,13 @@ import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// What a frame of the Mac's library is made for: a file, and the helper's variant of its image (nil: the primary's,
+/// the file's own frame). PRD-G: one frame per (file, variant).
+struct LibraryFileVariant: Hashable, Sendable {
+    let url: URL
+    let variant: String?
+}
+
 @MainActor
 struct ImportService {
     let model: AppServices
@@ -193,9 +200,10 @@ struct ImportService {
         edit.params = edit.params.heldToItsPhoto(p.size)
         // The advance and the scan: one per photograph (RFC-032 §26.1).
         edit.frameSeed = Int.random(in: 1...Int(Int32.max))
-        // A RAW's lens correction is Settings' (`AppSettings.lensCorrection`); a picture its camera
-        // has developed is never corrected again, and keeps the decode's default.
-        if p.isRAW { edit.decode.lensCorrection = settings.lensCorrection }
+        // A RAW's lens correction is on (2.4.0: 镜头校正 is the frame's own, automatic: who corrects it is resolved
+        // when it is opened, `LensResolver`); a picture its camera has developed is never corrected again, and keeps
+        // the decode's default.
+        if p.isRAW { edit.decode.lensCorrection = true }
         // The frame the photographer saw (`CameraCrop`, 2026-11-05): a DNG whose camera cropped it — a
         // Leica Q3's 35/50/75 mm frame lines — starts with that crop, as though it had been drawn here.
         // Every new frame of this repository's app is made here (an import, a picture of the Mac's library
@@ -500,48 +508,81 @@ struct ImportService {
     /// (`FrameDecoder`) — and rendered to 8 bits in sRGB. Nil where the
     /// filter does not open the file.
     ///
-    /// **What it costs is not measured on a host.** In the the operating system 27 simulator
-    /// on the owner's Mac mini, 217 ms for a 12 MP ProRAW whose embedded
-    /// preview was cut to 252 px (`tools/photos_check.sh`, 2026-10-15); its
-    /// memory was not read. It runs once per frame, off the main thread, only
-    /// for a RAW whose embedded preview is under the preview size, and its
-    /// context's caches go with it.
+    /// **What it costs, measured on the Mac** (2026-11-13, `ledger_phys_footprint_peak` of a process of its
+    /// own, this recipe statement for statement): rendered in one call, as it was until then, a 512 px tile
+    /// of a 24 MP A7 III ARW took 1,541 MB, of a 60 MP Leica Q3 DNG 6,585 MB and of a 102 MP GFX100RF
+    /// 7,092 MB — Core Image holds the whole decode for one band — and it runs off the engine's queue, where
+    /// the scheduler cannot see it, once for each size a tile asks (a Q3 whose embedded preview is grey,
+    /// `RawPreviewColour`, opened in Develop: 13–16 GB of IOSurfaces beside the page's own develop). So it is
+    /// rendered **in bands of 2 MP of the original** (`FrameDecoder.rawBandSourcePixels`'s rule) — 475, 2,229
+    /// and 2,250 MB, for +0.05–0.3 s — and **one at a time** (`rawDecodeGate`): two tiles never hold two
+    /// decodes. Measured: 217 ms for a 12 MP ProRAW whose
+    /// embedded preview was cut to 252 px (`tools/photos_check.sh`, 2026-10-15). Its context's caches go with it.
     nonisolated static func rawDecoded(_ url: URL, longEdge: Int) -> CGImage? {
-        autoreleasepool {
+        rawDecodeGate.lock()
+        defer { rawDecodeGate.unlock() }
+        return autoreleasepool {
             guard let filter = CIRAWFilter(imageURL: url), let picture = filter.outputImage else { return nil }
             let extent = picture.extent
             guard !extent.isInfinite, extent.width >= 1, extent.height >= 1 else { return nil }
             let scale = min(1, CGFloat(longEdge) / max(extent.width, extent.height))
             let scaled = picture.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
                 .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            let out = CGRect(x: 0, y: 0, width: (extent.width * scale).rounded(.down), height: (extent.height * scale).rounded(.down))
-            guard out.width >= 1, out.height >= 1 else { return nil }
+            let w = Int((extent.width * scale).rounded(.down)), h = Int((extent.height * scale).rounded(.down))
+            guard w >= 1, h >= 1, let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let bitmap = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+                  let base = bitmap.data else { return nil }
             let context = CIContext(options: [.cacheIntermediates: false])
             defer { context.clearCaches() }
-            return context.createCGImage(scaled, from: out, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+            let source = Double(extent.width) * Double(extent.height)
+            let bands = min(max(1, Int((source / rawBandSourcePixels).rounded(.up))), h)
+            for b in 0..<bands {
+                autoreleasepool {
+                    // Core Image's y runs upward: rows r0..<r1 from the top are the picture's h-r1..<h-r0.
+                    let r0 = h * b / bands, r1 = h * (b + 1) / bands
+                    context.render(scaled, toBitmap: base + r0 * w * 4, rowBytes: w * 4,
+                                   bounds: CGRect(x: 0, y: h - r1, width: w, height: r1 - r0), format: .RGBA8, colorSpace: space)
+                }
+            }
+            return bitmap.makeImage()
         }
     }
+
+    /// `rawDecoded`'s band: 2 MP of the original (as `FrameDecoder.rawBandSourcePixels`, which a build
+    /// without the engine does not have).
+    nonisolated static let rawBandSourcePixels = 2_000_000.0
+    /// One `rawDecoded` at a time, whoever asks: each holds a RAW's decode while it works.
+    nonisolated(unsafe) private static let rawDecodeGate = NSLock()
 
     // MARK: the Mac's library (Mac change, 2026-10-23: CatalogSourcesStore, MAC-LIBRARY-DATA.md)
 
     /// A picture of the Mac's library — a SpektraLab catalog or session, a Capture One catalog or
     /// session, a linked folder — becomes a frame the first time it is opened in Develop: read where it
     /// is, never copied, never written. `disk › path` is what Info's *Original* row says. The frame that
-    /// already reads that file is handed back instead. Nil when the file's header cannot be read. Nothing
-    /// is queued for it (`arrive`): its tiles show the file's own preview until it is developed.
-    func adoptLibraryFile(_ url: URL, disk: String, path: String) async -> LibraryFrame.ID? {
-        await adoptLibraryFiles([(url, disk, path)])[url]
+    /// already reads that file, for that variant, is handed back instead. Nil when the file's header cannot be
+    /// read. Nothing is queued for it (`arrive`): its tiles show the file's own preview until it is developed.
+    func adoptLibraryFile(_ url: URL, variant: String? = nil, disk: String, path: String) async -> LibraryFrame.ID? {
+        await adoptLibraryFiles([(url, variant, disk, path)])[LibraryFileVariant(url: url, variant: variant)]
     }
 
     /// `adoptLibraryFile` for many (a selection carried into Develop): the files probed off the main
-    /// thread together, and the new frames arriving in one go. Each file's frame, by its URL; a file that
+    /// thread together, and the new frames arriving in one go. Each (file, variant)'s frame; a file that
     /// cannot be read has none.
-    func adoptLibraryFiles(_ files: [(url: URL, disk: String, path: String)]) async -> [URL: LibraryFrame.ID] {
-        var out: [URL: LibraryFrame.ID] = [:]
-        var unknown: [(url: URL, disk: String, path: String)] = []
+    ///
+    /// **One frame per (file, variant)** (PRD-G, 2026-11-13; it was one per file): `variant` nil is the image's
+    /// primary variant, whose frame is the file's own (`LibraryFrame.variant` nil, as every frame before 2.4.0);
+    /// another is the helper's variant uuid, and its frame is made with it — a New Variant's, with the edit a fresh
+    /// open gets (`frame`: Settings' new-frame rule, the RAW defaults). The frame that already reads the file for that
+    /// variant is handed back, and one asked twice in a call is made once.
+    func adoptLibraryFiles(_ files: [(url: URL, variant: String?, disk: String, path: String)]) async -> [LibraryFileVariant: LibraryFrame.ID] {
+        var out: [LibraryFileVariant: LibraryFrame.ID] = [:]
+        var unknown: [(url: URL, variant: String?, disk: String, path: String)] = []
         for file in files {
-            if let known = library.frames.first(where: { f in f.picture.fileURL.map { FolderReach.same($0, file.url) } ?? false }) {
-                out[file.url] = known.id
+            let key = LibraryFileVariant(url: file.url, variant: file.variant)
+            if out[key] != nil || unknown.contains(where: { LibraryFileVariant(url: $0.url, variant: $0.variant) == key }) { continue }
+            if let known = existingFrame(file.url, variant: file.variant) {
+                out[key] = known.id
             } else {
                 unknown.append(file)
             }
@@ -552,14 +593,43 @@ struct ImportService {
         var made: [LibraryFrame] = []
         for (file, p) in zip(unknown, probes) {
             guard let p else { continue }
-            let f = frame(p, source: .linkedFolder(disk: file.disk, path: file.path), picture: .file(file.url))
+            var f = frame(p, source: .linkedFolder(disk: file.disk, path: file.path), picture: .file(file.url))
+            f.variant = file.variant
             made.append(f)
-            out[file.url] = f.id
+            out[LibraryFileVariant(url: file.url, variant: file.variant)] = f.id
         }
         guard !made.isEmpty else { return out }
         arrive(made, banner: false)
         Log.imported(from: "the Mac's library", asked: unknown.count, made)
         return out
+    }
+
+    /// The photograph's frame that reads `url` for `variant` (nil: the primary's, the file's own), if there is one.
+    /// A pair or a double exposure is never it: their picture is a guide, not the file.
+    func existingFrame(_ url: URL, variant: String?) -> LibraryFrame? {
+        library.frames.first { f in
+            !f.isComposite && f.variant == variant && (f.picture.fileURL.map { FolderReach.same($0, url) } ?? false)
+        }
+    }
+
+    /// **Clone Variant's frame** (PRD-G §3, part 1: the model; part 2 calls it): a copy of `sourceID`'s frame for the
+    /// helper's `variant` — the same file, and the whole edit (film, paper, crop, effects, Layer 2, the film edge, the
+    /// frame's seed; PRD-E's layers and masks once they are in `FrameEdit`) — with nothing of its develop and **no
+    /// history** (`AppServices.history` is keyed by frame id: a new frame has none, PRD-F §8.6). Nothing is queued
+    /// (`arrive`); the caller asks its preview's develop (`CatalogSourcesStore.newVariant`). The frame already made
+    /// for that variant is handed back. Nil for a pair or a double exposure (not in this round, PRD-G §7.5) and for a
+    /// frame with no file.
+    func cloneFrame(of sourceID: LibraryFrame.ID, variant: String) -> LibraryFrame.ID? {
+        guard let src = library.frame(sourceID), !src.isComposite, let url = src.picture.fileURL else { return nil }
+        if let known = existingFrame(url, variant: variant) { return known.id }
+        var f = LibraryFrame(id: UUID(), fileName: src.fileName, captureDate: src.captureDate, camera: src.camera,
+                             exposure: src.exposure, originalSize: src.originalSize, previewSize: src.previewSize,
+                             isRAW: src.isRAW, source: src.source, original: src.original,
+                             assetIdentifier: src.assetIdentifier, picture: src.picture, edit: src.edit, importedAt: Date())
+        f.cameraCropRead = src.cameraCropRead
+        f.variant = variant
+        arrive([f], banner: false)
+        return f.id
     }
 
     // MARK: files the app already holds
@@ -648,7 +718,8 @@ struct ImportService {
         // once the library that no longer names them is written.
         if let was, was.readsFromPhotos {
             library.flush()
-            model.originals.copies.remove([id])
+            // Its working copy, and the proxy of it (a file and its decode: the copy's path) unless another frame names it.
+            model.originals.copies.remove([id], proxies: model.darkroom.proxyNames(of: [was]))
             Task.detached(priority: .utility) { Self.discard(picture: was.picture) }
         }
     }

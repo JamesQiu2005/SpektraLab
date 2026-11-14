@@ -10,7 +10,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 400,
-   "swatch": "#d8a27a"
+   "swatch": "#d8a27a",
+   "grain": 1.06
   },
   {
    "id": "kodak_gold_200",
@@ -22,7 +23,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 200,
-   "swatch": "#e0b54a"
+   "swatch": "#e0b54a",
+   "grain": 0.97
   },
   {
    "id": "kodak_ektar_100",
@@ -34,7 +36,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 100,
-   "swatch": "#c4503f"
+   "swatch": "#c4503f",
+   "grain": 0.79
   },
   {
    "id": "kodak_vision3_500t",
@@ -46,7 +49,8 @@
    "type": "negative",
    "targetPrint": "kodak_2383",
    "iso": 500,
-   "swatch": "#46637f"
+   "swatch": "#46637f",
+   "grain": 1.01
   },
   {
    "id": "cinestill_800t",
@@ -58,7 +62,8 @@
    "type": "negative",
    "targetPrint": "kodak_2383",
    "iso": 800,
-   "swatch": "#5b5f86"
+   "swatch": "#5b5f86",
+   "grain": 1.01
   },
   {
    "id": "fujifilm_pro_400h",
@@ -70,7 +75,8 @@
    "type": "negative",
    "targetPrint": "fujifilm_crystal_archive_typeii",
    "iso": 400,
-   "swatch": "#7fa38c"
+   "swatch": "#7fa38c",
+   "grain": 1.2
   },
   {
    "id": "kodak_portra_160",
@@ -82,7 +88,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 160,
-   "swatch": "#e3b997"
+   "swatch": "#e3b997",
+   "grain": 0.92
   },
   {
    "id": "kodak_portra_800",
@@ -94,7 +101,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 800,
-   "swatch": "#c98c62"
+   "swatch": "#c98c62",
+   "grain": 1.23
   },
   {
    "id": "kodak_portra_800_push1",
@@ -106,7 +114,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 800,
-   "swatch": "#b97a52"
+   "swatch": "#b97a52",
+   "grain": 1.23
   },
   {
    "id": "kodak_portra_800_push2",
@@ -118,7 +127,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 800,
-   "swatch": "#a66944"
+   "swatch": "#a66944",
+   "grain": 1.23
   },
   {
    "id": "kodak_ultramax_400",
@@ -130,7 +140,8 @@
    "type": "negative",
    "targetPrint": "kodak_portra_endura",
    "iso": 400,
-   "swatch": "#d98a3d"
+   "swatch": "#d98a3d",
+   "grain": 1.09
   },
   {
    "id": "fujifilm_c200",
@@ -142,7 +153,8 @@
    "type": "negative",
    "targetPrint": "fujifilm_crystal_archive_typeii",
    "iso": 200,
-   "swatch": "#6fae7a"
+   "swatch": "#6fae7a",
+   "grain": 0.7
   },
   {
    "id": "fujifilm_xtra_400",
@@ -154,7 +166,8 @@
    "type": "negative",
    "targetPrint": "fujifilm_crystal_archive_typeii",
    "iso": 400,
-   "swatch": "#5c9a69"
+   "swatch": "#5c9a69",
+   "grain": 0.74
   },
   {
    "id": "kodak_ektachrome_100",
@@ -166,7 +179,8 @@
    "type": "positive",
    "targetPrint": null,
    "iso": 100,
-   "swatch": "#4f7fc0"
+   "swatch": "#4f7fc0",
+   "grain": 0.88
   },
   {
    "id": "kodak_kodachrome_64",
@@ -178,7 +192,8 @@
    "type": "positive",
    "targetPrint": null,
    "iso": 64,
-   "swatch": "#c9a13c"
+   "swatch": "#c9a13c",
+   "grain": 1.15
   },
   {
    "id": "fujifilm_provia_100f",
@@ -190,7 +205,8 @@
    "type": "positive",
    "targetPrint": null,
    "iso": 100,
-   "swatch": "#5d8fd8"
+   "swatch": "#5d8fd8",
+   "grain": 0.96
   },
   {
    "id": "fujifilm_velvia_100",
@@ -202,7 +218,8 @@
    "type": "positive",
    "targetPrint": null,
    "iso": 100,
-   "swatch": "#b4558a"
+   "swatch": "#b4558a",
+   "grain": 0.99
   },
   {
    "id": "kodak_vision3_50d",
@@ -214,7 +231,8 @@
    "type": "negative",
    "targetPrint": "kodak_2383",
    "iso": 50,
-   "swatch": "#6d8fa3"
+   "swatch": "#6d8fa3",
+   "grain": 0.69
   },
   {
    "id": "kodak_vision3_200t",
@@ -226,7 +244,8 @@
    "type": "negative",
    "targetPrint": "kodak_2383",
    "iso": 200,
-   "swatch": "#57799a"
+   "swatch": "#57799a",
+   "grain": 1.01
   },
   {
    "id": "kodak_vision3_250d",
@@ -238,7 +257,8 @@
    "type": "negative",
    "targetPrint": "kodak_2383",
    "iso": 250,
-   "swatch": "#5f8a92"
+   "swatch": "#5f8a92",
+   "grain": 0.83
   },
   {
    "id": "kodak_verita_200d",
@@ -250,7 +270,8 @@
    "type": "negative",
    "targetPrint": "kodak_2383",
    "iso": 200,
-   "swatch": "#7a6c9c"
+   "swatch": "#7a6c9c",
+   "grain": 1.06
   },
   {
    "id": "kodak_tri_x_400",

@@ -73,10 +73,12 @@ enum DevelopStamp {
     /// as their own (`PrintLayer.key`): not on the wire, which is the film's
     /// print, and part of the picture — a frame's print changed is another
     /// picture. A piece that is one print has none, and its stamp is what it
-    /// was.
+    /// was. `lens` is the app's own lens correction of a RAW (`LensCorrection.word`): "" for every frame
+    /// Core Image corrects or nobody does, so their stamps are what they were; a word for a Sony frame with Lens
+    /// Correction on, whose develops before 2.4.0 nobody corrected under the same "lens".
     static func of(wire: [String: ParamValue], cut: Geometry? = nil, turns: Int = 0, decode: DecodeSettings, isRAW: Bool,
                    longEdge: Int, engine: String, piece: String? = nil, origin: String? = nil,
-                   prints: [String] = []) -> String {
+                   prints: [String] = [], lens: String = "") -> String {
         var hash = SHA256()
         func add(_ s: String) { hash.update(data: Data(s.utf8)); hash.update(data: Data([0])) }
         add(engine)
@@ -92,6 +94,7 @@ enum DevelopStamp {
             add(decode.whiteBalance.rawValue)
             if decode.whiteBalance != .asShot { add("\(decode.temperature)|\(decode.tint)") }
             add(decode.lensCorrection ? "lens" : "")
+            if !lens.isEmpty { add(lens) }
             if !decode.exposureKey.isEmpty { add(decode.exposureKey) }
         }
         // A frame with no Decode curve is stamped as it was before the field existed.

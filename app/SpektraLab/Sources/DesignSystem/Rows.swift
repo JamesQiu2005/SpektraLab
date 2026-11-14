@@ -153,3 +153,77 @@ struct ValueRow: View {
         }
     }
 }
+
+/// A folding section's header in the Mac's column: Edit › Adjust's (2026-11-11), and since the same day Develop's
+/// too (the owner: "match Edit's collapse style"). Slim, 32 pt: the disclosure chevron at the left, turned down
+/// while the section is open, an optional symbol, the name and what goes beside it (`label`), and at the right what
+/// the section carries (`accessory`: a switch, a shelf's pill, ↺). A click anywhere on it that no control inside
+/// takes folds or unfolds the section; the pointer over it tints it. Edit's sections draw their hairline above it
+/// themselves; Develop's `ColumnSectionHeader` draws its own.
+struct FoldHeader<Label: View, Accessory: View>: View {
+    let open: Bool
+    /// An SF Symbol after the chevron (Edit's tools); nil for none.
+    var symbol: String? = nil
+    /// Points before the chevron: a section folding inside another (Decode's Enlarger, High Dynamic Range).
+    var indent: CGFloat = 0
+    let toggle: () -> Void
+    @ViewBuilder var label: () -> Label
+    @ViewBuilder var accessory: () -> Accessory
+    @State private var hovering = false
+
+    static var height: CGFloat { 32 }
+    /// Where the name starts from the header's leading edge with no symbol: the chevron's 12 pt and the gap.
+    static var titleInset: CGFloat { 16 + 12 + 6 }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Theme.dim)
+                .rotationEffect(.degrees(open ? 90 : 0))
+                .frame(width: 12)
+                .accessibilityHidden(true)
+            if let symbol {
+                Image(systemName: symbol).font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(open ? Theme.text : Theme.secondaryText)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+            }
+            label()
+            Spacer(minLength: 4)
+            accessory()
+        }
+        .padding(.leading, 16 + indent).padding(.trailing, 16)
+        .frame(height: Self.height)
+        .background(hovering ? Theme.card.opacity(0.5) : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(perform: toggle)
+    }
+}
+
+extension FoldHeader where Accessory == EmptyView {
+    init(open: Bool, symbol: String? = nil, indent: CGFloat = 0, toggle: @escaping () -> Void,
+         @ViewBuilder label: @escaping () -> Label) {
+        self.init(open: open, symbol: symbol, indent: indent, toggle: toggle, label: label) { EmptyView() }
+    }
+}
+
+/// A folding header's name: 12.5 pt, semibold and in the text colour while its section is open, medium and quieter
+/// while it is folded (Edit › Adjust's).
+struct FoldTitle: View {
+    let text: String
+    let open: Bool
+    init(_ text: String, open: Bool) { self.text = text; self.open = open }
+    var body: some View {
+        Text(text).font(Theme.Font.ui(12.5, open ? .semibold : .medium))
+            .foregroundStyle(open ? Theme.text : Theme.secondaryText).lineLimit(1)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityValue(open ? L("Open") : L("Closed"))
+    }
+}
+
+/// The hairline between the column's folding sections: the column's full width, half a point (Edit › Adjust's).
+struct FoldRule: View {
+    static var height: CGFloat { 0.5 }
+    var body: some View { Rectangle().fill(Theme.rule).frame(height: Self.height) }
+}

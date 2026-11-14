@@ -26,6 +26,7 @@
 #pragma once
 #include <array>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -36,9 +37,11 @@
 #include "cam16.hpp"
 #include "colour.hpp"
 #include "curves.hpp"
+#include "diffusion_psf.hpp"
 #include "digital_intermediate.hpp"
 #include "hanatos.hpp"
 #include "image.hpp"
+#include "negative_hue.hpp"
 #include "params.hpp"
 #include "printing.hpp"
 #include "scan_hdr.hpp"
@@ -256,6 +259,41 @@ void transposed(const Mat3& m, double out[9]);
 // decoded with one curve and encoded with another.
 uint32_t cctf_mode_for(const std::string& colour_space);
 
+// RFC-052 §6: the scene layers a session holds (`spk_set_scene_layers`), as the
+// node reads them. Immutable once made -- the session swaps in a new set, it
+// never edits one -- so the pipeline can hold the same set by a counted pointer
+// across a rebuild without a copy of eight planes.
+struct SceneLayerSet {
+    static constexpr uint32_t kMaxLayers = 8;
+    struct Layer {
+        gpu::BufferRef plane;     // the host's id<MTLBuffer>, borrowed and retained: 16-bit unorm, row-major, top row first
+        uint32_t width = 0, height = 0;
+        double log_gain[3] = {0, 0, 0};   // gᵢ, natural log of a gain on the cone responses, at full coverage
+        double coverage = 0.0;            // onᵢ · opacityᵢ
+    };
+    std::vector<Layer> layers;
+    double frame_to_source[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};   // row-major, column vectors (x, y, 1)
+    std::string stamp;
+    // Any layer with a colour delta: a gain that is not the same on the three
+    // cones, at a coverage above 0. Without one the node is a scalar gain, the
+    // same operation as Film Exposure (§6.1), and no matrix runs.
+    bool colour = false;
+    size_t plane_bytes = 0;
+};
+
+// RFC-052 §6.1's `C = M_CAT16 · M_(working RGB → XYZ)`, for the working space
+// `colour_space` (the frame's, `io.input_color_space`, at the node). One
+// definition: the node uploads it and `spk_set_scene_layers` replies with it,
+// so a host computing a colour gain in cone space asks the engine for the cone
+// space rather than keeping its own copy of it (trap 28).
+bool scene_layer_cone_matrix(const Colour& colour, const std::string& colour_space, Mat3& out,
+                             std::string& error);
+
+// RFC-052 §6.4's refusal, in one place for the session and the node: "" when a
+// render whose wire says `scene_layers = wire` may run on `held` (a wire of ""
+// runs on anything: the node is not dispatched), else the message naming both.
+std::string scene_layers_mismatch(const std::string& wire, const SceneLayerSet* held);
+
 // RFC-032 §27: every random and geometric choice of one overscan render,
 // drawn once per run from the seeds (`overscan.cpp`). Film millimetres: `s`
 // along the film, `t` across, `t = 0` at the first long edge.
@@ -306,6 +344,33 @@ struct OverscanLayout {
     double base_rgb[3] = {1, 1, 1};       // the base's transmittance colour, linear output RGB
     double wall_glow = 0;                 // black holes: the wall's rim brightness
     double wall_scatter = 0.02;           // light scattered in the base widens the wall, mm
+    // API-SPEC §21.3 (2026-11-09): `perforated` keeps meaning "a 135 layout"
+    // (its fog, its edge print, its gate radii); `holes` is whether the film
+    // has perforations at all -- a 135 layout, or 120 cut from 65 mm cine
+    // film (`ks65`). The kernels read `holes`.
+    bool holes = false;
+    double perf_dt = 0;                   // both rows shifted across the film (ks65: the slitter's offset), mm
+    // API-SPEC §21.4: the lens's cos^n falloff over the picture; 0 = none.
+    double falloff = 0, falloff_f = 50, falloff_n = 4;
+    // API-SPEC §21.1: the camera's light leak as this frame shows it. kind 0 =
+    // none (off, or this frame does not show it); 1 band, 2 wash, 3 spot.
+    struct BigLeak {
+        int kind = 0;
+        double amp = 0;                   // raw exposure at the peak, before the across-film profile
+        double sc = 0, st = 0;            // band centre / wash's leaking end / spot centre (s), spot centre (t)
+        int edge = 0;                     // the bright long edge: 0 at t = 0, 1 at t = film_w
+        double sig_a = 1, sig_b = 1;      // band: the soft side's and the sharp side's sigma, mm
+        double dir = 1;                   // band: the soft side's direction along s; wash: into the frame
+        double tilt = 0;                  // tan of the band's tilt off square
+        double front = 0;                 // the share of front light (the core's)
+        double lambda = 30;               // the decay across the film from the bright edge, mm
+        double len = 10;                  // wash: decay length; spot: radius, mm
+        double core = 1;                  // band: the front light's sigma, mm
+    } leak;
+    double leak_rear_rgb[3] = {1, 0, 0}, leak_front_rgb[3] = {1, 1, 1};
+    // API-SPEC §21.4: Fujifilm's edge stripes (X-Tra 400, Pro 400H; every 135-gauge format).
+    bool stripes = false;
+    double stripe_g_rgb[3] = {0, 1, 0}, stripe_r_rgb[3] = {1, 0, 0};
 };
 
 class Pipeline {
@@ -358,6 +423,14 @@ public:
 
     // `Tap.CMY_FILM` -> `Tap.RGB_OUT`.
     bool run_print(const Image& cmy, Image& out, Progress* progress, std::string& error);
+    // **The output encode can ride in the caller's last pass.** A render that goes straight to the
+    // 16-bit canvas buffer wrote the encoded float frame only to read it once and quantise it
+    // (4.8 ms at 45 MP). With this set, `run_print` (not the striped one's bands) returns the
+    // frame linear and marks the encode pending; the caller takes it with `take_pending_encode`
+    // and runs `spk_cctf_to_rgba16`, which is the encode and the quantisation in one kernel, the
+    // same bits. A caller that wants the float frame leaves this off, which is the default.
+    void set_defer_encode(bool on) { defer_encode_ = on; }
+    bool take_pending_encode(gpu::BufferRef& matrix, uint32_t& mode);
 
     // The reference's per-input meter: what `preprocess.auto_exposure` does
     // when no session EV was set (a standalone pipeline, `warm_up`), on a
@@ -405,6 +478,11 @@ public:
     // exposed alike; empty (a standalone pipeline, `warm_up`) meters the
     // input as the reference does.
     void set_auto_exposure_ev(std::optional<double> ev) { injected_ev_ = ev; }
+    // RFC-052 §6: the session's scene layers, handed before every film render
+    // as the EV above is (a rebuild makes a pipeline that has never seen
+    // them). Null, or a set whose stamp is not the wire's, refuses a render
+    // whose `camera.scene_layers` is not "".
+    void set_scene_layers(std::shared_ptr<const SceneLayerSet> set) { scene_layers_ = std::move(set); }
     // What the node applied in the last `run_film`; empty with the meter off.
     std::optional<double> last_auto_exposure_ev() const { return last_ae_ev_; }
 
@@ -602,6 +680,28 @@ public:
     /// every other build.
     const ScanHdrModel& scan_hdr() const { return scan_hdr_; }
 
+    // --- API-SPEC §21.5-§21.6: the lens (`lens.cpp`) ------------------------------------
+    //
+    // The diffusion filter and the lens aberrations, as a pass on the source
+    // before the chain (the owner, 2026-11-10): `lens_source` lenses a tier's
+    // source image -- in linear light, the axis at its centre, the pitch the
+    // format's at its long edge -- into `out` (file-backed when asked: the
+    // full tier's copy, as the session's source is). `out` is `src` itself
+    // while the lens is off or does nothing at this pitch. `exact`: the filter
+    // by the exact (slow) path, the tests' reference.
+    bool film_lens_wanted() const;
+    /// Sets this pipeline's params to `params`: call it on a pipeline of its own.
+    /// `reuse`: the previous setting's copy of this source, written over when
+    /// it is the frame's size (a slider's drag: no new pages).
+    bool lens_source(const Params& params, const Image& src, bool file_backed, Image& out, std::string& error,
+                     bool exact = false, const Image* reuse = nullptr);
+    /// The test seam (`spk_lens_probe`, not in a hardened build): `lens_source`
+    /// on a linear image at `pixel_um` per px, its chunks `chunk_rows` tall (0:
+    /// its own); `fit_info` (4 doubles, may be null) gets the pyramid's levels
+    /// and its LSF fit's rms per channel.
+    bool lens_probe(const Params& params, double pixel_um, const Image& in, bool exact, uint32_t chunk_rows,
+                    Image& out, double* fit_info, std::string& error, const Image* reuse = nullptr);
+
 private:
     struct Timer;
 
@@ -681,6 +781,7 @@ private:
     bool node_auto_exposure(const Image& in, Image& out, std::string& error);
     bool node_upsample(const Image& in, Image& out, std::string& error);
     bool node_exposure(const Image& in, Image& out, std::string& error);
+    bool node_upsample_expose(const Image& in, Image& out, std::string& error);   // the two, one kernel
     bool node_boost(const Image& in, Image& out, std::string& error);
     bool node_headroom(const Image& in, Image& out, std::string& error);
     // RFC-032 §27 / RFC-031 (`overscan.cpp`): the film canvas, its imprints,
@@ -694,9 +795,62 @@ private:
     bool node_overscan_film_present(const Image& in, Image& out, std::string& error);
     bool node_overscan_light(const Image& in, Image& out, std::string& error);
     bool node_lens_blur(const Image& in, Image& out, std::string& error);
+    // --- API-SPEC §21.5-§21.6: the lens pass (lens.cpp) --------------------------------
+    /// Where the lens's axis is in the image a pass is handed (a chunk of the
+    /// frame's rows, or all of it), pixel centres on the integers, and the pitch.
+    struct LensGeom {
+        double pcx = 0.0, pcy = 0.0;   ///< the source frame's centre
+        double hd = 1.0;               ///< the source frame's half-diagonal, px
+        double um_per_px = 0.0;        ///< micrometres on the film per px
+        uint32_t row0 = 0;             ///< the frame row of the image's row 0
+        uint32_t plane_h = 0;          ///< the frame's rows
+    };
+    /// The aberrations' field sizes in px at h = 1.
+    struct LensFieldPx {
+        double sfc = 0.0, sast = 0.0, coma = 0.0;
+        double var_t1 = 0.0, var_r1 = 0.0;
+        bool tangential = false, radial = false;
+        int lmax = 0;
+    };
+    struct LensPyramid {
+        Image lv[5];
+        int I0[5] = {}, LH[5] = {}, LW[5] = {};
+        int levels = 0;
+    };
+    /// A chunk of the frame's rows that `lens_aberrate_frame` hands a pass:
+    /// the frame's size and the chunk's first row. The desktop has no
+    /// RFC-035 band context, so the lens keeps its own (inactive = the image
+    /// is the whole frame).
+    struct LensChunk {
+        bool active = false;
+        uint32_t frame_w = 0, frame_h = 0, row0 = 0;
+    };
+    LensGeom lens_geom(const Image& in) const;
+    double lens_pitch_um(uint32_t w, uint32_t h) const;
+    bool diffusion_components(double um_per_px, double& p_s, std::vector<Blur::Component>& comps,
+                              std::string& error) const;
+    bool lens_glow(double um_per_px, double& w, double& sigma) const;
+    bool lens_mixture_now(double um_per_px, double a[3], std::vector<Blur::Component>& comps,
+                          std::string& error) const;
+    bool lens_pyramid_fit(double um_per_px, uint32_t w, uint32_t h, double a_id[3],
+                          diffusion::PyramidFit& fit, std::string& error) const;
+    bool lens_scatter_source(const Image& E, float bp[5], std::string& error);
+    bool lens_filter_fast(const Image& E, Image& out, std::string& error);
+    bool lens_filter_exact(const Image& raw, Image& out, std::string& error);
+    bool lens_glow_fast(const Image& X, Image& out, std::string& error);
+    LensFieldPx lens_field_px(double um_per_px) const;
+    bool lens_aberrations_wanted(double um_per_px) const;
+    double lens_aberration_reach(double um_per_px, double hd) const;
+    bool lens_pyramid(const Image& base, const LensGeom& G, int lmax, LensPyramid& P, std::string& error);
+    bool lens_line(const LensPyramid& P, const LensGeom& G, const LensFieldPx& F, uint32_t mode, Image& out,
+                   std::string& error);
+    bool lens_aberrate(Image in, Image& out, std::string& error);
+    bool lens_aberrate_frame(const Image& src, Image& out, std::string& error);
+    uint32_t lens_chunk_rows() const;
     bool node_halation(const Image& in, Image& out, std::string& error);
     bool node_expose_log(const Image& in, Image& out, std::string& error);
     bool node_film_curves(const Image& in, Image& out, std::string& error);
+    bool node_log_and_curves(const Image& in, Image& log, Image& cmy, std::string& error);   // the two, one kernel
     bool node_dir_couplers(const Image& cmy, const Image& log_raw, Image& out, std::string& error);
     bool node_grain(const Image& in, Image& out, std::string& error);
     /// The grain model itself; `node_grain` is this plus RFC-025's strength.
@@ -714,6 +868,18 @@ private:
     // dispatched while `camera.scene_curve` is "".
     bool scene_curve_wanted() const;
     bool node_scene_curve(const Image& in, Image& out, std::string& error);
+    // RFC-052 §6's 场景 layers (`scene_layers.cpp`, API-SPEC §23): pointwise,
+    // after Scene Latitude and before the Decode curve; not dispatched while
+    // `camera.scene_layers` is "".
+    bool scene_layers_wanted() const;
+    bool node_scene_layers(const Image& in, Image& out, std::string& error);
+    // The geometry node's constants for `g` on an `in_h` x `in_w` frame, as
+    // `spk_geometry_resample_df` reads them: `consts` the eight (hi, lo)
+    // pairs, `meta` {SH, SW, OH, OW, turns, flips}. One function, read by
+    // `node_geometry` and by `node_scene_layers`, so the mask is mapped through
+    // the cut by the arithmetic that cut the picture.
+    static void geometry_constants(const GeometryParams& g, uint32_t in_h, uint32_t in_w, float consts[16],
+                                   uint32_t meta[6]);
 
     // RFC-024's virtual contrast mask (`contrast_mask.cpp`). `prepare` runs
     // once per print run on the whole negative, after `print_prefix`; the
@@ -731,6 +897,8 @@ private:
     bool node_glare(const Image& in, Image& out, std::string& error);
     bool node_xyz_gamut(const Image& in, Image& out, std::string& error);
     bool node_minilab(const Image& in, Image& out, std::string& error);
+    // The print's hue, from the negative (core/negative_hue.hpp): every pair no table covers.
+    bool node_negative_hue(const Image& negative, const Image& in, Image& out, std::string& error);
     bool node_xyz_to_rgb(const Image& in, Image& out, std::string& error);
     bool node_edr(const Image& in, Image& out, std::string& error);
     bool node_gamut_compress(const Image& in, Image& out, std::string& error);
@@ -763,12 +931,25 @@ private:
     // they are re-derived at the top of every `run_print`.
     bool refresh_print_constants(std::string& error);
 
+    // A spectral integral's tables with the dead wavelengths taken out (`spectral_rows`).
+    struct SpectralRows { gpu::BufferRef chd, base, ixs; uint32_t n = 0; };
+    bool spectral_rows(const Vec& chd, const Vec& base, const Vec& ixs, SpectralRows& out, std::string& error);
+    SpectralRows print_rows_, scan_rows_, di_rows_;
     gpu::BufferRef minilab_table_;
     uint32_t minilab_side_ = 0;
     float minilab_lo_[3]{}, minilab_inv_[3]{};
     bool minilab_active_ = false;
     // The enlarger's live controls on a minilab pair: the epilogue of `spk_minilab` (pipeline.cpp).
     bool minilab_enlarger(float ep[6], std::string& error);
+    // core/negative_hue.hpp. Built with the pipeline; the filters' offsets are per print run.
+    NegativeHue negative_hue_;
+    bool negative_hue_active_ = false;
+    gpu::BufferRef negative_hue_layers_, negative_hue_gamut_, negative_hue_map_;
+    bool negative_hue_offsets(double out[3], std::string& error);
+    bool negative_hue_params(float p[60], std::string& error);
+    // The optical print as one pass, where nothing needs the planes between its nodes.
+    bool print_fused_wanted() const;
+    bool node_print_fused(const Image& in, Image& out, std::string& error);
     gpu::Gpu* gpu_;
     const Colour* colour_;
     const Blob* blob_;
@@ -782,6 +963,10 @@ private:
     Progress* progress_ = nullptr;
     std::optional<double> injected_ev_;
     std::optional<double> last_ae_ev_;
+    std::shared_ptr<const SceneLayerSet> scene_layers_;
+    // The frame `node_geometry` was last handed (the tier's source, before the
+    // cut): the scene layers' node maps its pixels back through the cut into it.
+    uint32_t geometry_in_h_ = 0, geometry_in_w_ = 0;
 
     // The run's seeds, drawn **once per run** rather than inside the nodes
     // (RFC-020 §4.3, trap 4). Under strips a per-node draw is a different
@@ -863,6 +1048,9 @@ private:
     Cam16Setup cam16_;
     Mat3 rgb_to_xyz_ae_;          // the auto-exposure meter's luminance row
     uint32_t output_cctf_mode_ = 4;
+    // The output encode, left to the caller's quantising pass (`set_defer_encode`).
+    bool defer_encode_ = false;
+    bool encode_pending_ = false;
     uint32_t input_cctf_mode_ = 4;
 
     // print side, per run
@@ -883,6 +1071,12 @@ private:
     // node that needs a frame coordinate reads it rather than every stage
     // growing a `Strip` argument.
     uint32_t band_row0_ = 0;
+    // API-SPEC §21.5-§21.6: the pitch the lens pass is running at (lens.cpp).
+    double lens_um_per_px_ = 0.0;
+    // The rows its chunks take (0: its own 512); set only by `lens_probe`.
+    uint32_t lens_chunk_rows_ = 0;
+    // The chunk the lens's aberrations are running on (`lens_aberrate_frame`).
+    LensChunk lens_chunk_;
     // The height of that plane, with it; 0 on the un-striped path. A pair's
     // Scene Placement reads it: where its second frame starts is a fraction of
     // the frame, not of the strip.

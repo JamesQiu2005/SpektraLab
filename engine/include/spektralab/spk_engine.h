@@ -185,6 +185,20 @@ const char* spk_params_schema(spk_engine* engine);
  */
 const char* spk_memory_report(spk_engine* engine);
 
+/* Give the render pool back now, down to `keep_bytes` (0: all of it), and
+ * return the bytes freed.
+ *
+ * The same `trim_pool` the memory-pressure source and the idle timer call
+ * (RFC-020 §3.1, §3.2), for a host whose own reading of the machine says so
+ * before either of them would: macOS memory pressure is reactive, and the
+ * idle timer waits 60 s that back-to-back jobs never give it. Only buffers no
+ * node or Image holds go (`refs == 0`), the largest first, so it is safe
+ * beside a render on another thread -- which then allocates again what it
+ * needs. Sessions, their sources and cached negatives, and the baked tables
+ * are untouched: no picture changes. Cannot fail; a null engine frees 0.
+ */
+size_t spk_trim_pool(spk_engine* engine, size_t keep_bytes);
+
 /* Pay the fixed per-stock-pair setup before the user is looking (RFC-013 §3).
  * Idempotent. `out_json` receives the `warm_up` reply. */
 spk_status spk_warm_up(spk_engine* engine, const char* film_stock,
@@ -271,6 +285,48 @@ spk_status spk_scene_latitude(spk_session* session, const char* request_json, ch
  * session per (medium, Exp. Comp., headroom, clip_ev). Takes the session's
  * lock, as every session call does. */
 spk_status spk_session_hdr_curve(spk_session* session, const char* request_json, char** out_json);
+
+/* RFC-052 §6.4 (API-SPEC §23): the 场景 layers -- a local amount of Film
+ * Exposure (and of a filter on the light) before the film. One layer:
+ *
+ *   plane      an `id<MTLBuffer>` **on the engine's own device**: the layer's
+ *              folded mask in source space S, 16-bit unorm (0 = none, 65535 =
+ *              full), `width * height` uint16, row-major, top row first, no
+ *              row padding. Texel (i, j)'s centre is S = ((i + 0.5) / width,
+ *              (j + 0.5) / height). Retained by the session until the next call
+ *              or its release; **the host never writes into a plane it has
+ *              handed over** (make a new buffer for a changed mask).
+ *   log_gain   g, the natural log of a gain on the three cone responses of
+ *              `C = M_CAT16 · M_(working RGB -> XYZ)` (the reply's
+ *              `rgb_to_cone`), at full coverage. An exposure of e stops alone is
+ *              e·ln2·(1, 1, 1); with every layer's three equal the node is a
+ *              scalar gain 2^(Σ k e) and runs no matrix.
+ *   coverage   on · opacity, in [0, 1]; the layer's k(x) = coverage · mask(x).
+ */
+typedef struct spk_scene_layer {
+    void*    plane;
+    uint32_t width, height;
+    float    log_gain[3];
+    float    coverage;
+} spk_scene_layer;
+
+/* Hand the session its scene layers: `count` 0...8 (0 clears them).
+ * `frame_to_source` is the handed frame's normalised coordinates -> S,
+ * row-major 3 x 3 acting on the column (x, y, 1), origin top-left, x right,
+ * y down, (0, 0)-(1, 1) the frame's corners (pixel edges); NULL is the
+ * identity, which it is unless the host cut the frame itself (`HostCut`). The
+ * engine composes it with its own cut (`io.geometry`, inverted) per pixel.
+ * `stamp` (NULL = "") names this set: a render whose wire field
+ * `scene_layers` is not "" and is not this stamp is refused with
+ * SPK_ERR_USER, both named. Drops every tier's cached negative -- not the
+ * decoded source, not the lens's kept copy, not the meter. `out_json`
+ * (caller-freed, may be NULL): `stamp`, `count`, `colour`, `plane_bytes`,
+ * `working_space`, `rgb_to_cone` and `cone_to_rgb` (row-major, out[i] =
+ * Σ_j m[3i + j] x[j]), `frame_to_source`. The planes' bytes are the host's and
+ * are not in `spk_memory_report`. The CMake targets (Windows, Linux) refuse it
+ * with SPK_ERR_UNSUPPORTED. */
+spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* layers, uint32_t count,
+                                const float frame_to_source[9], const char* stamp, char** out_json);
 
 /* RFC-032: where the gates are on the film canvas the session's last render
  * laid out (API-SPEC §13). `out_json`: `{"valid": false}` with overscan off or

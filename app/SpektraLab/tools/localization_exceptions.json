@@ -12,7 +12,6 @@
     "Eared": "FilmEdgeGate.label: the case's name with a capital (Model/FilmEdge.swift)",
     "Kicked": "FilmEdgeGate.label: the case's name with a capital (Model/FilmEdge.swift)",
     "Shouldered": "FilmEdgeGate.label: the case's name with a capital (Model/FilmEdge.swift)",
-    "Scene": "DevelopTab.title: the case's name with a capital (DevelopLayout.swift)",
     "Placement": "EffectsPage.title: the case's name with a capital (DevelopLayout.swift)",
     "This Mac cannot write JPEG": "ExportWriter.Failure.noEncoder's sentence, with the format's name in it; shown where an export fails",
     "This Mac cannot write HEIF": "ExportWriter.Failure.noEncoder's sentence, with the format's name in it; shown where an export fails",

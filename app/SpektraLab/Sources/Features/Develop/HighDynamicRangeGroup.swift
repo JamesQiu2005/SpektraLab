@@ -30,8 +30,10 @@ struct HighDynamicRangeGroup: View {
     private var prefs: DevelopPanelPrefs { .shared }
     private var displays: HDRDisplays { .shared }
 
-    /// The group's height folded: its title line.
-    static let titleHeight: CGFloat = 36
+    /// The group's height folded: its header (`ColumnSectionHeader`, no hairline).
+    static var titleHeight: CGFloat { FoldHeader<EmptyView, EmptyView>.height }
+    /// Decode's sub-sections' indent: their chevron under Decode's name.
+    static let indent: CGFloat = 18
 
     private var edit: FrameEdit { session.edit }
     private var params: FilmParams { edit.params }
@@ -63,7 +65,7 @@ struct HighDynamicRangeGroup: View {
                           id: "v5.develop.edr")
                     .rowEnabled(edrReason == nil)
                 toggleRow(L("Enable HDR"), note: hdrReason,
-                          isOn: Binding(get: { edit.hdr }, set: { on in session.change { $0.hdr = on } }),
+                          isOn: Binding(get: { edit.hdr }, set: { on in session.switchHDR(on) }),
                           id: "v5.develop.hdr")
                     .rowEnabled(hdrEnabled)
                 ValueSlider(title: L("HDR Peak Brightness"), value: session.binding(\.hdrPeak),
@@ -88,45 +90,29 @@ struct HighDynamicRangeGroup: View {
         return max(92, ((title as NSString).size(withAttributes: [.font: font]).width + 2).rounded(.up))
     }
 
-    /// The group's own fold, a step under Decode's title, as Decode's parts are named.
+    /// The group's own fold: Decode's folding header, a step in, as 放大机's.
     private var title: some View {
-        HStack(spacing: 8) {
-            Text(L("High Dynamic Range")).font(Theme.Font.ui(12.5, .medium)).foregroundStyle(Theme.secondaryText)
-                .fixedSize().accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { prefs.hdrCollapsed.toggle() }
-            } label: {
-                Icon(.chevronDown, size: 13, color: Theme.secondaryText)
-                    .rotationEffect(.degrees(prefs.hdrCollapsed ? -90 : 0))
-                    .frame(width: 32, height: Self.titleHeight).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(prefs.hdrCollapsed ? L("Show the controls") : L("Fold the controls away"))
-            .accessibilityValue(L("High Dynamic Range"))
-            .accessibilityIdentifier("v5.develop.fold.hdr")
-        }
-        .padding(.leading, 16).padding(.trailing, 4)
-        .frame(height: Self.titleHeight)
+        ColumnSectionHeader(title: L("High Dynamic Range"), folded: prefs.hdrCollapsed, id: "hdr",
+                            rule: false, indent: Self.indent, toggleFold: { prefs.hdrCollapsed.toggle() })
     }
 
     /// A switch row as Apply Film Emulation's, with a line under its name that wraps (never "…").
     private func toggleRow(_ name: String, note: String?, isOn: Binding<Bool>, id: String) -> some View {
         HStack(alignment: .center, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(Theme.Font.ui(13, .semibold)).foregroundStyle(Theme.text)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).font(Theme.Font.ui(12.5, .medium)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                 if let note {
-                    Text(note).font(Theme.Font.ui(11)).foregroundStyle(Theme.secondaryText)
+                    Text(note).font(Theme.Font.ui(10.5)).foregroundStyle(Theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 8)
-            SpkToggle(isOn: isOn)
+            SpkToggle(isOn: isOn, size: .compact)
                 .accessibilityLabel(name)
                 .accessibilityIdentifier(id)
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 44)
+        .padding(.horizontal, 16).padding(.vertical, 5)
+        .frame(minHeight: 32)
     }
 }

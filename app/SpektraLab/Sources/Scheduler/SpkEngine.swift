@@ -167,6 +167,13 @@ protocol FrameSource: AnyObject {
     func takeHDRRendition(_ job: RenderJob, sdr: RenderedPixels, hdr: RenderedPixels) throws
     /// The rendition could not be made (the engine's words): the job goes on without it.
     func hdrRenditionFailed(_ job: RenderJob, _ message: String)
+    /// Whether this canvas job's session is its own and goes when the job ends, leaving the frame being
+    /// edited (`editing`) as it is: a double exposure's exposure shown alone (`EngineRouter.prepareAlone`), a
+    /// picture of the open page that is not the page's own develop. False for everything else.
+    func leavesEditingAlone(_ job: RenderJob) -> Bool
+    /// PRD-E's 场景 layers for this job (`SceneLayerWire.Ask`, captured at submit): handed to the session by
+    /// `spk_set_scene_layers` before it renders, under the stamp its wire names. Nil: none, and the wire names none.
+    func sceneLayers(_ job: RenderJob) -> SceneLayerWire.Ask?
 }
 
 extension FrameSource {
@@ -182,6 +189,8 @@ extension FrameSource {
     func hdrRendition(_ job: RenderJob) -> (delta: [String: ParamValue], restore: [String: ParamValue])? { nil }
     func takeHDRRendition(_ job: RenderJob, sdr: RenderedPixels, hdr: RenderedPixels) throws {}
     func hdrRenditionFailed(_ job: RenderJob, _ message: String) {}
+    func leavesEditingAlone(_ job: RenderJob) -> Bool { false }
+    func sceneLayers(_ job: RenderJob) -> SceneLayerWire.Ask? { nil }
 }
 
 final class SpkEngine: DevelopEngine, @unchecked Sendable {
@@ -215,6 +224,8 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         /// What its source was made of (`FrameSource.sourceKey`).
         let source: String
         var applied: [String: ParamValue]
+        /// The stamp of the 场景 layers the session holds (`spk_set_scene_layers`); "" none.
+        var sceneStamp = ""
     }
     private var editing: Editing?
     /// The Digital Intermediate's view (`CineonView`), made the first time a DI is rendered. Touched on `work`.
@@ -242,6 +253,12 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         name = String(cString: spk_build_info())
         let caps = Self.object(String(cString: spk_capabilities(engine)))
         effectVersions = ((caps["backend"] as? [String: Any])?["effect_versions"] as? String) ?? "?"
+        // The fields this engine has, once, before any job (PRD-D): what the wire sends of API-SPEC §21 and which
+        // controls the pages offer (`EngineFeatures`). Read here, not when the launch's wire check gets to it, so
+        // a frame's first develop is sent the same words as its next.
+        let schema = Self.object(String(cString: spk_params_schema(engine)))
+        let names = (schema["fields"] as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["name"] as? String }
+        EngineFeatures.publish(Set(names))
     }
 
     deinit {
@@ -274,11 +291,21 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         if let f = inFlight, f.job == jobID { spk_cancel(f.session, nil) }
     }
 
-    /// The engine trims its own pool: at the next open once no session is left
-    /// or the frame's size changes (`spk_open`), and after an idle spell
-    /// (`metal_gpu.cpp`), so it has no call for "now". Returns 0: nothing was
-    /// freed by this call.
-    @discardableResult func trim() async -> UInt64 { 0 }
+    /// The engine's render pool given back now (`spk_trim_pool`, 0 kept): only the buffers no render holds, so a
+    /// render under way allocates again what it needs, and nothing a session keeps — its source, its cached
+    /// negatives — goes. The engine also trims by itself: at the next open once no session is left or the
+    /// frame's size changes (`spk_open`), after 60 s idle and on the operating system's pressure (`metal_gpu.cpp`).
+    /// Until 2026-11-13 this returned 0 and freed nothing, so every caller of it below — a job waiting for
+    /// memory, a pressure event, a reclaim — was given back nothing of the pool (DIAG-2026-11-13 item 4).
+    /// The bytes freed.
+    @discardableResult func trim() async -> UInt64 {
+        let engine = self.engine
+        return await withCheckedContinuation { (done: CheckedContinuation<UInt64, Never>) in
+            // Not on `work`: the pool takes its own lock and frees only what nothing holds, so it need not wait
+            // for a render to end — which is when memory pressure is likeliest.
+            DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: UInt64(spk_trim_pool(engine, 0))) }
+        }
+    }
 
     func heldBytes() async -> UInt64 { memory().held }
 
@@ -308,6 +335,14 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
                 }
                 done.resume()
             }
+        }
+    }
+
+    /// The frame whose session is open between canvas jobs (`editing`), if any: for a check that a
+    /// picture made beside the page (an exposure held alone) left the page's session where it was.
+    func editingFrame() async -> UUID? {
+        await withCheckedContinuation { (done: CheckedContinuation<UUID?, Never>) in
+            work.async { done.resume(returning: self.editing?.frame) }
         }
     }
 
@@ -550,7 +585,9 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         // export's, and a shot's or an import's at preview size, which nobody
         // is editing and which would otherwise sit beside the camera with its
         // source and its negative until the next frame arrived.
-        let oneShot = job.tier == .full || (!job.kind.isCanvas && !keepsEverySession)
+        // A canvas job that is not the page's own develop (a double's exposure held alone) is one-shot too:
+        // it never displaces the page's open session and its negative, and leaves nothing behind it.
+        let oneShot = job.tier == .full || (!job.kind.isCanvas && !keepsEverySession) || source.leavesEditingAlone(job)
         var decodeSeconds = 0.0, openSeconds = 0.0
         var openPeak = footprintBefore
         var openedSize: PixelSize?
@@ -602,6 +639,15 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
             }
         }
 
+        // PRD-E's 场景 layers, handed where the session does not hold this job's set already: the planes made from the
+        // edit the job was submitted with, under the stamp its wire names. A wire with none and a session that holds
+        // a set: the set is given back (the wire's "" is never refused; this frees its planes).
+        let ask = source.sceneLayers(job)
+        let heldScene = (!oneShot && editing?.session == session) ? (editing?.sceneStamp ?? "") : ""
+        if (ask?.stamp ?? "") != heldScene {
+            try handSceneLayers(ask, to: session)
+            if !oneShot, var e = editing, e.session == session { e.sceneStamp = ask?.stamp ?? ""; editing = e }
+        }
         try throwIfCancelled(job.id)
         setInFlight(job.id, session)
         progress(RenderProgress(stage: job.isReprint ? .print : .film, fraction: fresh ? 0.15 : 0.05,
@@ -926,6 +972,62 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         guard Int(spk_overscan_geometry(session, &reply)) == Int(SPK_OK), let reply else { return nil }
         defer { spk_string_free(reply) }
         return String(cString: reply)
+    }
+
+    /// The page's session handed a new set of 场景 layers and its wire's difference, **without a render**: what M1's
+    /// page may do when a stroke ends, before the develop the pointer's rest asks for (that develop then finds the
+    /// set held and hands nothing). Nothing for a frame whose session is not open. Timed by
+    /// `tools/scene_layers_drive.swift stroke` (RFC-052 §10.6: a stroke's turnaround, the develop excluded).
+    func prepareSceneLayers(_ ask: SceneLayerWire.Ask?, frameID: UUID, wire: [String: ParamValue]) async throws {
+        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
+            work.async {
+                done.resume(with: Result {
+                    guard var e = self.editing, e.frame == frameID else { return }
+                    var applied = e.applied
+                    let delta = FilmParams.step(from: &applied, to: wire)
+                    if !delta.isEmpty { try self.setParams(e.session, delta) }
+                    e.applied = applied
+                    if (ask?.stamp ?? "") != e.sceneStamp { try self.handSceneLayers(ask, to: e.session) }
+                    e.sceneStamp = ask?.stamp ?? ""
+                    self.editing = e
+                })
+            }
+        }
+    }
+
+    /// `spk_set_scene_layers` for `ask` (nil: none): its planes on this engine's device, its gains and coverages, its
+    /// matrix, its stamp. The reply's C is held to the host's copy (`SceneLayerWire.agrees`): w was made with that
+    /// copy, so a session in another space would be handed gains for the wrong cones — refused, not rendered.
+    /// On the engine's queue (`work`); blocks it while a plane not yet baked is baked.
+    func handSceneLayers(_ ask: SceneLayerWire.Ask?, to session: OpaquePointer) throws {
+        var reply: UnsafeMutablePointer<CChar>?
+        defer { if let reply { spk_string_free(reply) } }
+        guard let ask, !ask.layers.isEmpty else {
+            let rc = spk_set_scene_layers(session, nil, 0, nil, "", nil)
+            if Int(rc) != Int(SPK_OK) { throw EngineError.failed(String(cString: spk_last_error(engine))) }
+            return
+        }
+        let planes = try SceneLayerWire.planes(for: ask, device: device)
+        var layers = zip(ask.layers, planes).map { l, p in
+            spk_scene_layer(plane: Unmanaged.passUnretained(p.buffer as AnyObject).toOpaque(),
+                            width: UInt32(p.width), height: UInt32(p.height),
+                            log_gain: (l.logGain.x, l.logGain.y, l.logGain.z), coverage: l.coverage)
+        }
+        let f2s = ask.frameToSource.floats
+        let rc = withExtendedLifetime(planes) {
+            layers.withUnsafeMutableBufferPointer { ls in
+                f2s.withUnsafeBufferPointer { m in
+                    spk_set_scene_layers(session, ls.baseAddress, UInt32(ls.count), m.baseAddress, ask.stamp, &reply)
+                }
+            }
+        }
+        guard Int(rc) == Int(SPK_OK) else { throw EngineError.failed(String(cString: spk_last_error(engine))) }
+        if let reply {
+            let cone = (Self.object(String(cString: reply))["rgb_to_cone"] as? [NSNumber])?.map(\.doubleValue) ?? []
+            guard SceneLayerWire.agrees(rgbToCone: cone) else {
+                throw EngineError.failed("scene_layers: the session's cone matrix is not the host's (\(cone)): its gains were made for another space")
+            }
+        }
     }
 
     private func setParams(_ session: OpaquePointer, _ delta: [String: ParamValue]) throws {

@@ -38,6 +38,9 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         couplers = "couplers", preflash = "preflash"
     /// High Dynamic Range: EDR, Enable HDR and HDR Peak Brightness (the key is the 2026-11-06 group's).
     case hdr = "hdr"
+    /// 编辑 › 镜头's settings on the negative (PRD-D §3.4): the 柔光镜 and the 像差. The vignette shown beside them
+    /// is Layer 2's and travels with Light, as it always has. Offered while the engine has the filter.
+    case lens = "lens"
 
     var id: String { rawValue }
 
@@ -48,8 +51,9 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         // for it would be a box for something that cannot be seen. Decode is the white balance
         // and the curve.
         [.filmAndPaper, .filmExposure, .format, .filmEdgeAndDateBack, .hdr,
-         .enlarger, .decode, .couplers, .preflash, .light, .curve, .colour]
+         .enlarger, .decode, .couplers, .preflash, .light, .curve, .colour, .lens]
             .filter { $0 != .filmEdgeAndDateBack || FeatureFlags.filmEdge || FeatureFlags.dateBack }
+            .filter { $0 != .lens || EngineFeatures.offers(.softFilter) || EngineFeatures.offers(.lensCharacter) }
     }
 
     /// Ticked when the sheet opens: everything but the film edge and HDR.
@@ -87,6 +91,7 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         case .scenePlacement: L("Scene Placement")
         case .filmEdgeAndDateBack: L("Film Edge & Date Back")
         case .hdr: L("High Dynamic Range")
+        case .lens: L("Lens", as: "the edit section")
         case .light, .curve, .colour: layer2Tool?.title ?? ""
         }
     }
@@ -107,7 +112,14 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         let p = edit.params
         switch self {
         case .filmExposure: return Fmt.signed(p.exposureCompensationEV) + " EV"
-        case .format: return p.filmFrame + Fmt.dot + L("Grain") + " " + Fmt.times(p.effects.grain) + Fmt.dot + L("Halation") + " " + Fmt.times(p.effects.halation)
+        case .format:
+            let leak = edit.leak.kind == .off ? "" : Fmt.dot + L("Light Leak") + " " + edit.leak.kind.label
+            return FilmFrame.named(p.filmFrame).title + Fmt.dot + L("Grain") + " " + Fmt.times(p.effects.grain) + Fmt.dot + L("Halation") + " " + Fmt.times(p.effects.halation) + leak
+        case .lens:
+            var parts: [String] = []
+            if let f = edit.lens.filter { parts.append(f.label + " " + SoftFilter.strengthText(edit.lens.strength)) }
+            if FeatureFlags.lensCharacter, let c = edit.lens.character { parts.append(c.label) }
+            return parts.isEmpty ? L("Off") : parts.joined(separator: Fmt.dot)
         case .decode:
             let balance = L(shown: edit.decode.whiteBalance.rawValue)
             return p.sceneCurve.isIdentity ? balance : balance + Fmt.dot + L("Curve")
@@ -160,6 +172,34 @@ struct SettingsClip: Codable, Equatable, Sendable {
     /// against. Nil for a clip made without a picture (a tour's, a preset saved before 2026-11-05), whose
     /// film keeps only its half turn. Display data, never a path: it may enter a preset.
     var sourceAspect: Double? = nil
+
+    /// **A clip never carries mask layers in M1** (PRD-E §9 q10; 拷贝设置 with layers is M2): a mask is drawn on one
+    /// photograph's subject. Stripped where a clip is made and where one is read (a clipboard or a preset kept by a
+    /// build that wrote them), so no paste and no preset can bring a layer; the sheet says so in one line.
+    init(groups: Set<ClipboardGroup>, settings: FrameEdit, sourceName: String, sourceAspect: Double? = nil) {
+        self.groups = groups
+        self.settings = Self.withoutLayers(settings)
+        self.sourceName = sourceName
+        self.sourceAspect = sourceAspect
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        groups = try c.decode(Set<ClipboardGroup>.self, forKey: .groups)
+        settings = Self.withoutLayers(try c.decode(FrameEdit.self, forKey: .settings))
+        sourceName = try c.decode(String.self, forKey: .sourceName)
+        sourceAspect = try c.decodeIfPresent(Double.self, forKey: .sourceAspect)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(groups, forKey: .groups)
+        try c.encode(Self.withoutLayers(settings), forKey: .settings)
+        try c.encode(sourceName, forKey: .sourceName)
+        try c.encodeIfPresent(sourceAspect, forKey: .sourceAspect)
+    }
+
+    static func withoutLayers(_ e: FrameEdit) -> FrameEdit { var e = e; e.layers = nil; return e }
 
     /// "Clipboard: Film & Paper, Exposure · 2 of 6": what Select says above Paste.
     var summary: String {
@@ -274,7 +314,10 @@ struct SettingsClip: Codable, Equatable, Sendable {
             out.params.effects.grain = s.params.effects.grain
             out.params.effects.halation = s.params.effects.halation
             out.params.antihalationRemoved = s.params.antihalationRemoved
+            // Format's effects carry its 漏光 (PRD-D §3.3): where it falls stays the target's, its body and frame seed.
+            out.leak = s.leak
         }
+        if groups.contains(.lens) { out.lens = s.lens }
         if groups.contains(.decode) {
             out.decode.whiteBalance = s.decode.whiteBalance
             if s.decode.whiteBalance != .asShot {

@@ -332,12 +332,19 @@ final class MacLibraryBrowser {
     /// Folded sections, closed tree rows and opened years, by id.
     var folded: Set<String> = []
     /// A text field has the keyboard: the arrows, Return and Delete are its.
-    var typing = false
+    var typing = false { didSet { if typing != oldValue { MacShortcutRegistry.shared.typingMayHaveChanged() } } }
     /// The search field's text, handed to the store's query a moment after the typing stops.
     var search = ""
 
     // Selection: the chosen rows, the one the keys move from (focus), the run's anchor.
-    var selection: Set<MacImage.ID> = []
+    var selection: Set<MacImage.ID> = [] { didSet { if selection != oldValue { order.follow(selection) } } }
+    /// The order the chosen rows were picked in (`PickOrder`; LAYERS-SPEC gap G1): what 合成 lays its pictures by.
+    @ObservationIgnored private var order = PickOrder<MacImage.ID>()
+    /// The chosen of `rows` in the order they were picked: the first is a double's bottom, a pair's left (R6).
+    func picked(in rows: [MacImage]) -> [MacImage] {
+        let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return order.ordered(rows.map(\.id)).compactMap { byID[$0] }
+    }
     var focus: MacImage.ID?
     var anchor: MacImage.ID?
     /// Columns in the grid as last laid out: what ↑ and ↓ move by.

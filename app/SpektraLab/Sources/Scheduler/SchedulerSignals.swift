@@ -13,14 +13,23 @@ import UIKit
 final class SchedulerSignals {
     private let pressure: DispatchSourceMemoryPressure
     private var observers: [NSObjectProtocol] = []
+    private weak var scheduler: RenderQueue?
+
+    /// A memory-pressure event, where the operating system's dispatch source delivers it: the scheduler, and
+    /// through it the frontend's caches (`onTrimCaches`, `MemoryRelease`) and the engine's pool (`trim`). A check
+    /// delivers one here (`MacMemoryCheck`): the very path a real one takes, from its handler on.
+    func deliver(_ level: RenderQueue.Pressure) {
+        scheduler?.memoryPressure(level)
+    }
 
     init(scheduler: RenderQueue) {
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         pressure = source
-        source.setEventHandler { [weak scheduler, weak source] in
+        self.scheduler = scheduler
+        source.setEventHandler { [weak self, weak source] in
             guard let source else { return }
             let critical = source.data.contains(.critical)
-            MainActor.assumeIsolated { scheduler?.memoryPressure(critical ? .critical : .warning) }
+            MainActor.assumeIsolated { self?.deliver(critical ? .critical : .warning) }
         }
         source.resume()
 

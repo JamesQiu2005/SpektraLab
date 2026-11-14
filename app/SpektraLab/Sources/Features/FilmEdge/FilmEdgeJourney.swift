@@ -112,7 +112,36 @@ enum FilmEdgeOptions {
     // MARK: Edge
 
     /// Holes: only a perforated film has them — not 120.
-    static func holes(_ edge: FilmEdgeSettings) -> Bool { edge.format.isPerforated }
+    static func holes(_ edge: FilmEdgeSettings) -> Bool { edge.format.isPerforated || edge.perforation.on(edge.format) == .ks65 }
+
+    /// 齿孔's choice (PRD-D §3.2): offered on a 120 format only — the engine refuses the keyholes on 135 and its
+    /// panoramic formats — and only by an engine that draws them.
+    static func perforation(_ edge: FilmEdgeSettings) -> Bool { edge.format.is120 && EngineFeatures.offers(.keyholes) }
+
+    /// The Holes row as a format has it (the owner, 2026-11-11: "one row"). 135 and its wide formats always have
+    /// holes, and the row is their colour, as it was. A 120 format's row is 齿孔 Perforations, a switch — the
+    /// keyholes on or off (`FilmEdgeSettings.perforation`) — with the colour under it **only while it is on**. On an
+    /// engine without the keyholes, 120's row says it has none, as before.
+    enum HolesRow: Equatable {
+        /// 135 / Half / XPan / 135 Full Width: the colour, no switch.
+        case colour
+        /// 120 on an engine with the keyholes: the switch, and the colour shown while on.
+        case perforations(showsColour: Bool)
+        /// 120 on an engine without them: nothing to choose.
+        case none
+    }
+
+    /// View (Strip · Filed), and the two lines of what each costs under it: open where the person's choice is what
+    /// is drawn, greyed -- shown, not hidden -- on a format that draws one view whatever is kept (135 Full Width,
+    /// the owner, 2026-11-11; `FilmEdgeFormat.fixedView`). The row then shows that view, and the kept one is left
+    /// as it was for the next format.
+    static func view(_ edge: FilmEdgeSettings) -> Bool { edge.format.fixedView == nil }
+
+    static func holesRow(_ edge: FilmEdgeSettings) -> HolesRow {
+        if edge.format.isPerforated { return .colour }
+        guard perforation(edge) else { return .none }
+        return .perforations(showsColour: edge.perforation == .ks65)
+    }
 
     /// The frame's number is part of the edge print, so it is seen only where
     /// the print is in the scan. A filed carrier's sliver stops short of the
@@ -128,9 +157,11 @@ enum FilmEdgeOptions {
     /// Why the frame's number is not seen, for the Body panel's note; nil when it is.
     static func frameNumberReason(_ edge: FilmEdgeSettings, stockID: String) -> String? {
         let look = EdgeLook.of(stockID)
+        if edge.perforation.on(edge.format) == .ks65 { return L("Keyholed 120 carries no edge print.") }
         if edge.format.isPerforated, look.k135 == .cine { return L("This film’s edge prints no frame numbers.") }
         let nearGate = !edge.format.isPerforated && look.k120 == .fuji
-        if edge.mode == .filed, !nearGate { return L("Filed: this film’s frame number is outside the sliver.") }
+        // The View drawn: 135 Full Width is a strip whatever is kept (`FilmEdgeFormat.fixedView`).
+        if edge.view == .filed, !nearGate { return L("Filed: this film’s frame number is outside the sliver.") }
         return nil
     }
 
@@ -148,7 +179,7 @@ enum FilmEdgeOptions {
 
     /// The corner: a date in the frame, on. The data face goes beside the frame.
     static func corner(_ back: DateBackSettings, _ edge: FilmEdgeSettings) -> Bool {
-        back.active && !printsNothing(back, edge) && back.style != .data && back.placement == .frame
+        back.active && !printsNothing(back, edge) && back.style != .data && back.style != .perfs && back.placement == .frame
     }
 
     /// The size: any date, on.

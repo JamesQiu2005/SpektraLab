@@ -30,6 +30,7 @@ struct SheetContent: View {
         case .copySettings(let id): CopySettingsDialog(frameID: id)
         case .export, .exporting: EmptyView()     // the Export page, over the window (SheetHost)
         case .pairWith(let first, let keepFilmEdge): PairWithSheet(first: first, keepFilmEdge: keepFilmEdge)
+        case .history(let id): MacHistoryPage(frameID: id)
         }
     }
 }

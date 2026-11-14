@@ -46,6 +46,9 @@ struct DevelopWorkspace: View {
     var motion: Animation? { reduceMotion ? nil : .easeOut(duration: 0.18) }
 
     var body: some View {
+        #if DEBUG && SPK_ENGINE
+        let _ = TransitionMarks.mark("ws.body")
+        #endif
         // The column on one canvas (`PadDevelopPage.swift`): a window resized moves the parts, it never
         // makes the page again.
         Group {
@@ -54,7 +57,10 @@ struct DevelopWorkspace: View {
             // it tells the bar what its half holds (`publishShellBar`). The window and the reference device keep theirs.
             if pad != nil {
                 pageBody
-                    .onChange(of: macBarSignature, initial: true) { _, _ in publishShellBar() }
+                    // The bar's signature read in a view of its own: Undo greys for every drag's transaction (the
+                    // press and the lift of each slider or stroke), and read here it re-made the whole page each time
+                    // (2.4.0 A1: the main actor held ~45 ms after a brush's press in a Debug build, by `sample`).
+                    .background(ShellBarWatch(signature: { macBarSignature }, publish: { publishShellBar() }))
                     .onDisappear { withdrawShellBar() }
                     // A field left (the browser's search, its own Return or the shell's click-outside):
                     // the page has the keys again, as it does when it opens (`joinWideWindow`).
@@ -67,32 +73,23 @@ struct DevelopWorkspace: View {
         .buttonStyle(.plain)
         .foregroundStyle(Theme.text)
         .onAppear {
+            #if DEBUG && SPK_ENGINE
+            TransitionMarks.mark("ws.appear")
+            #endif
             guard !initialized else { return }
             initialized = true
-            session.pageNavigation.step = opening.step
-            session.pageNavigation.tool = DevelopPageNavigation.isAvailable(opening.editTool) ? opening.editTool : .darkroom
-            keepEditOnAdjust()
-            session.pageNavigation.adjust = opening.adjustTool
-            if let state = opening.adjustState { adjustState = state }
-            session.pageNavigation.darkroom = opening.darkroom
-            enlargerTool = opening.enlargerTool
-            session.pageNavigation.decodeTool = opening.decodeTool
-            if EffectsPage.darkroom.contains(opening.effectsPage) { effectsPage = opening.effectsPage }
-            session.pageNavigation.panelFolded = opening.panelFolded
-            session.show(opening.surface)
-            // The library's mode row opened this page as 编辑 (`MacModeSwitch`), or 冲洗: the row's mode is
-            // the page's, whatever this session last kept.
-            if let wanted = MacDevelopWanted.surface {
-                MacDevelopWanted.surface = nil
-                session.show(wanted)
-            }
-            comparing = opening.compare
-            let decode = session.edit.decode
-            if decode.whiteBalance == .asShot { cameraWhiteBalance = (decode.temperature, decode.tint) }
+            applyOpening()
         }
-        .onChange(of: session.frame?.edit) { _, edit in
-            guard let edit, edit != session.edit else { return }
-            session.acceptKeptEdit(edit)
+        // The library's copy of the edit watched in a view of its own (`OwnReads`): every step writes it, and read in
+        // this body each re-made the whole page (2.4.0 A2: a layer's + and −, a stroke's lift).
+        .background {
+            OwnReads {
+                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
+                    .onChange(of: session.frame?.edit) { _, edit in
+                        guard let edit, edit != session.edit else { return }
+                        session.acceptKeptEdit(edit)
+                    }
+            }
         }
         .resetAlert(resetTitle, isPresented: $asksReset) { performReset() }
         .alert(L("Unavailable materials"), isPresented: $missingPaste) {
@@ -107,18 +104,58 @@ struct DevelopWorkspace: View {
         #endif
         .onDisappear { original = false; asksReset = false }
         .onChange(of: navigation.surface) { _, _ in
+            // The pick is kept across 冲洗 and 编辑 (the owner's decision 4): a picture's row in Edit stands the
+            // tools down and says so (`LayerStandsDown`), where this used to move the pick to the film.
             original = false; asksReset = false
-            if navigation.surface == .edit, navigation.tool.isLive, pair != nil { session.pick(.film) }
         }
         .onChange(of: navigation.tool) { _, _ in
             original = false; asksReset = false
-            if navigation.tool.isLive, pair != nil { session.pick(.film) }
         }
         .onChange(of: navigation.step) { _, _ in original = false; asksReset = false }
         .onChange(of: navigation.darkroom) { _, _ in original = false }
         .onChange(of: session.layer) { _, _ in original = false; asksReset = false }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in original = false; comparing = false }
-        .onChange(of: frame.id) { _, _ in original = false; comparing = false }
+        // Another frame on the same page (2.4.0 A2b, `DevelopPane.switchSession`): the page's own state as a page made
+        // for it would start, the state the last frame's page carries (`switchFrame`'s opening) applied again.
+        .onChange(of: frame.id) { _, _ in nextFrame() }
+    }
+
+    /// The page's state for the frame it opens on: the step, the tool, the open tile, the darkroom page, the surface
+    /// the last frame's page carried (`DevelopOpening`), or a snapshot's drawing asked.
+    private func applyOpening() {
+        session.pageNavigation.step = opening.step
+        session.pageNavigation.tool = DevelopPageNavigation.isAvailable(opening.editTool) ? opening.editTool : .darkroom
+        keepEditOnAdjust()
+        session.pageNavigation.adjust = opening.adjustTool
+        if let state = opening.adjustState { adjustState = state }
+        session.pageNavigation.darkroom = opening.darkroom
+        enlargerTool = opening.enlargerTool
+        session.pageNavigation.decodeTool = opening.decodeTool
+        if EffectsPage.darkroom.contains(opening.effectsPage) { effectsPage = opening.effectsPage }
+        session.pageNavigation.panelFolded = opening.panelFolded
+        session.show(opening.surface)
+        // The library's mode row opened this page as 编辑 (`MacModeSwitch`), or 冲洗: the row's mode is
+        // the page's, whatever this session last kept.
+        if let wanted = MacDevelopWanted.surface {
+            MacDevelopWanted.surface = nil
+            session.show(wanted)
+        }
+        comparing = opening.compare
+        let decode = session.edit.decode
+        if decode.whiteBalance == .asShot { cameraWhiteBalance = (decode.temperature, decode.tint) }
+    }
+
+    /// Another frame on the kept page: each of the page's own states as a page made for the frame would start it —
+    /// Reset's question, Presets, the paste's refusal, Compare and its line, the original, the Latitude card folded,
+    /// the Enlarger's paper shelf, the camera's white balance (the next frame's) — and the carried state applied
+    /// again. The window's height (`compact`) is the window's.
+    private func nextFrame() {
+        asksReset = false; presets = false; missingPaste = false
+        comparing = false; original = false; split = 0.5
+        latitudeFolded = true
+        enlargerPaperShelf = .all
+        cameraWhiteBalance = nil
+        applyOpening()
     }
 
     var status: DevelopStatus {
@@ -190,26 +227,19 @@ struct DevelopWorkspace: View {
                 }
             case .format:
                 VStack(spacing: 0) {
-                    if let pair { PairFramePanel(session: session, frame: frame, pair: pair) }
-                    else { FramePanel(session: session, frame: frame, v5: true, wide: true) }
+                    // 胶片 picked (a picture's row has its own page, `LayerPictureColumn`): a pair's piece, a
+                    // double's own section over the format, or a photograph's format.
+                    if let pair { PairPiecePanel(session: session, frame: frame, pair: pair) }
+                    else {
+                        if let double = session.double { DoublePieceSection(session: session, frame: frame, double: double) }
+                        FramePanel(session: session, frame: frame, v5: true, wide: true)
+                    }
                     // 片边 and 日期后背 under the
                     // film's sizes, in the old rows' place, each folding (`FilmEdgeColumn`).
                     if let filmEdgeColumn { filmEdgeColumn }
-                    let removed = session.binding(\.params.antihalationRemoved)
-                    Toggle(isOn: removed) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                Text(L("Remove anti-halation layer"))
-                            }
-                            Text(L("Experimental simulation for all stocks"))
-                                .font(Theme.Font.ui(11)).foregroundStyle(Theme.secondaryText)
-                        }
-                    }
-                    .font(Theme.Font.ui(13)).padding(.horizontal, 16).padding(.vertical, 12)
-                    // Grain and Halation with
-                    // the other effects, here under the switch (`wideEffects`).
-                    Rectangle().fill(Theme.rule).frame(height: Theme.Metric.rule).padding(.horizontal, Theme.Metric.margin)
-                    wideEffects
+                    // Remove anti-halation layer, then Grain and Halation with the other effects under their own
+                    // folding header (`wideFormatTail`, `wideEffects`).
+                    wideFormatTail
                 }
                 // The film edge, the date back, the grain and the halation are the film's (Apply Film Emulation).
                 .rowEnabled(session.edit.appliesFilm)
@@ -412,14 +442,15 @@ struct DevelopWorkspace: View {
         adjusting ? L("Adjust") : resettingDecode ? L("Develop") : resetScope?.title
     }
     func performReset() {
-        if adjusting { session.resetEdit() }
+        // Edit's column whole, one step of Undo: Layer 2, and 镜头's settings on the negative with it (PRD-D §3.4).
+        if adjusting { session.change { e in for t in Adjustments.Tool.allCases { e.adjustments.reset(t) }; e.lens = LensSettings() } }
         else if resettingDecode { resetScopes(filmAndPaperResetScopes) }
         else if resettingWideFormat { resetScopes(Self.wideFormatScopes) }
         else if let scope = resetScope { model.resetPage(scope, in: session) }
     }
 
     var resetChangesAnything: Bool {
-        if adjusting { return AdjustTool.allCases.contains { !$0.isAtRest(in: session.adjustments) } }
+        if adjusting { return AdjustTool.allCases.contains { !session.adjustIsAtRest($0) } }
         if resettingDecode { return filmAndPaperResetScopes.contains { changesAnything($0) } }
         if resettingWideFormat { return Self.wideFormatScopes.contains { changesAnything($0) } }
         guard let scope = resetScope else { return false }
@@ -549,7 +580,27 @@ struct DevelopWorkspace: View {
     /// the picture as it finishes. A pair's frame is placed under its hole.
     func openCrop() { openCrop(finished: false) }
     /// Film & Paper's Crop button: none on a pair's whole piece, which has no one picture to cut.
-    var cropAction: (() -> Void)? { pair != nil && pair?.pickedSide(session.layer) == nil ? nil : openCrop }
+    /// 裁剪: a photograph's crop; on a pair or a double in Develop, 摆放 of the picture `LayerRules.arranges`
+    /// names (nil where there is none: a pair's 胶片, an empty row); in Edit, the finished picture's crop.
+    var cropAction: (() -> Void)? {
+        let piece = session.layerPiece
+        guard !piece.isSingle, navigation.surface == .develop else {
+            // Edit's crop cuts the finished picture. A double has no other (its look wears no cut of its own,
+            // `asDoubleLook`): it opened the pre-film crop of a picture it does not have, on the guide. A pair's
+            // finished picture is not cut at all (`ExportService`: `!frame.isPair`), so it has no crop in Edit,
+            // where it used to open a frame's place from the wrong page.
+            if case .double = piece { return { openCrop(finished: true) } }
+            if case .pair = piece { return nil }
+            return openCrop
+        }
+        let has: (UUID) -> Bool = { model.library.frame($0) != nil }
+        guard let target = LayerRules.arranges(session.layerPick, piece: piece, last: LayersStage.shared.lastExposure[frame.id],
+                                               has: has) else { return nil }
+        return {
+            session.pick(row: target)
+            LayersStage.shared.arranging = .init(frame: frame.id, pick: target)
+        }
+    }
     func openPrintCrop() { openCrop(finished: true) }
 
     func openCrop(finished: Bool) {
@@ -576,3 +627,15 @@ extension Notification.Name {
     static let spkDebugPresets = Notification.Name("spk.debug.presets")
 }
 #endif
+
+/// Publishes the page's half of the window's bar when its signature changes (`publishShellBar`), the signature read in
+/// this view's body so that what it reads (Undo, Redo, the crop, the column) re-makes this view alone.
+private struct ShellBarWatch: View {
+    let signature: () -> DevelopWorkspace.MacBarSignature
+    let publish: () -> Void
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .onChange(of: signature(), initial: true) { _, _ in publish() }
+            .accessibilityHidden(true)
+    }
+}
