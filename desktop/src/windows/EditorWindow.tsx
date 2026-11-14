@@ -12,6 +12,7 @@ import { TopBar } from './TopBar';
 import { AboutDialog, HostFailure, SettingsDialog } from './Dialogs';
 import { ExportPage } from '../export/ExportPage';
 import { PanelResize } from '../controls/PanelResize';
+import { FolderImportDialog } from './FolderImportDialog';
 
 export function EditorWindow() {
   const left = useSettings((s) => s.leftCollapsed);
@@ -38,6 +39,7 @@ export function EditorWindow() {
         {right ? <div /> : <RightRail />}
       </div>
       <SettingsDialog />
+      <FolderImportDialog />
       <AboutDialog />
       <ExportPage />
     </>

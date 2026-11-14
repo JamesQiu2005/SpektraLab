@@ -44,6 +44,7 @@ export interface Settings extends NewPhotoDefaults {
   filmEdgeBodySeed: number;
   collapsedSections: Record<string, boolean>;
   lastFolder: string | null;
+  folderRawOnly: boolean;
   /** Folders opened most recently, newest first (File › Open Recent). */
   recentFolders: string[];
   settingsPage: 'general' | 'rendering' | 'memory' | 'diagnostics' | 'agents';
@@ -67,6 +68,7 @@ export const SETTINGS_DEFAULT: Settings = {
   filmEdgeBodySeed: 0,
   collapsedSections: {},
   lastFolder: null,
+  folderRawOnly: false,
   recentFolders: [],
   settingsPage: 'general',
 };

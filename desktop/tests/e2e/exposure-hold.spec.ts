@@ -29,8 +29,10 @@ test('auto reading is visible; custom, slider, undo, reload and As Shot preserve
   await expect(metering).toContainText('Custom');
   await page.getByTestId('film-exposure').getByRole('checkbox').click();
   await expect(field).toHaveValue('0.0');
+  await expect(metering).toContainText('As Shot');
   expect((await read()).params).toMatchObject({ autoExposure: false, exposureBaselineEV: 0, exposureCompensationEV: 0 });
   await field.fill('0.3'); await field.press('Enter');
+  await expect(metering).toContainText('Custom');
   expect((await read()).params).toMatchObject({ autoExposure: false, exposureBaselineEV: .3, exposureCompensationEV: 0 });
   await metering.click(); await page.getByRole('menuitem', { name: 'Protect highlights', exact: true }).click();
   await expect(field).toHaveValue('−0.4');

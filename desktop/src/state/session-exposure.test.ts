@@ -4,9 +4,10 @@ import { ALL_FEATURES } from '@shared/params';
 import type { HelloResult } from '@shared/protocol';
 import type * as Session from './session';
 
-const fake = vi.hoisted(() => ({ solve: vi.fn(), params: vi.fn(async () => ({})), save: vi.fn(async () => '') }));
+const fake = vi.hoisted(() => ({ solve: vi.fn(), source: vi.fn(), thumbnail: vi.fn(), params: vi.fn(async () => ({})), save: vi.fn(async () => '') }));
 vi.mock('../host/client', () => ({ HostCallError: class extends Error {}, host: () => ({
   solve: fake.solve, setParams: fake.params,
+  renderSource: fake.source, thumbnail: fake.thumbnail,
   render: async () => ({ width: 6, height: 4, data: new Uint8Array(96), colorSpace: 'sRGB', tier: 'live', ms: 1 }),
 }) }));
 vi.mock('../platform', () => ({ platform: () => ({ log: vi.fn(), sidecarSave: fake.save }),
@@ -23,6 +24,94 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
 const state = () => session.sessionStore.getState();
+
+function grayImage(code: number) {
+  const data = new Uint8Array(32 * 32 * 4).fill(code);
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  return { width: 32, height: 32, data, colorSpace: 'sRGB' };
+}
+function cameraReady() {
+  session.sessionStore.setState({ hello: { methods: ['solve', 'render_source'], thumbnail_options: ['embedded-only'] } as HelloResult });
+  fake.source.mockResolvedValue(grayImage(69)); // ~6% linear
+  fake.thumbnail.mockResolvedValue(grayImage(118)); // ~18% linear
+}
+
+describe('As Shot camera brightness', () => {
+  it('shows an explicit As Shot preset until a manual exposure edit, even when the number is unchanged', async () => {
+    cameraReady();
+    await session.setCameraMetering('as_shot');
+    expect(session.cameraMeteringPreset()).toBe('as_shot');
+    const saved = decodeSidecar(encodeSidecar(state().sidecar));
+    session.sessionStore.setState({ sidecar: saved });
+    expect(session.cameraMeteringPreset()).toBe('as_shot');
+    const exposure = session.cameraExposureTotal()!;
+    session.beginGesture(); session.setCameraExposureTotal(exposure);
+    expect(session.cameraMeteringPreset()).toBe('custom');
+    expect(session.cameraExposureIsAsShot()).toBe(false);
+    session.undo(); expect(session.cameraMeteringPreset()).toBe('as_shot');
+    session.redo(); expect(session.cameraMeteringPreset()).toBe('custom');
+    session.setCameraMetering('linear'); expect(session.cameraMeteringPreset()).toBe('linear');
+    session.setCameraMetering('balanced'); expect(session.cameraMeteringPreset()).toBe('balanced');
+  });
+  it('persists the camera reference and uses pre-scene EV without changing auto exposure or film controls elsewhere', async () => {
+    cameraReady();
+    await session.requestPrint();
+    const before = structuredClone(state().sidecar);
+    await session.applyCameraExposureAsShot();
+    const p = state().sidecar.params;
+    expect(p.exposureBaselineEV).toBeGreaterThan(1.5);
+    expect(p.exposureBaselineEV).toBeLessThan(1.7);
+    expect(p).toEqual({ ...before.params, autoExposure: false, exposureCompensationEV: 0, exposureBaselineEV: p.exposureBaselineEV });
+    expect(state().sidecar.adjustments).toEqual(before.adjustments);
+    expect(session.cameraExposureIsAsShot()).toBe(true);
+    const saved = decodeSidecar(encodeSidecar(state().sidecar));
+    session.sessionStore.setState({ sidecar: saved });
+    expect(session.cameraExposureIsAsShot()).toBe(true);
+    session.undo(); expect(state().sidecar.params).toEqual(before.params);
+    session.redo(); expect(session.cameraExposureIsAsShot()).toBe(true);
+    session.setCameraMetering('balanced');
+    expect(state().sidecar.params).toMatchObject({ autoExposure: true, exposureBaselineEV: 0, exposureCompensationEV: 0 });
+    expect(session.cameraExposureIsAsShot()).toBe(false);
+    expect(fake.thumbnail).toHaveBeenCalledWith('/owned/a.RAF', 720, true);
+    expect(fake.source).toHaveBeenCalledWith('one', { long_edge: 720, display: 'srgb', generation: 0 });
+  });
+  it('keeps exposure when no usable camera preview is available', async () => {
+    cameraReady();
+    const before = structuredClone(state().sidecar.params);
+    fake.thumbnail.mockRejectedValueOnce(new Error('No embedded preview'));
+    await session.applyCameraExposureAsShot();
+    expect(state().sidecar.params).toEqual(before);
+    fake.thumbnail.mockResolvedValueOnce(grayImage(0));
+    await session.applyCameraExposureAsShot();
+    expect(state().sidecar.params).toEqual(before);
+    expect(state().undo).toHaveLength(0);
+  });
+  it('drops results after switching photographs, editing exposure, or explicitly resetting an unchanged baseline', async () => {
+    cameraReady();
+    let release!: (value: unknown) => void;
+    fake.source.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const pending = session.applyCameraExposureAsShot();
+    await vi.advanceTimersByTimeAsync(0);
+    session.sessionStore.setState({ engineSession: 'two', selection: '/owned/b.RAF' });
+    release(grayImage(69)); await pending;
+    expect(state().sidecar.params.autoExposure).toBe(true);
+    session.resetCameraExposure();
+    fake.source.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const again = session.applyCameraExposureAsShot();
+    await vi.advanceTimersByTimeAsync(0);
+    session.resetCameraExposure(); // same numerical state, but newer explicit intent
+    release(grayImage(69)); await again;
+    expect(state().sidecar.params.exposureBaselineEV).toBe(0);
+    expect(state().sidecar.cameraExposureReference).toBeUndefined();
+  });
+  it('leaves ordinary rendered files on their zero baseline and never infers a match from film pixels', async () => {
+    session.sessionStore.setState({ frameKind: 'jpeg', selection: '/owned/a.jpg' });
+    await session.applyCameraExposureAsShot();
+    expect(state().sidecar.params).toMatchObject({ autoExposure: false, exposureBaselineEV: 0, exposureCompensationEV: 0 });
+    expect(fake.source).not.toHaveBeenCalled();
+    expect(fake.thumbnail).not.toHaveBeenCalled();
+  });
+});
 
 describe('exposure handoff', () => {
   it('uses the same pre-scene exposure after As Shot and manual re-entry', async () => {

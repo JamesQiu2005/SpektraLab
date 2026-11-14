@@ -65,7 +65,7 @@ export function TopBar() {
               <DropdownMenu.Content className="menu" sideOffset={4} align="start" data-testid="recent-menu">
                 {recent.length === 0 && <div className="menu-label">{tz('No recent folders', '没有最近打开的文件夹')}</div>}
                 {recent.map((dir) => (
-                  <DropdownMenu.Item key={dir} className="menu-item" title={dir} onSelect={() => void openFolder(dir)}>
+                  <DropdownMenu.Item key={dir} className="menu-item" title={dir} onSelect={() => void openFolder(dir, { prompt: true })}>
                     {baseName(dir) || dir}
                   </DropdownMenu.Item>
                 ))}

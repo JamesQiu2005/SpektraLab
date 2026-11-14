@@ -112,7 +112,7 @@ const enqueue = (job: () => Promise<void>): Promise<void> => {
 
 const folderEntry = (dir: string) =>
   // "&" marks a mnemonic in a native menu; a path keeps its own.
-  plainItem(dir.replace(/&/g, '&&'), () => void openFolder(dir));
+  plainItem(dir.replace(/&/g, '&&'), () => void openFolder(dir, { prompt: true }));
 
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((p, i) => p === b[i]);
 

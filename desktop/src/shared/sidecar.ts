@@ -12,6 +12,7 @@ import { type Geometry, GEOMETRY_DEFAULT, decodeGeometry, encodeGeometry } from 
 import { type FilmParams, FILM_PARAMS_DEFAULT, decodeFilmParams } from './params.ts';
 
 export type FrameState = 'unprocessed' | 'processed' | 'stale';
+export type CameraExposurePreset = 'as_shot' | 'linear' | 'custom';
 
 export interface DecodeSettings {
   whiteBalance: string;
@@ -38,6 +39,9 @@ export interface Sidecar {
   /** The user's crop, restored when a film gate is switched off. */
   heldCrop?: Geometry | null;
   solvedEV?: number | null;
+  /** Per-photo camera-preview reference. Derived data, never copied as film settings. */
+  cameraExposureReference?: { ev: number; decodeKey: string };
+  cameraExposurePreset?: CameraExposurePreset;
   placementNeedsFit: boolean;
   state: FrameState;
   /** Everything as read, for the keys the port carries but does not model. */
@@ -73,6 +77,7 @@ function decodeState(v: unknown): FrameState {
 export function decodeSidecar(raw: unknown): Sidecar {
   const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const d = o.decode && typeof o.decode === 'object' ? (o.decode as Record<string, unknown>) : {};
+  const reference = o.cameraExposureReference as Record<string, unknown> | null | undefined;
   let geometry = GEOMETRY_DEFAULT;
   if (o.geometry) geometry = decodeGeometry(o.geometry);
   else if (o.crop) geometry = decodeGeometry({ crop: o.crop });
@@ -91,6 +96,11 @@ export function decodeSidecar(raw: unknown): Sidecar {
     noFilm: o.noFilm === true,
     heldCrop: o.heldCrop ? decodeGeometry(o.heldCrop) : null,
     solvedEV: typeof o.solvedEV === 'number' ? o.solvedEV : null,
+    cameraExposureReference: reference && typeof reference.ev === 'number' && Number.isFinite(reference.ev)
+      && Math.abs(reference.ev) <= 6 && typeof reference.decodeKey === 'string'
+      ? { ev: reference.ev, decodeKey: reference.decodeKey } : undefined,
+    cameraExposurePreset: typeof o.cameraExposurePreset === 'string' && ['as_shot', 'linear', 'custom'].includes(o.cameraExposurePreset)
+      ? o.cameraExposurePreset as CameraExposurePreset : undefined,
     placementNeedsFit: o.placementNeedsFit === true,
     state: decodeState(o.state),
     raw: o,
@@ -124,6 +134,10 @@ export function encodeSidecar(s: Sidecar): Record<string, unknown> {
   else delete out.heldCrop;
   if (s.solvedEV != null) out.solvedEV = s.solvedEV;
   else delete out.solvedEV;
+  if (s.cameraExposureReference) out.cameraExposureReference = s.cameraExposureReference;
+  else delete out.cameraExposureReference;
+  if (s.cameraExposurePreset) out.cameraExposurePreset = s.cameraExposurePreset;
+  else delete out.cameraExposurePreset;
   if (s.placementNeedsFit) out.placementNeedsFit = true;
   else delete out.placementNeedsFit;
   out.state = { [s.state]: {} };

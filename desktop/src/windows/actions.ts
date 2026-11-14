@@ -8,7 +8,7 @@ import { flushSave, openFolder, openPaths, pairComplete, sessionStore, setPages 
 export async function openDialog() {
   if (sessionStore.getState().batchExporting) return;
   const dir = await platform().pickFolder(tz('Open a folder of photographs', '打开照片文件夹'));
-  if (dir) await openFolder(dir);
+  if (dir) await openFolder(dir, { prompt: true });
 }
 
 export async function openFilesDialog() {

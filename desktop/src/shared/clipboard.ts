@@ -71,6 +71,7 @@ export function applyClip(clip: SettingsClip, target: Sidecar): Sidecar {
       const active = sl.highlightPullBack > 0 || sl.shadowPullBack > 0;
       out = setPath(out, 'placementNeedsFit', active);
     }
+    if (g === 'exposure') out = setPath(out, 'cameraExposurePreset', 'custom');
   }
   return out as unknown as Sidecar;
 }

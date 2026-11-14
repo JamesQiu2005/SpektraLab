@@ -16,6 +16,7 @@ test('a folder opened at launch is offered under Open Recent, survives a restart
   await expect.poll(() => page.locator('.thumb').count()).toBe(0);
   await page.getByTestId('recent-button').click();
   await page.getByTestId('recent-menu').getByRole('menuitem', { name: 'Roll 01' }).click();
+  await page.getByTestId('folder-import-dialog').getByRole('button', { name: 'Import', exact: true }).click();
   await expect(page.locator('.thumb')).toHaveCount(8);
   await expect(page.getByTestId('tier-badge')).toHaveText('full', { timeout: 20_000 });
 
