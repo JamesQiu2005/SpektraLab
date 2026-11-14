@@ -12,6 +12,18 @@
 #include <memory>
 #include <thread>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shobjidl.h>
+#include <propvarutil.h>
+#endif
+
 #include <libraw/libraw.h>
 
 #include "io/raw_camera.hpp"
@@ -366,6 +378,7 @@ struct Raster {
     uint32_t codes = 0;       // 256 / 65536 for integer sources, 0 for float
     std::vector<uint8_t> icc;
     Metadata meta;
+    bool png_has_xmp = false;
 };
 
 // ---- TIFF
@@ -620,13 +633,16 @@ static void jpeg_segments(const std::vector<uint8_t>& f, std::vector<uint8_t>& i
     for (auto& p : icc_parts) icc.insert(icc.end(), p.second.begin(), p.second.end());
 }
 
-static void png_chunks(const std::vector<uint8_t>& f, std::vector<uint8_t>& icc, Metadata& meta) {
+static bool png_chunks(const std::vector<uint8_t>& f, std::vector<uint8_t>& icc, Metadata& meta) {
+    constexpr char xmp_keyword[] = "XML:com.adobe.xmp";
+    bool has_xmp = false;
     size_t i = 8;
     while (i + 12 <= f.size()) {
         const uint32_t len = be32(&f[i]);
         if (i + 12 + size_t(len) > f.size()) break;
         const uint8_t* type = &f[i + 4];
         const uint8_t* body = &f[i + 8];
+        if (std::memcmp(type, "IEND", 4) == 0) break;
         if (std::memcmp(type, "iCCP", 4) == 0) {
             size_t name = 0;
             while (name < len && body[name]) ++name;
@@ -639,16 +655,80 @@ static void png_chunks(const std::vector<uint8_t>& f, std::vector<uint8_t>& icc,
             TiffBytes t(body, len);
             uint32_t ifd0;
             if (t.header(ifd0)) read_exif_metadata(t, ifd0, meta);
-        } else if (std::memcmp(type, "IDAT", 4) == 0) {
-            // eXIf may follow IDAT in some writers; keep scanning
+        } else if (std::memcmp(type, "iTXt", 4) == 0 && len > sizeof(xmp_keyword) &&
+                   std::memcmp(body, xmp_keyword, sizeof(xmp_keyword)) == 0) {
+            has_xmp = true;
         }
+        // Metadata may follow IDAT, so keep scanning to IEND.
         i += 12 + len;
     }
+    return has_xmp;
 }
+
+#ifdef _WIN32
+struct ShellProperty {
+    PROPVARIANT value{};
+    ~ShellProperty() { PropVariantClear(&value); }
+
+    bool read(IPropertyStore& store, const wchar_t* name) {
+        PROPERTYKEY key{};
+        return SUCCEEDED(PSGetPropertyKeyFromName(name, &key)) &&
+               SUCCEEDED(store.GetValue(key, &value)) &&
+               value.vt != VT_EMPTY && value.vt != VT_NULL;
+    }
+};
+
+static void png_shell_metadata(const fs::path& path, Metadata& meta) {
+    // Some editors put the shooting data in PNG XMP, with no eXIf chunk.
+    // Use the same Windows property handler as File Explorer for missing tags.
+    struct ComScope {
+        HRESULT status = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        ~ComScope() { if (SUCCEEDED(status)) CoUninitialize(); }
+    } com;
+    if (FAILED(com.status) && com.status != RPC_E_CHANGED_MODE) return;
+    std::error_code error;
+    const auto absolute = fs::absolute(path, error);
+    if (error) return;
+    IPropertyStore* raw = nullptr;
+    if (FAILED(SHGetPropertyStoreFromParsingName(absolute.c_str(), nullptr, GPS_DEFAULT,
+                                                IID_PPV_ARGS(&raw))) || !raw) return;
+    const std::unique_ptr<IPropertyStore, decltype([](IPropertyStore* p) { p->Release(); })> store(raw);
+
+    if (meta.datetime_original.empty()) {
+        ShellProperty date;
+        SYSTEMTIME utc{}, local{};
+        if (date.read(*store, L"System.Photo.DateTaken") && date.value.vt == VT_FILETIME &&
+            FileTimeToSystemTime(&date.value.filetime, &utc) &&
+            SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local) &&
+            local.wYear > 1800 && local.wYear <= 9999) {
+            // The Shell returns a UTC FILETIME. Match Explorer's local date.
+            char text[32];
+            std::snprintf(text, sizeof(text), "%04u:%02u:%02u %02u:%02u:%02u",
+                          unsigned(local.wYear), unsigned(local.wMonth), unsigned(local.wDay),
+                          unsigned(local.wHour), unsigned(local.wMinute), unsigned(local.wSecond));
+            meta.datetime_original = text;
+        }
+    }
+    const auto fill_number = [&](std::optional<double>& field, const wchar_t* name, bool positive = true) {
+        if (field) return;
+        ShellProperty property;
+        double value;
+        if (property.read(*store, name) && SUCCEEDED(PropVariantToDouble(property.value, &value)) &&
+            std::isfinite(value) && (!positive || value > 0)) field = value;
+    };
+    fill_number(meta.shutter_s, L"System.Photo.ExposureTime");
+    fill_number(meta.aperture, L"System.Photo.FNumber");
+    fill_number(meta.iso, L"System.Photo.ISOSpeed");
+    fill_number(meta.focal_mm, L"System.Photo.FocalLength");
+    fill_number(meta.focal_35mm, L"System.Photo.FocalLengthInFilm");
+    fill_number(meta.exposure_program, L"System.Photo.ExposureProgram");
+    fill_number(meta.exposure_bias_ev, L"System.Photo.ExposureBias", false);
+}
+#endif
 
 static bool decode_stb(const std::vector<uint8_t>& f, FileKind kind, Raster& out, bool header_only, std::string& error) {
     if (kind == FileKind::Jpeg) jpeg_segments(f, out.icc, out.meta);
-    else png_chunks(f, out.icc, out.meta);
+    else out.png_has_xmp = png_chunks(f, out.icc, out.meta);
     int w = 0, h = 0, comp = 0;
     if (!stbi_info_from_memory(f.data(), int(f.size()), &w, &h, &comp)) {
         error = std::string("image header unreadable: ") + stbi_failure_reason();
@@ -798,6 +878,9 @@ bool probe_file(const fs::path& path, Probe& out, std::string& error) {
     Raster r;
     if (!read_raster(path, out.kind, r, true, error)) return false;
     out.metadata = r.meta;
+#ifdef _WIN32
+    if (r.png_has_xmp) png_shell_metadata(path, out.metadata);
+#endif
     out.width = r.width;
     out.height = r.height;
     oriented_size(out.width, out.height, out.metadata.orientation);

@@ -90,7 +90,8 @@ if true; then
   # runtime is msvcrt (Ubuntu's MinGW) or the Universal CRT's api-ms-win-crt-*
   # forwarders (Homebrew's MinGW 14 defaults to UCRT; part of Windows 10+).
   # vulkan-1.dll is never imported: volk opens it at run time.
-  unexpected="$(echo "$imports" | grep -viE '^(kernel32|shell32|ws2_32|msvcrt|ucrtbase|advapi32|user32|ole32|bcrypt|api-ms-win-crt-[a-z0-9-]+)\.dll$' || true)"
+  # propsys.dll is the Windows system property library used for PNG XMP metadata.
+  unexpected="$(echo "$imports" | grep -viE '^(kernel32|shell32|propsys|ws2_32|msvcrt|ucrtbase|advapi32|user32|ole32|bcrypt|api-ms-win-crt-[a-z0-9-]+)\.dll$' || true)"
   if [[ -n "$unexpected" ]]; then
     echo "spektralab-host.exe imports DLLs outside the system allowlist: $(echo $unexpected)" >&2
     exit 1
