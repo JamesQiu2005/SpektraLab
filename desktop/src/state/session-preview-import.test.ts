@@ -9,7 +9,7 @@ const fake = vi.hoisted(() => ({
   key: vi.fn(), read: vi.fn(), write: vi.fn(async (_key: string, _image: RgbaImage) => true), thumbnail: vi.fn(),
   open: vi.fn(), close: vi.fn(async () => {}), renderView: vi.fn(), renderSource: vi.fn(), load: vi.fn(), files: vi.fn(),
   frames: { print: null as RenderReply | null, original: null as RgbaImage | null },
-  pauseThumbs: vi.fn(), forget: vi.fn(),
+  pauseThumbs: vi.fn(), forget: vi.fn(), expand: vi.fn(),
 }));
 vi.mock('./displayCache', () => ({ displayCacheKey: fake.key, readDisplayCache: fake.read, writeDisplayCache: fake.write,
   forgetDisplayMemoryCache: fake.forget, peekDisplayCache: vi.fn(() => null) }));
@@ -20,7 +20,7 @@ vi.mock('../host/client', () => ({ HostCallError: class extends Error {}, host: 
   thumbnail: fake.thumbnail, setParams: async () => ({}),
 }) }));
 vi.mock('../platform', () => ({ platform: () => ({
-  log: vi.fn(), listImages: fake.files, sidecarLoad: fake.load, sidecarSave: async () => '', setTitle: async () => {},
+  log: vi.fn(), listImages: fake.files, expandPaths: fake.expand, sidecarLoad: fake.load, sidecarSave: async () => '', setTitle: async () => {},
 }), baseName: (path: string) => path.split('/').pop()!, dirName: () => '/owned' }));
 
 let session: typeof SessionModule;
@@ -52,6 +52,73 @@ beforeEach(async () => {
 afterEach(() => { session.importPreviews.dispose(); vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe('background import preview integration', () => {
+  it('offers a remembered RAW-only folder choice, including subfolders, without filtering explicit JPEG files', async () => {
+    const { folderImportStore, finishFolderImport } = await import('./folderImport');
+    const { settingsStore } = await import('./settings');
+    fake.files.mockResolvedValue([file('one.ARW'), file('one.JPG'), file('sub/two.raf'), file('scan.tif')]);
+    const pending = session.openFolder('/owned', { prompt: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(folderImportStore.getState().request).toMatchObject({ folder: '/owned', total: 4, rawCount: 2 });
+    finishFolderImport(true); await pending;
+    expect(settingsStore.getState().folderRawOnly).toBe(true);
+    expect(session.sessionStore.getState().frames.map((f) => f.name)).toEqual(['one.ARW', 'sub/two.raf']);
+    fake.expand.mockResolvedValue([file('one.JPG')]);
+    await session.openPaths(['/owned/one.JPG']);
+    expect(session.sessionStore.getState().frames.map((f) => f.name)).toEqual(['one.JPG']);
+    fake.expand.mockResolvedValue([file('one.ARW'), file('one.JPG'), file('selected.JPG')]);
+    await session.openPaths(['/owned/folder', '/owned/selected.JPG']);
+    expect(session.sessionStore.getState().frames.map((f) => f.name)).toEqual(['one.ARW', 'selected.JPG']);
+  });
+
+  it('cancels folder import without replacing the library and handles a folder containing no RAW files', async () => {
+    const { finishFolderImport } = await import('./folderImport');
+    await session.openFolder('/owned');
+    const before = session.sessionStore.getState().frames;
+    const pending = session.openFolder('/cancelled', { prompt: true });
+    await vi.advanceTimersByTimeAsync(0); finishFolderImport(null); await pending;
+    expect(session.sessionStore.getState().frames).toBe(before);
+    fake.files.mockResolvedValue([file('one.JPG')]);
+    await session.openFolder('/empty', { rawOnly: true });
+    expect(session.sessionStore.getState().frames).toEqual([]);
+    expect(session.sessionStore.getState().lastError).toBeNull();
+    expect(session.sessionStore.getState().status).toContain('RAW');
+  });
+
+  it('rescans a reopened folder and builds only new camera previews, preserving unchanged disk entries', async () => {
+    const disk = new Map<string, RgbaImage>();
+    fake.read.mockImplementation(async (key: string) => disk.get(key) ?? null);
+    fake.write.mockImplementation(async (key: string, value: RgbaImage) => { disk.set(key, value); return true; });
+    const initial = [file('first.jpg'), file('one.ARW')];
+    fake.files.mockResolvedValue(initial);
+    await session.openFolder('/owned'); await vi.advanceTimersByTimeAsync(2500);
+    expect(session.importPreviews.getSnapshot().completed).toBe(1);
+    fake.thumbnail.mockClear();
+    fake.files.mockResolvedValue([...initial, file('new.NEF')]);
+    await session.openFolder('/owned'); await vi.advanceTimersByTimeAsync(2500);
+    expect(session.sessionStore.getState().frames).toHaveLength(3);
+    expect(fake.thumbnail.mock.calls.filter(([, edge]) => edge === 2048).map(([path]) => path)).toEqual(['/owned/new.NEF']);
+    expect(session.importPreviews.getSnapshot()).toMatchObject({ completed: 2, failed: 0 });
+  });
+
+  it('discards an older folder scan and old saved crop masks after a newer import', async () => {
+    let scanned!: (files: ReturnType<typeof file>[]) => void;
+    fake.files.mockImplementationOnce(() => new Promise((resolve) => { scanned = resolve; }));
+    const slow = session.openFolder('/slow');
+    await session.openFolder('/new');
+    scanned([file('obsolete.ARW')]); await slow;
+    expect(session.sessionStore.getState().folder).toBe('/new');
+    expect(session.sessionStore.getState().frames.some((f) => f.name === 'obsolete.ARW')).toBe(false);
+    let loaded!: (sidecar: object) => void;
+    fake.files.mockResolvedValueOnce([file('first.jpg'), file('old-only.ARW')]);
+    fake.load.mockImplementation(async (path: string) => path.endsWith('old-only.ARW')
+      ? new Promise((resolve) => { loaded = resolve; }) : null);
+    await session.openFolder('/old');
+    fake.files.mockResolvedValueOnce([file('first.jpg')]);
+    await session.openFolder('/new');
+    loaded(encodeSidecar(newSidecar())); await vi.advanceTimersByTimeAsync(0);
+    expect(session.sessionStore.getState().savedGeometry).not.toHaveProperty('/owned/old-only.ARW');
+  });
+
   it('does not count an extracted camera preview whose cache write was rejected as prepared', async () => {
     fake.write.mockResolvedValue(false);
     await session.openFolder('/owned');

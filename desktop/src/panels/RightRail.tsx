@@ -6,10 +6,9 @@ import { useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section, SegmentedSwitch, ToggleRow, signed } from '../controls/controls';
 import { isChinese, t, tz } from '../i18n';
 import { hostMessage } from '../host/messages';
-import { cameraParams, cameraExposureBaseline, cameraExposureTotal, setCameraMetering, setCameraExposureTotal, resetCameraExposure, pairFocus, shownAdjustments, shownDecode as selectedDecode, updatePair, canPickNeutral, currentPlacementWindow, hostRedecodes, placeScene, placementReady, resetScenePlacement, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, startNeutralPick, useSession } from '../state/session';
+import { type CameraMetering, cameraMeteringPreset, cameraParams, cameraExposureBaseline, cameraExposureTotal, cameraExposureIsAsShot, applyCameraExposureAsShot, setCameraMetering, setCameraExposureTotal, resetCameraExposure, pairFocus, shownAdjustments, shownDecode as selectedDecode, updatePair, canPickNeutral, currentPlacementWindow, hostRedecodes, placeScene, placementReady, resetScenePlacement, setAdjustments, setDecode, setFilmFrame, setFilmSide, setParams, setSideLengthMM, startNeutralPick, useSession } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import {
-  type AEMethod,
   EFFECTS_DEFAULT,
   EFFECT_RANGES,
   FILM_FRAMES,
@@ -17,7 +16,6 @@ import {
   SIDE_UNIT_DECIMALS,
   SIDE_UNIT_PER_MM,
   type SideUnit,
-  aeMethodOf,
 } from '@shared/params';
 import { type ColorZone, type CurveChannel, CURVE_CHANNELS, isNeutral } from '@shared/adjustments';
 import {
@@ -133,7 +131,7 @@ function CameraSection() {
   const state = useSession((s) => s);
   const p = cameraParams(state), focus = pairFocus(state), hole = focus ? state.pair?.[focus] : null;
   const vignette = useSession((s) => shownAdjustments(s).vignette.amount);
-  const ae = aeMethodOf(p);
+  const ae = cameraMeteringPreset(state);
   const baseline = cameraExposureBaseline(state), total = cameraExposureTotal(state);
   // Keep the track fixed while ordinary values move. Expand only for an
   // existing exposure outside the normal range; the baseline itself moves.
@@ -143,7 +141,9 @@ function CameraSection() {
   const lensReason = lens?.reason ? hostMessage(lens.reason) : tz('No matching lens profile is available for this photograph.', '此照片没有匹配的镜头配置文件。');
   const lensParts = lens ? [lens.distortion && tz('distortion', '畸变'), lens.tca && tz('colour fringing', '横向色差'), lens.vignetting && tz('vignetting', '暗角')].filter(Boolean).join(' · ') : '';
   const wb = useWhiteBalance();
-  const options: { value: AEMethod; label: string; disabled?: boolean }[] = [
+  const options: { value: CameraMetering; label: string; disabled?: boolean }[] = [
+    { value: 'as_shot', label: hole ? tz('Linear baseline', '线性基准') : t('cameraFilmExposureAsShot') },
+    { value: 'linear', label: tz('Linear source', '线性原图') },
     { value: 'custom', label: t('meteringCustom'), disabled: baseline === null },
     { value: 'balanced', label: t('meteringBalanced') },
     { value: 'center', label: t('meteringCenter') },
@@ -151,15 +151,22 @@ function CameraSection() {
     { value: 'protect_shadows', label: t('meteringProtectShadows') },
   ];
   if (ae === 'legacy') options.push({ value: 'legacy', label: t('meteringCenterWeightedLegacy') });
-  const asShot = !p.autoExposure && p.exposureCompensationEV === 0 && p.exposureBaselineEV === 0;
+  const asShot = cameraExposureIsAsShot(state);
+  const rawCamera = !hole && (state.frameKind ? state.frameKind === 'raw' : !!state.selection && isRawPath(state.selection));
+  const [matchingExposure, setMatchingExposure] = useState(false);
+  const applyAsShot = async (on: boolean) => {
+    if (!on || matchingExposure) return;
+    setMatchingExposure(true);
+    try { await applyCameraExposureAsShot(); } finally { setMatchingExposure(false); }
+  };
   return (
     <Section
       id="camera"
       title={t('sectionCamera')}
       onReset={resetCameraExposure}
-      resetHelp={t('helpResetFilmExposure')}
+      resetHelp={tz('Restore linear source exposure', '恢复线性原图曝光')}
       menu={[
-        { label: t('helpResetFilmExposure'), onSelect: resetCameraExposure },
+        { label: tz('Linear source · zero compensation', '线性原图 · 零曝光补偿'), onSelect: resetCameraExposure },
         // The presets keep their English names, as on the Mac.
         ...WB_MODES.filter((m) => m !== 'Custom').map((m) => ({
           label: `${t('helpWhiteBalancePreset')}: ${m}`,
@@ -169,16 +176,19 @@ function CameraSection() {
         })),
       ]}
     >
-      <PillMenu label={t('cameraMetering')} value={ae} options={options} fill onChange={setCameraMetering} testId="metering" />
+      <PillMenu label={tz('Exposure preset', '曝光预设')} value={ae} options={options} fill onChange={(method) => { if (method === 'as_shot') void applyAsShot(true); else void setCameraMetering(method); }} testId="metering" />
       {hole && focus && <PillMenu label={tz('Exposure scope', '曝光范围')} value={hole.exposureScope}
         options={[{ value: 'frame', label: tz('Frame', '这一格') }, { value: 'film', label: tz('+ Film', '+ 胶片') }]}
         onChange={(v) => updatePair((p) => ({ ...p, [focus]: { ...p[focus]!, exposureScope: v } }))} />}
       <ScrubSlider
         label={t('cameraFilmExposure')}
         sublabel={
-          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-            {t('cameraFilmExposureAsShot')}
-            <Checkbox on={asShot} label={t('cameraFilmExposureAsShot')} onChange={resetCameraExposure} />
+          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }} title={!rawCamera
+            ? tz('Use the linear source without exposure compensation.', '使用线性原图，不加曝光补偿。')
+            : tz('Match the camera preview’s overall brightness before applying the film. The camera’s tone curve is not copied.', '先匹配相机预览的整体明暗，再应用胶片；不复制相机的色调曲线。')}>
+            {matchingExposure ? tz('Matching…', '正在匹配…') : hole ? tz('Linear baseline', '线性基准') : t('cameraFilmExposureAsShot')}
+            <Checkbox on={asShot} label={t('cameraFilmExposureAsShot')} disabled={!state.engineSession || matchingExposure || state.redecoding || state.batchExporting}
+              onChange={(on) => { void applyAsShot(on); }} />
           </span>
         }
         value={total ?? p.exposureCompensationEV}

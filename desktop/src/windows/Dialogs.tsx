@@ -102,6 +102,11 @@ export function SettingsDialog() {
               </div>
             </div>
             <NewPhotoDefaultsSettings />
+             <div className="settings-group">
+               <h3>{tz('Folder import', '文件夹导入')}</h3>
+               <ToggleRow label={tz('Import RAW files only', '只导入 RAW 文件')} on={st.folderRawOnly} onChange={(on) => set('folderRawOnly', on)} />
+               <div className="caption">{tz('Default for folders and their subfolders. You can change it each time you import a folder.', '用于文件夹及其子文件夹。每次导入文件夹时也可以更改。')}</div>
+             </div>
             <UpdateSettings version={paths?.version} os={paths?.os} />
           </>
         )}

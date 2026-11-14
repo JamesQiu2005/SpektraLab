@@ -3,6 +3,13 @@ import { applyClip, clipChanges, CLIPBOARD_GROUPS } from './clipboard';
 import { newSidecar } from './sidecar';
 
 describe('settings clipboard', () => {
+  it('keeps the camera preview reference with its own photograph', () => {
+    const reference = { ev: 1.25, decodeKey: 'source' };
+    const source = { ...newSidecar(), cameraExposureReference: reference };
+    const target = { ...newSidecar(), cameraExposureReference: { ev: -.25, decodeKey: 'target' } };
+    const clip = { groups: [...CLIPBOARD_GROUPS], settings: source, sourceName: 'a' };
+    expect(applyClip(clip, target).cameraExposureReference).toEqual(target.cameraExposureReference);
+  });
   it('keeps film bypass per photograph even when every settings group is copied', () => {
     const source = { ...newSidecar(), noFilm: true }, target = newSidecar();
     const clip = { groups: [...CLIPBOARD_GROUPS], settings: source, sourceName: 'bypass' };

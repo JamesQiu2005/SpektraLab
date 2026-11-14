@@ -18,6 +18,7 @@ import {
   type FilmParams,
   type AEMethod,
   applyAEMethod,
+  aeMethodOf,
   type FilmSide,
   ALL_FEATURES,
   FILM_FRAME_CUSTOM,
@@ -36,7 +37,7 @@ import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
 import { canvasGeometryFor, edgeEffective, gateFramed, geometryInNegative, resolveFilmEdgeParams, sourceGeometryFor } from '@shared/filmEdge';
 import { type HalfFramePair, type PairHole, type PairLayer, type PairPlacement, type PairSide, PAIR_SIDES,
   decodePair, encodePair, isPairPath, newHole, newPair, pairFilmFormat, pairRects, pairFitRegion, pairSnapshotFor, pairWithMeterReadings, printTrim, resolvePairParams } from '@shared/pair';
-import { type DecodeSettings, type Sidecar, decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
+import { type CameraExposurePreset, type DecodeSettings, type Sidecar, decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
 import { decodeWire, isRawPath, modeOf } from '@shared/whiteBalance';
 import { type ClipboardGroup, type SettingsClip, CLIPBOARD_GROUPS, applyClip, clipChanges } from '@shared/clipboard';
 import { EMPTY_CATALOG, type StockCatalog, loadCatalog } from '@shared/stocks';
@@ -54,6 +55,8 @@ import { PreviewQueue } from './previewQueue';
 import { tz } from '../i18n';
 import { hostMessage } from '../host/messages';
 import { clampZoom, steppedZoom } from '../canvas/zoom';
+import { cameraExposureEV } from '@shared/cameraExposure';
+import { chooseFolderImport, finishFolderImport } from './folderImport';
 
 export type Tool = 'select' | 'hand' | 'crop' | 'neutral';
 
@@ -67,6 +70,7 @@ export interface ViewState {
 }
 
 export interface UndoEntry {
+  cameraExposurePreset?: CameraExposurePreset;
   noFilm?: boolean;
   params: FilmParams;
   adjustments: Adjustments;
@@ -751,7 +755,7 @@ function pushUndo() {
   if (now - lastUndoAt < 500) return;
   lastUndoAt = now;
   const sc = get().sidecar;
-  const undo = [...get().undo, { noFilm: sc.noFilm, params: sc.params, adjustments: sc.adjustments, geometry: sc.geometry, heldCrop: sc.heldCrop, pair: get().pair, decode: sc.decode, placementNeedsFit: sc.placementNeedsFit }].slice(-60);
+  const undo = [...get().undo, { cameraExposurePreset: sc.cameraExposurePreset, noFilm: sc.noFilm, params: sc.params, adjustments: sc.adjustments, geometry: sc.geometry, heldCrop: sc.heldCrop, pair: get().pair, decode: sc.decode, placementNeedsFit: sc.placementNeedsFit }].slice(-60);
   set({ undo, redo: [] });
 }
 
@@ -827,13 +831,13 @@ function filmStageSidecar(sc: Sidecar): Sidecar {
 }
 
 /** The single door for a Layer 1 edit. */
-export function setParams(fn: (p: FilmParams) => FilmParams) {
+export function setParams(fn: (p: FilmParams) => FilmParams, preset?: CameraExposurePreset) {
   const s = get();
   if (s.batchExporting) return;
   const next = filmStageParams(fn(s.sidecar.params));
-  if (jsonEqual(next, s.sidecar.params)) return;
+  if (jsonEqual(next, s.sidecar.params) && (preset === undefined || preset === s.sidecar.cameraExposurePreset)) return;
   pushUndo();
-  set({ sidecar: edgeTransition(get().sidecar, next) });
+  set({ sidecar: { ...edgeTransition(get().sidecar, next), ...(preset === undefined ? {} : { cameraExposurePreset: preset }) } });
   resolveCurrentFilmEdge();
   if (sourceGeometryFor(get().sidecar.params, get().sidecar.geometry, s.gate, get().sidecar.noFilm)) set({ showingOriginal: false, comparing: false });
   scheduleSave();
@@ -1013,7 +1017,7 @@ function restore(e: UndoEntry) {
   const s = get();
   const decodeMoved = !jsonEqual(e.decode, s.sidecar.decode);
   const noFilm = e.noFilm ?? false;
-  set({ pair: e.pair ?? null, sidecar: filmStageSidecar({ ...s.sidecar, noFilm, params: e.params, adjustments: e.adjustments, geometry: e.geometry, heldCrop: e.heldCrop ?? null, decode: e.decode, placementNeedsFit: e.placementNeedsFit ?? false }) });
+  set({ pair: e.pair ?? null, sidecar: filmStageSidecar({ ...s.sidecar, cameraExposurePreset: e.cameraExposurePreset, noFilm, params: e.params, adjustments: e.adjustments, geometry: e.geometry, heldCrop: e.heldCrop ?? null, decode: e.decode, placementNeedsFit: e.placementNeedsFit ?? false }) });
   if (noFilm !== s.sidecar.noFilm) discardModePreview();
   for (const side of PAIR_SIDES) {
     const hole = e.pair?.[side];
@@ -1026,11 +1030,12 @@ function restore(e: UndoEntry) {
 }
 
 export function undo() {
+  cameraExposureRequest++;
   const s = get();
   if (s.batchExporting || !s.selection) return;
   const prev = s.undo[s.undo.length - 1];
   if (!prev) return;
-  const cur = { noFilm: s.sidecar.noFilm, params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit };
+  const cur = { cameraExposurePreset: s.sidecar.cameraExposurePreset, noFilm: s.sidecar.noFilm, params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit };
   set({ undo: s.undo.slice(0, -1), redo: [...s.redo, cur] });
   lastUndoAt = 0;
   restore(prev);
@@ -1038,11 +1043,12 @@ export function undo() {
 }
 
 export function redo() {
+  cameraExposureRequest++;
   const s = get();
   if (s.batchExporting || !s.selection) return;
   const next = s.redo[s.redo.length - 1];
   if (!next) return;
-  const cur = { noFilm: s.sidecar.noFilm, params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit };
+  const cur = { cameraExposurePreset: s.sidecar.cameraExposurePreset, noFilm: s.sidecar.noFilm, params: s.sidecar.params, adjustments: s.sidecar.adjustments, geometry: s.sidecar.geometry, heldCrop: s.sidecar.heldCrop, pair: s.pair, decode: s.sidecar.decode, placementNeedsFit: s.sidecar.placementNeedsFit };
   set({ redo: s.redo.slice(0, -1), undo: [...s.undo, cur] });
   lastUndoAt = 0;
   restore(next);
@@ -1304,9 +1310,9 @@ export function cameraParams(s: SessionState): FilmParams {
   return hole ? { ...s.sidecar.params, exposureCompensationEV: hole.exposureEV, exposureBaselineEV: hole.exposureBaselineEV ?? 0, autoExposure: hole.autoExposure,
     autoExposureMethod: hole.meterMethod ?? s.sidecar.params.autoExposureMethod } : s.sidecar.params;
 }
-export function setCamera(fn: (p: FilmParams) => FilmParams, exposureOnly = false) {
+export function setCamera(fn: (p: FilmParams) => FilmParams, exposureOnly = false, preset?: CameraExposurePreset) {
   const s = get(), side = pairFocus(s);
-  if (!s.pair || !side) { setParams(fn); return; }
+  if (!s.pair || !side) { setParams(fn, preset); return; }
   const before = cameraParams(s), next = fn(before), hole = s.pair[side]!;
   let params = s.sidecar.params; let pair = s.pair;
   if (!exposureOnly && next.exposureCompensationEV !== hole.exposureEV && hole.exposureScope === 'film') {
@@ -1358,28 +1364,90 @@ export function cameraExposureTotal(s = get()): number | null {
   const baseline = cameraExposureBaseline(s);
   return baseline === null ? null : baseline + cameraParams(s).exposureCompensationEV;
 }
-export function setCameraMetering(method: AEMethod) {
+export type CameraMetering = AEMethod | 'as_shot' | 'linear';
+export function setCameraMetering(method: CameraMetering) {
+  cameraExposureRequest++;
+  if (method === 'as_shot') return applyCameraExposureAsShot();
+  if (method === 'linear') { resetCameraExposure(); return; }
   const p = cameraParams(get());
   if (method === 'custom') {
     const baseline = cameraExposureBaseline();
     if (baseline === null) return;
-    setCamera((q) => ({ ...q, autoExposure: false, exposureBaselineEV: baseline }), true);
+    setCamera((q) => ({ ...q, autoExposure: false, exposureBaselineEV: baseline }), true, 'custom');
   } else {
     if (p.autoExposure && (p.autoExposureMethod ?? 'legacy') === method) return;
-    setCamera((q) => ({ ...applyAEMethod(q, method), exposureBaselineEV: 0, exposureCompensationEV: 0 }), true);
+    setCamera((q) => ({ ...applyAEMethod(q, method), exposureBaselineEV: 0, exposureCompensationEV: 0 }), true, 'custom');
   }
 }
 export function setCameraExposureTotal(total: number) {
+  cameraExposureRequest++;
   const baseline = cameraExposureBaseline();
   if (baseline === null || !Number.isFinite(total)) return;
   // The slider owns pre-scene exposure, just like the automatic meter.
   // Moving the legacy post-scene compensation instead would also change
   // print normalization. Preserve that legacy term when opening old recipes.
   setCamera((q) => ({ ...q, autoExposure: false,
-    exposureBaselineEV: clamp(total - q.exposureCompensationEV, -64, 64) }), true);
+    exposureBaselineEV: clamp(total - q.exposureCompensationEV, -64, 64) }), true, 'custom');
 }
 export function resetCameraExposure() {
-  setCamera((q) => ({ ...q, autoExposure: false, exposureBaselineEV: 0, exposureCompensationEV: 0 }), true);
+  cameraExposureRequest++;
+  setCamera((q) => ({ ...q, autoExposure: false, exposureBaselineEV: 0, exposureCompensationEV: 0 }), true, 'linear');
+}
+
+let cameraExposureRequest = 0;
+const cameraDecodeKey = (s: SessionState) => JSON.stringify(['camera-preview-v1', decodeWire(s.sidecar.decode, true)]);
+export function cameraExposureIsAsShot(s = get()): boolean {
+  const p = cameraParams(s);
+  if (p.autoExposure || p.exposureCompensationEV !== 0) return false;
+  if (!s.pair && (s.sidecar.cameraExposurePreset === 'custom' || s.sidecar.cameraExposurePreset === 'linear')) return false;
+  if (s.pair || !(s.frameKind ? s.frameKind === 'raw' : s.selection && isRawPath(s.selection))) return p.exposureBaselineEV === 0;
+  const reference = s.sidecar.cameraExposureReference;
+  return reference?.decodeKey === cameraDecodeKey(s) && p.exposureBaselineEV === reference.ev;
+}
+
+export function cameraMeteringPreset(s = get()): CameraMetering {
+  const p = cameraParams(s);
+  if (p.autoExposure) return aeMethodOf(p);
+  if (cameraExposureIsAsShot(s)) return 'as_shot';
+  if (!s.pair && s.sidecar.cameraExposurePreset === 'linear' && p.exposureBaselineEV === 0 && p.exposureCompensationEV === 0) return 'linear';
+  return 'custom';
+}
+
+/** Match the camera preview's overall brightness, then expose the film.
+ * The measured reference stays with this photo; only the existing pre-scene
+ * EV goes to the engine, so previews, exports and old recipes share one path.
+ * Pairs keep their existing per-hole baseline until a per-hole reference is available. */
+export async function applyCameraExposureAsShot(): Promise<void> {
+  const request = ++cameraExposureRequest;
+  const s = get(), sid = s.engineSession, path = s.selection;
+  if (!sid || !path || s.batchExporting || s.redecoding || decodeTimer) return;
+  if (s.pair) { resetCameraExposure(); return; }
+  if (!isRawFrame()) {
+    setCamera((p) => ({ ...p, autoExposure: false, exposureBaselineEV: 0, exposureCompensationEV: 0 }), true, 'as_shot');
+    return;
+  }
+  const stamp = (v: SessionState) => JSON.stringify([v.engineSession, v.selection, v.sidecar.decode,
+    v.sidecar.params, v.sidecar.adjustments, v.sidecar.geometry, v.pair]);
+  const requested = stamp(s);
+  const current = () => request === cameraExposureRequest && !get().batchExporting && !get().redecoding && !decodeTimer && stamp(get()) === requested;
+  try {
+    if (!s.hello?.methods?.includes('render_source') || !s.hello.thumbnail_options?.includes('embedded-only'))
+      throw new Error(tz('Camera brightness matching is unavailable with this engine.', '当前引擎无法匹配相机预览亮度。'));
+    // No cached film picture, Layer 2 edit, or display-P3 image may enter this measurement.
+    const camera = await host().thumbnail(path, 720, true);
+    if (!current()) return;
+    const source = await host().renderSource(sid, { long_edge: 720, display: 'srgb', generation: 0 });
+    if (!current()) return;
+    const ev = cameraExposureEV(source, camera);
+    if (ev === null) throw new Error(tz('This camera preview does not provide a reliable brightness reference. The exposure was kept.', '无法从此相机预览可靠估计亮度，已保留原曝光。'));
+    set({ sidecar: { ...get().sidecar, cameraExposureReference: { ev, decodeKey: cameraDecodeKey(s) } } });
+    lastUndoAt = -Infinity;
+    setCamera((p) => ({ ...p, autoExposure: false, exposureBaselineEV: ev, exposureCompensationEV: 0 }), true, 'as_shot');
+    scheduleSave();
+    set({ status: tz('Exposure matched to the camera preview. Film contrast may change the final brightness.', '已匹配相机预览亮度，胶片反差仍会影响最终明暗。') });
+  } catch (error) {
+    if (current()) noteError(tz('Camera exposure', '拍摄时曝光'), error);
+  }
 }
 export function enlargerParams(s: SessionState): FilmParams {
   const own = s.pair && s.pairLayer !== 'film' ? s.pair[s.pairLayer]?.print : null;
@@ -1616,19 +1684,32 @@ export function setSideLengthMM(mm: number) {
 
 // ------------------------------------------------------------------ library
 
-export async function openFolder(dir: string) {
+export interface FolderImportOptions { prompt?: boolean; rawOnly?: boolean }
+let libraryRequest = 0;
+let libraryCommit: Promise<void> = Promise.resolve();
+
+export async function openFolder(dir: string, options: FolderImportOptions = {}) {
   if (get().batchExporting) return;
+  const request = ++libraryRequest;
+  finishFolderImport(null);
   try {
-    const files = await platform().listImages(dir);
+    let files = [...await platform().listImages(dir)];
+    if (request !== libraryRequest) return;
+    const rawOnly = options.prompt ? await chooseFolderImport(dir, files.length, files.filter((f) => isRawPath(f.path)).length)
+      : options.rawOnly ?? settingsStore.getState().folderRawOnly;
+    if (rawOnly === null || request !== libraryRequest) return;
+    if (rawOnly) files = files.filter((f) => isRawPath(f.path));
     // An explicit folder open restores only that folder's pair recipes.
     // Single-file open below never scans the parent or revives an old roll.
-    if (platform().pairList) files.push(...await platform().pairList(dir));
-    await setLibrary(dir, files);
+    if (!rawOnly && platform().pairList) files.push(...await platform().pairList(dir));
+    if (!await setLibrary(dir, files, request) || request !== libraryRequest) return;
     settingsStore.getState().set('lastFolder', dir);
     rememberFolder(dir);
     const first = get().frames[0];
     if (first) await select(first.path);
+    else set({ status: rawOnly ? tz('No RAW files were found in this folder.', '此文件夹中没有 RAW 文件。') : tz('No photographs were found in this folder.', '此文件夹中没有照片。') });
   } catch (e) {
+    if (request !== libraryRequest) return;
     noteError(tz('Opening the folder', '打开文件夹'), e);
     // A folder that is gone (moved, deleted, a drive unplugged) leaves the
     // recent list rather than failing again on every visit.
@@ -1641,10 +1722,13 @@ export async function openFolder(dir: string) {
 }
 
 /** One door for dropped, argv and dialog paths (`Session.dropped(files:)`). */
-export async function openPaths(paths: string[]) {
+export async function openPaths(paths: string[], options: FolderImportOptions = {}) {
   if (get().batchExporting || !paths.length) return;
+  const request = ++libraryRequest;
+  finishFolderImport(null);
   try {
     let entries = await platform().expandPaths(paths);
+    if (request !== libraryRequest) return;
     if (!entries.length) {
       set({ status: tz('Nothing there SpektraLab can open.', '没有 SpektraLab 能打开的文件。') });
       return;
@@ -1654,9 +1738,20 @@ export async function openPaths(paths: string[]) {
     // Replace the roll even when the chosen files were already in it.
     const singleFile = paths.length === 1 && entries.length === 1 && paths[0] === entries[0]!.path;
     const folder = paths.length === 1 && !singleFile ? paths[0]! : dirName(entries[0]!.path);
+    const pathKey = (p: string) => {
+      const key = p.replaceAll('\\', '/');
+      return /^([a-z]:|\/\/)/i.test(key) ? key.toLowerCase() : key;
+    };
+    const explicitFiles = new Set(entries.filter((f) => paths.some((p) => pathKey(p) === pathKey(f.path))).map((f) => pathKey(f.path)));
+    const hasFolders = paths.some((p) => !explicitFiles.has(pathKey(p)));
+    const rawOnly = hasFolders && options.prompt
+      ? await chooseFolderImport(paths.join('\n'), entries.length, entries.filter((f) => isRawPath(f.path)).length)
+      : options.rawOnly ?? settingsStore.getState().folderRawOnly;
+    if (rawOnly === null || request !== libraryRequest) return;
+    if (rawOnly) entries = entries.filter((f) => explicitFiles.has(pathKey(f.path)) || isRawPath(f.path));
     // Folder launch/drop follows the same deliberate pair discovery as the
     // folder picker. A single photo never scans its parent for old pairs.
-    for (const explicit of paths) if (!entries.some((f) => f.path === explicit) && typeof platform().pairList === 'function') {
+    for (const explicit of paths) if (!rawOnly && !explicitFiles.has(pathKey(explicit)) && typeof platform().pairList === 'function') {
       const listed = await platform().pairList(explicit);
       const known = new Set(entries.map((f) => f.path));
       entries.push(...listed.filter((f) => !known.has(f.path)));
@@ -1677,40 +1772,54 @@ export async function openPaths(paths: string[]) {
       copiedPair = true;
       return imported;
     }));
-    await setLibrary(folder, entries);
+    if (!await setLibrary(folder, entries, request) || request !== libraryRequest) return;
     // A folder came in whole (launch, drop): it is one people may want back.
     if (!singleFile && paths.length === 1) rememberFolder(folder);
-    await select(get().frames[0]!.path);
+    const first = get().frames[0];
+    if (first) await select(first.path);
+    else set({ status: tz('No RAW files were found in this folder.', '此文件夹中没有 RAW 文件。') });
     if (copiedPair) set({ status: tz('Imported an editable copy of the pair; the shared recipe was kept.', '已导入可编辑的半格副本，原拼接文件已保留。') });
   } catch (e) {
+    if (request !== libraryRequest) return;
     noteError(tz('Opening', '打开'), e);
   }
 }
 
-async function setLibrary(folder: string, files: FileEntry[]) {
-  foregroundWork();
-  importPreviews.cancel();
-  files = frameOrder.apply(folder, files);
-  await flushSave();
-  if (get().externalEditConflict) throw new Error(tz('Resolve the external edit conflict before opening another folder.', '请先处理外部编辑冲突，再打开其他文件夹。'));
-  await closeEngineSession();
-  thumbs.reset();
-  frameImages.print = null;
-  frameImages.original = null;
-  set({ folder, frames: files, selection: null, picked: [], savedGeometry: {}, thumbVersion: get().thumbVersion + 1, imageVersion: get().imageVersion + 1, badge: null });
-  queueImportPreviews();
-  void platform().setTitle(`SpektraLab — ${baseName(folder)}`);
-  // The thumbnails' crop masks come from each frame's saved geometry.
-  void Promise.all(
-    files.map(async (f) => {
-      const raw = await platform().sidecarLoad(f.path).catch(() => null);
-      return raw ? ([f.path, decodeSidecar(raw).geometry] as const) : null;
-    }),
-  ).then((rows) => {
-    const g: Record<string, Geometry> = {};
-    for (const r of rows) if (r) g[r[0]] = r[1];
-    set({ savedGeometry: { ...g, ...get().savedGeometry } });
-  });
+async function setLibrary(folder: string, files: FileEntry[], request: number): Promise<boolean> {
+  const previous = libraryCommit;
+  let release!: () => void;
+  libraryCommit = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    if (request !== libraryRequest) return false;
+    foregroundWork();
+    importPreviews.cancel();
+    files = frameOrder.apply(folder, files);
+    await flushSave();
+    if (request !== libraryRequest) return false;
+    if (get().externalEditConflict) throw new Error(tz('Resolve the external edit conflict before opening another folder.', '请先处理外部编辑冲突，再打开其他文件夹。'));
+    await closeEngineSession();
+    if (request !== libraryRequest) return false;
+    thumbs.reset();
+    frameImages.print = null;
+    frameImages.original = null;
+    set({ folder, frames: files, selection: null, picked: [], savedGeometry: {}, thumbVersion: get().thumbVersion + 1, imageVersion: get().imageVersion + 1, badge: null });
+    queueImportPreviews();
+    void platform().setTitle(`SpektraLab — ${baseName(folder)}`);
+    // The thumbnails' crop masks come from each frame's saved geometry.
+    void Promise.all(
+      files.map(async (f) => {
+        const raw = await platform().sidecarLoad(f.path).catch(() => null);
+        return raw ? ([f.path, decodeSidecar(raw).geometry] as const) : null;
+      }),
+    ).then((rows) => {
+      if (request !== libraryRequest) return;
+      const g: Record<string, Geometry> = {};
+      for (const r of rows) if (r) g[r[0]] = r[1];
+      set({ savedGeometry: { ...g, ...get().savedGeometry } });
+    });
+    return true;
+  } finally { release(); }
 }
 
 /** Move one thumbnail into the hovered slot without touching selection,
@@ -2321,9 +2430,10 @@ export async function boot() {
     if (stateEvents === 0) takeHostState({ phase: 'failed', reason });
     platform().log('error', reason);
   }
-  platform().onOpenPaths((paths) => void openPaths(paths));
-  platform().onDrop((paths) => void openPaths(paths));
+  platform().onOpenPaths((paths) => void openPaths(paths, { prompt: true }));
+  platform().onDrop((paths) => void openPaths(paths, { prompt: true }));
   const launch = await platform().takeLaunchPaths();
+  // OS launch uses the remembered folder filter; picker and drag/drop offer it again.
   if (launch.length) await openPaths(launch);
   window.addEventListener('beforeunload', () => void flushSave());
   if (platform().kind === 'tauri' && !agentPollTimer) {

@@ -33,6 +33,14 @@ const mac = {
 };
 
 describe('sidecar', () => {
+  it('round-trips a per-photo camera reference and discards invalid or removed references', () => {
+    const reference = { ev: 1.25, decodeKey: 'camera-preview-v1' };
+    const s = decodeSidecar({ ...mac, cameraExposureReference: reference });
+    expect(decodeSidecar(encodeSidecar(s)).cameraExposureReference).toEqual(reference);
+    expect(encodeSidecar({ ...s, cameraExposureReference: undefined })).not.toHaveProperty('cameraExposureReference');
+    for (const ev of [null, '1.25', NaN, Infinity, 7, -7])
+      expect(decodeSidecar({ ...mac, cameraExposureReference: { ...reference, ev } }).cameraExposureReference).toBeUndefined();
+  });
   it('round-trips per-photo film bypass and removes the old true value when switched off', () => {
     expect(newSidecar().noFilm).toBe(false);
     expect(decodeSidecar(mac).noFilm).toBe(false);
