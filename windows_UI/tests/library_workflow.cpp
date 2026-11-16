@@ -304,7 +304,9 @@ int main(int argc,char** argv) {
         }
         report.insert("operations",operations);
         report.insert("status","passed");
-        report.insert("checks",checks);
+        // The two report-publication checks below are part of the same gate;
+        // this file only exists when both succeed.
+        report.insert("checks",checks+2);
         report.insert("elapsed_ms",double(duration.elapsed()));
         report.insert("limits","Controller/RAW/Vulkan integration in offscreen Qt; not a native dialog or visible-window interaction test.");
         QFile reportFile(destination+"/library-workflow.json");

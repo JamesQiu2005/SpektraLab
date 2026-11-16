@@ -40,8 +40,8 @@
 - build/qt-release-final/qt-build.json
 - build/verify-editing-final/report.json
 - build/verify-editing-release-212917/report.json
-- build/verify-library-final/library-workflow.json
-- build/verify-library-release-212917/library-workflow.json
+- build/verify-library-count-debug-213238/library-workflow.json
+- build/verify-library-count-release-213238/library-workflow.json
 
 ## 限制
 
