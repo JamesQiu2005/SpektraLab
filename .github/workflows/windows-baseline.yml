@@ -1,0 +1,68 @@
+# Build the native Qt/MinGW app. This job does not provision a Vulkan
+# loader/ICD; CTest runs the named core, output, edit-store and display tests.
+name: Windows Qt baseline
+
+on:
+  push:
+    branches: ['codex/windows-*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-qt:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pinned CMake
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deps = Join-Path $env:GITHUB_WORKSPACE 'build/deps'
+          New-Item -ItemType Directory -Force -Path $deps | Out-Null
+          $zip = Join-Path $deps 'cmake-3.25.0-windows-x86_64.zip'
+          Invoke-WebRequest 'https://github.com/Kitware/CMake/releases/download/v3.25.0/cmake-3.25.0-windows-x86_64.zip' -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath $deps
+
+      - name: Qt, Vulkan tools and RAW dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deps = Join-Path $env:GITHUB_WORKSPACE 'build/deps'
+          & "$env:GITHUB_WORKSPACE/windows_UI/setup-qt.ps1" -DependencyDirectory $deps
+          & "$env:GITHUB_WORKSPACE/windows_UI/setup-glslang.ps1" -DependencyDirectory $deps
+          & "$env:GITHUB_WORKSPACE/engine/setup-libraw.ps1" -DependencyDirectory $deps
+          $headers = Join-Path $deps 'Vulkan-Headers'
+          git -c advice.detachedHead=false clone --quiet --depth 1 --branch vulkan-sdk-1.4.341.0 https://github.com/KhronosGroup/Vulkan-Headers.git $headers
+          if ($LASTEXITCODE) { throw "Vulkan-Headers clone exited $LASTEXITCODE" }
+
+      - name: Build Qt application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & "$env:GITHUB_WORKSPACE/windows_UI/build.ps1" `
+            -SourceDirectory $env:GITHUB_WORKSPACE `
+            -BuildDirectory "$env:GITHUB_WORKSPACE/build/qt-ci" `
+            -DependencyDirectory "$env:GITHUB_WORKSPACE/build/deps"
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE/build/qt-ci/app/SpektraLabQt.exe")) { throw 'Qt application was not built.' }
+
+      - name: Build and run CPU Qt tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = "$env:GITHUB_WORKSPACE/build/qt-ci"
+          $deps = "$env:GITHUB_WORKSPACE/build/deps"
+          $env:PATH = "$deps/qt-6.11.3/Tools/mingw1310_64/bin;$deps/qt-6.11.3/mingw_64/bin;$deps/cmake-3.25.0-windows-x86_64/bin;$env:PATH"
+          cmake --build $build --target spk_dump_json spk_dump_setup spk_qt_frame_output_test spk_qt_edit_store_test spk_qt_display_color_test --parallel
+          if ($LASTEXITCODE) { throw "Qt test build exited $LASTEXITCODE" }
+          $expected = @('spk_core_schema', 'spk_core_setup', 'spk_qt_edit_store', 'spk_qt_frame_output', 'spk_qt_display_color')
+          $listing = & ctest --test-dir $build -N
+          if ($LASTEXITCODE) { throw 'CTest discovery failed.' }
+          $registered = @([regex]::Matches(($listing -join "`n"), 'Test\s+#\d+:\s+(\S+)') | ForEach-Object { $_.Groups[1].Value })
+          foreach ($test in $expected) { if ($test -notin $registered) { throw "Required CPU CTest is not registered: $test" } }
+          ctest --test-dir $build --output-on-failure -R '^(spk_core_schema|spk_core_setup|spk_qt_edit_store|spk_qt_frame_output|spk_qt_display_color)$'
+          if ($LASTEXITCODE) { throw "CPU CTest exited $LASTEXITCODE" }

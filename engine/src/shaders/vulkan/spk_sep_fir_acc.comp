@@ -57,10 +57,12 @@ void main() {
                            weights.value[2 * taps + tap]);
         sum += sample_value * weight;
     }
-    if (accumulate != 0u)
+    if (accumulate == 1u)
         sum = vec3(accumulator.value[3 * pixel], accumulator.value[3 * pixel + 1],
                    accumulator.value[3 * pixel + 2])
               + sum * vec3(mix_weights.value[0], mix_weights.value[1], mix_weights.value[2]);
+    else if (accumulate == 2u)
+        sum *= vec3(mix_weights.value[0], mix_weights.value[1], mix_weights.value[2]);
     output_data.value[3 * pixel] = sum.x;
     output_data.value[3 * pixel + 1] = sum.y;
     output_data.value[3 * pixel + 2] = sum.z;

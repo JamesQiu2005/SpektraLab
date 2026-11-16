@@ -1,5 +1,7 @@
 # 当前状态
 
+当前接续入口：[Windows 基线验收](WINDOWS_BASELINE_20261115.md)。工作目录为 E:/user/ChatGPT/SPEKTRAlab/.claude/worktrees/windows-baseline，分支 codex/windows-baseline-20261115（基于 9fb90f3）。Vulkan 模糊模式 2 已修复；默认效果 public Python parity 现通过，最大差 8.838652921895097e-06；Debug/Release 各 19/19。以下是上一基线的历史记录。
+
 更新时间：2026-11-15。此文件是接续入口；未运行的项目不记为通过。
 
 ## 基线与位置

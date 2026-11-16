@@ -1,4 +1,5 @@
 #include "FrameCanvas.hpp"
+#include "DisplayColor.hpp"
 #include <QMouseEvent>
 #include <QQuickWindow>
 #include <QSGSimpleTextureNode>
@@ -8,10 +9,15 @@
 namespace {class ImageNode final:public QSGSimpleTextureNode {public:quint64 revision=0;};}
 FrameCanvas::FrameCanvas(QQuickItem* parent):QQuickItem(parent) {
     setFlag(ItemHasContents,true);setClip(true);setAcceptedMouseButtons(Qt::LeftButton);
+    connect(this,&QQuickItem::windowChanged,this,[this](QQuickWindow* window){
+        disconnect(screen_connection_);
+        if(window)screen_connection_=connect(window,&QQuickWindow::screenChanged,this,[this]{refreshDisplayColor();});
+        refreshDisplayColor();
+    });
 }
 void FrameCanvas::setImage(const QImage& image) {
     if(image.cacheKey()==image_.cacheKey())return;
-    const bool changedSize=image.size()!=image_.size();image_=image;++revision_;
+    const bool changedSize=image.size()!=image_.size();image_=image;refreshDisplayColor();
     if(changedSize)pan_={};clampPan();update();emit imageChanged();emit viewChanged();
 }
 void FrameCanvas::setFit(bool value) {if(value==fit_)return;fit_=value;pan_={};update();emit viewChanged();}
@@ -44,14 +50,30 @@ void FrameCanvas::panBy(double x,double y) {
     if(fit_||image_.isNull())return;
     pan_+=QPointF(x,y);clampPan();update();emit viewChanged();
 }
+void FrameCanvas::refreshDisplayColor() {
+    const auto target=display::targetForWindow(window());
+    auto nextStatus=target.status;
+    QImage next=image_;
+    if(target.mode==display::Mode::MonitorProfile) {
+        next=display::transformToMonitorProfile(image_,target.profile);
+        if(next.isNull()) {
+            next=image_;
+            nextStatus=QStringLiteral("显示器 ICC 转换失败（预览保持 sRGB）");
+        }
+    }
+    const bool statusChanged=nextStatus!=display_color_status_;
+    display_image_=std::move(next);display_color_status_=std::move(nextStatus);
+    ++texture_revision_;update();
+    if(statusChanged)emit displayColorChanged();
+}
 QSGNode* FrameCanvas::updatePaintNode(QSGNode* old,UpdatePaintNodeData*) {
     auto* node=static_cast<ImageNode*>(old);
-    if(image_.isNull()||!window()){delete node;return nullptr;}
+    if(display_image_.isNull()||!window()){delete node;return nullptr;}
     if(!node)node=new ImageNode;
-    if(node->revision!=revision_) {
-        auto* texture=window()->createTextureFromImage(image_);
+    if(node->revision!=texture_revision_) {
+        auto* texture=window()->createTextureFromImage(display_image_);
         if(!texture){delete node;return nullptr;}
-        node->setTexture(texture);node->setOwnsTexture(true);node->revision=revision_;
+        node->setTexture(texture);node->setOwnsTexture(true);node->revision=texture_revision_;
     }
     node->setFiltering(scale()>=1.0?QSGTexture::Nearest:QSGTexture::Linear);
     node->setRect(imageRect());return node;

@@ -53,3 +53,20 @@
 ## 复盘
 
 首次运行暴露依赖清单与构建入口漂移；部署检查失败使后续编译未开始。后续状态以进程退出结果和实际产物为准，不能把命令已启动写成构建已完成。
+
+## Windows baseline and real RAW vertical slice (2026-11-15)
+
+Objective: accept the Windows baseline and verify owned Nikon Z 5 NEF through correction, film, monitor presentation and export.
+Scope: Qt display surfaces and tests, Windows CI, existing editing/export gates; no material or wire changes.
+- [x] Create codex/windows-baseline-20261115 worktree from 9fb90f3.
+- [x] Copy G:/photos/001/_DSC9136.NEF into ignored build/vertical-input; decode Nikon Z 5 6040x4032 and render RGB16 TIFF successfully with existing release.
+- [x] Build current branch Release and Debug; full CTests 19/19 in each; owned NEF Release editing 217 and library 147, serial.
+- [x] Implement and test SDR monitor ICC / automatic color management selection.
+- [x] Inspect native RAW app and monitor status; verify existing film editing/export through owned NEF workflows; preserve source.
+- [x] Add honest native Qt CI coverage and record hardware exclusions.
+- [x] Record actual evidence and matched-Mac reference limits; commit the green baseline locally on its own branch.
+Acceptance: real owned input, non-skipping test reports, correct display branch, exported depth/profile/pixels, reopen recovery; distinguish numerical correctness from physical display calibration.
+
+Retrospective: Vulkan treated the shared host's zero-start blur accumulation mode as ordinary accumulation. Independent mode tests reproduce the failure; corrected FIR/IIR now pass deterministic DIR/halation parity (max 8.838652921895097e-06) and the owned NEF no longer renders dark red. See tasks/WINDOWS_BASELINE_20261115.md.
+
+- [ ] Follow-on: scene-linear digital RAW exposure and white balance, then the planned local masks and real negative inversion. Existing film exposure is not digital RAW exposure.

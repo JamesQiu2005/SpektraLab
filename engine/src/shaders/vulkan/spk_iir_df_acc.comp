@@ -94,7 +94,8 @@ void main() {
         for (uint i = 0u; i < length; ++i) {
             uint index = base + i * stride;
             precise float mixed = accumulator.value[index] + mix_weights.value[channel] * image_data.value[index];
-            output_data.value[index] = accumulate != 0u ? mixed : image_data.value[index];
+            output_data.value[index] = accumulate == 1u ? mixed : accumulate == 2u
+                ? mix_weights.value[channel] * image_data.value[index] : image_data.value[index];
         }
         return;
     }
@@ -117,7 +118,8 @@ void main() {
         v = df_add(v, df_mul(B2, y2));
         v = df_add(v, df_mul(B3, y3));
         precise float mixed = accumulator.value[index] + mix_weights.value[channel] * v.x;
-        output_data.value[index] = accumulate != 0u ? mixed : v.x;
+        output_data.value[index] = accumulate == 1u ? mixed : accumulate == 2u
+            ? mix_weights.value[channel] * v.x : v.x;
         y3 = y2; y2 = y1; y1 = v;
     }
 }

@@ -370,6 +370,42 @@ bool check_scene_latitude(Gpu* gpu, std::string& error) {
             }
     return true;
 }
+bool check_blur_accumulation(Gpu* gpu, std::string& error) {
+    const float pixels[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    const float accumulator[] = {100, 101, 102, 103, 104, 105, 106, 107, 108};
+    const float weights[] = {0.5f, -0.25f, 2};
+    const float taps[] = {1, 1, 1};
+    float coefficients[24] = {};
+    for (int c = 0; c < 3; ++c) coefficients[8 * c] = 1;
+    const uint32_t active[] = {0, 1, 0};
+    auto input = gpu->upload(pixels, sizeof pixels, error);
+    auto acc = gpu->upload(accumulator, sizeof accumulator, error);
+    auto wt = gpu->upload(weights, sizeof weights, error);
+    auto fir = gpu->upload(taps, sizeof taps, error);
+    auto coef = gpu->upload(coefficients, sizeof coefficients, error);
+    auto act = gpu->upload_u32(active, 3, error);
+    if (!input || !acc || !wt || !fir || !coef || !act) return false;
+    for (bool iir : {false, true}) for (uint32_t axis : {0u, 1u})
+        for (uint32_t mode : {2u, 0u, 1u}) {
+            auto output = output_buffer(gpu, 9, error);
+            const uint32_t fm[] = {1, 3, 0, axis, mode, 0};
+            const uint32_t im[] = {1, 3, mode, axis};
+            const bool dispatched = output && (iir
+                ? gpu->dispatch("spk_iir_df_acc", {Arg::buf(input), Arg::buf(coef),
+                    Arg::buf(act), Arg::buf(acc), Arg::buf(wt), Arg::inline_bytes(im, 4),
+                    Arg::buf(output)}, axis == 0 ? 9 : 3, error)
+                : gpu->dispatch("spk_sep_fir_acc", {Arg::buf(input), Arg::buf(fir),
+                    Arg::buf(acc), Arg::buf(wt), Arg::inline_bytes(fm, 6),
+                    Arg::buf(output)}, 3, error));
+            std::vector<double> expected(9);
+            for (size_t i = 0; i < 9; ++i)
+                expected[i] = mode == 0 ? pixels[i]
+                    : (mode == 1 ? accumulator[i] : 0) + weights[i % 3] * pixels[i];
+            if (!dispatched || !check_values(gpu, output, expected,
+                    iir ? "iir accumulation" : "fir accumulation", 0, 0, error)) return false;
+        }
+    return true;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -382,7 +418,7 @@ int main(int argc, char** argv) {
         !check_bw(gpu.get(), error) || !check_edr(gpu.get(), error) || !check_decode(gpu.get(), error)) {
         std::fprintf(stderr, "pointwise: %s\n", error.c_str()); return 1;
     }
-    if (!check_scene_latitude(gpu.get(), error)) {
+    if (!check_scene_latitude(gpu.get(), error) || !check_blur_accumulation(gpu.get(), error)) {
         std::fprintf(stderr, "pointwise: %s\n", error.c_str()); return 1;
     }
     std::printf("pointwise: %zu analytic/float64 cases, max abs error %.9g, "
