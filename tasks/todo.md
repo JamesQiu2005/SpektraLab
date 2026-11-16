@@ -12,7 +12,7 @@
 
 - [x] 复现 Qt 下载 404 并更新官方包清单。
 - [x] 修正 Vulkan CMake 变量与 C 编译入口；PowerShell 语法通过。
-- [x] 建立隔离 Python 测试环境，47 项工具测试通过。
+- [x] 建立隔离 Python 测试环境，50 项工具测试通过。
 - [x] 定位并修复 Qt version check failed：部署检查缺少 MinGW runtime PATH。
 - [x] 固定 glslang 16.6.0（commit、归档 SHA-256 和许可证），补齐可重复准备依赖的路径和说明。
 - [x] 新目录 Release 配置和完整构建成功。
@@ -23,7 +23,8 @@
 
 - [x] Debug CTest 18/18、Release CTest 18/18，0 跳过；RTX 3060 Laptop GPU。
 - [x] Windows 功能边界实际渲染：latitude、DI、contrast mask、片边、日期、漏光、柔光/像差、scan HDR、场景蒙版。
-- [ ] Metal/私有 fork 同输入全图数值 parity；public Python 确定性核心已通过（最大绝对差 8.63e-06，0 个 count outlier）。
+- [x] Vulkan 与 public Python 确定性核心的同输入整幅图数值门禁：129,600 个 RGB 值，最大绝对差 8.63e-06，0 个 count outlier；报告在 build/parity-acceptance-20261115/parity-report.json。
+- [ ] 精确 Metal/私有 fork 同输入全图数值 parity；public Python 核心通过不能代替该结论。
 - [ ] 默认 halation/DIR couplers 与匹配参考对齐；public 包对照失败。
 - [x] 错误输入、对象生命周期、无效编辑记录和导出覆盖保护检查。
 
@@ -41,11 +42,11 @@
 - [x] 独立 app 目录在无 SDK PATH 环境启动。
 - [ ] 核查现有 CI，补原生 Windows/Qt 覆盖。
 - [x] 交付运行说明、功能范围、已知限制和许可证。
-- [ ] 按已通过 gate 本地提交，不推送或合并。
+- [x] 按已通过 gate 本地提交，不推送或合并；跨后端对照提交为 c103c4a。
 
 ## 后续质量阶段
 
-- [ ] M5：固定输入契约、跨后端参考、显示色彩管理。
+- [ ] M5：精确私有 fork/Metal 跨后端参考、固定输入契约、显示色彩管理；public Python 确定性核心已完成。
 - [ ] M6：分段性能实测、长期前端选型、按需补功能。
 - [ ] M7：受控真实胶片校准。
 

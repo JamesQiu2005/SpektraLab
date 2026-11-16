@@ -15,6 +15,7 @@
 - 编辑：变体、135 半格双联、裁切/方向/拉直、逐图撤销重做、重启恢复、批量选择与同步设置。
 - 引擎特效：场景宽容度、contrast mask、Cineon DI、场景蒙版、scan HDR、片边/日期后背/漏光、柔光滤镜和镜头像差，均通过 Windows Vulkan 后端执行。
 - 输出：TIFF16、PNG8/16、JPEG8、HEIF8；sRGB、Display P3、Adobe RGB、ProPhoto RGB；导出配方和被显示画面的不可变导出。
+- 跨后端对照：`windows_fixture.py` 提供 `default` 与 `core` 两种确定性 fixture；`windows_python_reference.py` 从 public `spektrafilm` 生成同输入参考，`compare` 校验输入、参数、资源哈希和数值门禁。
 
 ## 已核实
 
@@ -26,16 +27,17 @@
 - 真实 RAW 库闭环：Debug 与 Release 都通过 147 项检查，使用同一对隔离输入；输出分别位于 build/verify-library-final 与 build/verify-library-release-212917。
 - Vulkan 与 public `spektrafilm` 0.3.4 的确定性核心全图对照通过：240×180、129,600 个 RGB 值，最大绝对差 8.629775545831997e-06，最大 1 个 uint16 count，0 个 count outlier；Vulkan 全图渲染与缓存重印逐位一致。证据在 build/parity-acceptance-20261115/parity-report.json。
 - 默认空间特效（halation、DIR couplers）对同一 public 参考不通过，最大绝对差 0.8277110063785368；两者分别单独关闭后仍不通过。不能据此判定 Metal 或 Vulkan 缺陷，因为 public 包不是生成 Mac oracle 的私有 fork。
-- 上一轮 Python 工具测试 47 项通过（2.671 秒）；本轮未重跑。此前 Release 可见窗口启动和净化 PATH 启动已验收，截图在 build/qt-m1/spektralab-printwindow.png。
 - 本轮 Python 工具测试 50 项通过（0.940 秒）。
+- 跨后端对照提交为 c103c4a；此前 Release 可见窗口启动和净化 PATH 启动已验收，截图在 build/qt-m1/spektralab-printwindow.png。
 
 ## 下一步
 
-1. 精确 Metal/私有 fork 参考仍不可用；public Python 的确定性核心已通过。默认 halation/DIR couplers 与 public 实现不同，需匹配私有参考后再判定。
-2. 增加原生 Windows CI，至少覆盖 Debug/Release 构建与 CTest。
-3. 验收显示器 ICC、广色域/HDR；当前界面仍是 8-bit SDR sRGB 显示路径。
-4. 做解码、上传、计算、回读和写盘的分段性能测量，再设性能目标。
-5. 进行受控实拍胶片对照；现有测试不证明任意拍摄/冲洗条件下的科学准确性。
+1. 取得私有 fork/Metal 的同输入参考或 golden 输出，运行现有 `compare`，判定默认 halation/DIR couplers 差异是否属于跨后端问题。
+2. 在 1 MP 或更大整幅图上重跑 `core` fixture，确认当前 240×180 结论不依赖小图。
+3. 增加原生 Windows CI，至少覆盖 Debug/Release 构建与 CTest。
+4. 验收显示器 ICC、广色域/HDR；当前界面仍是 8-bit SDR sRGB 显示路径。
+5. 做解码、上传、计算、回读和写盘的分段性能测量，再设性能目标。
+6. 进行受控实拍胶片对照；现有测试不证明任意拍摄/冲洗条件下的科学准确性。
 
 ## 证据
 
@@ -47,6 +49,8 @@
 - build/verify-library-count-release-213238/library-workflow.json
 - build/parity-acceptance-20261115/parity-report.json
 - build/parity-default-20261115/parity-report.json
+- engine/tools/windows_python_reference.py
+- tasks/parity/WINDOWS-PARITY-2026-11-15.md
 
 ## 限制
 
