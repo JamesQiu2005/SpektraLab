@@ -227,16 +227,38 @@ def extras(host, sid, path, tmp, label, raw, probe):
     check(h["ok"], f"{label}: solve exposure", h.get("error"))
     h, _ = host.call("scene_latitude", {"session": sid})
     check(h["ok"], f"{label}: scene_latitude (analysis)", h.get("error"))
+    h, _ = host.call("set_params", {"session": sid, "delta": {
+        "overscan_active": True, "overscan_format": "135"}})
+    check(h["ok"], f"{label}: enable film edge", h.get("error"))
     h, _ = host.call("overscan_geometry", {"session": sid})
-    check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (refused feature -> invalid)")
+    check(h["ok"] and h["result"].get("valid") is True,
+          f"{label}: overscan_geometry", h.get("error"))
     h, _ = host.call("progress", {"session": sid})
     check(h["ok"] and "pct" in h["result"], f"{label}: progress", h.get("error"))
-    # The five refused features are refused by name, and leave the session usable.
-    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active",
-                  "digital_intermediate"):
-        h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
-        check(not h["ok"] and h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
-              f"{label}: {field} refused", h.get("error", {}).get("message", "accepted?!"))
+    h, _ = host.call("set_params", {"session": sid, "delta": {"contrast_mask_active": True}})
+    if check(h["ok"], f"{label}: enable contrast mask", h.get("error")):
+        h, _ = host.call("render", {"session": sid, "tier": "full", "format": "rgba16"})
+        check(h["ok"], f"{label}: render contrast mask", h.get("error"))
+        host.call("set_params", {"session": sid, "delta": {"contrast_mask_active": False}})
+    h, _ = host.call("set_params", {"session": sid, "delta": {
+        "date_imprint_active": True, "date_imprint_text": "2026 11 15"}})
+    check(h["ok"], f"{label}: enable date back", h.get("error"))
+    h, _ = host.call("render", {"session": sid, "tier": "full", "format": "rgba16"})
+    check(h["ok"], f"{label}: render film edge + date back", h.get("error"))
+    h, _ = host.call("set_params", {"session": sid, "delta": {
+        "date_imprint_active": False, "overscan_active": False,
+        "diffusion_filter_active": True, "diffusion_filter_family": "pro_mist",
+        "diffusion_filter_strength": 1.0}})
+    check(h["ok"], f"{label}: enable diffusion filter", h.get("error"))
+    h, _ = host.call("render", {"session": sid, "tier": "full", "format": "rgba16"})
+    check(h["ok"], f"{label}: render diffusion filter", h.get("error"))
+    h, _ = host.call("set_params", {"session": sid, "delta": {
+        "diffusion_filter_active": False, "lens_aberrations_active": True,
+        "lens_lateral_ca_r": 2.0, "lens_field_curvature_um": 48.0}})
+    check(h["ok"], f"{label}: enable lens aberrations", h.get("error"))
+    h, _ = host.call("render", {"session": sid, "tier": "full", "format": "rgba16"})
+    check(h["ok"], f"{label}: render lens aberrations", h.get("error"))
+    host.call("set_params", {"session": sid, "delta": {"lens_aberrations_active": False}})
     h, _ = host.call("print_lut_catalog")
     stock = sorted(h["result"].keys())[0]
     h, px = host.call("preview_stock_lut", {"session": sid, "print_stock": stock, "tier": "live",
@@ -247,6 +269,15 @@ def extras(host, sid, path, tmp, label, raw, probe):
     out = os.path.join(tmp, f"{label}-di.tif")
     h, _ = host.call("export_di", {"session": sid, "path": out})
     check(h["ok"] and tiff_info(out) is not None, f"{label}: export_di", h.get("error"))
+    h, _ = host.call("set_params", {"session": sid, "delta": {
+        "scene_latitude_active": True, "scene_latitude_rolloff": 2}})
+    if check(h["ok"], f"{label}: set scene latitude", h.get("error")):
+        h, _ = host.call("render", {"session": sid, "tier": "full", "format": "rgba16"})
+        check(h["ok"], f"{label}: render scene latitude", h.get("error"))
+        host.call("set_params", {"session": sid, "delta": {"scene_latitude_active": False}})
+    h, _ = host.call("render_digital_intermediate", {"session": sid})
+    check(h["ok"] and h["result"].get("encoding") == "cineon",
+          f"{label}: render Digital Intermediate", h.get("error"))
     # cancel: one arriving before its render is refused when it starts
     h, _ = host.call("cancel", {"session": sid, "progress_id": "never-ran"})
     check(h["ok"] and h["result"]["was_running"] is False, f"{label}: cancel (queued)")

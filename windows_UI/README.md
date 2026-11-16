@@ -5,14 +5,23 @@ This is a native Qt Quick/C++ application using the existing synchronous
 runtime. The upstream SwiftUI theme supplied the grey rails, centre canvas,
 warm accent and bottom strip; unsupported controls are omitted deliberately.
 
-Implemented: multi-file RAW import and drag/drop; independent per-photo
-film/paper, decode, exposure, grain, halation, glare, film format and filter
-settings; a navigator and selected-photo strip; free/ratio cropping; and
-TIFF16, PNG8/16, JPEG8 export with JPEG quality and optional downsize. Batch
-export processes selected photos serially, supports cancellation between files,
-and skips existing files. Single export refuses overwrites. Output stays sRGB
-with the bundled ICC profile. Select-all and synchronization copy supported
-settings to selected photos, preserving their own crops by default.
+Implemented: multi-file RAW import and drag/drop; linked folders with persistent
+catalogues; search and sorting, ratings, colour labels, collections and a
+trash; variants and 135 half-frame pairs; independent per-photo film/paper,
+decode, exposure, grain, halation, glare, film format and filter settings; a
+navigator and selected-photo strip; free/ratio cropping; and TIFF16, PNG8/16,
+JPEG8 and HEIF8 export with JPEG quality, optional downsize, export recipes and
+sRGB, Display P3, Adobe RGB and ProPhoto RGB output. Batch export processes
+selected photos serially, supports cancellation between files, and skips
+existing files. Single export refuses overwrites. Select-all and synchronization
+copy supported settings to selected photos, preserving their own crops by
+default.
+
+The engine controls also expose Cineon Digital Intermediate, scene latitude,
+virtual contrast masks, local scene layers, scan HDR, film edge/date back/light
+leak, diffusion filters and lens aberrations. These run in the Windows Vulkan
+backend; the functional boundary test renders each one, but no Metal/Python
+whole-image parity result exists yet.
 
 Ctrl+O imports, Ctrl+E opens export options, Ctrl+0 fits and Ctrl+1 selects
 physical 100%. Double-click also switches fit/100%. Changes update the preview
@@ -78,11 +87,14 @@ Use `-Fresh` to discard an existing CMake configuration before rebuilding.
 # From the repository root. The bootstrap uses only PowerShell and Windows
 # bsdtar, downloads into ../deps and checks pinned SHA256 for every file.
 ./windows_UI/setup-qt.ps1 -DependencyDirectory ../deps
+./windows_UI/setup-glslang.ps1 -DependencyDirectory ../deps
 ./windows_UI/build.ps1 -SourceDirectory . -BuildDirectory ./build/qt -RunTests
 ```
 
 Local dependencies are in the workspace's `deps/qt-6.11.3`, alongside Vulkan
-headers, glslang and LibRaw used by the engine. `-DependencyDirectory` overrides
+headers, glslang 16.6.0 and LibRaw used by the engine. Run
+`setup-glslang.ps1 -DependencyDirectory ../deps` on a new checkout; repeat with
+`-VerifyOnly` before builds. `-DependencyDirectory` overrides
 that location. The output `app/` is self-contained for this Windows machine;
 keep the complete directory with its DLLs, QML plugins, resources and notices.
 The Vulkan driver is supplied by Windows/the installed GPU driver.
@@ -91,8 +103,8 @@ The Vulkan driver is supplied by Windows/the installed GPU driver.
 `dependencies/qt-licenses.json` lists each official source license and hash.
 `setup-qt.ps1 -VerifyOnly` verifies the existing archive/license cache and tool
 versions without network or extraction. The initial download is about 278 MB.
-This script does not install Vulkan headers, glslang, CMake or LibRaw; set those
-up using the repository's Windows engine instructions first. It neither
+The Qt script does not install Vulkan headers, glslang, CMake or LibRaw; set
+those up using the repository's Windows engine instructions first. It neither
 downloads an unpinned "latest" SDK nor depends on a private local manifest.
 
 For a parent build, enable the native RAW and desktop host targets and call
@@ -101,12 +113,22 @@ links the existing `spk_desktop_host`; the macOS build is untouched. Resources
 are synchronized on every build, including builds where the executable itself
 does not need relinking. Deployment is an explicit build-script step.
 
+The pinned Qt package supplies release libraries. `build.ps1` accepts
+`-Configuration Debug` for debugging SpektraLab code; the script deploys the
+required release Qt runtime for that app build.
+
 ## Validation
 
-The first validated build used Qt 6.11.3 / MinGW 13.1 on an RTX 5070 Ti:
-16 engine CTests passed, followed by the real 4688 x 7028 ARW scene test below.
-The same decoded input produced byte-identical deterministic RGBA16 full and
-print-edit outputs under this compiler and the existing GCC 15.2 baseline.
+The first validated build used Qt 6.11.3 / MinGW 13.1 on an RTX 5070 Ti and
+reported 16 engine CTests, followed by the real 4688 x 7028 ARW scene test
+below. That record predates the current feature set. The current build was
+verified on an RTX 3060 Laptop GPU with driver 617.42: Debug and Release each
+passed 18/18 CTests, including functional rendering of the Windows effects.
+In both configurations, the real-RAW edit gate passed 217 checks and the
+real-RAW library gate passed 147 checks on isolated copies of a Canon EOS 5D
+Mark III DNG and an invalid CRW. The same decoded input produced byte-identical
+deterministic RGBA16 full and print-edit outputs under this compiler and the
+existing GCC 15.2 baseline.
 The Vulkan startup gate uses an exact product-residual reference because the
 legacy MSVCRT `fmaf` returns incorrect residuals for some of the probe inputs;
 the GPU comparison remains exact and also has fixed-bit regression vectors.
@@ -129,8 +151,9 @@ all four slide films, negative/slide transitions, automatic decode changes and
 reset. It exits nonzero on failure and writes JSON and scene captures.
 
 `spk_qt_frame_output` is an additional CTest for shared crop geometry, actual
-PNG/JPEG/TIFF pixels/depth/ICC, JPEG quality, resize, extension agreement,
-atomic no-overwrite publication (including concurrent writers), and cleanup.
+PNG/JPEG/TIFF/HEIF pixels/depth/ICC, Adobe RGB embedding, JPEG quality, resize,
+extension agreement, atomic no-overwrite publication (including concurrent
+writers), and cleanup.
 The explicit full-RAW library gate uses isolated copies of both photo inputs:
 
 ```powershell

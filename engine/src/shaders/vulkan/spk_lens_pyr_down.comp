@@ -1,0 +1,22 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Image { float16_t value[]; } image_data;
+layout(set=0,binding=1,std430) readonly buffer Meta { uint value[]; } meta;
+layout(set=0,binding=2,std430) writeonly buffer Output { float16_t value[]; } out_data;
+const float kB6[6] = float[6](1.0/32.0,5.0/32.0,10.0/32.0,10.0/32.0,5.0/32.0,1.0/32.0);
+uint index() { return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x; }
+vec3 ld3(uint s) { return vec3(float(image_data.value[3u*s]),float(image_data.value[3u*s+1u]),float(image_data.value[3u*s+2u])); }
+void main() {
+    uint i=index(), hin=meta.value[0], win=meta.value[1], hout=meta.value[2], wout=meta.value[3];
+    if (i>=hout*wout) return;
+    uint r=i/wout,j=i%wout; int fy=2*int(r)-2,fx=2*int(j)-2;
+    vec3 s=vec3(0.0);
+    for (int a=0;a<6;++a) {
+        uint row=uint(clamp(fy+a,0,int(hin)-1))*win; vec3 acc=vec3(0.0);
+        for (int b=0;b<6;++b) acc+=kB6[b]*ld3(row+uint(clamp(fx+b,0,int(win)-1)));
+        s+=kB6[a]*acc;
+    }
+    out_data.value[3u*i]=float16_t(s.x); out_data.value[3u*i+1u]=float16_t(s.y); out_data.value[3u*i+2u]=float16_t(s.z);
+}

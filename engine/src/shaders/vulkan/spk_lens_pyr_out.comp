@@ -1,0 +1,59 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Fine { float value[]; } E;
+layout(set=0,binding=1,std430) readonly buffer Coarse { float16_t value[]; } A1;
+layout(set=0,binding=2,std430) readonly buffer Taps { float value[]; } taps;
+layout(set=0,binding=3,std430) readonly buffer Boost { float value[]; } bp;
+layout(set=0,binding=4,std430) readonly buffer Meta { uint value[]; } meta;
+layout(set=0,binding=5,std430) writeonly buffer Output { float value[]; } out_data;
+vec3 ldE(uint i){return vec3(E.value[3u*i],E.value[3u*i+1u],E.value[3u*i+2u]);}
+vec3 ldA(uint i){return vec3(float(A1.value[3u*i]),float(A1.value[3u*i+1u]),float(A1.value[3u*i+2u]));}
+vec3 source3(vec3 v){
+    if(bp.value[0]==0.0)return v; vec3 o;
+    for(uint c=0u;c<3u;++c){float x=v[c];if(x<=bp.value[1])o[c]=x;else{float dx=(x-bp.value[1])*bp.value[2];o[c]=x+bp.value[4]*(exp(bp.value[3]*dx)-bp.value[3]*dx-1.0);}}
+    return o;
+}
+vec3 source_at(int iy,int ix,int dy,int dx,uint h,uint w){
+    uint yy=uint(clamp(iy+dy,0,int(h)-1)),xx=uint(clamp(ix+dx,0,int(w)-1));
+    return source3(ldE(yy*w+xx));
+}
+void main(){
+    uint h=meta.value[0],w=meta.value[1],hc=meta.value[2],wc=meta.value[3],R=meta.value[4],row0=meta.value[5],n=meta.value[6];
+    uint e=gl_LocalInvocationIndex; if(e>=256u)return;
+    uint r=e/32u,q=e%32u,tiles_x=(w+31u)/32u,tile=gl_WorkGroupID.x;
+    int tx0=int((tile%tiles_x)*32u),ty0=int(row0+(tile/tiles_x)*8u);
+    uint gy=uint(ty0)+r,gx=uint(tx0)+q; if(gy>=row0+n||gx>=w)return;
+    const float ev[3]=float[3](5.0/16.0,10.0/16.0,1.0/16.0),od[3]=float[3](1.0/16.0,10.0/16.0,5.0/16.0);
+    vec3 up=vec3(0.0);
+    for(uint a=0u;a<3u;++a){
+        int cy=int(gy/2u)-1+int(a),cx=int(gx/2u)-1;
+        vec3 acc=vec3(0.0);
+        for(uint b=0u;b<3u;++b){
+            uint yy=uint(clamp(cy,0,int(hc)-1)),xx=uint(clamp(cx+int(b),0,int(wc)-1));
+            acc+=((gx&1u)!=0u?od[b]:ev[b])*ldA(yy*wc+xx);
+        }
+        up+=((gy&1u)!=0u?od[a]:ev[a])*acc;
+    }
+    vec3 e0=ldE(gy*w+gx);
+    vec3 core=vec3(taps.value[3],taps.value[4],taps.value[5])*source3(e0);
+    uint Q=R+1u;
+    int iy=int(gy),ix=int(gx);
+    for(uint dy=0u;dy<=R;++dy){
+        for(uint dx=max(dy,1u);dx<=R;++dx){
+            int x=int(dx),y=int(dy);
+            vec3 s=source_at(iy,ix,y,x,h,w)+source_at(iy,ix,y,-x,h,w);
+            if(y!=0)s+=source_at(iy,ix,-y,x,h,w)+source_at(iy,ix,-y,-x,h,w);
+            if(x!=y){
+                s+=source_at(iy,ix,x,y,h,w)+source_at(iy,ix,x,-y,h,w);
+                if(y!=0)s+=source_at(iy,ix,-x,y,h,w)+source_at(iy,ix,-x,-y,h,w);
+            }
+            uint ti=3u+3u*(dy*Q+dx);
+            core+=vec3(taps.value[ti],taps.value[ti+1u],taps.value[ti+2u])*s;
+        }
+    }
+    vec3 o=vec3(taps.value[0],taps.value[1],taps.value[2])*e0+core+up;
+    uint oi=(gy-row0)*w+gx;
+    out_data.value[3u*oi]=o.x;out_data.value[3u*oi+1u]=o.y;out_data.value[3u*oi+2u]=o.z;
+}

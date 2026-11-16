@@ -1,0 +1,55 @@
+#version 450
+
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Cmy { float value[]; } cmy_data;
+layout(set = 0, binding = 1, std430) readonly buffer Chd { float value[]; } chd_data;
+layout(set = 0, binding = 2, std430) readonly buffer Base { float value[]; } base_data;
+layout(set = 0, binding = 3, std430) readonly buffer Ixs { float value[]; } ixs_data;
+layout(set = 0, binding = 4, std430) readonly buffer Params { float value[]; } p;
+layout(set = 0, binding = 5, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 6, std430) writeonly buffer Output { float value[]; } out_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) +
+           gl_GlobalInvocationID.x;
+}
+
+vec3 image_exposure(uint i, uint wavelengths) {
+    vec3 c = vec3(cmy_data.value[3u * i], cmy_data.value[3u * i + 1u],
+                  cmy_data.value[3u * i + 2u]);
+    vec3 exposure = vec3(0.0);
+    for (uint l = 0u; l < wavelengths; ++l) {
+        float d = dot(c, vec3(chd_data.value[3u * l], chd_data.value[3u * l + 1u],
+                             chd_data.value[3u * l + 2u])) + base_data.value[l];
+        float t = exp2(-d * 3.321928094887362);
+        exposure += t * vec3(ixs_data.value[3u * l], ixs_data.value[3u * l + 1u],
+                             ixs_data.value[3u * l + 2u]);
+    }
+    return exposure * vec3(p.value[0], p.value[1], p.value[2]);
+}
+
+float mask_x(vec3 exposure) {
+    float sum = 0.0;
+    for (uint c = 0u; c < 3u; ++c) {
+        float ratio = max(exposure[c] * p.value[3u + c], 0.0);
+        sum += max(log2(ratio), -20.0);
+    }
+    return sum * (1.0 / 3.0);
+}
+
+void main() {
+    uint cell = spk_global_index();
+    uint width = meta.value[0], height = meta.value[1];
+    uint grid_width = meta.value[2], grid_height = meta.value[3];
+    if (cell >= grid_width * grid_height) return;
+    uint cy = cell / grid_width, cx = cell % grid_width;
+    uint x0 = (cx * width) / grid_width;
+    uint x1 = min(max(((cx + 1u) * width) / grid_width, x0 + 1u), width);
+    uint y0 = (cy * height) / grid_height;
+    uint y1 = min(max(((cy + 1u) * height) / grid_height, y0 + 1u), height);
+    float sum = 0.0;
+    for (uint y = y0; y < y1; ++y)
+        for (uint x = x0; x < x1; ++x)
+            sum += mask_x(image_exposure(y * width + x, meta.value[4]));
+    out_data.value[cell] = sum / float((x1 - x0) * (y1 - y0));
+}

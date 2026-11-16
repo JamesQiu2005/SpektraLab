@@ -1,0 +1,51 @@
+#version 450
+
+// RFC-035 Decode curve. The five rows are RGB, luma, R, G, B.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } parameters;
+layout(set = 0, binding = 2, std430) readonly buffer Table { float value[]; } table_data;
+layout(set = 0, binding = 3, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 4, std430) writeonly buffer Output { float value[]; } output_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) +
+           gl_GlobalInvocationID.x;
+}
+
+float scene_curve_gain(float value, uint row, uint count, float stops, float reference,
+                       float film_exposure) {
+    if (!(value > 0.0) || isinf(value) || isnan(value)) return 1.0;
+    const float exposure = log2(value / reference) + film_exposure;
+    const float u = clamp((exposure + stops) / (2.0 * stops), 0.0, 1.0);
+    const float x = u * float(count - 1u);
+    const uint low = min(uint(x), count - 2u);
+    const float fraction = x - float(low);
+    const uint offset = row * count + low;
+    const float y = mix(table_data.value[offset], table_data.value[offset + 1u], fraction);
+    return clamp(exp2(2.0 * stops * (y - u)), exp2(-30.0), exp2(30.0));
+}
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    const uint count = uint(parameters.value[0]);
+    const float stops = parameters.value[1];
+    const float reference = parameters.value[2];
+    const float film_exposure = parameters.value[6];
+    vec3 color = vec3(input_data.value[3u * i], input_data.value[3u * i + 1u],
+                      input_data.value[3u * i + 2u]);
+    const float luma = parameters.value[3] * max(color.r, 0.0) +
+                       parameters.value[4] * max(color.g, 0.0) +
+                       parameters.value[5] * max(color.b, 0.0);
+    color *= scene_curve_gain(luma, 1u, count, stops, reference, film_exposure);
+    color = vec3(color.r * scene_curve_gain(color.r, 0u, count, stops, reference, film_exposure),
+                 color.g * scene_curve_gain(color.g, 0u, count, stops, reference, film_exposure),
+                 color.b * scene_curve_gain(color.b, 0u, count, stops, reference, film_exposure));
+    color = vec3(color.r * scene_curve_gain(color.r, 2u, count, stops, reference, film_exposure),
+                 color.g * scene_curve_gain(color.g, 3u, count, stops, reference, film_exposure),
+                 color.b * scene_curve_gain(color.b, 4u, count, stops, reference, film_exposure));
+    output_data.value[3u * i] = color.r;
+    output_data.value[3u * i + 1u] = color.g;
+    output_data.value[3u * i + 2u] = color.b;
+}

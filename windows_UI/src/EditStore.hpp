@@ -28,11 +28,14 @@ struct LoadResult {
 class Store final {
 public:
     explicit Store(QString directory);
-    LoadResult load(const QUrl& source, const Catalog& catalog) const;
+    LoadResult load(const QUrl& source, const Catalog& catalog,
+                    const QString& logicalKey = {}) const;
     // Atomic replacement after validating the existing record and source.
     // Throws std::runtime_error; a rejected save leaves old edits untouched.
-    void save(const QUrl& source, const State& state) const;
-    QString filePath(const QUrl& source) const;
+    void save(const QUrl& source, const State& state,
+              const QString& logicalKey = {}) const;
+    void remove(const QUrl& source, const QString& logicalKey) const;
+    QString filePath(const QUrl& source, const QString& logicalKey = {}) const;
 
 private:
     struct Observation {

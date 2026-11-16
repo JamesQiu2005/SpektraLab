@@ -1,0 +1,77 @@
+#version 450
+
+// RFC-023 Scene Latitude Mapping. Values in parameters mirror the host layout
+// documented in scene_latitude.metal; one invocation owns one RGB pixel.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } parameters;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) +
+           gl_GlobalInvocationID.x;
+}
+
+float departure(float d, float room, float rolloff) {
+    if (!(d > 0.0)) return 0.0;
+    if (rolloff == 2.0) {
+        float r = sqrt(room * room + d * d);
+        return -(d * d * d) / (r * (room + r));
+    }
+    if (rolloff == 1.0) return -(d * d) / (room + d);
+    return d * (room / pow(pow(room, rolloff) + pow(d, rolloff), 1.0 / rolloff) - 1.0);
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    float r = input_data.value[3u * i];
+    float g = input_data.value[3u * i + 1u];
+    float b = input_data.value[3u * i + 2u];
+    float cr = max(r, 0.0), cg = max(g, 0.0), cb = max(b, 0.0);
+    uint norm = uint(parameters.value[6]);
+    float v;
+    if (norm == 1u) {
+        v = parameters.value[7] * cr + parameters.value[8] * cg + parameters.value[9] * cb;
+    } else if (norm == 2u) {
+        v = max(cr, max(cg, cb));
+    } else {
+        float s2 = cr * cr + cg * cg + cb * cb;
+        v = s2 > 0.0 ? (cr * cr * cr + cg * cg * cg + cb * cb * cb) / s2 : 0.0;
+    }
+
+    float k = 1.0;
+    if (v > 0.0 && !isinf(v) && !isnan(v)) {
+        float reference = parameters.value[10];
+        float stops = clamp(log2(max(v, reference * exp2(-24.0)) / reference), -24.0, 24.0);
+        float high_knee = parameters.value[0], high_room = parameters.value[1];
+        float low_knee = parameters.value[2], low_room = parameters.value[3];
+        if (parameters.value[13] > 0.0) {
+            uint width = uint(parameters.value[11]);
+            uint height = uint(parameters.value[12]);
+            float along = width >= height
+                ? (float(i % width) + 0.5) / float(width)
+                : (float(i / width) + parameters.value[18] + 0.5) / float(height);
+            if (along >= parameters.value[13]) {
+                high_knee = parameters.value[14];
+                high_room = parameters.value[15];
+                low_knee = parameters.value[16];
+                low_room = parameters.value[17];
+            }
+        }
+        float d = 0.0;
+        if (high_room > 0.0 && stops > high_knee)
+            d = departure(stops - high_knee, high_room, parameters.value[4]);
+        else if (low_room > 0.0 && stops < low_knee)
+            d = -departure(low_knee - stops, low_room, parameters.value[4]);
+        if (d > 0.0) {
+            float limit = parameters.value[5];
+            d = d * limit / sqrt(limit * limit + d * d);
+        }
+        k = clamp(exp2(d), exp2(-30.0), exp2(30.0));
+    }
+    output_data.value[3u * i] = r * k;
+    output_data.value[3u * i + 1u] = g * k;
+    output_data.value[3u * i + 2u] = b * k;
+}

@@ -4,15 +4,19 @@
 
 #include "io/raw_decoder.hpp"
 #include "spektralab/spk_engine.h"
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace spk::desktop {
 
 enum class DecodeMode { compatible16, headroom };
+using SettingValue = std::variant<bool, int, double, std::string>;
 
 struct RenderSettings {
     std::string film_stock = "kodak_portra_400";
@@ -31,9 +35,14 @@ struct RenderSettings {
     double glare_amount = 1.0;
     double y_filter_shift = 0.0;
     double m_filter_shift = 0.0;
+    // Engine-native controls that have no dedicated desktop field. Values keep
+    // their schema type so JSON deltas remain exact and persisted records can
+    // restore them without string coercion.
+    std::map<std::string, SettingValue> advanced;
 
     bool operator==(const RenderSettings&) const = default;
 };
+std::map<std::string, SettingValue> default_advanced_settings();
 
 struct Stock {
     std::string id, label;
@@ -59,11 +68,15 @@ public:
     Frame& operator=(const Frame&) = delete;
 
     std::filesystem::path source;
+    std::vector<std::filesystem::path> pair_sources;
     DecodeMode decode_mode = DecodeMode::compatible16;
     RenderSettings settings;
     // Resolved from the selected film's catalog metadata, not a separate
     // user setting. Slide film is viewed directly without the paper stage.
     bool scan_film = false;
+    bool digital_intermediate = false;
+    // Cineon-log RGBA16 is converted through this table for every output.
+    std::filesystem::path di_view_table;
     io::RawMetadata metadata;
     io::RawDecodeTimings decode_timings;
     Timings timings;
@@ -108,6 +121,8 @@ public:
     // must all succeed before replacing the previous session and frame.
     FramePtr open_raw(const std::filesystem::path& source, DecodeMode mode,
                       const RenderSettings& settings = {});
+    FramePtr open_raw_pair(const std::filesystem::path& left, const std::filesystem::path& right,
+                           DecodeMode mode, const RenderSettings& settings = {});
     // Only changed settings are sent. Print-side edits request spk_reprint;
     // the result's actual cache flag determines whether reuse occurred.
     // A failure never mutates the previously returned Frame.
@@ -118,6 +133,13 @@ public:
     void export_tiff(const Frame& frame, const std::filesystem::path& destination) const;
 
 private:
+    FramePtr open_decoded(const std::filesystem::path& source,
+                          io::DecodedRaw decoded,
+                          std::vector<std::filesystem::path> pair_sources,
+                          DecodeMode mode,
+                          const RenderSettings& settings,
+                          double decode_ms,
+                          std::chrono::steady_clock::time_point started);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

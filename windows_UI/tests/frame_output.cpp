@@ -16,6 +16,14 @@
 #include <map>
 #include <stdexcept>
 #include <thread>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <wincodec.h>
+#include <wrl/client.h>
+#endif
 
 namespace output=spk::desktop::output;
 namespace fs=std::filesystem;
@@ -105,6 +113,71 @@ void cleanPartials(const QString& folder) {
     const auto entries=QDir(folder).entryList({".spektralab-export-*"},QDir::Dirs|QDir::Hidden|QDir::NoDotAndDotDot);
     check(entries.isEmpty(),"export leaked a partial directory");
 }
+#ifdef _WIN32
+struct ComApartment {
+    HRESULT result=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+    ~ComApartment(){if(SUCCEEDED(result))CoUninitialize();}
+};
+void verifyHeif(const fs::path& path,const QImage& expected,const QByteArray& icc) {
+    ComApartment com;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
+    check(SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&factory))),"WIC factory unavailable");
+    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+    check(SUCCEEDED(factory->CreateDecoderFromFilename(path.c_str(),nullptr,GENERIC_READ,
+                                                       WICDecodeMetadataCacheOnDemand,&decoder)),
+          "Windows HEIF decoder cannot read export");
+    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+    check(SUCCEEDED(decoder->GetFrame(0,&frame)),"HEIF has no image frame");
+    UINT width=0,height=0;check(SUCCEEDED(frame->GetSize(&width,&height))&&
+        int(width)==expected.width()&&int(height)==expected.height(),"HEIF dimensions changed");
+    Microsoft::WRL::ComPtr<IWICColorContext> context;
+    UINT count=1;
+    if(SUCCEEDED(frame->GetColorContexts(1,&context,&count))&&context&&count==1) {
+        UINT size=0;
+        if(SUCCEEDED(context->GetProfileBytes(0,nullptr,&size))&&size>0) {
+            QByteArray profile(int(size),Qt::Uninitialized);
+            check(SUCCEEDED(context->GetProfileBytes(size,reinterpret_cast<BYTE*>(profile.data()),&size))&&
+                  size==UINT(profile.size())&&profile==icc,"HEIF changed the output ICC profile");
+        }
+    }
+    WICPixelFormatGUID sourceFormat{};
+    check(SUCCEEDED(frame->GetPixelFormat(&sourceFormat)),"HEIF pixel format missing");
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converted;
+    IWICBitmapSource* source=frame.Get();
+    if(!IsEqualGUID(sourceFormat,GUID_WICPixelFormat24bppBGR)) {
+        const HRESULT converterResult=factory->CreateFormatConverter(&converted);
+        const HRESULT initializeResult=SUCCEEDED(converterResult)?
+            converted->Initialize(frame.Get(),GUID_WICPixelFormat24bppBGR,
+                                  WICBitmapDitherTypeNone,nullptr,0,WICBitmapPaletteTypeCustom):converterResult;
+        if(FAILED(initializeResult))throw std::runtime_error(
+            QStringLiteral("HEIF pixels cannot be converted (%1)").arg(quint32(initializeResult),8,16,QChar('0'))
+                .toStdString());
+        source=converted.Get();
+    }
+    const UINT stride=width*3;QByteArray pixels(int(stride*height),Qt::Uninitialized);
+    const HRESULT copyResult=source->CopyPixels(nullptr,stride,UINT(pixels.size()),
+                                                reinterpret_cast<BYTE*>(pixels.data()));
+    if(FAILED(copyResult)) {
+        const auto* guid=reinterpret_cast<const uchar*>(&sourceFormat);
+        QString guidText;
+        for(int i=0;i<16;++i)guidText+=QString("%1").arg(guid[i],2,16,QChar('0'));
+        throw std::runtime_error(
+            QStringLiteral("HEIF pixels cannot be decoded (%1; source format %2)")
+                .arg(quint32(copyResult),8,16,QChar('0')).arg(guidText).toStdString());
+    }
+    for(int y=0;y<expected.height();++y) {
+        const auto* wanted=reinterpret_cast<const QRgba64*>(expected.constScanLine(y));
+        const auto* actual=reinterpret_cast<const uchar*>(pixels.constData()+y*stride);
+        for(int x=0;x<expected.width();++x) {
+            check(std::abs(int(actual[x*3+2])-int((wanted[x].red()+128)/257))<=8&&
+                  std::abs(int(actual[x*3+1])-int((wanted[x].green()+128)/257))<=8&&
+                  std::abs(int(actual[x*3])-int((wanted[x].blue()+128)/257))<=8,
+                  "HEIF pixel changed beyond lossy quality tolerance");
+        }
+    }
+}
+#endif
 QImage expectedOrthogonal(const QImage& cropped,int turns,bool flipX,bool flipY) {
     const bool portrait=turns%2;
     QImage result(portrait?cropped.height():cropped.width(),portrait?cropped.width():cropped.height(),QImage::Format_RGBA64);
@@ -252,6 +325,28 @@ int main(int argc,char** argv) {
             check(read(destination)==before,"failed overwrite changed original bytes");
             cleanPartials(folder);
         }
+        output::ExportOptions colorOutput;
+        colorOutput.format=output::Format::PNG16;colorOutput.outputSpace=output::OutputSpace::AdobeRGB;
+        colorOutput.copyMetadata=true;colorOutput.metadata="Canon EOS test";
+        const auto colorPath=QDir(folder).filePath("adobe-rgb.png");
+        output::exportImageFile(original,native(colorPath),crop,colorOutput,resources);
+        QImageReader colorReader(colorPath);const auto colorImage=colorReader.read();
+        check(!colorImage.isNull(),"Adobe RGB PNG cannot be read");
+        check(colorImage.colorSpace()==QColorSpace(QColorSpace::AdobeRgb),"Adobe RGB profile was not embedded");
+        check(colorImage.text("Description")=="Canon EOS test","source metadata was not copied");
+        colorOutput.copyMetadata=false;
+        const auto noMetadata=QDir(folder).filePath("no-metadata.png");
+        output::exportImageFile(original,native(noMetadata),crop,colorOutput,resources);
+        check(QImageReader(noMetadata).text("Description").isEmpty(),
+              "disabled metadata still produced a description");
+        colorOutput.copyMetadata=true;
+        colorOutput.format=output::Format::TIFF16;
+        const auto colorTiff=QDir(folder).filePath("adobe-rgb.tif");
+        output::exportImageFile(original,native(colorTiff),crop,colorOutput,resources);
+        auto adobeExpected=output::exportImage(original,crop,colorOutput);
+        const QColorSpace adobe(QColorSpace::AdobeRgb);
+        adobeExpected.setColorSpace(QColorSpace::SRgb);adobeExpected.convertToColorSpace(adobe);
+        verifyTiff(colorTiff,adobeExpected,adobe.iccProfile());
 
         output::ExportOptions resize;resize.format=output::Format::PNG16;resize.maxLongEdge=4;
         auto resized=output::exportImage(original,{0,0,1,1},resize);
@@ -266,6 +361,28 @@ int main(int argc,char** argv) {
             auto* row=reinterpret_cast<QRgba64*>(gradient.scanLine(y));
             for(int x=0;x<gradient.width();++x)row[x]=QRgba64::fromRgba64(quint16(x*65535/95),quint16(y*65535/63),quint16((x+y)*65535/158),65535);
         }
+#ifdef _WIN32
+        output::ExportOptions heif;
+        heif.format=output::Format::HEIF8;heif.jpegQuality=95;
+        heif.copyMetadata=true;heif.metadata="Canon EOS test";
+        check(output::formatAvailable(heif.format),"Windows HEIF Image Extension encoder missing");
+        heif.outputSpace=output::OutputSpace::AdobeRGB;
+        bool rejectedWide=false;
+        try { output::exportImageFile(gradient,native(QDir(folder).filePath("wide.heic")),
+                                      {0,0,1,1},heif,resources); }
+        catch(const std::exception&) { rejectedWide=true; }
+        check(rejectedWide,"HEIF accepted pixels without an embedded wide-gamut profile");
+        heif.outputSpace=output::OutputSpace::SRGB;
+        const auto heifPath=QDir(folder).filePath("gradient.heic");
+        output::exportImageFile(gradient,native(heifPath),{0,0,1,1},heif,resources);
+        verifyHeif(native(heifPath),gradient,icc);
+        bool rejectedSmall=false;
+        try { output::exportImageFile(original,native(QDir(folder).filePath("tiny.heic")),
+                                      {0,0,1,1},heif,resources); }
+        catch(const std::exception&) { rejectedSmall=true; }
+        check(rejectedSmall,"HEIF accepted an unreadable sub-16-pixel image");
+        cleanPartials(folder);
+#endif
         output::ExportOptions jpeg;jpeg.format=output::Format::JPEG8;
         check(output::formatAvailable(jpeg.format),"JPEG encoder missing");
         QByteArray low;

@@ -1,0 +1,21 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Image { float16_t value[]; } image_data;
+layout(set=0,binding=1,std430) readonly buffer Weights { float value[]; } weights;
+layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta;
+layout(set=0,binding=3,std430) writeonly buffer Output { float16_t value[]; } out_data;
+uint index() { return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x; }
+vec3 ld3(uint s) { return vec3(float(image_data.value[3u*s]),float(image_data.value[3u*s+1u]),float(image_data.value[3u*s+2u])); }
+void main() {
+    uint i=index(),h=meta.value[0],w=meta.value[1]; int r=int(meta.value[2]); uint axis=meta.value[3];
+    if(i>=h*w)return; int y=int(i/w),x=int(i%w); vec3 s=weights.value[0]*ld3(i);
+    for(int t=1;t<=r;++t){
+        uint a,b;
+        if(axis==0u){a=uint(y)*w+uint(clamp(x-t,0,int(w)-1));b=uint(y)*w+uint(clamp(x+t,0,int(w)-1));}
+        else {a=uint(clamp(y-t,0,int(h)-1))*w+uint(x);b=uint(clamp(y+t,0,int(h)-1))*w+uint(x);}
+        s+=weights.value[t]*(ld3(a)+ld3(b));
+    }
+    out_data.value[3u*i]=float16_t(s.x);out_data.value[3u*i+1u]=float16_t(s.y);out_data.value[3u*i+2u]=float16_t(s.z);
+}

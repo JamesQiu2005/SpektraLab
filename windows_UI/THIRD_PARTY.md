@@ -20,6 +20,9 @@ verified hashes are in `Qt-packages.json`.
   `LibRaw-LICENSE.CDDL`, `LibRaw-COPYRIGHT`
 - MinGW-w64 compiler/runtime source and licenses:
   `MinGW/` and <https://github.com/niXman/mingw-builds-binaries/releases/tag/13.1.0-rt_v11-rev1>
+- glslang 16.6.0 source and license:
+  <https://github.com/KhronosGroup/glslang/tree/16.6.0> and
+  `glslang-LICENSE.txt`
 
 The SDK and compiler are local development dependencies outside the Git source
 tree. Before distributing a release binary, retain these notices and provide

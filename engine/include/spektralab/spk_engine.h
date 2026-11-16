@@ -289,13 +289,14 @@ spk_status spk_session_hdr_curve(spk_session* session, const char* request_json,
 /* RFC-052 §6.4 (API-SPEC §23): the 场景 layers -- a local amount of Film
  * Exposure (and of a filter on the light) before the film. One layer:
  *
- *   plane      an `id<MTLBuffer>` **on the engine's own device**: the layer's
- *              folded mask in source space S, 16-bit unorm (0 = none, 65535 =
- *              full), `width * height` uint16, row-major, top row first, no
- *              row padding. Texel (i, j)'s centre is S = ((i + 0.5) / width,
- *              (j + 0.5) / height). Retained by the session until the next call
- *              or its release; **the host never writes into a plane it has
- *              handed over** (make a new buffer for a changed mask).
+ *   plane      the layer's folded mask in source space S, 16-bit unorm (0 =
+ *              none, 65535 = full), `width * height` uint16, row-major, top
+ *              row first, no row padding. On macOS this is an `id<MTLBuffer>`
+ *              on the engine's own device and is retained without a copy. On
+ *              Windows it is host memory and is copied when this call succeeds.
+ *              Texel (i, j)'s centre is S = ((i + 0.5) / width,
+ *              (j + 0.5) / height). On macOS the host must not write into a
+ *              plane it has handed over (make a new buffer for a changed mask).
  *   log_gain   g, the natural log of a gain on the three cone responses of
  *              `C = M_CAT16 · M_(working RGB -> XYZ)` (the reply's
  *              `rgb_to_cone`), at full coverage. An exposure of e stops alone is
@@ -323,8 +324,7 @@ typedef struct spk_scene_layer {
  * (caller-freed, may be NULL): `stamp`, `count`, `colour`, `plane_bytes`,
  * `working_space`, `rgb_to_cone` and `cone_to_rgb` (row-major, out[i] =
  * Σ_j m[3i + j] x[j]), `frame_to_source`. The planes' bytes are the host's and
- * are not in `spk_memory_report`. The CMake targets (Windows, Linux) refuse it
- * with SPK_ERR_UNSUPPORTED. */
+ * on macOS are not in `spk_memory_report`; Windows copies are. */
 spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* layers, uint32_t count,
                                 const float frame_to_source[9], const char* stamp, char** out_json);
 

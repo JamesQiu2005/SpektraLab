@@ -1,0 +1,25 @@
+#version 450
+
+// nodes.metal::spk_scan_hdr_expand: expand a slide's negative below each
+// channel's shoulder while preserving the density at and above the knee.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } input_data;
+layout(set = 0, binding = 1, std430) readonly buffer Parameters { float value[]; } parameters;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } output_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) +
+           gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    for (uint c = 0u; c < 3u; ++c) {
+        float v = input_data.value[3u * i + c];
+        float knee = parameters.value[2u * c];
+        output_data.value[3u * i + c] =
+            v < knee ? knee - (knee - v) * parameters.value[2u * c + 1u] : v;
+    }
+}

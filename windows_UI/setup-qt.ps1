@@ -60,8 +60,15 @@ if (-not $VerifyOnly) {
     Copy-Item -LiteralPath $packageManifest -Destination "$cache/packages.json" -Force
     Copy-Item -LiteralPath $licenseManifest -Destination "$licenses/manifest.json" -Force
 }
-$qtVersion = & "$sdk/bin/qmake.exe" -query QT_VERSION
-if ($LASTEXITCODE -ne 0 -or $qtVersion -ne '6.11.3') { throw 'Qt version check failed' }
-$compilerVersion = & "$qtRoot/Tools/mingw1310_64/bin/g++.exe" -dumpfullversion
-if ($LASTEXITCODE -ne 0 -or $compilerVersion -ne '13.1.0') { throw 'MinGW compiler version check failed' }
+$savedPath = $env:PATH
+try {
+    # qmake needs the MinGW runtime from the separately extracted compiler.
+    $env:PATH = "$qtRoot/Tools/mingw1310_64/bin;$sdk/bin;$savedPath"
+    $qtVersion = & "$sdk/bin/qmake.exe" -query QT_VERSION
+    if ($LASTEXITCODE -ne 0 -or $qtVersion -ne '6.11.3') { throw 'Qt version check failed' }
+    $compilerVersion = & "$qtRoot/Tools/mingw1310_64/bin/g++.exe" -dumpfullversion
+    if ($LASTEXITCODE -ne 0 -or $compilerVersion -ne '13.1.0') { throw 'MinGW compiler version check failed' }
+} finally {
+    $env:PATH = $savedPath
+}
 Write-Output "Verified local Qt $qtVersion / MinGW $compilerVersion. Dependency root: $DependencyDirectory"

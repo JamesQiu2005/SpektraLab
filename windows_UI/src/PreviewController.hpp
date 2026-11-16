@@ -8,6 +8,7 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QSet>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -37,6 +38,16 @@ class PreviewController final : public QObject {
     Q_PROPERTY(double exposureEv READ exposureEv WRITE setExposureEv NOTIFY settingsChanged)
     Q_PROPERTY(QVariantMap adjustments READ adjustments NOTIFY settingsChanged)
     Q_PROPERTY(QVariantList libraryItems READ libraryItems NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList librarySources READ librarySources NOTIFY libraryChanged)
+    Q_PROPERTY(int activeLibrarySource READ activeLibrarySource NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList collections READ collections NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList exportRecipes READ exportRecipes NOTIFY libraryChanged)
+    Q_PROPERTY(QString collectionFilter READ collectionFilter NOTIFY libraryChanged)
+    Q_PROPERTY(QString librarySearch READ librarySearch WRITE setLibrarySearch NOTIFY libraryChanged)
+    Q_PROPERTY(int librarySort READ librarySort WRITE setLibrarySort NOTIFY libraryChanged)
+    Q_PROPERTY(int trashCount READ trashCount NOTIFY libraryChanged)
+    Q_PROPERTY(QString exportNamingOrder READ exportNamingOrder NOTIFY libraryChanged)
+    Q_PROPERTY(QString exportNamingSeparator READ exportNamingSeparator NOTIFY libraryChanged)
     Q_PROPERTY(int activeIndex READ activeIndex NOTIFY libraryChanged)
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY libraryChanged)
     Q_PROPERTY(QImage uncroppedImage READ uncroppedImage NOTIFY frameChanged)
@@ -77,6 +88,16 @@ public:
     double exposureEv() const { return exposure_ev_; }
     QVariantMap adjustments() const;
     QVariantList libraryItems() const;
+    QVariantList librarySources() const;
+    int activeLibrarySource() const;
+    QVariantList collections() const;
+    QVariantList exportRecipes() const;
+    QString collectionFilter() const { return collection_filter_; }
+    QString librarySearch() const { return library_search_; }
+    int librarySort() const { return library_sort_; }
+    int trashCount() const;
+    QString exportNamingOrder() const { return export_naming_order_; }
+    QString exportNamingSeparator() const { return export_naming_separator_; }
     int activeIndex() const { return active_index_; }
     int selectedCount() const;
     QImage uncroppedImage() const { return full_image_; }
@@ -99,9 +120,25 @@ public:
     spk::desktop::FramePtr frame() const { return frame_; }
     Q_INVOKABLE void openRaw(const QUrl& path);
     Q_INVOKABLE void openFiles(const QVariantList& urls);
+    Q_INVOKABLE bool createLibraryCatalog(const QUrl& path);
+    Q_INVOKABLE bool openLibraryCatalog(const QUrl& folder);
+    Q_INVOKABLE bool addLinkedFolder(const QUrl& folder);
+    Q_INVOKABLE bool switchLibrarySource(int index);
     Q_INVOKABLE void selectImage(int index);
     Q_INVOKABLE void setItemSelected(int index, bool selected);
+    Q_INVOKABLE void setRating(int index, int rating);
+    Q_INVOKABLE void setColorLabel(int index, int color);
+    Q_INVOKABLE void createCollection(const QString& name);
+    Q_INVOKABLE void deleteCollection(const QString& name);
+    Q_INVOKABLE void setCollectionFilter(const QString& name);
+    Q_INVOKABLE void setLibrarySearch(const QString& text);
+    Q_INVOKABLE void setLibrarySort(int mode);
+    Q_INVOKABLE void moveToTrash(int index);
+    Q_INVOKABLE void restoreFromTrash(int index);
     Q_INVOKABLE void selectAllPhotos(bool selected);
+    Q_INVOKABLE void createPairFromSelection();
+    Q_INVOKABLE void createVariant(int index, bool clone);
+    Q_INVOKABLE void deleteVariant(int index);
     Q_INVOKABLE void syncSelectedSettings(bool includeCrop=false);
     Q_INVOKABLE void setAdjustment(const QString& name, const QVariant& value);
     Q_INVOKABLE void setCropRect(const QRectF& crop);
@@ -121,7 +158,17 @@ public:
     Q_INVOKABLE void apply();
     Q_INVOKABLE void exportTiff(const QUrl& path);
     Q_INVOKABLE void exportImage(const QUrl& path, int format, int quality, int maxLongEdge);
+    Q_INVOKABLE void exportImageWithRecipe(const QUrl& path, int format, int quality,
+                                            int maxLongEdge, int outputSpace, bool copyMetadata);
     Q_INVOKABLE void exportBatch(const QUrl& folder, int format, int quality, int maxLongEdge);
+    Q_INVOKABLE void exportBatchWithRecipe(const QUrl& folder, int format, int quality,
+                                            int maxLongEdge, int outputSpace, bool copyMetadata);
+    Q_INVOKABLE QVariantMap exportRecipe(int index) const;
+    Q_INVOKABLE bool saveExportRecipe(const QString& name, int format, int quality,
+                                       int maxLongEdge, int outputSpace, bool copyMetadata);
+    Q_INVOKABLE void deleteExportRecipe(int index);
+    Q_INVOKABLE bool setExportNaming(bool originalName,bool film,bool paper,bool date,
+                                      const QString& order,const QString& separator);
     Q_INVOKABLE void cancelExport();
     Q_INVOKABLE void resetSettings();
     Q_INVOKABLE void setDialogOpen(bool open);
@@ -162,6 +209,11 @@ private:
     void scheduleSave();
     void updateThumbnail();
     int addFile(const QUrl&);
+    void loadCatalog();
+    void loadSourceRegistry();
+    bool saveSourceRegistry();
+    QString sourceName(const QString& catalogFile) const;
+    bool saveCatalog();
     void openItem(int index);
     void changed(const QString& editKey={});
     void schedulePreview();
@@ -178,19 +230,45 @@ private:
     spk::desktop::RenderSettings extra_settings_;
     struct LibraryItem {
         QUrl url;
+        QUrl pair_url;
+        QString record_key;
+        QString pair_name;
         spk::desktop::RenderSettings settings;
         spk::desktop::DecodeMode mode=spk::desktop::DecodeMode::compatible16;
         spk::desktop::output::Geometry geometry;
         QImage thumbnail;
         QString error;
+        int rating=0;
+        int color_label=0;
+        bool trashed=false;
         bool selected=true;
         std::vector<spk::desktop::editing::State> undo,redo;
         bool pending_save=false,save_blocked=false,has_stored=false;
         QString save_warning;
     };
+    bool itemVisible(const LibraryItem&) const;
+    std::vector<int> visibleIndices(bool sorted=true) const;
+    int variantNumber(const LibraryItem&) const;
+    int variantCount(const LibraryItem&) const;
     static spk::desktop::editing::State itemState(const LibraryItem&);
     void recordEdit(LibraryItem&,const spk::desktop::editing::State& before);
     std::vector<LibraryItem> library_;
+    struct Collection { QString name; QSet<QString> paths; bool operator==(const Collection&) const = default; };
+    std::vector<Collection> collections_;
+    struct ExportRecipe { QString name; int format=0, quality=95, max_long_edge=0, output_space=0; bool copy_metadata=false;
+        bool naming_original=true,naming_film=false,naming_paper=false,naming_date=false;
+        QString naming_order=QStringLiteral("original,film,print,date"),naming_separator=QStringLiteral("_"); };
+    std::vector<ExportRecipe> export_recipes_;
+    bool export_naming_original_=true,export_naming_film_=false,export_naming_paper_=false,export_naming_date_=false;
+    QString export_naming_order_=QStringLiteral("original,film,print,date");
+    QString export_naming_separator_=QStringLiteral("_");
+    QString collection_filter_;
+    QString library_search_;
+    int library_sort_=0;
+    QString catalog_file_;
+    QString sources_file_;
+    struct LibrarySource { QString name; QString path; qint64 opened=0; QString kind=QStringLiteral("catalog"); QString root; };
+    std::vector<LibrarySource> library_sources_;
     int active_index_=-1;
     std::filesystem::path resources_;
     spk::desktop::editing::Store edit_store_;

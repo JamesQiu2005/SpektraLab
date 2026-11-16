@@ -37,13 +37,14 @@ QString pathIdentity(const QString& path) {
     return QDir::fromNativeSeparators(path);
 #endif
 }
-QString observationKey(const QUrl& source) {
+QString observationKey(const QUrl& source, const QString& logicalKey) {
     require(source.isLocalFile() && !source.toLocalFile().isEmpty(),
             QStringLiteral("Saved edits require a local source file"));
     // Keep this key tied to the name the user opened. If a symlink is retargeted,
     // its canonical record path changes, but it must still fail the observation
     // check instead of looking like a never-before-opened photograph.
-    return pathIdentity(QDir::cleanPath(QFileInfo(source.toLocalFile()).absoluteFilePath()));
+    return pathIdentity(QDir::cleanPath(QFileInfo(source.toLocalFile()).absoluteFilePath())) +
+        (logicalKey.isEmpty() ? QString() : QChar('\n') + logicalKey);
 }
 void keys(const QJsonObject& object, std::initializer_list<const char*> expected,
           const QString& label) {
@@ -87,6 +88,49 @@ QString stockId(const QJsonObject& parent, const char* key,
                 }), QStringLiteral("Saved edits refer to an unavailable stock: ") + id);
     return id;
 }
+QJsonObject advancedJson(const std::map<std::string, SettingValue>& values) {
+    QJsonObject result;
+    for (const auto& [name, value] : values) {
+        const QString key = QString::fromStdString(name);
+        result.insert(key, std::visit([](const auto& v) -> QJsonValue {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, std::string>)
+                return QString::fromStdString(v);
+            else
+                return v;
+        }, value));
+    }
+    return result;
+}
+std::map<std::string, SettingValue> parseAdvanced(const QJsonObject& value) {
+    const auto defaults = default_advanced_settings();
+    std::map<std::string, SettingValue> result;
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        const std::string name = it.key().toStdString();
+        const auto known = defaults.find(name);
+        require(known != defaults.end(), QStringLiteral("Saved edits contain an unknown advanced field: ") + it.key());
+        const QJsonValue field = it.value();
+        SettingValue parsed;
+        if (std::holds_alternative<bool>(known->second)) {
+            require(field.isBool(), QStringLiteral("Saved advanced field must be true or false: ") + it.key());
+            parsed = field.toBool();
+        } else if (std::holds_alternative<int>(known->second)) {
+            require(field.isDouble() && std::isfinite(field.toDouble()) &&
+                        std::floor(field.toDouble()) == field.toDouble(),
+                    QStringLiteral("Saved advanced field must be an integer: ") + it.key());
+            parsed = static_cast<int>(field.toDouble());
+        } else if (std::holds_alternative<double>(known->second)) {
+            require(field.isDouble() && std::isfinite(field.toDouble()),
+                    QStringLiteral("Saved advanced field must be numeric: ") + it.key());
+            parsed = field.toDouble();
+        } else {
+            require(field.isString(), QStringLiteral("Saved advanced field must be text: ") + it.key());
+            parsed = field.toString().toStdString();
+        }
+        result.emplace(name, std::move(parsed));
+    }
+    return result;
+}
 
 QJsonObject stateJson(const State& state) {
     const auto& s = state.settings;
@@ -105,7 +149,7 @@ QJsonObject stateJson(const State& state) {
         {"grain_amount", s.grain_amount}, {"halation_active", s.halation_active},
         {"halation_amount", s.halation_amount}, {"glare_active", s.glare_active},
         {"glare_amount", s.glare_amount}, {"y_filter_shift", s.y_filter_shift},
-        {"m_filter_shift", s.m_filter_shift}}},
+        {"m_filter_shift", s.m_filter_shift}, {"advanced", advancedJson(s.advanced)}}},
         {"decodeMode", mode}, {"geometry", QJsonObject{
             {"crop", QJsonObject{{"x", g.crop.x()}, {"y", g.crop.y()},
                                   {"width", g.crop.width()}, {"height", g.crop.height()}}},
@@ -116,9 +160,16 @@ State parseState(const QJsonObject& value, const Catalog* catalog) {
     keys(value, {"settings", "decodeMode", "geometry"}, QStringLiteral("state"));
     State state;
     const auto s = object(value, "settings");
-    keys(s, {"film_stock", "print_stock", "print_exposure", "film_exposure_ev", "film_format_mm",
-             "grain_active", "grain_amount", "halation_active", "halation_amount", "glare_active",
-             "glare_amount", "y_filter_shift", "m_filter_shift"}, QStringLiteral("settings"));
+    const std::initializer_list<const char*> required = {
+        "film_stock", "print_stock", "print_exposure", "film_exposure_ev", "film_format_mm",
+        "grain_active", "grain_amount", "halation_active", "halation_amount", "glare_active",
+        "glare_amount", "y_filter_shift", "m_filter_shift"};
+    require((s.size() == qsizetype(required.size()) && !s.contains("advanced")) ||
+                (s.size() == qsizetype(required.size()) + 1 && s.contains("advanced")),
+            QStringLiteral("Saved edits contain missing or unsupported fields in settings"));
+    for (const char* key : required)
+        require(s.contains(QLatin1String(key)),
+                QStringLiteral("Saved edits are missing settings.") + QLatin1String(key));
     auto& out = state.settings;
     out.film_stock = stockId(s, "film_stock", catalog ? &catalog->films : nullptr).toStdString();
     out.print_stock = stockId(s, "print_stock", catalog ? &catalog->papers : nullptr).toStdString();
@@ -133,6 +184,7 @@ State parseState(const QJsonObject& value, const Catalog* catalog) {
     out.glare_amount = number(s, "glare_amount", 0.0, 30.0);
     out.y_filter_shift = number(s, "y_filter_shift", -1.0, 1.0);
     out.m_filter_shift = number(s, "m_filter_shift", -1.0, 1.0);
+    if (s.contains("advanced")) out.advanced = parseAdvanced(s.value("advanced").toObject());
     const auto mode = string(value, "decodeMode");
     require(mode == "compatible16" || mode == "headroom",
             QStringLiteral("Saved edits contain an unsupported RAW decode mode"));
@@ -254,16 +306,19 @@ Store::Store(QString directory) : directory_(QDir::cleanPath(directory)) {
     require(!directory.isEmpty() && QDir::isAbsolutePath(directory),
             QStringLiteral("Saved edit store requires an explicit absolute directory"));
 }
-QString Store::filePath(const QUrl& source) const {
-    const auto digest = QCryptographicHash::hash(pathIdentity(sourcePath(source)).toUtf8(),
+QString Store::filePath(const QUrl& source, const QString& logicalKey) const {
+    auto key = pathIdentity(sourcePath(source));
+    if (!logicalKey.isEmpty()) key += QChar('\n') + logicalKey;
+    const auto digest = QCryptographicHash::hash(key.toUtf8(),
                                                 QCryptographicHash::Sha256).toHex();
     return QDir(directory_).filePath(QString::fromLatin1(digest) + ".json");
 }
-LoadResult Store::load(const QUrl& source, const Catalog& catalog) const {
+LoadResult Store::load(const QUrl& source, const Catalog& catalog,
+                       const QString& logicalKey) const {
     QString key;
     try {
-        key = observationKey(source);
-        const auto path = filePath(source);
+        key = observationKey(source, logicalKey);
+        const auto path = filePath(source, logicalKey);
         const auto sourceId = identity(sourcePath(source));
         if (!recordExists(path)) {
             observations_.insert(key, {fingerprint(sourceId), {}, {}, catalog});
@@ -283,9 +338,10 @@ LoadResult Store::load(const QUrl& source, const Catalog& catalog) const {
         return {{}, warning, true};
     }
 }
-void Store::save(const QUrl& source, const State& state) const {
-    const auto key = observationKey(source);
-    const auto path = filePath(source);
+void Store::save(const QUrl& source, const State& state,
+                 const QString& logicalKey) const {
+    const auto key = observationKey(source, logicalKey);
+    const auto path = filePath(source, logicalKey);
     const auto observed = observations_.constFind(key);
     if (observed != observations_.cend() && !observed->warning.isEmpty()) fail(observed->warning);
     const auto value = stateJson(state);
@@ -324,6 +380,27 @@ void Store::save(const QUrl& source, const State& state) const {
     require(file.commit(), QStringLiteral("Cannot atomically save edits: ") + file.errorString());
     observations_.insert(key, {fingerprint(sourceId),
                                 QCryptographicHash::hash(bytes, QCryptographicHash::Sha256), {}, catalog});
+}
+void Store::remove(const QUrl& source, const QString& logicalKey) const {
+    const auto key = observationKey(source, logicalKey);
+    const auto path = filePath(source, logicalKey);
+    if (!recordExists(path)) {
+        observations_.remove(key);
+        return;
+    }
+    const auto sourceId = identity(sourcePath(source));
+    QLockFile lock(path + ".lock");
+    lock.setStaleLockTime(30000);
+    require(lock.tryLock(0), QStringLiteral("Saved edits are being written by another process; try again"));
+    QByteArray digest;
+    const auto document = readDocument(path, &digest);
+    (void)checkDocument(document, sourceId, nullptr);
+    const auto observed = observations_.constFind(key);
+    if (observed != observations_.cend())
+        require(observed->record == digest,
+                QStringLiteral("Saved edits changed in another instance; restart the app before deleting this variant"));
+    require(QFile::remove(path), QStringLiteral("Cannot remove the variant's saved edits"));
+    observations_.remove(key);
 }
 
 } // namespace spk::desktop::editing

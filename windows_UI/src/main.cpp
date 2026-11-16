@@ -26,6 +26,19 @@ QString fingerprint(const spk::desktop::FramePtr& frame) {
         QByteArrayView(reinterpret_cast<const char*>(frame->bgra8.data()),qsizetype(frame->bgra8.size())),
         QCryptographicHash::Sha256).toHex());
 }
+QString sceneCurveFixture() {
+    QStringList rows;
+    for(int row=0;row<5;++row) {
+        QStringList samples;
+        for(int i=0;i<129;++i) {
+            const double x=double(i)/128;
+            const double y=row==0?std::pow(x,0.7):x;
+            samples.append(QString::number(y,'f',6));
+        }
+        rows.append(samples.join(","));
+    }
+    return rows.join(",");
+}
 
 // This is an actual QML/controller/engine test with saved window captures. It
 // deliberately makes no claim about physical monitor colour management or
@@ -107,9 +120,11 @@ private:
                     }
                     if(!require(exact&&samples==9,"100_percent_source_pixels_exact"))return;
                     canvas_->panBy(1e9,1e9);const auto edge=canvas_->imageRect();
-                    canvas_->panBy(-1,-1);const auto back=canvas_->imageRect();
-                    if(!require((edge.width()<=canvas_->width()||std::abs(back.x()-edge.x()+1)<0.01)&&
-                                (edge.height()<=canvas_->height()||std::abs(back.y()-edge.y()+1)<0.01),"pan_clamp_no_dead_zone"))return;
+                    canvas_->panBy(-1/ratio,-1/ratio);const auto back=canvas_->imageRect();
+                    checks_["pan_edge"]=QJsonArray{edge.x(),edge.y(),edge.width(),canvas_->width(),canvas_->height(),ratio};
+                    checks_["pan_back"]=QJsonArray{back.x(),back.y()};
+                    if(!require((edge.width()<=canvas_->width()||std::abs(back.x()-edge.x()+1/ratio)<1e-6)&&
+                                (edge.height()<=canvas_->height()||std::abs(back.y()-edge.y()+1/ratio)<1e-6),"pan_clamp_no_dead_zone"))return;
                     canvas_->resetView(true);
                     controller_.exportTiff(QUrl::fromLocalFile(output_+"/displayed-frame.tif"));
                     // While export is queued, commands that could replace the
@@ -258,14 +273,37 @@ private:
                         !controller_.frame()->scan_film&&controller_.decodeMode()==0&&!controller_.dirty(),
                         "reset_settings_automatically_updates_preview"))return;
             if(!require(fingerprint(original_)==original_hash_,"original_frame_immutable_after_all_auto_edits"))return;
-            stage_=20;
+            auto* selector=window_.findChild<QObject*>("advancedPageSelector");
+            auto* editor=window_.findChild<QObject*>("sceneCurveEditor");
+            if(!require(selector&&editor,"decode_curve_editor_found"))return;
+            if(!require(window_.setProperty("advancedPage","sceneLayer")&&
+                        window_.property("advancedPage").toString()=="sceneLayer","advanced_scene_layer_page_available"))return;
+            held_=controller_.frame();held_hash_=fingerprint(held_);
+            stage_=20;controller_.setAdjustment("scene_curve",sceneCurveFixture());controller_.apply();
+        } else if(stage_==20) {
+            checks_["decode_curve_frame_settings"]=!controller_.adjustments().value("scene_curve").toString().isEmpty();
+            checks_["decode_curve_pixel_hash"]=controller_.frame()&&fingerprint(controller_.frame())!=held_hash_;
+            if(!require(operation=="render"&&ok&&!controller_.dirty()&&
+                        fingerprint(controller_.frame())!=held_hash_&&
+                        !controller_.adjustments().value("scene_curve").toString().isEmpty(),
+                        "decode_curve_renders_through_vulkan"))return;
+            auto* editor=window_.findChild<QObject*>("sceneCurveEditor");
+            if(!require(editor&&editor->property("curveText").toString()==
+                        controller_.adjustments().value("scene_curve").toString(),
+                        "decode_curve_qml_observes_saved_wire"))return;
+            stage_=21;controller_.setAdjustment("scene_curve","");controller_.apply();
+        } else if(stage_==21) {
+            if(!require(operation=="render"&&ok&&!controller_.dirty()&&
+                        controller_.adjustments().value("scene_curve").toString().isEmpty(),
+                        "decode_curve_reset_renders_through_vulkan"))return;
+            stage_=22;
             later([this]{
                 if(!capture("final"))return;
                 const QString copy=output_+"/second-frame."+QFileInfo(input_).suffix();
                 if(!require(QFile::copy(input_,copy),"isolated_second_photo_fixture"))return;
                 controller_.openFiles({QUrl::fromLocalFile(input_),QUrl::fromLocalFile(copy)});
             });
-        } else if(stage_==20) {
+        } else if(stage_==22) {
             if(!require(operation=="open"&&ok&&controller_.libraryItems().size()>=3,
                         "qml_library_contains_two_photos_and_rejected_item"))return;
             stage_=21;later([this]{
@@ -299,7 +337,23 @@ private:
                                     std::abs(crop.height()-0.4)<1e-5,"qml_crop_pointer_gesture_applies_geometry"))return;
                         if(!require(QMetaObject::invokeMethod(&window_,"openExport"),"export_options_open"))return;
                         later([this]{
-                            if(!require(!controller_.settingsEditable(),"export_options_suspend_edits")||!capture("export-options"))return;
+                            auto* pairButton=window_.findChild<QObject*>("composePairButton");
+                            auto* sourceSelector=window_.findChild<QObject*>("librarySourceSelector");
+                            auto* newCatalogButton=window_.findChild<QObject*>("newCatalogButton");
+                            auto* openCatalogButton=window_.findChild<QObject*>("openCatalogButton");
+                            auto* recipeSelector=window_.findChild<QObject*>("exportRecipeSelector");
+                            auto* outputSpace=window_.findChild<QObject*>("exportOutputSpace");
+                            auto* formatSelector=window_.findChild<QObject*>("exportFormatSelector");
+                            auto* copyMetadata=window_.findChild<QObject*>("exportCopyMetadata");
+                            if(!require(!controller_.settingsEditable(),"export_options_suspend_edits")||
+                               !require(pairButton!=nullptr,"half_frame_pair_ui_available")||
+                               !require(sourceSelector&&newCatalogButton&&openCatalogButton,
+                                        "catalog_source_ui_available")||
+                               !require(recipeSelector&&outputSpace&&copyMetadata,"export_recipe_ui_available")||
+                               !require(formatSelector&&formatSelector->property("count").toInt()==5,
+                                        "export_heif_ui_available")||
+                               !require(outputSpace->property("count").toInt()==4,"export_output_spaces_available")||
+                               !capture("export-options"))return;
                             auto* popup=window_.findChild<QObject*>("exportPopup");
                             if(!require(popup&&QMetaObject::invokeMethod(popup,"close"),"export_options_close"))return;
                             later([this]{
@@ -342,7 +396,7 @@ private:
         QCoreApplication::exit(success?0:1);
     }
     PreviewController& controller_;QQuickWindow& window_;FrameCanvas* canvas_=nullptr;
-    QString input_,reject_,output_,original_hash_;std::shared_ptr<bool> fail_display_;
+    QString input_,reject_,output_,original_hash_,held_hash_;std::shared_ptr<bool> fail_display_;
     spk::desktop::FramePtr original_,held_;QJsonObject checks_;int stage_=0;bool done_=false;
     int frame_publications_=0,operations_finished_=0,saved_publications_=0,saved_operations_=0;
     int remembered_paper_=0,negative_film_=0,slide_index_=0;double remembered_ev_=0;

@@ -1,0 +1,15 @@
+{
+  "version": "16.6.0",
+  "tag": "16.6.0",
+  "commit": "e1b562a8bed273a02f30b59b66a5d499793cede5",
+  "archive": {
+    "file": "glslang-16.6.0-windows-x86_64-release.zip",
+    "url": "https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip",
+    "sha256": "82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b"
+  },
+  "license": {
+    "file": "LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/KhronosGroup/glslang/16.6.0/LICENSE.txt",
+    "sha256": "17e70c676e1521ff3e4686f04a2053d93a7e28a33be8de7ec37ab0ff72feb677"
+  }
+}

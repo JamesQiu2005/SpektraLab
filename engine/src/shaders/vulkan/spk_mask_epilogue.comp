@@ -1,0 +1,84 @@
+#version 450
+
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Cmy { float value[]; } cmy_data;
+layout(set = 0, binding = 1, std430) readonly buffer Chd { float value[]; } chd_data;
+layout(set = 0, binding = 2, std430) readonly buffer Base { float value[]; } base_data;
+layout(set = 0, binding = 3, std430) readonly buffer Ixs { float value[]; } ixs_data;
+layout(set = 0, binding = 4, std430) readonly buffer Params { float value[]; } p;
+layout(set = 0, binding = 5, std430) readonly buffer Coef { float value[]; } coef_data;
+layout(set = 0, binding = 6, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 7, std430) writeonly buffer Output { float value[]; } out_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) +
+           gl_GlobalInvocationID.x;
+}
+
+vec3 image_exposure(uint i, uint wavelengths) {
+    vec3 c = vec3(cmy_data.value[3u * i], cmy_data.value[3u * i + 1u],
+                  cmy_data.value[3u * i + 2u]);
+    vec3 exposure = vec3(0.0);
+    for (uint l = 0u; l < wavelengths; ++l) {
+        float d = dot(c, vec3(chd_data.value[3u * l], chd_data.value[3u * l + 1u],
+                             chd_data.value[3u * l + 2u])) + base_data.value[l];
+        float t = exp2(-d * 3.321928094887362);
+        exposure += t * vec3(ixs_data.value[3u * l], ixs_data.value[3u * l + 1u],
+                             ixs_data.value[3u * l + 2u]);
+    }
+    return exposure * vec3(p.value[0], p.value[1], p.value[2]);
+}
+
+float mask_x(vec3 exposure) {
+    float sum = 0.0;
+    for (uint c = 0u; c < 3u; ++c)
+        sum += max(log2(max(exposure[c] * p.value[3u + c], 0.0)), -20.0);
+    return sum * (1.0 / 3.0);
+}
+
+float bounded_gain(float d, float height) {
+    return d * height * inversesqrt(height * height + d * d);
+}
+
+float mask_delta(float base) {
+    float delta = 0.0;
+    if (p.value[11] != 0.0 && base < p.value[9]) {
+        float d = p.value[9] - base;
+        delta = d - bounded_gain(d, p.value[10]);
+    } else if (p.value[14] != 0.0 && base > p.value[12]) {
+        float d = base - p.value[12];
+        delta = bounded_gain(d, p.value[13]) - d;
+    }
+    float limit = p.value[15];
+    return delta * limit * inversesqrt(limit * limit + delta * delta);
+}
+
+vec2 coefficient(uint u, uint v, uint width) {
+    uint index = 2u * (v * width + u);
+    return vec2(coef_data.value[index], coef_data.value[index + 1u]);
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta.value[0]) return;
+    uint image_width = meta.value[2], image_height = meta.value[3], row0 = meta.value[4];
+    uint grid_width = meta.value[5], grid_height = meta.value[6];
+    vec3 exposure = image_exposure(i, meta.value[1]);
+    uint px = i % image_width, py = row0 + i / image_width;
+    float u = clamp((float(px) + 0.5) * float(grid_width) / float(image_width) - 0.5,
+                    0.0, float(grid_width - 1u));
+    float v = clamp((float(py) + 0.5) * float(grid_height) / float(image_height) - 0.5,
+                    0.0, float(grid_height - 1u));
+    uint u0 = uint(floor(u)), v0 = uint(floor(v));
+    uint u1 = min(u0 + 1u, grid_width - 1u), v1 = min(v0 + 1u, grid_height - 1u);
+    float tu = u - float(u0), tv = v - float(v0);
+    vec2 ab = mix(mix(coefficient(u0, v0, grid_width), coefficient(u1, v0, grid_width), tu),
+                  mix(coefficient(u0, v1, grid_width), coefficient(u1, v1, grid_width), tu), tv);
+    float gain = exp2(mask_delta(ab.x * mask_x(exposure) + ab.y));
+    vec3 value = max(gain * exposure + vec3(p.value[6], p.value[7], p.value[8]),
+                     vec3(0.0)) + vec3(1e-10);
+    // GLSL has no log10; this is exact to float precision.
+    out_data.value[3u * i] = log2(value.x) * 0.3010299956639812;
+    out_data.value[3u * i + 1u] = log2(value.y) * 0.3010299956639812;
+    out_data.value[3u * i + 2u] = log2(value.z) * 0.3010299956639812;
+}

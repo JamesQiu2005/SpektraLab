@@ -20,9 +20,11 @@
 //                 and (on 120, which is not sprocket-locked) where the edge
 //                 numbers land.
 // Text is rasterised with CoreText/CoreGraphics.
+#ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -1112,6 +1114,7 @@ void film_to_canvas_px(const OverscanLayout& L, double s, double t, double& x, d
     y = v / L.px;
 }
 
+#ifdef __APPLE__
 CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFStringRef str = CFStringCreateWithCString(nullptr, op.text.c_str(), kCFStringEncodingUTF8);
     CGFloat white[] = {CGFloat(std::clamp(gain, 0.0, 1.0)), 1.0};
@@ -1252,6 +1255,154 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
     for (size_t i = 0; i < cov.size(); ++i) cov[i] = wc * cov[i] + wt * tail[i];
     return true;
 }
+#else
+const uint8_t* glyph5x7(char ch);
+
+void canvas_to_film_mm(const OverscanLayout& L, double x, double y, double& s, double& t) {
+    const double u = (x + 0.5) * L.px - L.cu;
+    const double v = (y + 0.5) * L.px - L.cv;
+    s = L.A[0] * u + L.A[1] * v + L.cs;
+    t = L.A[2] * u + L.A[3] * v + L.ct;
+}
+
+bool point_in_polygon(const Op& op, double s, double t) {
+    bool inside = false;
+    const size_t points = op.pts.size() / 2;
+    for (size_t i = 0, j = points - 1; i < points; j = i++) {
+        const double si = op.pts[2 * i], ti = op.pts[2 * i + 1];
+        const double sj = op.pts[2 * j], tj = op.pts[2 * j + 1];
+        if (((ti > t) != (tj > t)) && (s < (sj - si) * (t - ti) / (tj - ti) + si))
+            inside = !inside;
+    }
+    return inside;
+}
+
+void soften_portable(std::vector<float>& cov, int w, int h, double sigma) {
+    if (!(sigma > 0.3)) return;
+    const int r = int(std::ceil(3.0 * sigma));
+    std::vector<float> kernel(size_t(2 * r + 1));
+    double sum = 0.0;
+    for (int i = -r; i <= r; ++i) {
+        kernel[size_t(i + r)] = float(std::exp(-0.5 * i * i / (sigma * sigma)));
+        sum += kernel[size_t(i + r)];
+    }
+    for (float& v : kernel) v = float(v / sum);
+    std::vector<float> tmp(cov.size());
+    auto at = [&](const std::vector<float>& src, int x, int y) {
+        return src[size_t(std::clamp(y, 0, h - 1)) * size_t(w) + size_t(std::clamp(x, 0, w - 1))];
+    };
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            float value = 0.0f;
+            for (int k = -r; k <= r; ++k) value += kernel[size_t(k + r)] * at(cov, x + k, y);
+            tmp[size_t(y) * size_t(w) + size_t(x)] = value;
+        }
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            float value = 0.0f;
+            for (int k = -r; k <= r; ++k) value += kernel[size_t(k + r)] * at(tmp, x, y + k);
+            cov[size_t(y) * size_t(w) + size_t(x)] = value;
+        }
+}
+
+bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov, int& x0, int& y0,
+               int& w, int& h) {
+    double xmin = 1e30, ymin = 1e30, xmax = -1e30, ymax = -1e30;
+    auto grow = [&](double s, double t) {
+        double x, y;
+        film_to_canvas_px(L, s, t, x, y);
+        xmin = std::min(xmin, x); ymin = std::min(ymin, y);
+        xmax = std::max(xmax, x); ymax = std::max(ymax, y);
+    };
+    for (const Op& op : g.ops) {
+        if (op.kind == Op::Poly) {
+            for (size_t k = 0; k + 1 < op.pts.size(); k += 2) grow(op.pts[k], op.pts[k + 1]);
+        } else if (op.kind == Op::Circle) {
+            grow(op.pts[0] - op.size_mm, op.pts[1] - op.size_mm);
+            grow(op.pts[0] + op.size_mm, op.pts[1] + op.size_mm);
+        } else {
+            const double pitch = op.size_mm / 7.0;
+            const double len = op.text.size() * 5.0 * pitch * op.hscale +
+                               op.tracking_mm * double(op.text.size());
+            const double r = op.rot_deg * M_PI / 180.0;
+            for (double a : {-pitch, len})
+                for (double b : {-op.size_mm, pitch})
+                    grow(op.s + a * std::cos(r) - b * std::sin(r),
+                         op.t + a * std::sin(r) + b * std::cos(r));
+        }
+    }
+    const double pad = 3.0 + 3.0 * std::max(g.blur_mm, g.tail_w > 0.0 ? g.tail_mm : 0.0) / L.px;
+    x0 = std::max(0, int(std::floor(xmin - pad)));
+    y0 = std::max(0, int(std::floor(ymin - pad)));
+    const int x1 = std::min(int(L.canvas_w), int(std::ceil(xmax + pad)));
+    const int y1 = std::min(int(L.canvas_h), int(std::ceil(ymax + pad)));
+    w = x1 - x0; h = y1 - y0;
+    if (w <= 0 || h <= 0) return false;
+    cov.assign(size_t(w) * size_t(h), 0.0f);
+
+    for (int py = 0; py < h; ++py) {
+        for (int px = 0; px < w; ++px) {
+            double s, t;
+            canvas_to_film_mm(L, double(x0 + px), double(y0 + py), s, t);
+            float value = 0.0f;
+            for (const Op& op : g.ops) {
+                if (op.kind == Op::Poly && point_in_polygon(op, s, t))
+                    value = std::max(value, float(std::clamp(op.gain, 0.0, 1.0)));
+                else if (op.kind == Op::Circle) {
+                    const double ds = s - op.pts[0], dt = t - op.pts[1];
+                    if (ds * ds + dt * dt <= op.size_mm * op.size_mm)
+                        value = std::max(value, float(std::clamp(op.gain, 0.0, 1.0)));
+                }
+            }
+            cov[size_t(py) * size_t(w) + size_t(px)] = value;
+        }
+    }
+
+    // Text uses the engine's same 5x7 face as its data backs. The Windows
+    // path keeps every photographic imprint functional without CoreText.
+    for (const Op& op : g.ops) {
+        if (op.kind != Op::Text) continue;
+        const double pitch = op.size_mm / 7.0;
+        const double angle = op.rot_deg * M_PI / 180.0;
+        double advance = 0.0;
+        for (char ch : op.text) {
+            const uint8_t* rows = glyph5x7(ch);
+            if (rows) {
+                for (int row = 0; row < 7; ++row)
+                    for (int col = 0; col < 5; ++col)
+                        if (rows[row] & (1u << (4 - col))) {
+                            const double lx = advance + (col + 0.5) * pitch * op.hscale;
+                            const double ly = (3.0 - row) * pitch;
+                            const double sx = op.s + lx * std::cos(angle) - ly * std::sin(angle);
+                            const double sy = op.t + lx * std::sin(angle) + ly * std::cos(angle);
+                            double cx, cy;
+                            film_to_canvas_px(L, sx, sy, cx, cy);
+                            const int ix = int(std::floor(cx)) - x0, iy = int(std::floor(cy)) - y0;
+                            const int radius = std::max(1, int(std::ceil(0.45 * pitch / L.px)));
+                            for (int yy = iy - radius; yy <= iy + radius; ++yy)
+                                for (int xx = ix - radius; xx <= ix + radius; ++xx)
+                                    if (xx >= 0 && yy >= 0 && xx < w && yy < h &&
+                                        (xx - ix) * (xx - ix) + (yy - iy) * (yy - iy) <= radius * radius)
+                                        cov[size_t(yy) * size_t(w) + size_t(xx)] =
+                                            std::max(cov[size_t(yy) * size_t(w) + size_t(xx)],
+                                                     float(std::clamp(op.gain, 0.0, 1.0)));
+                        }
+            }
+            advance += (glyph5x7(ch) ? 5.0 : 4.0) * pitch * op.hscale + op.tracking_mm;
+        }
+    }
+    if (!(g.tail_w > 0.0)) {
+        soften_portable(cov, w, h, g.blur_mm / L.px);
+        return true;
+    }
+    std::vector<float> tail = cov;
+    soften_portable(cov, w, h, g.blur_mm / L.px);
+    soften_portable(tail, w, h, g.tail_mm / L.px);
+    const float wc = float(1.0 - g.tail_w), wt = float(g.tail_w);
+    for (size_t i = 0; i < cov.size(); ++i) cov[i] = wc * cov[i] + wt * tail[i];
+    return true;
+}
+#endif
 
 // A 5x7 dot-matrix face (rows top to bottom, bit 4 = left column): the
 // data backs that print shooting data (645N, F5/F6) and the dot-matrix date
@@ -1638,6 +1789,7 @@ double dot_text(const std::string& text, const DotFace& f, double ps, double pt,
 
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
 double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
+#ifdef __APPLE__
     Op op;
     op.font = font; op.size_mm = size_mm; op.text = text; op.tracking_mm = tracking_mm;
     CFStringRef fname = CFStringCreateWithCString(nullptr, font, kCFStringEncodingUTF8);
@@ -1648,6 +1800,11 @@ double text_width(const char* font, double size_mm, const std::string& text, dou
     const double w = CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
     CFRelease(line); CFRelease(as); CFRelease(f);
     return w * hscale;
+#else
+    (void)font;
+    const size_t count = text.size();
+    return count ? (count * 5.0 * size_mm / 7.0 + (count - 1) * tracking_mm) * hscale : 0.0;
+#endif
 }
 
 // --- the Pentax MZ-S data line (API-SPEC §21.2) -----------------------

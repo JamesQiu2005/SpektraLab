@@ -4,6 +4,7 @@ param(
     [string]$BuildDirectory = (Join-Path $PSScriptRoot '.build'),
     [string]$DependencyDirectory,
     [ValidateRange(1,32)][int]$Jobs = 4,
+    [ValidateSet('Debug','Release')][string]$Configuration = 'Release',
     [switch]$RunTests,
     [switch]$Fresh
 )
@@ -20,8 +21,9 @@ $compiler = Join-Path $DependencyDirectory 'qt-6.11.3/Tools/mingw1310_64/bin'
 $cmake = Join-Path $DependencyDirectory 'cmake-3.25.0-windows-x86_64/bin/cmake.exe'
 $ctest = Join-Path $DependencyDirectory 'cmake-3.25.0-windows-x86_64/bin/ctest.exe'
 $libraw = Join-Path $DependencyDirectory 'LibRaw-0.22.2'
+$glslang = Join-Path $DependencyDirectory 'glslang-16.6.0/bin/glslang.exe'
 $licenseSource = Join-Path $DependencyDirectory 'qt-6.11.3/licenses'
-foreach ($file in @($cmake, "$compiler/g++.exe", "$compiler/mingw32-make.exe", "$qt/bin/windeployqt.exe", "$libraw/libraw/libraw.h", "$licenseSource/manifest.json")) {
+foreach ($file in @($cmake, "$compiler/g++.exe", "$compiler/mingw32-make.exe", "$qt/bin/windeployqt.exe", "$libraw/libraw/libraw.h", $glslang, "$licenseSource/manifest.json")) {
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing local dependency: $file" }
 }
 New-Item -ItemType Directory -Path $BuildDirectory -Force | Out-Null
@@ -29,13 +31,13 @@ $savedPath = $env:PATH
 try {
     $env:PATH = "$compiler;$qt/bin;$savedPath"
     $arguments = @('-S', $PSScriptRoot, '-B', $BuildDirectory, '-G', 'MinGW Makefiles',
-        '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_CXX_COMPILER=$compiler/g++.exe",
+        "-DCMAKE_BUILD_TYPE=$Configuration", "-DCMAKE_CXX_COMPILER=$compiler/g++.exe", "-DCMAKE_C_COMPILER=$compiler/gcc.exe",
         "-DCMAKE_MAKE_PROGRAM=$compiler/mingw32-make.exe", "-DCMAKE_PREFIX_PATH=$qt",
         "-DSPEKTRALAB_SOURCE_ROOT=$SourceDirectory", '-DBUILD_TESTING=ON',
         '-DSPEKTRALAB_REQUIRE_VULKAN=ON',
-        "-DSPEKTRALAB_VULKAN_INCLUDE_DIR=$DependencyDirectory/Vulkan-Headers/include",
+        "-DSPEKTRALAB_VULKAN_HEADERS=$DependencyDirectory/Vulkan-Headers/include",
         "-DSPEKTRALAB_VULKAN_LIBRARY=$env:WINDIR/System32/vulkan-1.dll",
-        "-DSPEKTRALAB_GLSLANG=$DependencyDirectory/glslang-build/StandAlone/glslang.exe",
+        "-DSPEKTRALAB_GLSLANG=$glslang",
         "-DSPEKTRALAB_LIBRAW_SOURCE=$libraw")
     # CMake writes compiler paths into generated source. Normalize PowerShell's
     # Windows separators before the first configure, not only on cached builds.
@@ -48,6 +50,7 @@ try {
     & $cmake @buildArguments
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
     $app = Join-Path $BuildDirectory 'app'
+    # The pinned Qt SDK contains release libraries even for a Debug app build.
     & "$qt/bin/windeployqt.exe" --release --compiler-runtime --qmldir "$PSScriptRoot/qml" "$app/SpektraLabQt.exe"
     if ($LASTEXITCODE -ne 0) { throw "Deployment failed: $LASTEXITCODE" }
     # windeployqt intentionally deploys only qwindows; keep the offscreen plugin
@@ -69,13 +72,14 @@ try {
     foreach ($notice in @('LICENSE.LGPL','LICENSE.CDDL','COPYRIGHT')) {
         Copy-Item -LiteralPath "$libraw/$notice" -Destination "$app/licenses/LibRaw-$notice" -Force
     }
+    Copy-Item -LiteralPath "$DependencyDirectory/glslang-16.6.0/LICENSE.txt" -Destination "$app/licenses/glslang-LICENSE.txt" -Force
     Copy-Item -LiteralPath "$DependencyDirectory/qt-6.11.3-downloads/packages.json" -Destination "$app/licenses/Qt-packages.json" -Force
     Copy-Item -LiteralPath "$PSScriptRoot/THIRD_PARTY.md" -Destination "$app/licenses/THIRD_PARTY.md" -Force
     if ($RunTests) {
         & $ctest --test-dir $BuildDirectory --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw "CTest failed: $LASTEXITCODE" }
     }
-    [ordered]@{ qt = '6.11.3'; compiler = 'MinGW-w64 13.1.0 posix-seh';
+    [ordered]@{ configuration = $Configuration; qt = '6.11.3'; compiler = 'MinGW-w64 13.1.0 posix-seh';
         source_directory = $SourceDirectory; build_directory = $BuildDirectory;
         utc = [DateTime]::UtcNow.ToString('o'); ctest_run = [bool]$RunTests;
         executable_sha256 = (Get-FileHash -LiteralPath "$app/SpektraLabQt.exe" -Algorithm SHA256).Hash.ToLowerInvariant() } |

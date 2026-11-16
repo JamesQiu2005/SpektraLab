@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # Also usable as add_subdirectory(windows_UI) after the engine defines
 # spk_desktop_host. The standalone mode never modifies the engine checkout.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    project(SpektraLabWindowsUI LANGUAGES CXX)
+    project(SpektraLabWindowsUI LANGUAGES C CXX)
     include(CTest)
     set(SPEKTRALAB_SOURCE_ROOT "" CACHE PATH "Source tree supplying engine/")
     if(NOT EXISTS "${SPEKTRALAB_SOURCE_ROOT}/engine/CMakeLists.txt")
@@ -26,11 +26,16 @@ qt_add_executable(SpektraLabQt WIN32
     src/EditStore.hpp src/EditStore.cpp
     src/FrameCanvas.hpp src/FrameCanvas.cpp)
 target_compile_features(SpektraLabQt PRIVATE cxx_std_20)
+set(spektralab_qt_platform_libraries)
+if(WIN32)
+    list(APPEND spektralab_qt_platform_libraries windowscodecs ole32)
+endif()
 target_link_libraries(SpektraLabQt PRIVATE
-    spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2)
+    spk_desktop_host Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+    ${spektralab_qt_platform_libraries})
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(SpektraLabQt URI SpektraLab VERSION 1.0
-    QML_FILES qml/Main.qml qml/Theme.qml qml/Section.qml qml/ActionButton.qml
+    QML_FILES qml/Main.qml qml/Theme.qml qml/Section.qml qml/ActionButton.qml qml/SceneCurveEditor.qml
     NO_CACHEGEN)
 set_target_properties(SpektraLabQt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/app")
 
@@ -39,6 +44,9 @@ set_target_properties(SpektraLabQt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_
 add_custom_target(spektralab_qt_resources ALL
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "$<TARGET_FILE_DIR:spk_raw_render>/resources" "$<TARGET_FILE_DIR:SpektraLabQt>/resources"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${SPEKTRALAB_SOURCE_ROOT}/app/SpektraLab/Resources/DIView-Cineon-to-ProPhoto.cube"
+        "$<TARGET_FILE_DIR:SpektraLabQt>/resources/DIView-Cineon-to-ProPhoto.cube"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "$<TARGET_FILE_DIR:spk_raw_render>/licenses" "$<TARGET_FILE_DIR:SpektraLabQt>/licenses"
     VERBATIM)
@@ -49,14 +57,16 @@ if(BUILD_TESTING)
     qt_add_executable(spk_qt_frame_output_test tests/frame_output.cpp src/FrameOutput.cpp)
     target_include_directories(spk_qt_frame_output_test PRIVATE src)
     target_compile_features(spk_qt_frame_output_test PRIVATE cxx_std_20)
-    target_link_libraries(spk_qt_frame_output_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    target_link_libraries(spk_qt_frame_output_test PRIVATE
+        spk_desktop_host Qt6::Core Qt6::Gui ${spektralab_qt_platform_libraries})
     add_test(NAME spk_qt_frame_output COMMAND spk_qt_frame_output_test "$<TARGET_FILE_DIR:SpektraLabQt>/resources")
 
     qt_add_executable(spk_qt_library_workflow_test tests/library_workflow.cpp
         src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_library_workflow_test PRIVATE src)
     target_compile_features(spk_qt_library_workflow_test PRIVATE cxx_std_20)
-    target_link_libraries(spk_qt_library_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    target_link_libraries(spk_qt_library_workflow_test PRIVATE
+        spk_desktop_host Qt6::Core Qt6::Gui ${spektralab_qt_platform_libraries})
     qt_add_executable(spk_qt_edit_store_test tests/edit_store.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_edit_store_test PRIVATE src)
     target_compile_features(spk_qt_edit_store_test PRIVATE cxx_std_20)
@@ -78,7 +88,8 @@ if(BUILD_TESTING)
         src/PreviewController.hpp src/PreviewController.cpp src/FrameOutput.cpp src/EditStore.cpp)
     target_include_directories(spk_qt_editing_workflow_test PRIVATE src)
     target_compile_features(spk_qt_editing_workflow_test PRIVATE cxx_std_20)
-    target_link_libraries(spk_qt_editing_workflow_test PRIVATE spk_desktop_host Qt6::Core Qt6::Gui)
+    target_link_libraries(spk_qt_editing_workflow_test PRIVATE
+        spk_desktop_host Qt6::Core Qt6::Gui ${spektralab_qt_platform_libraries})
     # Full-RAW fixtures and a fresh output directory are explicit test arguments;
     # no absent-fixture skip can masquerade as a green CTest run.
 endif()

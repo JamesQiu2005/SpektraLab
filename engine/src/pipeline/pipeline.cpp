@@ -2,7 +2,6 @@
 #include "timer.hpp"
 #include "halation_psf.hpp"
 #ifndef __APPLE__
-#include "windows_unported.hpp"
 #endif
 
 #include <chrono>
@@ -115,16 +114,6 @@ bool Pipeline::build(const Params& params, std::string& error) {
     params_ = params;
     const Profile& film = params_.film;
     const Profile& print = params_.print;
-
-#ifndef __APPLE__
-    // Keep upstream's default path intact while its new effects await a
-    // Windows implementation. Refuse before allocating buffers or rendering
-    // a partial result; never silently drop a requested effect.
-    if (const char* unported = windows_unported_error(params_)) {
-        error = unported;
-        return false;
-    }
-#endif
 
     // Configurations this build does not implement. The Python core could
     // return None from a node body and let the dispatcher run the numba

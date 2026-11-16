@@ -1,0 +1,13 @@
+#version 450
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) buffer Image { float value[]; } image_data;
+layout(set=0,binding=1,std430) readonly buffer Meta { uint value[]; } meta;
+uint index() { return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x; }
+float encode(float v,uint mode){
+    if(mode==0u)return v<=0.0031308?v*12.92:1.055*pow(v,1.0/2.4)-0.055;
+    if(mode==1u)return v<1.0/512.0?v*16.0:pow(v,1.0/1.8);
+    if(mode==2u)return pow(v,256.0/563.0);
+    if(mode==3u)return v<0.018?v*4.5:1.099*pow(v,0.45)-0.099;
+    return v;
+}
+void main(){uint i=index();if(i<meta.value[0])image_data.value[i]=encode(image_data.value[i],meta.value[1]);}

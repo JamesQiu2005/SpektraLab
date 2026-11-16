@@ -278,6 +278,98 @@ bool check_decode(Gpu* gpu, std::string& error) {
         }
     return true;
 }
+
+double scene_latitude_departure(double d, double room, double rolloff) {
+    if (!(d > 0.0)) return 0.0;
+    if (rolloff == 2.0) {
+        const double r = std::sqrt(room * room + d * d);
+        return -(d * d * d) / (r * (room + r));
+    }
+    if (rolloff == 1.0) return -(d * d) / (room + d);
+    return d * (room / std::pow(std::pow(room, rolloff) + std::pow(d, rolloff),
+                                1.0 / rolloff) - 1.0);
+}
+
+bool check_scene_latitude(Gpu* gpu, std::string& error) {
+    const uint32_t counts[] = {0, 1, 2, 255, 256, 257, 1025};
+    for (uint32_t norm = 0; norm < 3; ++norm)
+        for (uint32_t rolloff = 1; rolloff <= 3; ++rolloff)
+            for (uint32_t count : counts) {
+                const uint32_t width = count > 1 ? 17 : 1;
+                const uint32_t height = std::max(1u, (count + width - 1) / width);
+                const bool split = count > width * height / 2;
+                const float p[] = {
+                    0.4f, 1.25f, -0.7f, 0.8f, float(rolloff), 1.5f, float(norm),
+                    0.2126f, 0.7152f, 0.0722f, 0.18f,
+                    float(width), float(height), split ? 0.35f : 0.0f,
+                    0.8f, 0.6f, -1.1f, 0.9f, 3.0f};
+                std::vector<float> rgb(std::max(count, 1u) * 3);
+                for (uint32_t i = 0; i < rgb.size() / 3; ++i) {
+                    rgb[3 * i] = float(int(i % 19) - 7) * 0.07f;
+                    rgb[3 * i + 1] = float(int(i % 13) - 5) * 0.09f;
+                    rgb[3 * i + 2] = float(int(i % 11) - 4) * 0.11f;
+                }
+                if (count >= 7) {
+                    rgb[0] = rgb[1] = rgb[2] = 0.0f;
+                    rgb[3] = rgb[4] = rgb[5] = -1.0f;
+                    rgb[6] = rgb[7] = rgb[8] = 0.18f;
+                    rgb[9] = rgb[10] = rgb[11] = std::numeric_limits<float>::infinity();
+                    rgb[12] = rgb[13] = rgb[14] = std::numeric_limits<float>::quiet_NaN();
+                }
+                std::vector<double> expected(size_t(count) * 3);
+                for (uint32_t i = 0; i < count; ++i) {
+                    const double r = rgb[3 * i], g = rgb[3 * i + 1], b = rgb[3 * i + 2];
+                    const double cr = std::max(r, 0.0), cg = std::max(g, 0.0), cb = std::max(b, 0.0);
+                    double v = 0.0;
+                    if (norm == 1) v = double(p[7]) * cr + double(p[8]) * cg + double(p[9]) * cb;
+                    else if (norm == 2) v = std::max(cr, std::max(cg, cb));
+                    else {
+                        const double s2 = cr * cr + cg * cg + cb * cb;
+                        if (s2 > 0.0)
+                            v = (cr * cr * cr + cg * cg * cg + cb * cb * cb) / s2;
+                    }
+                    double k = 1.0;
+                    if (v > 0.0 && std::isfinite(v)) {
+                        const double reference = p[10];
+                        const double stops = std::clamp(
+                            std::log2(std::max(v, reference * std::exp2(-24.0)) / reference),
+                            -24.0, 24.0);
+                        double high_knee = p[0], high_room = p[1];
+                        double low_knee = p[2], low_room = p[3];
+                        if (p[13] > 0.0) {
+                            const double along = width >= height
+                                ? (double(i % width) + 0.5) / width
+                                : (double(i / width) + p[18] + 0.5) / height;
+                            if (along >= p[13]) {
+                                high_knee = p[14]; high_room = p[15];
+                                low_knee = p[16]; low_room = p[17];
+                            }
+                        }
+                        double d = 0.0;
+                        if (high_room > 0.0 && stops > high_knee)
+                            d = scene_latitude_departure(stops - high_knee, high_room, p[4]);
+                        else if (low_room > 0.0 && stops < low_knee)
+                            d = -scene_latitude_departure(low_knee - stops, low_room, p[4]);
+                        if (d > 0.0) d = d * p[5] / std::sqrt(p[5] * p[5] + d * d);
+                        k = std::clamp(std::exp2(d), std::exp2(-30.0), std::exp2(30.0));
+                    }
+                    expected[3 * i] = r * k;
+                    expected[3 * i + 1] = g * k;
+                    expected[3 * i + 2] = b * k;
+                }
+                auto input = gpu->upload(rgb.data(), rgb.size() * sizeof(float), error);
+                auto parameters = gpu->upload(p, sizeof p, error);
+                auto output = output_buffer(gpu, size_t(count) * 3, error);
+                const uint32_t n[] = {count};
+                if (!input || !parameters || !output ||
+                    !gpu->dispatch("spk_scene_latitude",
+                        {Arg::buf(input), Arg::buf(parameters), Arg::inline_bytes(n, 1),
+                         Arg::buf(output)}, std::max(count, 1u), error) ||
+                    !check_values(gpu, output, expected, "scene_latitude", 2e-7, 8e-7, error))
+                    return false;
+            }
+    return true;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -288,6 +380,9 @@ int main(int argc, char** argv) {
     std::printf("Vulkan device: %s\n", gpu->device_name().c_str());
     if (!check_mul_glare_boost(gpu.get(), error) || !check_reduce(gpu.get(), error) ||
         !check_bw(gpu.get(), error) || !check_edr(gpu.get(), error) || !check_decode(gpu.get(), error)) {
+        std::fprintf(stderr, "pointwise: %s\n", error.c_str()); return 1;
+    }
+    if (!check_scene_latitude(gpu.get(), error)) {
         std::fprintf(stderr, "pointwise: %s\n", error.c_str()); return 1;
     }
     std::printf("pointwise: %zu analytic/float64 cases, max abs error %.9g, "

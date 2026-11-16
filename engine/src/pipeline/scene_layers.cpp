@@ -6,10 +6,6 @@
 // on the wire nothing in this file runs -- the render is the same dispatches
 // with the same arguments as the engine without the feature (§6.4, gate 2).
 //
-// Metal only. The CMake targets (Windows, Linux) refuse a stamp and the call
-// with a named error (`windows_unported.*`, `engine.cpp`), as they refuse the
-// lens.
-#ifdef __APPLE__
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -125,4 +121,3 @@ bool Pipeline::node_scene_layers(const Image& in, Image& out, std::string& error
 }
 
 }  // namespace spk
-#endif  // __APPLE__

@@ -1,5 +1,10 @@
 # Porting the five refused features to Vulkan -- a handoff
 
+> **Status note (2026-11-15):** all five features described here now execute on
+> the Windows Vulkan backend and are covered by `spk_windows_feature_boundaries`.
+> This document is retained as the historical porting plan; references to
+> `windows_unported.*` describe the pre-port tree, not the current source.
+
 **Status (owner's decision, 2026-10-06):** contrast mask, scene latitude
 mapping, Cineon Digital Intermediate, overscan/film edge and the date back
 stay **refused** off Apple. `capabilities.backend.unsupported_features` lists

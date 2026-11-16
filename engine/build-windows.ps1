@@ -77,7 +77,7 @@ $VulkanIncludeDirectory = (Resolve-Path -LiteralPath $VulkanIncludeDirectory).Pa
 if (-not $VulkanLibrary) { $VulkanLibrary = Join-Path $env:WINDIR 'System32\vulkan-1.dll' }
 if (-not (Test-Path -LiteralPath $VulkanLibrary -PathType Leaf)) { throw "Missing Vulkan loader: $VulkanLibrary" }
 $VulkanLibrary = (Resolve-Path -LiteralPath $VulkanLibrary).Path
-$glslangCandidates = @((Join-Path $dependencyDirectory 'glslang-build\StandAlone\glslang.exe'))
+$glslangCandidates = @((Join-Path $dependencyDirectory 'glslang-16.6.0\bin\glslang.exe'))
 if ($env:VULKAN_SDK) { $glslangCandidates = @((Join-Path $env:VULKAN_SDK 'Bin\glslangValidator.exe')) + $glslangCandidates }
 $GlslangExecutable = Resolve-Tool $GlslangExecutable 'glslangValidator.exe' $glslangCandidates
 
@@ -88,9 +88,9 @@ try {
     New-Item -ItemType Directory -Path $BuildDirectory -Force | Out-Null
     $configureArguments = @('-S', $sourceDirectory, '-B', $BuildDirectory,
         '-G', 'MinGW Makefiles', '-DCMAKE_BUILD_TYPE=Release',
-        "-DCMAKE_CXX_COMPILER=$($Compiler.Replace('\', '/'))", "-DCMAKE_MAKE_PROGRAM=$($MakeExecutable.Replace('\', '/'))",
+        "-DCMAKE_CXX_COMPILER=$($Compiler.Replace('\', '/'))", "-DCMAKE_C_COMPILER=$compilerDirectory/gcc.exe", "-DCMAKE_MAKE_PROGRAM=$($MakeExecutable.Replace('\', '/'))",
         '-DBUILD_TESTING=ON', '-DSPEKTRALAB_REQUIRE_VULKAN=ON', '-DSPEKTRALAB_BUILD_TEST_DLL=ON',
-        "-DSPEKTRALAB_VULKAN_INCLUDE_DIR=$($VulkanIncludeDirectory.Replace('\', '/'))",
+        "-DSPEKTRALAB_VULKAN_HEADERS=$($VulkanIncludeDirectory.Replace('\', '/'))",
         "-DSPEKTRALAB_VULKAN_LIBRARY=$($VulkanLibrary.Replace('\', '/'))", "-DSPEKTRALAB_GLSLANG=$($GlslangExecutable.Replace('\', '/'))")
     if ($Fresh) { $configureArguments = @('--fresh') + $configureArguments }
     $configureArguments += "-DSPEKTRALAB_BUILD_DESKTOP=$(if ($Desktop -and $NativeRaw) { 'ON' } else { 'OFF' })"

@@ -1,0 +1,26 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) buffer Fine { float16_t value[]; } fine;
+layout(set=0,binding=1,std430) readonly buffer Coarse { float16_t value[]; } coarse;
+layout(set=0,binding=2,std430) readonly buffer Weights { float value[]; } weights;
+layout(set=0,binding=3,std430) readonly buffer Meta { uint value[]; } meta;
+uint index() { return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x; }
+vec3 ld3H(uint s) { return vec3(float(fine.value[3u*s]),float(fine.value[3u*s+1u]),float(fine.value[3u*s+2u])); }
+vec3 ldc3(uint s) { return vec3(float(coarse.value[3u*s]),float(coarse.value[3u*s+1u]),float(coarse.value[3u*s+2u])); }
+vec3 pyr_up(uint x,uint y,uint hc,uint wc) {
+    const float ev[3]=float[3](5.0/16.0,10.0/16.0,1.0/16.0),od[3]=float[3](1.0/16.0,10.0/16.0,5.0/16.0);
+    int bx=int(x/2u),by=int(y/2u); uint cs[3]; float wx[3],wy[3];
+    for (int t=0;t<3;++t) { cs[t]=uint(clamp(bx-1+t,0,int(wc)-1)); wx[t]=(x&1u)!=0u?od[t]:ev[t]; wy[t]=(y&1u)!=0u?od[t]:ev[t]; }
+    vec3 s=vec3(0.0);
+    for (int a=0;a<3;++a) { uint row=uint(clamp(by-1+a,0,int(hc)-1))*wc;
+        vec3 acc=wx[0]*ldc3(row+cs[0])+wx[1]*ldc3(row+cs[1])+wx[2]*ldc3(row+cs[2]); s+=wy[a]*acc; }
+    return s;
+}
+void main() {
+    uint i=index(),hf=meta.value[0],wf=meta.value[1]; if(i>=hf*wf)return;
+    vec3 v=vec3(weights.value[0],weights.value[1],weights.value[2])*ld3H(i);
+    if(meta.value[4]!=0u)v+=pyr_up(i%wf,i/wf,meta.value[2],meta.value[3]);
+    fine.value[3u*i]=float16_t(v.x); fine.value[3u*i+1u]=float16_t(v.y); fine.value[3u*i+2u]=float16_t(v.z);
+}

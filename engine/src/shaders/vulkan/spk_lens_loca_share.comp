@@ -1,0 +1,8 @@
+#version 450
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Image { float value[]; } image_data;
+layout(set=0,binding=1,std430) readonly buffer Params { float value[]; } p;
+layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta;
+layout(set=0,binding=3,std430) writeonly buffer Output { float value[]; } out_data;
+uint index(){return gl_GlobalInvocationID.y*(gl_NumWorkGroups.x*gl_WorkGroupSize.x)+gl_GlobalInvocationID.x;}
+void main(){uint i=index();if(i>=meta.value[0])return;vec3 v=vec3(image_data.value[3u*i],image_data.value[3u*i+1u],image_data.value[3u*i+2u]);float y=.25*v.x+.5*v.y+.25*v.z,m=(1.0-p.value[3])+p.value[3]*smoothstep(p.value[4],4.0*p.value[4],y);vec3 o=vec3(p.value[0],p.value[1],p.value[2])*m*v;out_data.value[3u*i]=o.x;out_data.value[3u*i+1u]=o.y;out_data.value[3u*i+2u]=o.z;}

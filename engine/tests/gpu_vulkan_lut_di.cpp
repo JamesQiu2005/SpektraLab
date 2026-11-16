@@ -192,6 +192,130 @@ bool check_di(Gpu* gpu, std::string& error) {
     }
     return true;
 }
+
+std::array<float, 42> di_encode_parameters(bool compensation) {
+    std::array<float, 42> p{};
+    p[0] = 1.0f; p[4] = 1.0f; p[8] = 1.0f;
+    p[9] = 0.01f; p[10] = -0.02f; p[11] = 0.03f;
+    const double to_lms[] = {
+        0.4122214708, 0.5363325363, 0.0514459929,
+        0.2119034982, 0.6806995451, 0.1073969566,
+        0.0883024619, 0.2817188376, 0.6299787005};
+    const double from_lms[] = {
+        4.0767416621, -3.3077115913, 0.2309699292,
+        -1.2684380046, 2.6097574011, -0.3413193965,
+        -0.0041960863, -0.7034186147, 1.7076147010};
+    for (unsigned i = 0; i < 9; ++i) {
+        p[12 + i] = float(to_lms[i]);
+        p[21 + i] = float(from_lms[i]);
+    }
+    p[30] = compensation ? 1.0f : 0.0f;
+    p[31] = 25.0f;
+    p[32] = 1.3f;
+    p[33] = 280.0f;
+    p[34] = 55.0f;
+    p[35] = 0.02f;
+    p[36] = 0.12f;
+    p[37] = 685.0f;
+    p[38] = 300.0f;
+    p[39] = 1023.0f;
+    p[40] = 0.015f;
+    p[41] = float(std::pow(10.0, (95.0 - 685.0) / 300.0));
+    return p;
+}
+
+std::array<double, 3> di_encode_reference(const std::array<double, 3>& log_rgb,
+                                          const std::array<float, 42>& p) {
+    double positive[3];
+    for (unsigned c = 0; c < 3; ++c)
+        positive[c] = std::pow(10.0, log_rgb[c] + p[9 + c]) -
+                      p[40] * std::pow(10.0, p[9 + c]);
+    std::array<double, 3> linear{};
+    for (unsigned row = 0; row < 3; ++row)
+        for (unsigned col = 0; col < 3; ++col)
+            linear[row] += positive[col] * p[3 * row + col];
+    if (p[30] != 0.0f) {
+        std::array<double, 3> lms{};
+        for (unsigned row = 0; row < 3; ++row)
+            for (unsigned col = 0; col < 3; ++col)
+                lms[row] += linear[col] * p[12 + 3 * row + col];
+        for (double& value : lms) value = std::pow(std::max(value, 0.0), 1.0 / 3.0);
+        const double L = 0.2104542553 * lms[0] + 0.7936177850 * lms[1] - 0.0040720468 * lms[2];
+        double a = 1.9779984951 * lms[0] - 2.4285922050 * lms[1] + 0.4505937099 * lms[2];
+        double b = 0.0259040371 * lms[0] + 0.7827717662 * lms[1] - 0.8086757660 * lms[2];
+        const double chroma = std::sqrt(a * a + b * b);
+        const double hue = std::atan2(b, a) * 57.29577951308232;
+        const double delta = std::fmod(hue - p[33] + 540.0, 360.0) - 180.0;
+        double window = std::abs(delta) < p[34]
+            ? 0.5 * (1.0 + std::cos(3.14159265358979 * delta / p[34])) : 0.0;
+        const double fade = std::clamp((chroma - p[35]) / (p[36] - p[35]), 0.0, 1.0);
+        window *= fade * fade * (3.0 - 2.0 * fade);
+        if (window > 0.0) {
+            const double adjusted_hue = (hue + window * p[31]) * 0.017453292519943295;
+            const double adjusted_chroma = chroma * (1.0 + window * (p[32] - 1.0));
+            a = adjusted_chroma * std::cos(adjusted_hue);
+            b = adjusted_chroma * std::sin(adjusted_hue);
+            const std::array<double, 3> rotated{
+                L + 0.3963377774 * a + 0.2158037573 * b,
+                L - 0.1055613458 * a - 0.0638541728 * b,
+                L - 0.0894841775 * a - 1.2914855480 * b};
+            const std::array<double, 3> cubed{
+                rotated[0] * rotated[0] * rotated[0],
+                rotated[1] * rotated[1] * rotated[1],
+                rotated[2] * rotated[2] * rotated[2]};
+            for (unsigned row = 0; row < 3; ++row) {
+                linear[row] = 0.0;
+                for (unsigned col = 0; col < 3; ++col)
+                    linear[row] += cubed[col] * p[21 + 3 * row + col];
+            }
+        }
+    }
+    std::array<double, 3> code{};
+    for (unsigned c = 0; c < 3; ++c)
+        code[c] = std::clamp((p[37] + p[38] *
+            std::log10(std::max(linear[c], 0.0) * (1.0 - p[41]) + p[41])) / p[39], 0.0, 1.0);
+    return code;
+}
+
+bool check_di_encode(Gpu* gpu, std::string& error) {
+    const uint32_t counts[] = {0, 1, 2, 255, 256, 257, 1025};
+    const double positions[] = {-2.5, -2, -1.5, -1, -0.75, -0.5, -0.25,
+                                0, 0.25, 0.1, -0.1, -0.4};
+    for (bool compensation : {false, true}) {
+        const auto p = di_encode_parameters(compensation);
+        auto parameters = gpu->upload(p.data(), p.size() * sizeof(float), error);
+        if (!parameters) return false;
+        for (uint32_t count : counts) {
+            std::vector<float> input(std::max(count, 1u) * 3);
+            std::vector<double> expected(size_t(count) * 3);
+            for (uint32_t i = 0; i < std::max(count, 1u); ++i) {
+                const std::array<double, 3> rgb{
+                    positions[(i + 1) % 12], positions[(i * 3 + 2) % 12],
+                    positions[(i * 5 + 7) % 12]};
+                std::array<double, 3> actual_log = rgb;
+                if (i % 17 == 0) actual_log[2] = -0.16;
+                if (i % 23 == 0) actual_log[0] = -0.05;
+                for (unsigned c = 0; c < 3; ++c)
+                    input[3 * i + c] = float(actual_log[c]);
+                if (i >= count) continue;
+                const auto output = di_encode_reference(
+                    {double(input[3 * i]), double(input[3 * i + 1]), double(input[3 * i + 2])}, p);
+                for (unsigned c = 0; c < 3; ++c) expected[3 * i + c] = output[c];
+            }
+            std::vector<float> initial(expected.size() + kGuards, kGuard);
+            auto input_buffer = gpu->upload(input.data(), input.size() * sizeof(float), error);
+            auto output = gpu->upload(initial.data(), initial.size() * sizeof(float), error);
+            const uint32_t n[] = {count};
+            if (!input_buffer || !output ||
+                !gpu->dispatch("spk_di_encode", {Arg::buf(input_buffer), Arg::buf(parameters),
+                    Arg::inline_bytes(n, 1), Arg::buf(output)}, std::max(count, 1u), error) ||
+                !check_result(gpu, output, expected, 4e-6,
+                    std::string("DI encode compensation=") + (compensation ? "on" : "off") +
+                    " pixels=" + std::to_string(count), error)) return false;
+        }
+    }
+    return true;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -200,7 +324,8 @@ int main(int argc, char** argv) {
     std::unique_ptr<Gpu> gpu(Gpu::create_vulkan(std::string(argv[1]) + "/vulkan", error));
     if (!gpu) { std::fprintf(stderr, "Vulkan device: %s\n", error.c_str()); return 1; }
     std::printf("Vulkan device: %s\n", gpu->device_name().c_str());
-    if (!check_lut(gpu.get(), error) || !check_di(gpu.get(), error)) {
+    if (!check_lut(gpu.get(), error) || !check_di(gpu.get(), error) ||
+        !check_di_encode(gpu.get(), error)) {
         std::fprintf(stderr, "LUT/DI: %s\n", error.c_str()); return 1;
     }
     std::printf("LUT/DI: %zu analytic/float64 cases, max abs error %.9g; NaN/Inf and guards passed\n",

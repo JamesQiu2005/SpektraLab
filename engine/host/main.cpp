@@ -366,7 +366,8 @@ Json m_hello(const Request&) {
     Json methods = Json::array();
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
                           "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
-                          "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress",
+                          "render_digital_intermediate", "scene_latitude", "overscan_geometry",
+                          "preview_stock_lut", "cancel", "progress",
                           "export_image", "export_cube", "export_di", "write_image"})
         methods.push(str(m));
     r.set("methods", std::move(methods));
@@ -663,6 +664,23 @@ Json m_scene_latitude(const Request& q) {
     return take_json(reply);
 }
 
+Json m_render_digital_intermediate(const Request& q, std::vector<uint8_t>& payload) {
+    auto s = find_session(q.params);
+    Result result;
+    char* reply = nullptr;
+    const spk_status st = spk_render_digital_intermediate(s->handle, &result.r, &reply);
+    if (st != SPK_OK) {
+        if (reply) spk_string_free(reply);
+        engine_fail(st, "render_digital_intermediate");
+    }
+    Json info = take_json(reply);
+    Json image;
+    package_pixels(result.r, s->output_space, q.params, image, payload);
+    Json out = std::move(info);
+    out.set("image", std::move(image));
+    return out;
+}
+
 Json m_overscan_geometry(const Request& q) {
     auto s = find_session(q.params);
     char* reply = nullptr;
@@ -906,6 +924,7 @@ void dispatch(const Request& q) {
     else if (m == "get_params") result = m_get_params(q);
     else if (m == "solve") result = m_solve(q);
     else if (m == "render") result = m_render(q, payload);
+    else if (m == "render_digital_intermediate") result = m_render_digital_intermediate(q, payload);
     else if (m == "scene_latitude") result = m_scene_latitude(q);
     else if (m == "overscan_geometry") result = m_overscan_geometry(q);
     else if (m == "preview_stock_lut") result = m_preview_stock_lut(q, payload);

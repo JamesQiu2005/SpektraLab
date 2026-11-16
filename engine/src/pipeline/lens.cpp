@@ -955,6 +955,7 @@ bool Pipeline::lens_probe(const Params& params, double pixel_um, const Image& in
 #include "json.hpp"
 #include "params.hpp"
 
+#if defined(__APPLE__)
 extern "C" int spk_lens_probe(const char* metallib, const char* params_json, const char* opts_json,
                               const float* in, uint32_t h, uint32_t w, double pixel_um, float* out,
                               char* err, size_t err_len) {
@@ -1006,6 +1007,7 @@ extern "C" int spk_lens_probe(const char* metallib, const char* params_json, con
                       info[0], info[1], info[2], info[3], ms, ms_first);
     return ok ? 0 : fail(error);
 }
+#endif
 
 // `spk_diffusion_psf_json`: the filter's host half -- p_s and every exponential
 // (lambda in um with `spatial_scale` in, per-channel weight, group) -- for a

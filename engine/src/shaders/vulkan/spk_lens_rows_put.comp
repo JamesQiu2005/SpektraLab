@@ -1,0 +1,7 @@
+#version 450
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Source { float value[]; } source_data;
+layout(set=0,binding=1,std430) readonly buffer Meta { uint value[]; } meta;
+layout(set=0,binding=2,std430) writeonly buffer Destination { float value[]; } dest_data;
+uint index() { return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x; }
+void main(){uint i=index();if(i>=meta.value[3])return;dest_data.value[uint(meta.value[2])*meta.value[0]*3u+i]=source_data.value[uint(meta.value[1])*meta.value[0]*3u+i];}

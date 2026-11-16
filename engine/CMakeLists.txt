@@ -51,17 +51,14 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/blur.cpp
     src/pipeline/disk_checkpoint.cpp
     src/pipeline/engine.cpp
+    src/pipeline/contrast_mask.cpp
+    src/pipeline/overscan.cpp
     src/pipeline/pipeline.cpp
     src/pipeline/scene_latitude.cpp
+    src/pipeline/scene_layers.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(APPLE)
-    target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/contrast_mask.cpp src/pipeline/lens.cpp src/pipeline/overscan.cpp
-        src/pipeline/scene_layers.cpp)
-else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
-endif()
+  target_sources(spektralab_pipeline PRIVATE src/pipeline/lens.cpp)
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -117,13 +114,20 @@ if(NOT APPLE)
             spk_affine3 spk_tc_b spk_lut2d_cubic spk_sep_fir_acc spk_iir_df_acc
             spk_lincomb3 spk_log10_guarded spk_curves
             spk_couplers_correction spk_spectral_epilogue
-            spk_print_exposure spk_cam16ucs_compress
+            spk_print_exposure spk_scan_hdr_expand spk_cam16ucs_compress
             spk_cctf_encode_matrix spk_to_rgba16
             spk_grain_layers spk_grain_layer_one spk_grain_simple
             spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
-            spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
+            spk_reduce_max spk_boost spk_scene_latitude spk_scene_curve spk_bw_correct spk_edr spk_cctf_decode
+            spk_scene_layers
             spk_zoom_bilinear_mirror spk_geometry_resample_df
-            spk_lut3d_trilinear spk_di_normalise
+            spk_lut3d_trilinear spk_di_normalise spk_di_encode spk_mask_reduce spk_mask_epilogue
+            spk_overscan_canvas spk_leak_frame spk_overscan_add_mask
+            spk_overscan_film_present spk_overscan_light
+              spk_lens_splat spk_lens_mix spk_lens_tca spk_lens_loca_share
+              spk_lens_loca_mix spk_lens_down2 spk_lens_line
+              spk_lens_pyr_down0 spk_lens_pyr_down spk_lens_pyr_up spk_lens_pyr_out
+              spk_lens_gauss_1d spk_lens_rows_put spk_lens_cctf_encode
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")

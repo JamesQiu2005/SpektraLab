@@ -1,0 +1,8 @@
+#version 450
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Image { float value[]; } image_data;
+layout(set=0,binding=1,std430) readonly buffer Meta { uint value[]; } meta;
+layout(set=0,binding=2,std430) writeonly buffer Output { float value[]; } out_data;
+uint index(){return gl_GlobalInvocationID.y*(gl_NumWorkGroups.x*gl_WorkGroupSize.x)+gl_GlobalInvocationID.x;}
+vec3 ld3(uint i){return vec3(image_data.value[3u*i],image_data.value[3u*i+1u],image_data.value[3u*i+2u]);}
+void main(){uint i=index(),hin=meta.value[0],win=meta.value[1],i0in=meta.value[2],hout=meta.value[3],wout=meta.value[4],i0out=meta.value[5];if(i>=hout*wout)return;uint r=i/wout,j=i%wout;const float c[4]=float[4](.125,.375,.375,.125);int fy=2*int(i0out+r)-1-int(i0in),fx=2*int(j)-1;vec3 s=vec3(0.0);for(int a=0;a<4;++a){uint yy=uint(clamp(fy+a,0,int(hin)-1));vec3 row=vec3(0.0);for(int b=0;b<4;++b)row+=c[b]*ld3(yy*win+uint(clamp(fx+b,0,int(win)-1)));s+=c[a]*row;}out_data.value[3u*i]=s.x;out_data.value[3u*i+1u]=s.y;out_data.value[3u*i+2u]=s.z;}

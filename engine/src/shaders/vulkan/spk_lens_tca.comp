@@ -1,0 +1,26 @@
+#version 450
+layout(local_size_x = 256) in;
+layout(set=0,binding=0,std430) readonly buffer Image { float value[]; } image_data;
+layout(set=0,binding=1,std430) readonly buffer Params { float value[]; } p;
+layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta;
+layout(set=0,binding=3,std430) writeonly buffer Output { float value[]; } out_data;
+uint index(){return gl_GlobalInvocationID.y*(gl_NumWorkGroups.x*gl_WorkGroupSize.x)+gl_GlobalInvocationID.x;}
+float sample_channel(uint h,uint w,uint row0,uint c,float qx,float qy){
+    float xf=floor(qx),yf=floor(qy),fx=qx-xf,fy=qy-yf;
+    int x0=clamp(int(xf),0,int(w)-1),x1=clamp(int(xf)+1,0,int(w)-1);
+    int y0=clamp(int(yf)-int(row0),0,int(h)-1),y1=clamp(int(yf)+1-int(row0),0,int(h)-1);
+    float v00=image_data.value[3u*(uint(y0)*w+uint(x0))+c],v01=image_data.value[3u*(uint(y0)*w+uint(x1))+c];
+    float v10=image_data.value[3u*(uint(y1)*w+uint(x0))+c],v11=image_data.value[3u*(uint(y1)*w+uint(x1))+c];
+    return mix(mix(v00,v01,fx),mix(v10,v11,fx),fy);
+}
+void main(){
+    uint i=index(),h=meta.value[0],w=meta.value[1],row0=meta.value[2];if(i>=h*w)return;
+    uint y=i/w,x=i%w;float X=float(x),Y=float(y+row0),dx=X-p.value[0],dy=Y-p.value[1],rd=sqrt(dx*dx+dy*dy),hd=rd*p.value[2];
+    out_data.value[3u*i+1u]=image_data.value[3u*i+1u];
+    for(uint k=0u;k<2u;++k){uint c=k==0u?0u:2u;float a=p.value[3u+k];
+        if(a==0.0||rd<=0.0){out_data.value[3u*i+c]=image_data.value[3u*i+c];continue;}
+        float ru=2.0*rd/(1.0+sqrt(max(1.0+4.0*a*hd,1e-6))),s=ru/rd,hu=ru*p.value[2];
+        float jac=1.0/((1.0+2.0*a*hu)*(1.0+a*hu));
+        out_data.value[3u*i+c]=jac*sample_channel(h,w,row0,c,p.value[0]+dx*s,p.value[1]+dy*s);
+    }
+}

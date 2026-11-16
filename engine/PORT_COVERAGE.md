@@ -1,5 +1,11 @@
 # Engine coverage on Linux / Windows (Vulkan) vs macOS (Metal)
 
+> **Status note (2026-11-15):** this table records the pre-port branch. The five
+> features marked refused below have since been ported and render on the
+> Windows Vulkan backend. See `tasks/STATE.md` and
+> `tasks/acceptance.md` for current verification; the refused rows here are
+> historical.
+
 The owner's question: *does the engine cover everything in the API spec over
 C++ and Vulkan on the Windows branch?* This table answers it entry point by
 entry point, field group by field group, kernel by kernel. It is kept current

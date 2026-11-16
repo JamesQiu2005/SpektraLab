@@ -27,6 +27,9 @@ ApplicationWindow {
     property int exportFormat: 0
     property int exportQuality: 95
     property int exportLongEdge: 0
+    property int exportOutputSpace: 0
+    property bool exportCopyMetadata: false
+    property string advancedPage: "chemistry"
     readonly property bool canEditCrop: preview.hasFrame && !preview.busy && !preview.batchExporting
     readonly property bool canBrowse: preview.ready && !preview.busy && !preview.batchExporting && !cropMode
     // Text controls keep their own undo stack while they own keyboard focus.
@@ -34,7 +37,8 @@ ApplicationWindow {
     onCropModeChanged: updateDialogState()
 
     function updateDialogState() {
-        preview.setDialogOpen(cropMode || openDialog.visible || saveDialog.visible || batchDialog.visible || exportPopup.visible)
+        preview.setDialogOpen(cropMode || openDialog.visible || saveDialog.visible || batchDialog.visible ||
+                              createCatalogDialog.visible || openCatalogDialog.visible || exportPopup.visible)
     }
     function startCrop() {
         if (!canEditCrop) return
@@ -61,6 +65,7 @@ ApplicationWindow {
     function showExportOptions() { openExport() }
     function formatFilter() {
         if (exportFormat === 3) return ["JPEG 图像 (*.jpg *.jpeg)"]
+        if (exportFormat === 4) return ["HEIF 图像 (*.heic *.heif)"]
         if (exportFormat === 1 || exportFormat === 2) return ["PNG 图像 (*.png)"]
         return ["16 位 TIFF (*.tif *.tiff)"]
     }
@@ -82,21 +87,43 @@ ApplicationWindow {
         onAccepted: preview.openFiles(selectedFiles)
     }
     FileDialog {
+        id: createCatalogDialog
+        title: "新建 SpektraLab 目录"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["SpektraLab 目录 (*.spkcatalog)"]
+        defaultSuffix: "spkcatalog"
+        onVisibleChanged: window.updateDialogState()
+        onAccepted: preview.createLibraryCatalog(selectedFile)
+    }
+    FolderDialog {
+        id: openCatalogDialog
+        title: "打开 SpektraLab 目录"
+        onVisibleChanged: window.updateDialogState()
+        onAccepted: preview.openLibraryCatalog(selectedFolder)
+    }
+    FolderDialog {
+        id: linkedFolderDialog
+        title: "链接已有 RAW 文件夹"
+        onVisibleChanged: window.updateDialogState()
+        onAccepted: preview.addLinkedFolder(selectedFolder)
+    }
+    FileDialog {
         id: saveDialog
         title: "导出当前画面 · 不覆盖现有文件"
         fileMode: FileDialog.SaveFile
         nameFilters: window.formatFilter()
-        defaultSuffix: window.exportFormat === 3 ? "jpg" : window.exportFormat === 0 ? "tif" : "png"
+        defaultSuffix: window.exportFormat === 3 ? "jpg" : window.exportFormat === 4 ? "heic" :
+                       window.exportFormat === 0 ? "tif" : "png"
         currentFolder: preview.sourceFolder
         onVisibleChanged: window.updateDialogState()
-        onAccepted: preview.exportImage(selectedFile, window.exportFormat, window.exportQuality, window.exportLongEdge)
+        onAccepted: preview.exportImageWithRecipe(selectedFile, window.exportFormat, window.exportQuality, window.exportLongEdge, window.exportOutputSpace, window.exportCopyMetadata)
     }
     FolderDialog {
         id: batchDialog
         title: "选择批量导出文件夹 · 跳过已有文件"
         currentFolder: preview.sourceFolder
         onVisibleChanged: window.updateDialogState()
-        onAccepted: preview.exportBatch(selectedFolder, window.exportFormat, window.exportQuality, window.exportLongEdge)
+        onAccepted: preview.exportBatchWithRecipe(selectedFolder, window.exportFormat, window.exportQuality, window.exportLongEdge, window.exportOutputSpace, window.exportCopyMetadata)
     }
     Shortcut { sequences: [StandardKey.Open]; enabled: window.canBrowse; onActivated: openDialog.open() }
     Shortcut { sequence: "Ctrl+E"; enabled: preview.hasFrame && !preview.busy && !window.cropMode; onActivated: window.openExport() }
@@ -160,6 +187,47 @@ ApplicationWindow {
             onToggled: preview.setAdjustment(effect.activeKey, checked)
         }
         Adjustment { label: "强度"; setting: effect.amountKey; fallback: 1; from: 0; to: effect.maximum; available: preview.adjustments[effect.activeKey] !== false }
+    }
+    component Toggle: CheckBox {
+        id: toggle
+        property string label
+        property string setting
+        text: label; font.pixelSize: 11
+        palette.windowText: Theme.text
+        checked: preview.adjustments[setting] === true
+        enabled: preview.settingsEditable
+        onToggled: preview.setAdjustment(setting, checked)
+    }
+    component Choice: RowLayout {
+        id: choice
+        property string label
+        property string setting
+        property var labels: []
+        property var values: []
+        Layout.fillWidth: true
+        Text { text: choice.label; color: Theme.text; font.pixelSize: 11; Layout.preferredWidth: 92 }
+        ComboBox {
+            Layout.fillWidth: true
+            model: choice.labels
+            currentIndex: choice.values.indexOf(preview.adjustments[choice.setting])
+            enabled: preview.settingsEditable
+            onActivated: preview.setAdjustment(choice.setting, choice.values[currentIndex])
+        }
+    }
+    component SettingText: RowLayout {
+        id: settingText
+        property string label
+        property string setting
+        property string placeholder
+        Layout.fillWidth: true
+        Text { text: settingText.label; color: Theme.text; font.pixelSize: 11; Layout.preferredWidth: 92 }
+        TextField {
+            Layout.fillWidth: true
+            text: preview.adjustments[settingText.setting] === undefined ? "" : String(preview.adjustments[settingText.setting])
+            placeholderText: settingText.placeholder
+            enabled: preview.settingsEditable
+            onEditingFinished: preview.setAdjustment(settingText.setting, text)
+        }
     }
     component FilmGroup: ColumnLayout {
         id: group
@@ -417,7 +485,66 @@ ApplicationWindow {
                         anchors.fill: parent; anchors.margins: 8; spacing: 6
                         RowLayout {
                             Layout.fillWidth: true; spacing: 6
+                            TextField {
+                                id: librarySearch
+                                objectName: "librarySearch"
+                                Layout.preferredWidth: 210; implicitHeight: 23; font.pixelSize: 10
+                                placeholderText: "按文件名筛选照片"
+                                selectByMouse: true
+                                onTextChanged: searchDelay.restart()
+                                Timer { id: searchDelay; interval: 120; onTriggered: preview.setLibrarySearch(librarySearch.text) }
+                            }
+                            ComboBox {
+                                objectName: "librarySort"
+                                implicitWidth: 108; implicitHeight: 23; font.pixelSize: 10
+                                model: ["目录顺序", "名称 A–Z", "名称 Z–A", "星级优先", "色标优先"]
+                                currentIndex: 0
+                                onActivated: preview.setLibrarySort(index === 0 ? 0 : index === 1 ? 0 : index === 2 ? 1 : index === 3 ? 2 : 3)
+                            }
+                            ActionButton { objectName: "newCatalogButton"; text: "新建目录"; implicitHeight: 23; font.pixelSize: 10; enabled: window.canBrowse; onClicked: createCatalogDialog.open() }
+                            ActionButton { objectName: "openCatalogButton"; text: "打开目录"; implicitHeight: 23; font.pixelSize: 10; enabled: window.canBrowse; onClicked: openCatalogDialog.open() }
+                            ActionButton { objectName: "linkFolderButton"; text: "链接文件夹"; implicitHeight: 23; font.pixelSize: 10; enabled: window.canBrowse; onClicked: linkedFolderDialog.open() }
+                            Item { Layout.fillWidth: true }
+                            ActionButton {
+                                objectName: "trashOrRestoreButton"
+                                readonly property var activeItem: preview.libraryItems.find(function(item) { return item.catalogIndex === preview.activeIndex })
+                                text: preview.collectionFilter === "__trash__" ? "恢复照片" : "移到回收站"
+                                implicitHeight: 23; font.pixelSize: 10
+                                enabled: window.canBrowse && !!activeItem
+                                onClicked: preview.collectionFilter === "__trash__"
+                                    ? preview.restoreFromTrash(preview.activeIndex)
+                                    : preview.moveToTrash(preview.activeIndex)
+                            }
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true; spacing: 6
+                            ComboBox {
+                                objectName: "librarySourceSelector"
+                                implicitWidth: 138; implicitHeight: 23; font.pixelSize: 10
+                                model: preview.librarySources; textRole: "name"
+                                currentIndex: preview.activeLibrarySource
+                                onActivated: preview.switchLibrarySource(index)
+                            }
                             Text { text: preview.libraryItems.length + " 张照片 · 已选 " + preview.selectedCount; color: Theme.muted; font.pixelSize: 10 }
+                            ComboBox {
+                                objectName: "collectionSelector"
+                                implicitWidth: 130; implicitHeight: 23; font.pixelSize: 10
+                                model: [{ name: "", label: "全部照片" }].concat(
+                                    preview.collections.map(function(item) { return { name: item.name, label: item.name + " (" + item.count + ")" } }),
+                                    [{ name: "__trash__", label: "回收站 (" + preview.trashCount + ")" }])
+                                textRole: "label"
+                                currentIndex: {
+                                    for (var i = 0; i < model.length; ++i) if (model[i].name === preview.collectionFilter) return i
+                                    return 0
+                                }
+                                onActivated: preview.setCollectionFilter(model[currentIndex].name)
+                            }
+                            ActionButton { text: "新建收藏"; implicitHeight: 23; font.pixelSize: 10; enabled: window.canBrowse && preview.libraryItems.length > 0; onClicked: collectionDialog.open() }
+                            ActionButton { text: "删除收藏"; implicitHeight: 23; font.pixelSize: 10; enabled: preview.collectionFilter.length > 0 && preview.collectionFilter !== "__trash__"; onClicked: preview.deleteCollection(preview.collectionFilter) }
+                            ActionButton { objectName: "composePairButton"; text: "组成半格双联"; implicitHeight: 23; font.pixelSize: 10; enabled: window.canBrowse && preview.selectedCount === 2; onClicked: preview.createPairFromSelection(); ToolTip.visible: hovered; ToolTip.text: "按选择顺序把两张照片装入 135 半格双联" }
+                            ActionButton { objectName: "newVariantButton"; text: "新变体"; implicitHeight: 23; font.pixelSize: 10; readonly property var activeItem: preview.libraryItems.find(function(item) { return item.catalogIndex === preview.activeIndex }); enabled: window.canBrowse && !!activeItem && !activeItem.isPair && preview.collectionFilter !== "__trash__"; onClicked: preview.createVariant(preview.activeIndex, false); ToolTip.visible: hovered; ToolTip.text: "以默认设置建立同一文件的新编辑变体" }
+                            ActionButton { objectName: "cloneVariantButton"; text: "克隆变体"; implicitHeight: 23; font.pixelSize: 10; readonly property var activeItem: preview.libraryItems.find(function(item) { return item.catalogIndex === preview.activeIndex }); enabled: window.canBrowse && !!activeItem && !activeItem.isPair && preview.collectionFilter !== "__trash__"; onClicked: preview.createVariant(preview.activeIndex, true); ToolTip.visible: hovered; ToolTip.text: "复制当前变体的编辑与评分" }
+                            ActionButton { objectName: "deleteVariantButton"; text: "删除变体"; implicitHeight: 23; font.pixelSize: 10; readonly property var activeItem: preview.libraryItems.find(function(item) { return item.catalogIndex === preview.activeIndex }); enabled: window.canBrowse && !!activeItem && !activeItem.isPair && activeItem.variantCount > 1 && preview.collectionFilter !== "__trash__"; onClicked: deleteVariantDialog.open() }
                             Item { Layout.fillWidth: true }
                             ActionButton { text: "全选"; implicitHeight: 23; font.pixelSize: 10; enabled: window.canBrowse && preview.libraryItems.length > 0; onClicked: preview.selectAllPhotos(true) }
                             ActionButton { text: "清除选择"; implicitHeight: 23; font.pixelSize: 10; enabled: window.canBrowse && preview.selectedCount > 0; onClicked: preview.selectAllPhotos(false) }
@@ -427,7 +554,12 @@ ApplicationWindow {
                             id: filmstrip; objectName: "photoStrip"
                             Layout.fillWidth: true; Layout.fillHeight: true
                             orientation: ListView.Horizontal; spacing: 8; clip: true
-                            model: preview.libraryItems; currentIndex: preview.activeIndex
+                            model: preview.libraryItems
+                            currentIndex: {
+                                var items = preview.libraryItems
+                                for (var i = 0; i < items.length; ++i) if (items[i].catalogIndex === preview.activeIndex) return i
+                                return -1
+                            }
                             onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
                             ScrollBar.horizontal: ScrollBar {}
                             delegate: Rectangle {
@@ -435,15 +567,34 @@ ApplicationWindow {
                                 required property int index
                                 width: 132; height: filmstrip.height - 3
                                 color: Theme.wellDark; border.color: modelData.active ? Theme.accent : Theme.line; border.width: modelData.active ? 2 : 0
+                                Rectangle { anchors.top: parent.top; anchors.left: parent.left; width: 9; height: 9; color: modelData.colorLabel === 0 ? "transparent" : ["", "#e2534d", "#e99b36", "#e5cf4a", "#55ad6a", "#4b9ed8", "#d56cab", "#806ad4"][modelData.colorLabel] }
                                 Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -8; text: modelData.error ? "无法读取" : "点击预览"; color: modelData.error ? "#ffb39f" : Theme.muted; font.pixelSize: 10 }
                                 FrameCanvas { anchors.fill: parent; anchors.margins: 5; anchors.bottomMargin: 22; image: modelData.thumbnail; enabled: false }
                                 Text { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 6; text: modelData.name; color: Theme.text; font.pixelSize: 10; elide: Text.ElideMiddle }
+                                Text { visible: modelData.isPair; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 6; text: "双联"; color: Theme.accent; font.pixelSize: 9 }
+                                Text { visible: modelData.variantCount > 1; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 5; text: modelData.variantNumber + " / " + modelData.variantCount; color: Theme.accent; font.pixelSize: 9 }
                                 MouseArea {
                                     anchors.fill: parent; enabled: window.canBrowse; hoverEnabled: true
-                                    onClicked: { window.cropMode = false; preview.selectImage(index) }
+                                    onClicked: { window.cropMode = false; preview.selectImage(modelData.catalogIndex) }
                                     ToolTip.visible: containsMouse && modelData.error.length > 0; ToolTip.text: modelData.error
                                 }
-                                CheckBox { anchors.top: parent.top; anchors.right: parent.right; padding: 0; scale: 0.8; checked: modelData.selected; enabled: window.canBrowse; onToggled: preview.setItemSelected(index, checked) }
+                                Text {
+                                    anchors.left: parent.left; anchors.leftMargin: 19; anchors.top: parent.top; anchors.topMargin: 5
+                                    text: modelData.rating > 0 ? "★".repeat(modelData.rating) : "☆"
+                                    color: modelData.rating > 0 ? "#e8bd58" : Theme.muted; font.pixelSize: 10
+                                    MouseArea {
+                                        anchors.fill: parent; anchors.margins: -4; enabled: window.canBrowse
+                                        onClicked: preview.setRating(modelData.catalogIndex, (modelData.rating + 1) % 6)
+                                        ToolTip.visible: containsMouse; ToolTip.text: "单击设置星级（0–5）"
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 4
+                                    width: 9; height: 9; enabled: window.canBrowse
+                                    onClicked: preview.setColorLabel(modelData.catalogIndex, (modelData.colorLabel + 1) % 8)
+                                    ToolTip.visible: containsMouse; ToolTip.text: "色标"
+                                }
+                                CheckBox { anchors.top: parent.top; anchors.right: parent.right; padding: 0; scale: 0.8; checked: modelData.selected; enabled: window.canBrowse; onToggled: preview.setItemSelected(modelData.catalogIndex, checked) }
                             }
                         }
                     }
@@ -485,7 +636,245 @@ ApplicationWindow {
                             Effect { label: "眩光"; activeKey: "glareActive"; amountKey: "glareAmount"; maximum: 30 }
                         }
                         Section {
+                            title: "胶片工作的完整控制"
+                            ComboBox {
+                                objectName: "advancedPageSelector"
+                                Layout.fillWidth: true
+                                model: ["显影与胶片", "镜头、滤镜与像差", "片边、日期与漏光", "局部场景蒙版"]
+                                currentIndex: window.advancedPage === "chemistry" ? 0 : window.advancedPage === "lens" ? 1 : window.advancedPage === "edges" ? 2 : 3
+                                enabled: preview.settingsEditable
+                                onActivated: window.advancedPage = ["chemistry", "lens", "edges", "sceneLayer"][currentIndex]
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 6
+                                visible: window.advancedPage === "chemistry"
+                                Toggle { label: "Cineon 数字中间片"; setting: "digital_intermediate" }
+                                Note { text: "按 Cineon Log 曝光处理，并用随附的 ProPhoto 显示表预览与导出。" }
+                                Choice {
+                                    label: "相机滤镜"; setting: "camera_filter"
+                                    labels: ["无", "W8 黄", "W11 黄绿", "W12 深黄", "W15 深黄", "W21 橙", "W25 红", "W47 蓝", "W58 绿"]
+                                    values: ["", "w8", "w11", "w12", "w15", "w21", "w25", "w47", "w58"]
+                                }
+                                Toggle { label: "颗粒分子层"; setting: "grain_sublayers_active" }
+                                Toggle { label: "DIR 成色剂"; setting: "dir_couplers_active" }
+                                Adjustment { label: "DIR 强度"; setting: "dir_couplers_amount"; fallback: 1; from: 0; to: 4 }
+                                Adjustment { label: "感光曲线 Gamma"; setting: "density_curve_gamma"; fallback: 1; from: 0.2; to: 4; step: 0.01 }
+                                Adjustment { label: "光晕提亮"; setting: "halation_boost_ev"; from: 0; to: 8; step: 0.1; decimals: 1; suffix: " EV" }
+                                Toggle { label: "去除防光晕层"; setting: "antihalation_removed" }
+                                Toggle { label: "场景宽容度映射"; setting: "scene_latitude_active" }
+                                Choice {
+                                    label: "映射基准"; setting: "scene_latitude_norm"
+                                    labels: ["Power", "Y", "Max"]; values: ["power", "y", "max"]
+                                }
+                                Adjustment { label: "高光膝点"; setting: "scene_latitude_highlight_knee"; fallback: 2; from: -24; to: 24; step: 0.1; decimals: 1; suffix: " EV"; available: preview.adjustments.scene_latitude_active === true }
+                                Adjustment { label: "高光余量"; setting: "scene_latitude_highlight_room"; from: 0; to: 24; step: 0.1; decimals: 1; suffix: " EV"; available: preview.adjustments.scene_latitude_active === true }
+                                Adjustment { label: "阴影膝点"; setting: "scene_latitude_shadow_knee"; fallback: -2; from: -24; to: 24; step: 0.1; decimals: 1; suffix: " EV"; available: preview.adjustments.scene_latitude_active === true }
+                                Adjustment { label: "阴影余量"; setting: "scene_latitude_shadow_room"; from: 0; to: 24; step: 0.1; decimals: 1; suffix: " EV"; available: preview.adjustments.scene_latitude_active === true }
+                                Adjustment { label: "滚降阶数"; setting: "scene_latitude_rolloff"; fallback: 2; from: 1; to: 4; step: 0.05; available: preview.adjustments.scene_latitude_active === true }
+                                Adjustment { label: "最大提亮"; setting: "scene_latitude_max_lift"; fallback: 4; from: 0.25; to: 12; step: 0.05; suffix: " EV"; available: preview.adjustments.scene_latitude_active === true }
+                                Toggle { label: "虚拟对比度蒙版"; setting: "contrast_mask_active" }
+                                Adjustment { label: "提亮高光"; setting: "contrast_mask_highlights"; from: 0; to: 3; step: 0.01; suffix: " EV"; available: preview.adjustments.contrast_mask_active === true }
+                                Adjustment { label: "压低阴影"; setting: "contrast_mask_shadows"; from: 0; to: 3; step: 0.01; suffix: " EV"; available: preview.adjustments.contrast_mask_active === true }
+                                Adjustment { label: "保留核心"; setting: "contrast_mask_core"; fallback: 1; from: 0; to: 3; step: 0.01; suffix: " EV"; available: preview.adjustments.contrast_mask_active === true }
+                                Adjustment { label: "蒙版半径"; setting: "contrast_mask_scale"; fallback: 0.03; from: 0.002; to: 0.12; step: 0.001; decimals: 3; available: preview.adjustments.contrast_mask_active === true }
+                                Adjustment { label: "相纸预闪"; setting: "preflash_exposure"; from: 0; to: 0.2; step: 0.002; decimals: 3; available: !preview.filmIsPositive }
+                                Choice {
+                                    label: "放大机光源"; setting: "enlarger_illuminant"
+                                    labels: ["TH-KG3"]; values: ["TH-KG3"]
+                                }
+                                Adjustment { label: "黄中性值"; setting: "y_filter_neutral"; fallback: 55; from: 0; to: 200; step: 0.1; decimals: 1 }
+                                Adjustment { label: "洋红中性值"; setting: "m_filter_neutral"; fallback: 65; from: 0; to: 200; step: 0.1; decimals: 1 }
+                                Adjustment { label: "青中性值"; setting: "c_filter_neutral"; from: 0; to: 200; step: 0.1; decimals: 1 }
+                                Toggle { label: "扫描白场校正"; setting: "scanner_white_correction" }
+                                Toggle { label: "扫描黑场校正"; setting: "scanner_black_correction" }
+                                Adjustment { label: "扫描镜头模糊"; setting: "scanner_lens_blur"; from: 0; to: 20; step: 0.1; decimals: 1 }
+                                Toggle { label: "反转片 HDR 扫描"; setting: "scan_hdr_stretch" }
+                                Adjustment { label: "扫描余量"; setting: "scan_hdr_headroom"; from: 0; to: 16; step: 0.1; decimals: 1; suffix: "×"; available: preview.filmIsPositive && preview.adjustments.scan_hdr_stretch === true }
+                                Adjustment { label: "扫描输出缩放"; setting: "scan_hdr_output_scale"; fallback: 1; from: 0.0625; to: 1; step: 0.0005; decimals: 3; available: preview.filmIsPositive && preview.adjustments.scan_hdr_stretch === true }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 6
+                                visible: window.advancedPage === "lens"
+                                Adjustment { label: "镜头模糊"; setting: "lens_blur_um"; from: 0; to: 200; step: 0.1; decimals: 1; suffix: " µm" }
+                                Toggle { label: "柔光滤镜"; setting: "diffusion_filter_active" }
+                                Choice {
+                                    label: "滤镜类型"; setting: "diffusion_filter_family"
+                                    labels: ["Black Pro-Mist", "Pro-Mist", "Glimmerglass", "CineBloom"]
+                                    values: ["black_pro_mist", "pro_mist", "glimmerglass", "cinebloom"]
+                                }
+                                Adjustment { label: "滤镜强度"; setting: "diffusion_filter_strength"; fallback: 0.5; from: 0; to: 2; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "扩散范围"; setting: "diffusion_filter_spatial_scale"; fallback: 1; from: 0.25; to: 4; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "光晕暖度"; setting: "diffusion_filter_halo_warmth"; from: -1.5; to: 1.5; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "核心强度"; setting: "diffusion_filter_core_intensity"; fallback: 1; from: 0; to: 4; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "核心尺寸"; setting: "diffusion_filter_core_size"; fallback: 1; from: 0.25; to: 4; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "光晕强度"; setting: "diffusion_filter_halo_intensity"; fallback: 1; from: 0; to: 4; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "光晕尺寸"; setting: "diffusion_filter_halo_size"; fallback: 1; from: 0.25; to: 4; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "Bloom 强度"; setting: "diffusion_filter_bloom_intensity"; fallback: 1; from: 0; to: 4; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Adjustment { label: "Bloom 尺寸"; setting: "diffusion_filter_bloom_size"; fallback: 1; from: 0.25; to: 4; step: 0.01; available: preview.adjustments.diffusion_filter_active === true }
+                                Toggle { label: "镜头像差"; setting: "lens_aberrations_active" }
+                                Adjustment { label: "场曲"; setting: "lens_field_curvature_um"; from: 0; to: 120; step: 0.1; decimals: 1; suffix: " µm"; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "像散"; setting: "lens_astigmatism_um"; from: -120; to: 120; step: 0.1; decimals: 1; suffix: " µm"; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "场衰减指数"; setting: "lens_field_exponent"; fallback: 2; from: 1; to: 4; step: 0.05; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "中心清晰半径"; setting: "lens_sharp_radius"; from: 0; to: 0.8; step: 0.01; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "彗差"; setting: "lens_coma_um"; from: -150; to: 150; step: 0.1; decimals: 1; suffix: " µm"; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "球差占比"; setting: "lens_spherical_amount"; from: 0; to: 0.6; step: 0.01; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "球差半径"; setting: "lens_spherical_um"; fallback: 60; from: 10; to: 400; step: 0.1; decimals: 1; suffix: " µm"; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "横向色差 R"; setting: "lens_lateral_ca_r"; from: -3; to: 3; step: 0.01; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "横向色差 B"; setting: "lens_lateral_ca_b"; from: -3; to: 3; step: 0.01; available: preview.adjustments.lens_aberrations_active === true }
+                                Adjustment { label: "纵向色差"; setting: "lens_loca_um"; from: 0; to: 30; step: 0.01; suffix: " µm"; available: preview.adjustments.lens_aberrations_active === true }
+                                Choice {
+                                    label: "纵向色差颜色"; setting: "lens_loca_sign"
+                                    labels: ["紫边", "绿边"]; values: ["purple", "green"]
+                                }
+                                Adjustment { label: "高光门限"; setting: "lens_loca_highlight_gate"; fallback: 1; from: 0; to: 1; step: 0.01; available: preview.adjustments.lens_aberrations_active === true }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 6
+                                visible: window.advancedPage === "edges"
+                                Toggle { label: "显示片边"; setting: "overscan_active" }
+                                Choice {
+                                    label: "片幅"; setting: "overscan_format"
+                                    labels: ["135", "135 半格", "645", "6×6", "6×7", "6×8", "6×9"]
+                                    values: ["135", "135_half", "120_645", "120_6x6", "120_6x7", "120_6x8", "120_6x9"]
+                                }
+                                Choice {
+                                    label: "扫描范围"; setting: "overscan_mode"
+                                    labels: ["整条片边", "窄片边"]; values: ["strip", "filed"]
+                                }
+                                Adjustment { label: "相机种子"; setting: "overscan_camera_seed"; fallback: 1; from: 1; to: 100000; step: 1; decimals: 0; available: preview.adjustments.overscan_active === true }
+                                Adjustment { label: "画格种子"; setting: "overscan_frame_seed"; fallback: 1; from: 1; to: 100000; step: 1; decimals: 0; available: preview.adjustments.overscan_active === true }
+                                Adjustment { label: "片边雾化"; setting: "overscan_fog"; fallback: 1; from: 0; to: 4; step: 0.01; available: preview.adjustments.overscan_active === true }
+                                Adjustment { label: "片边漏光"; setting: "overscan_leaks"; from: 0; to: 4; step: 0.01; available: preview.adjustments.overscan_active === true }
+                                SettingText { label: "片边文字"; setting: "overscan_edge_text"; placeholder: "KODAK PORTRA 400" }
+                                Adjustment { label: "拍摄光圈"; setting: "overscan_f_number"; from: 0; to: 64; step: 0.1; decimals: 1; available: preview.adjustments.overscan_active === true }
+                                Choice {
+                                    label: "片门形状"; setting: "overscan_gate"
+                                    labels: ["自动", "方角", "圆角", "Erneman", "Shouldered", "Kicked"]
+                                    values: ["auto", "square", "rounded", "eared", "shouldered", "kicked"]
+                                }
+                                Choice {
+                                    label: "片孔外"; setting: "overscan_holes"
+                                    labels: ["白场", "黑场"]; values: ["white", "black"]
+                                }
+                                Adjustment { label: "画格号码"; setting: "overscan_frame_number"; from: 0; to: 99; step: 1; decimals: 0; available: preview.adjustments.overscan_active === true }
+                                Choice {
+                                    label: "片夹"; setting: "overscan_carrier"
+                                    labels: ["无", "黑色", "敞开"]; values: ["none", "black", "open"]
+                                }
+                                Toggle { label: "半格双联"; setting: "overscan_pair" }
+                                Choice {
+                                    label: "120 片孔"; setting: "overscan_perforation"
+                                    labels: ["无", "KS65"]; values: ["none", "ks65"]
+                                }
+                                Adjustment { label: "镜头暗角"; setting: "overscan_falloff"; from: 0; to: 1.5; step: 0.01; available: preview.adjustments.overscan_active === true }
+                                Toggle { label: "日期后背"; setting: "date_imprint_active" }
+                                SettingText { label: "日期文字"; setting: "date_imprint_text"; placeholder: "'26 11 15" }
+                                SettingText { label: "第二格日期"; setting: "date_imprint_text_b"; placeholder: "半格双联时使用" }
+                                SettingText { label: "拍摄数据"; setting: "date_imprint_data_text"; placeholder: "1/125  F5.6" }
+                                Choice {
+                                    label: "印制位置"; setting: "date_imprint_placement"
+                                    labels: ["画面内", "片边"]; values: ["frame", "rebate"]
+                                }
+                                Choice {
+                                    label: "日期字体"; setting: "date_imprint_style"
+                                    labels: ["LCD", "点阵", "数据字"]; values: ["lcd", "dots", "data"]
+                                }
+                                Adjustment { label: "日期曝光"; setting: "date_imprint_ev"; fallback: 5.5; from: -2; to: 8; step: 0.1; decimals: 1; suffix: " EV"; available: preview.adjustments.date_imprint_active === true }
+                                Adjustment { label: "日期大小"; setting: "date_imprint_size"; fallback: 1; from: 0.4; to: 3; step: 0.01; available: preview.adjustments.date_imprint_active === true }
+                                Choice {
+                                    label: "画面角落"; setting: "date_imprint_corner"
+                                    labels: ["右下", "左下", "右上", "左上"]; values: ["br", "bl", "tr", "tl"]
+                                }
+                                Adjustment { label: "水平内缩"; setting: "date_imprint_inset_x"; fallback: 3; from: 0; to: 30; step: 0.1; decimals: 1; suffix: " mm"; available: preview.adjustments.date_imprint_active === true }
+                                Adjustment { label: "垂直内缩"; setting: "date_imprint_inset_y"; fallback: 2.4; from: 0; to: 30; step: 0.1; decimals: 1; suffix: " mm"; available: preview.adjustments.date_imprint_active === true }
+                                Choice {
+                                    label: "数据位置"; setting: "date_imprint_data_placement"
+                                    labels: ["画格间", "片孔间"]; values: ["gap", "perfs"]
+                                }
+                                SettingText { label: "片头数据"; setting: "date_imprint_data_leader"; placeholder: "MZ-S · 画格 1 使用" }
+                                Choice {
+                                    label: "漏光类型"; setting: "leak_kind"
+                                    labels: ["关闭", "自动", "条带", "冲洗", "局部"]
+                                    values: ["off", "auto", "band", "wash", "spot"]
+                                }
+                                Adjustment { label: "漏光量"; setting: "leak_amount"; fallback: 1; from: 0; to: 4; step: 0.01; available: preview.adjustments.leak_kind !== "off" }
+                                Adjustment { label: "出现概率"; setting: "leak_rate"; fallback: 1; from: 0; to: 1; step: 0.01; available: preview.adjustments.leak_kind !== "off" }
+                                Adjustment { label: "前光比例"; setting: "leak_front"; fallback: -1; from: -1; to: 1; step: 0.01; available: preview.adjustments.leak_kind !== "off" }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 6
+                                visible: window.advancedPage === "sceneLayer"
+                                Toggle { label: "启用局部场景蒙版"; setting: "scene_layer_active" }
+                                Choice {
+                                    label: "蒙版形状"; setting: "scene_layer_shape"
+                                    labels: ["椭圆", "矩形"]; values: ["ellipse", "rectangle"]
+                                }
+                                Adjustment { label: "中心 X"; setting: "scene_layer_x"; fallback: 0.5; from: 0; to: 1; step: 0.005; decimals: 3; available: preview.adjustments.scene_layer_active === true }
+                                Adjustment { label: "中心 Y"; setting: "scene_layer_y"; fallback: 0.5; from: 0; to: 1; step: 0.005; decimals: 3; available: preview.adjustments.scene_layer_active === true }
+                                Adjustment { label: "半径 X"; setting: "scene_layer_radius_x"; fallback: 0.25; from: 0.01; to: 0.5; step: 0.005; decimals: 3; available: preview.adjustments.scene_layer_active === true }
+                                Adjustment { label: "半径 Y"; setting: "scene_layer_radius_y"; fallback: 0.25; from: 0.01; to: 0.5; step: 0.005; decimals: 3; available: preview.adjustments.scene_layer_active === true }
+                                Adjustment { label: "边缘羽化"; setting: "scene_layer_feather"; fallback: 0.3; from: 0; to: 0.95; step: 0.01; available: preview.adjustments.scene_layer_active === true }
+                                Adjustment { label: "局部曝光"; setting: "scene_layer_exposure_ev"; fallback: 1; from: -4; to: 4; step: 0.1; decimals: 1; suffix: " EV"; available: preview.adjustments.scene_layer_active === true }
+                                Adjustment { label: "覆盖强度"; setting: "scene_layer_coverage"; fallback: 1; from: 0; to: 1; step: 0.01; available: preview.adjustments.scene_layer_active === true }
+                                Toggle { label: "反转蒙版"; setting: "scene_layer_invert" }
+                                Note { text: "蒙版在胶片曝光阶段改变局部场景光量；坐标与尺寸按整幅画面归一化。" }
+                            }
+                            Note { text: "所有参数随照片自动保存。片边文字、日期和第二格设置需先在预览中得到有效渲染，才会写入编辑记录。" }
+                        }
+                        Section {
                             title: "RAW 解码"
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text { text: "曲线通道"; color: Theme.muted; font.pixelSize: 11; Layout.fillWidth: true }
+                                Repeater {
+                                    model: ["RGB", "亮度", "R", "G", "B"]
+                                    delegate: Button {
+                                        required property int index
+                                        required property string modelData
+                                        text: modelData
+                                        flat: true
+                                        padding: 5
+                                        font.pixelSize: 10
+                                        checkable: true
+                                        checked: curveEditor.channelIndex === index
+                                        onClicked: curveEditor.channelIndex = index
+                                        background: Rectangle {
+                                            radius: 3
+                                            color: parent.checked ? Theme.selection : (parent.hovered ? Theme.well : "transparent")
+                                            border.color: Theme.line
+                                            border.width: parent.checked ? 0 : 1
+                                        }
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: parent.checked ? Theme.selectionText : Theme.text
+                                            font: parent.font
+                                            horizontalAlignment: Text.AlignHCenter
+                                        }
+                                    }
+                                }
+                            }
+                            SceneCurveEditor {
+                                id: curveEditor
+                                objectName: "sceneCurveEditor"
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 230
+                                enabled: preview.settingsEditable
+                                curveText: preview.adjustments.scene_curve === undefined ? "" : preview.adjustments.scene_curve
+                                onEditStarted: preview.beginEditGesture("scene_curve")
+                                onCurveEdited: function(value) {
+                                    preview.setAdjustment("scene_curve", value)
+                                    preview.endEditGesture()
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text { text: "单击添加点，拖动调整；右键删除。"; color: Theme.muted; font.pixelSize: 10; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                                ActionButton {
+                                    text: "重置曲线"
+                                    enabled: preview.settingsEditable
+                                    onClicked: preview.setAdjustment("scene_curve", "")
+                                }
+                            }
                             ComboBox { id: decode; Layout.fillWidth: true; model: ["兼容模式（默认）", "高光扩展（实验）"]; currentIndex: preview.decodeMode; enabled: preview.settingsEditable; onActivated: preview.decodeMode = currentIndex }
                             Note { text: preview.decodeMode ? "保留去马赛克后的部分高光及负值；仍使用整数去马赛克。" : "与已验证的原生 RAW 流程保持一致。" }
                         }
@@ -511,10 +900,75 @@ ApplicationWindow {
         }
     }
     Popup {
+        id: collectionDialog
+        objectName: "collectionDialog"
+        anchors.centerIn: parent
+        width: 360; padding: 20
+        modal: true; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onVisibleChanged: window.updateDialogState()
+        background: Rectangle { color: Theme.card; border.color: Theme.line; radius: 7 }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { text: "新建收藏"; color: Theme.text; font.pixelSize: 18; font.bold: true }
+            Note { text: "收藏会包含当前选中的照片；没有选中时使用当前照片。" }
+            TextField {
+                id: collectionName
+                Layout.fillWidth: true
+                placeholderText: "收藏名称"
+                selectByMouse: true
+                onAccepted: createButton.clicked()
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                ActionButton { text: "取消"; onClicked: collectionDialog.close() }
+                ActionButton {
+                    id: createButton
+                    text: "创建"; accented: true
+                    enabled: collectionName.text.trim().length > 0
+                    onClicked: {
+                        preview.createCollection(collectionName.text)
+                        collectionName.clear()
+                        collectionDialog.close()
+                    }
+                }
+            }
+        }
+    }
+    Popup {
+        id: deleteVariantDialog
+        objectName: "deleteVariantDialog"
+        anchors.centerIn: parent
+        width: 400; padding: 20
+        modal: true; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onVisibleChanged: window.updateDialogState()
+        background: Rectangle { color: Theme.card; border.color: Theme.line; radius: 7 }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { text: "删除变体"; color: Theme.text; font.pixelSize: 18; font.bold: true }
+            Note { text: "只删除当前变体的编辑记录。原始照片和其他变体都会保留。" }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                ActionButton { text: "取消"; onClicked: deleteVariantDialog.close() }
+                ActionButton {
+                    objectName: "confirmDeleteVariantButton"
+                    text: "删除变体"; accented: true
+                    onClicked: {
+                        preview.deleteVariant(preview.activeIndex)
+                        deleteVariantDialog.close()
+                    }
+                }
+            }
+        }
+    }
+    Popup {
         id: exportPopup
         objectName: "exportPopup"
         anchors.centerIn: parent
-        width: 470; padding: 22
+        width: 520; padding: 22
         modal: true; focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onVisibleChanged: window.updateDialogState()
@@ -522,14 +976,39 @@ ApplicationWindow {
         contentItem: ColumnLayout {
             spacing: 14
             Text { text: "导出照片"; color: Theme.text; font.pixelSize: 20; font.bold: true }
-            Note { text: "当前画面或所选照片 · sRGB\n裁切与效果一起写入文件。" }
+            Note { text: "保存裁切、效果与所选 RGB 色彩空间；配方可重复使用。" }
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line; opacity: 0.5 }
             RowLayout {
-                Text { text: "格式"; color: Theme.text; Layout.preferredWidth: 76 }
-                ComboBox { Layout.fillWidth: true; model: ["TIFF · 16 位", "PNG · 8 位", "PNG · 16 位", "JPEG · 8 位"]; currentIndex: window.exportFormat; onActivated: window.exportFormat = currentIndex }
+                Text { text: "导出配方"; color: Theme.text; Layout.preferredWidth: 76 }
+                ComboBox {
+                    id: recipeBox; objectName: "exportRecipeSelector"
+                    Layout.fillWidth: true
+                    model: [{ "name": "自定义" }].concat(preview.exportRecipes)
+                    textRole: "name"
+                    onActivated: {
+                        if (index === 0) return
+                        var recipe = preview.exportRecipe(index - 1)
+                        window.exportFormat = recipe.format
+                        window.exportQuality = recipe.quality
+                        window.exportLongEdge = recipe.maxLongEdge
+                        window.exportOutputSpace = recipe.outputSpace
+                        window.exportCopyMetadata = recipe.copyMetadata
+                        recipeName.text = recipe.name
+                    }
+                }
+                ActionButton { text: "删除"; enabled: recipeBox.currentIndex > 0; onClicked: { preview.deleteExportRecipe(recipeBox.currentIndex - 1); recipeBox.currentIndex = 0; recipeName.clear() } }
             }
             RowLayout {
-                visible: window.exportFormat === 3
+                Text { text: "配方名称"; color: Theme.text; Layout.preferredWidth: 76 }
+                TextField { id: recipeName; objectName: "exportRecipeName"; Layout.fillWidth: true; placeholderText: "例如：网页 JPEG" }
+                ActionButton { objectName: "saveExportRecipeButton"; text: "保存"; enabled: recipeName.text.trim().length > 0; onClicked: { if (preview.saveExportRecipe(recipeName.text, window.exportFormat, window.exportQuality, window.exportLongEdge, window.exportOutputSpace, window.exportCopyMetadata)) recipeBox.currentIndex = 0 } }
+            }
+            RowLayout {
+                Text { text: "格式"; color: Theme.text; Layout.preferredWidth: 76 }
+                ComboBox { objectName: "exportFormatSelector"; Layout.fillWidth: true; model: ["TIFF · 16 位", "PNG · 8 位", "PNG · 16 位", "JPEG · 8 位", "HEIF · 8 位"]; currentIndex: window.exportFormat; onActivated: { window.exportFormat = currentIndex; if (currentIndex === 4) window.exportOutputSpace = 0 } }
+            }
+            RowLayout {
+                visible: window.exportFormat === 3 || window.exportFormat === 4
                 Text { text: "JPEG 质量"; color: Theme.text; Layout.preferredWidth: 76 }
                 Slider { Layout.fillWidth: true; from: 1; to: 100; stepSize: 1; value: window.exportQuality; onMoved: window.exportQuality = value }
                 Text { text: window.exportQuality; color: Theme.muted; Layout.preferredWidth: 28 }
@@ -543,7 +1022,12 @@ ApplicationWindow {
                     onActivated: window.exportLongEdge = sizes[currentIndex]
                 }
             }
-            Note { text: "保持长宽比例，不放大图像。PNG 无损保存，JPEG 为有损压缩。" }
+            RowLayout {
+                Text { text: "色彩空间"; color: Theme.text; Layout.preferredWidth: 76 }
+                ComboBox { objectName: "exportOutputSpace"; Layout.fillWidth: true; enabled: window.exportFormat !== 4; model: ["sRGB", "Display P3", "Adobe RGB (1998)", "ProPhoto RGB"]; currentIndex: window.exportOutputSpace; onActivated: window.exportOutputSpace = currentIndex }
+            }
+            CheckBox { objectName: "exportCopyMetadata"; text: "复制相机与型号描述"; checked: window.exportCopyMetadata; onToggled: window.exportCopyMetadata = checked }
+            Note { text: "保持长宽比例，不放大图像。PNG 无损保存，JPEG / HEIF 为有损压缩；Windows HEIF 需要系统图像扩展，固定为 sRGB。" }
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.line; opacity: 0.5 }
             ActionButton { Layout.fillWidth: true; accented: true; text: "导出当前已显示画面…"; enabled: preview.hasFrame && !preview.busy; onClicked: { saveDialog.open(); exportPopup.close() } }
             ActionButton { Layout.fillWidth: true; text: "导出所选 " + preview.selectedCount + " 张到文件夹…"; enabled: preview.selectedCount > 0 && !preview.busy; onClicked: { batchDialog.open(); exportPopup.close() } }

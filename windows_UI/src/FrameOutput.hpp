@@ -9,11 +9,15 @@
 // pixel edges; cropping never changes the emulsion or re-renders its grain.
 namespace spk::desktop::output {
 
-enum class Format { TIFF16, PNG8, PNG16, JPEG8 };
+enum class Format { TIFF16, PNG8, PNG16, JPEG8, HEIF8 };
+enum class OutputSpace { SRGB, DisplayP3, AdobeRGB, ProPhoto };
 struct ExportOptions {
     Format format = Format::TIFF16;
     int jpegQuality = 95;
     int maxLongEdge = 0; // zero preserves the cropped size; never upscale
+    OutputSpace outputSpace = OutputSpace::SRGB;
+    bool copyMetadata = false;
+    QString metadata; // descriptive source metadata; empty disables copying
 };
 
 struct Geometry {
@@ -34,6 +38,9 @@ QRect cropPixels(QSize fullSize, QRectF normalizedCrop);
 void validateGeometry(QSize fullSize, const Geometry& geometry);
 QImage displayImage(const QImage& full8, QRectF normalizedCrop);
 QImage displayImage(const QImage& full8, const Geometry& geometry);
+// A DI frame is Cineon-log ProPhoto; convert it through the product's
+// bundled DI view before normal sRGB display or export.
+QImage workingFrame(const FramePtr& frame);
 // Use this for transformed rendered previews: geometry is applied to the
 // original RGBA16 before quantization, as it is for an 8-bit exported file.
 QImage displayFrame(const FramePtr& frame, const Geometry& geometry);
@@ -49,7 +56,8 @@ QImage exportImage(const QImage& fullRgba64, const Geometry& geometry,
                    const ExportOptions& options);
 bool formatAvailable(Format format);
 
-// Uses the explicitly bundled resources/io/sRGB.icc. Writes a complete file
+// Uses the explicitly bundled resources/io/sRGB.icc for sRGB output and the
+// profile carried by QColorSpace for the other RGB spaces. Writes a complete file
 // in a private temporary directory beside the destination, then publishes it
 // atomically with no replacement, including if another writer wins a race.
 // The caller's frame/image and any existing destination stay untouched.

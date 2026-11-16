@@ -4,6 +4,7 @@
 #include "EditStore.hpp"
 #include "FrameOutput.hpp"
 #include <QDir>
+#include <QColorSpace>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
@@ -117,6 +118,27 @@ int main(int argc,char** argv) {
             PreviewController c(resources,nullptr,{},editDirectory);ready(c);
             c.openFiles({firstUrl,secondUrl});idle(c,"Initial multiple RAW import");checkPhoto(c,0,first);
             check(!c.canUndo()&&!c.canRedo(),"Imported photographs begin with empty history");
+            c.setRating(1,4);c.setColorLabel(1,7);c.selectAllPhotos(false);c.setItemSelected(1,true);
+            c.createCollection("Two RAWs");
+            check(c.libraryItems().size()==1&&
+                  c.libraryItems()[0].toMap()["rating"].toInt()==4&&
+                  c.libraryItems()[0].toMap()["colorLabel"].toInt()==7,
+                  "Persistent catalog stores rating and color label");
+            check(c.collections().size()==1&&c.collections()[0].toMap()["count"].toInt()==1,
+                  "Collection is created from the selected photograph");
+            c.setCollectionFilter("");check(c.libraryItems().size()==2,"Clearing collection filter restores all catalog entries");
+            c.selectAllPhotos(false);c.setItemSelected(0,true);c.setItemSelected(1,true);
+            c.createPairFromSelection();idle(c,"Compose two real RAWs into a half-frame pair");
+            check(c.activeIndex()==2&&c.frame()&&c.frame()->pair_sources.size()==2,
+                  "Half-frame pair opens as its own library item with both sources");
+            check(std::abs(double(c.frame()->width())/c.frame()->height()-37.0/24.0)<0.005,
+                  "Half-frame pair follows the 37:24 gate geometry");
+            check(c.libraryItems()[2].toMap()["isPair"].toBool(),"Filmstrip marks the persistent pair item");
+            check(c.saveExportRecipe("Web JPEG",3,88,1920,1,true)&&
+                  c.exportRecipes().size()==1&&c.exportRecipe(0)["outputSpace"].toInt()==1,
+                  "Named export recipe validates and stores format, size, colour and metadata");
+            c.selectImage(0);idle(c,"Return to first source after half-frame pair");
+            c.selectAllPhotos(true);
 
             c.beginEditGesture("exposureEv");c.setExposureEv(.2);c.setExposureEv(.4);c.setExposureEv(.6);c.endEditGesture();
             check(c.canUndo()&&near(c.exposureEv(),.6),"Grouped slider retains final value");
@@ -163,6 +185,19 @@ int main(int argc,char** argv) {
                 const QString png=destination+"/transformed.png";
                 c.exportImage(QUrl::fromLocalFile(png),1,95,0);idle(c,"Export transformed PNG8");
                 check(samePixels(readImage(png),shown),"Actual PNG8 export matches transformed preview pixel for pixel");
+                const QString adobePng=destination+"/transformed-adobe.png";
+                c.exportImageWithRecipe(QUrl::fromLocalFile(adobePng),2,95,0,2,true);
+                idle(c,"Export transformed Adobe RGB PNG16");
+                const auto adobeImage=readImage(adobePng);
+                check(adobeImage.colorSpace()==QColorSpace(QColorSpace::AdobeRgb)&&
+                      !adobeImage.text("Description").isEmpty(),
+                      "Actual RAW export embeds Adobe RGB and selected source metadata");
+#ifdef _WIN32
+                const QString heif=destination+"/transformed.heic";
+                c.exportImageWithRecipe(QUrl::fromLocalFile(heif),4,90,0,0,true);
+                idle(c,"Export transformed sRGB HEIF");
+                check(QFileInfo(heif).size()>16,"Actual RAW HEIF export is missing or empty");
+#endif
                 check(c.frame()==retained,"Geometry export retains the editor frame");
 
                 // A parameter's pending debounce must not begin a render and
@@ -208,23 +243,153 @@ int main(int argc,char** argv) {
             check(c.dirty()&&!c.busy(),"Persistence checkpoint contains pending unrendered edits");
             check(c.persistenceWarning().isEmpty(),"No persistence warnings before destruction");
         }
+        {
+            PreviewController c(resources,nullptr,{},editDirectory);ready(c);
+            check(c.libraryItems().size()==3&&c.collections().size()==1&&
+                  c.libraryItems()[1].toMap()["rating"].toInt()==4&&
+                  c.libraryItems()[1].toMap()["colorLabel"].toInt()==7&&
+                  c.libraryItems()[2].toMap()["isPair"].toBool()&&
+                  c.exportRecipes().size()==1,
+                  "Catalog, collection, metadata, pair and export recipe survive restart");
+            c.openRaw(firstUrl);idle(c,"Open RAW for Digital Intermediate preview and export");
+            c.setAdjustment("digital_intermediate",true);idle(c,"Render Cineon Digital Intermediate");
+            const auto frame=c.frame();
+            check(frame&&frame->digital_intermediate&&QFileInfo(QString::fromStdWString(frame->di_view_table.wstring())).isFile(),
+                  "DI frame names its bundled Cineon viewing table");
+            const auto displayed=output::workingFrame(frame).convertToFormat(QImage::Format_ARGB32);
+            check(!displayed.isNull()&&displayed.size()==QSize(int(frame->width()),int(frame->height())),
+                  "DI frame is converted to displayable ProPhoto sRGB output");
+            int changed=0;
+            for(int y=0;y<displayed.height();y+=97)for(int x=0;x<displayed.width();x+=97) {
+                const auto* row=frame->bgra8.data()+std::size_t(y)*frame->width()*4;
+                const auto legacy=qRgb(row[std::size_t(x)*4+2],row[std::size_t(x)*4+1],row[std::size_t(x)*4]);
+                if(legacy!=displayed.pixel(x,y))++changed;
+            }
+            check(changed>0,"DI viewing actually changes the SDR pixel path");
+            output::ExportOptions options;options.format=output::Format::PNG8;
+            const QString diExport=destination+"/dia-frame.png";
+            output::exportFrame(frame,nativePath(diExport),QRectF(0,0,1,1),options,resources);
+            check(readImage(diExport).size()==displayed.size(),"DI exports a complete PNG");
+            c.setAdjustment("digital_intermediate",false);idle(c,"Return from Digital Intermediate");
+            check(c.frame()&&!c.frame()->digital_intermediate,"DI can be disabled without reopening the RAW");
+            const auto layerBaseline=output::workingFrame(c.frame()).convertToFormat(QImage::Format_ARGB32);
+            c.setAdjustment("scene_layer_active",true);c.setAdjustment("scene_layer_exposure_ev",1.5);
+            c.setAdjustment("scene_layer_radius_x",0.3);c.setAdjustment("scene_layer_radius_y",0.2);
+            idle(c,"Render local scene exposure layer");
+            const auto layerFrame=c.frame();
+            check(bool(layerFrame),"Local scene mask produces a complete frame");
+            const auto layered=output::workingFrame(layerFrame).convertToFormat(QImage::Format_ARGB32);
+            int layerChanged=0;
+            for(int y=0;y<layered.height();y+=97)for(int x=0;x<layered.width();x+=97)
+                if(layered.pixel(x,y)!=layerBaseline.pixel(x,y))++layerChanged;
+            check(layerChanged>0,"Local scene mask changes the rendered exposure");
+            const QString layerExport=destination+"/scene-layer.png";
+            output::exportFrame(layerFrame,nativePath(layerExport),QRectF(0,0,1,1),options,resources);
+            check(readImage(layerExport).size()==layered.size(),"Local scene mask exports a complete PNG");
+            c.setAdjustment("scene_layer_active",false);idle(c,"Disable local scene mask");
+            check(c.frame()&&!c.adjustments()["scene_layer_active"].toBool(),"Local scene mask disables without reopening");
+            savedFirst=desired(c);
+        }
         editing::Store store(editDirectory);
         check(QFileInfo::exists(store.filePath(firstUrl))&&QFileInfo::exists(store.filePath(secondUrl)),"Destruction saved both photographs in private store");
         check(QDir(destination+"/fixtures").entryList(QDir::Files|QDir::NoDotAndDotDot).size()==3,"No edit sidecars were written beside RAW fixtures");
         {
+            const QString variantStore=destination+"/variant-store";
+            PreviewController c(resources,nullptr,{},variantStore);ready(c);
+            c.openRaw(firstUrl);idle(c,"Open RAW before creating variants");
+            c.setExposureEv(.45);idle(c,"Render source variant before cloning");
+            c.createVariant(0,true);idle(c,"Clone variant with an independent edit record");
+            const auto items=c.libraryItems();
+            check(items.size()==2&&c.activeIndex()==1&&
+                  items[0].toMap()["variantNumber"].toInt()==1&&
+                  items[1].toMap()["variantNumber"].toInt()==2&&
+                  items[1].toMap()["variantCount"].toInt()==2,
+                  "Clone variant appears beside its source with 1 / 2 and 2 / 2 labels");
+            check(near(c.exposureEv(),.45),"Clone starts with the complete current edit");
+            c.setExposureEv(-.6);idle(c,"Render independent clone edit");
+            c.createVariant(0,false);idle(c,"Create a fresh default variant");
+            check(c.libraryItems().size()==3&&c.activeIndex()==1&&near(c.exposureEv(),0),
+                  "New variant starts with default settings beside the source");
+            c.setExposureEv(.8);c.deleteVariant(1);idle(c,"Delete only the active variant");
+            check(c.libraryItems().size()==2&&
+                  QFileInfo::exists(QUrl(firstUrl).toLocalFile()),
+                  "Deleting a variant preserves the source file and sibling variants");
+        }
+        {
+            PreviewController c(resources,nullptr,{},destination+"/variant-store");ready(c);
+            check(c.libraryItems().size()==2&&
+                  c.libraryItems()[0].toMap()["variantCount"].toInt()==2&&
+                  c.libraryItems()[1].toMap()["variantCount"].toInt()==2,
+                  "Variant membership and counters survive controller restart");
+            c.selectImage(0);idle(c,"Open persisted source variant");
+            check(near(c.exposureEv(),.45),"Source variant retained its copied edit");
+            c.selectImage(1);idle(c,"Open persisted cloned variant");
+            check(near(c.exposureEv(),-.6),"Clone variant retained its independent edit");
+        }
+        {
+            PreviewController c(resources,nullptr,{},destination+"/filter-store");ready(c);
+            c.openFiles({firstUrl,secondUrl});idle(c,"Load two photos for filtering");
+            c.setLibrarySearch("beta");idle(c,"Filter catalog by name");
+            check(c.libraryItems().size()==1&&c.libraryItems()[0].toMap()["name"].toString()=="beta."+original.suffix(),
+                  "Library search filters by filename");
+            c.setLibrarySearch(QString());c.setLibrarySort(1);idle(c,"Sort catalog by descending name");
+            check(c.libraryItems().size()==2&&c.libraryItems()[0].toMap()["name"].toString()=="beta."+original.suffix(),
+                  "Library sort preserves the requested order");
+            c.moveToTrash(0);idle(c,"Move a catalog entry to trash");
+            check(c.libraryItems().size()==1&&c.trashCount()==1&&QFileInfo(QUrl(firstUrl).toLocalFile()).isFile(),
+                  "Trash hides only the catalog entry and preserves the source file");
+            c.setCollectionFilter(QStringLiteral("__trash__"));idle(c,"Open catalog trash");
+            check(c.libraryItems().size()==1&&c.libraryItems()[0].toMap()["trashed"].toBool(),
+                  "Trash view reveals the removed catalog entry");
+        }
+        {
+            PreviewController c(resources,nullptr,{},destination+"/filter-store");ready(c);
+            check(c.trashCount()==1,"Trash membership survives controller restart");
+            c.setCollectionFilter(QStringLiteral("__trash__"));idle(c,"Open persisted trash");
+            c.selectImage(c.libraryItems()[0].toMap()["catalogIndex"].toInt());
+            idle(c,"Select trashed photo");
+            c.restoreFromTrash(c.activeIndex());idle(c,"Restore photo from trash");
+            check(c.trashCount()==0,"Restored photo leaves the trash");
+            c.setCollectionFilter(QString());idle(c,"Return to all photos");
+            check(c.libraryItems().size()==2,"Restored photo returns to the catalog");
+        }
+        {
+            const QString linkedRoot=destination+"/linked-source";
+            check(QDir().mkpath(linkedRoot)&&
+                  QFile::copy(QUrl(firstUrl).toLocalFile(),linkedRoot+"/linked-alpha.dng"),
+                  "Create linked-folder fixture");
+            PreviewController c(resources,nullptr,{},destination+"/linked-store");ready(c);
+            check(c.addLinkedFolder(QUrl::fromLocalFile(linkedRoot)),
+                  "Register a linked RAW folder");
+            idle(c,"Inspect linked RAW folder");
+            const auto sources=c.librarySources();
+            check(c.libraryItems().size()==1&&sources.back().toMap()["kind"].toString()=="linked"&&
+                  QFileInfo(sources.back().toMap()["root"].toString()).canonicalFilePath()==QFileInfo(linkedRoot).canonicalFilePath(),
+                  "Linked source records its external folder");
+            check(QFileInfo(linkedRoot+"/linked-alpha.dng").isFile(),
+                  "Linked source leaves the original file in place");
+        }
+        {
+            PreviewController c(resources,nullptr,{},destination+"/linked-store");ready(c);
+            check(c.librarySources().back().toMap()["kind"].toString()=="linked"&&
+                  c.libraryItems().size()==1&&c.libraryItems()[0].toMap()["name"].toString()=="linked-alpha.dng",
+                  "Linked folder source and its external photo survive restart");
+        }
+        {
             PreviewController c(resources,nullptr,{},editDirectory);ready(c);
+            check(c.libraryItems().size()==3,"Recreated controller restores catalog before manual opens");
             c.openFiles({secondUrl,firstUrl});idle(c,"Recreated controller opens saved second photograph");
-            checkPhoto(c,0,second);check(near(c.exposureEv(),-.7)&&c.cropRect()==secondCrop,"Second saved photograph restores independently");
-            c.selectImage(1);idle(c,"Recreated controller restores first photograph");
-            checkPhoto(c,1,first);
+            checkPhoto(c,1,second);check(near(c.exposureEv(),-.7)&&c.cropRect()==secondCrop,"Second saved photograph restores independently");
+            c.selectImage(0);idle(c,"Recreated controller restores first photograph");
+            checkPhoto(c,0,first);
             check(matches(c,savedFirst),"All controls and geometry survive controller destruction and reopening");
             check(!c.canUndo()&&!c.canRedo(),"Restart restores edits without inventing undo history");
             check(c.persistenceWarning().isEmpty(),"Restored records have no persistence warnings");
             c.setExposureEv(.8);c.openRaw(secondUrl);idle(c,"Open known photo while another preset is pending");
-            checkPhoto(c,0,second);
+            checkPhoto(c,1,second);
             check(near(c.exposureEv(),-.7)&&c.cropRect()==secondCrop,"Opening known photo does not inherit other photo preset");
             c.rotateClockwise();check(c.canUndo(),"Batch lock test begins with an actual undo step");
-            c.selectAllPhotos(false);c.setItemSelected(0,true);
+            c.selectAllPhotos(false);c.setItemSelected(1,true);
             const auto locked=desired(c);const auto retained=c.frame();
             const QString batch=destination+"/batch";check(QDir().mkpath(batch),"Create batch destination");
             c.exportBatch(QUrl::fromLocalFile(batch),1,95,96);
@@ -252,6 +417,34 @@ int main(int argc,char** argv) {
             check(bytes(record)==futureBytes,"Explicit flush preserves unsupported future record");
         }
         check(bytes(record)==futureBytes,"Destructor flush also preserves future record");
+        {
+            const QString sourceStore=destination+"/source-catalog-store";
+            const QString catalogA=destination+"/catalogs/Album A";
+            const QString catalogB=destination+"/catalogs/Album B";
+            PreviewController c(resources,nullptr,{},sourceStore);ready(c);
+            check(c.librarySources().size()==1&&c.activeLibrarySource()==0,
+                  "Application starts with an explicit persistent library source");
+            check(c.createLibraryCatalog(QUrl::fromLocalFile(catalogA)),
+                  "Create an empty managed catalog without replacing an existing catalog");
+            c.openRaw(firstUrl);idle(c,"Import a real RAW into the new managed catalog");
+            c.setRating(0,5);
+            check(c.createLibraryCatalog(QUrl::fromLocalFile(catalogB))&&c.libraryItems().isEmpty(),
+                  "Switching to a fresh managed catalog clears the active photo set");
+            const auto sources=c.librarySources();
+            int albumA=-1;
+            for(int i=0;i<int(sources.size());++i)
+                if(sources[i].toMap()["name"].toString()=="Album A")albumA=i;
+            check(albumA>=0&&c.switchLibrarySource(albumA)&&c.libraryItems().size()==1&&
+                  c.libraryItems()[0].toMap()["rating"].toInt()==5,
+                  "Catalog switching restores persisted photo metadata from the selected source");
+        }
+        {
+            const QString sourceStore=destination+"/source-catalog-store";
+            PreviewController c(resources,nullptr,{},sourceStore);ready(c);
+            check(c.librarySources().size()==3&&c.libraryItems().size()==1&&
+                  c.libraryItems()[0].toMap()["rating"].toInt()==5,
+                  "Last selected catalog and its photos survive application restart");
+        }
         report["passed"]=true;
     } catch(const std::exception& error) {
         report["passed"]=false;report["error"]=QString::fromUtf8(error.what());

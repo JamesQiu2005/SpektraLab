@@ -1,0 +1,192 @@
+#version 450
+
+// scene_layers.metal::spk_scene_layers. The mask planes arrive as native
+// uint16_t data; read them as packed 32-bit words so the shader does not need
+// the optional 16-bit storage extension.
+layout(local_size_x = 256) in;
+layout(constant_id = 0) const bool SPK_FUSED_FMA = true;
+layout(set = 0, binding = 0, std430) readonly buffer Image { float value[]; } image_data;
+layout(set = 0, binding = 1, std430) readonly buffer Geometry { float value[]; } geometry;
+layout(set = 0, binding = 2, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 3, std430) readonly buffer Parameters { float value[]; } parameters;
+layout(set = 0, binding = 4, std430) readonly buffer Plane0 { uint value[]; } plane0;
+layout(set = 0, binding = 5, std430) readonly buffer Plane1 { uint value[]; } plane1;
+layout(set = 0, binding = 6, std430) readonly buffer Plane2 { uint value[]; } plane2;
+layout(set = 0, binding = 7, std430) readonly buffer Plane3 { uint value[]; } plane3;
+layout(set = 0, binding = 8, std430) readonly buffer Plane4 { uint value[]; } plane4;
+layout(set = 0, binding = 9, std430) readonly buffer Plane5 { uint value[]; } plane5;
+layout(set = 0, binding = 10, std430) readonly buffer Plane6 { uint value[]; } plane6;
+layout(set = 0, binding = 11, std430) readonly buffer Plane7 { uint value[]; } plane7;
+layout(set = 0, binding = 12, std430) writeonly buffer Output { float value[]; } output_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) +
+           gl_GlobalInvocationID.x;
+}
+
+vec2 two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float bb = s - a;
+    precise float e = (a - (s - bb)) + (b - bb);
+    return vec2(s, e);
+}
+
+vec2 quick_two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float e = b - (s - a);
+    return vec2(s, e);
+}
+
+vec2 two_prod(float a, float b) {
+    precise float p = a * b;
+    if (SPK_FUSED_FMA) {
+        precise float e = fma(a, b, -p);
+        return vec2(p, e);
+    }
+    precise float ca = 4097.0 * a;
+    precise float ahi = ca - (ca - a);
+    precise float alo = a - ahi;
+    precise float cb = 4097.0 * b;
+    precise float bhi = cb - (cb - b);
+    precise float blo = b - bhi;
+    precise float e = ((ahi * bhi - p) + ahi * blo + alo * bhi) + alo * blo;
+    return vec2(p, e);
+}
+
+vec2 df_add(vec2 a, vec2 b) {
+    vec2 s = two_sum(a.x, b.x);
+    vec2 t = two_sum(a.y, b.y);
+    precise float lo = s.y + t.x;
+    s = quick_two_sum(s.x, lo);
+    precise float final_lo = s.y + t.y;
+    return quick_two_sum(s.x, final_lo);
+}
+
+vec2 df_sub(vec2 a, vec2 b) { return df_add(a, -b); }
+
+vec2 df_mul(vec2 a, vec2 b) {
+    vec2 p = two_prod(a.x, b.x);
+    precise float cross_terms = a.x * b.y + a.y * b.x;
+    precise float lo = p.y + cross_terms;
+    return quick_two_sum(p.x, lo);
+}
+
+vec2 df_mul_f(vec2 a, float b) {
+    vec2 p = two_prod(a.x, b);
+    precise float lo = p.y + a.y * b;
+    return quick_two_sum(p.x, lo);
+}
+
+vec2 pair_at(uint index) {
+    return vec2(geometry.value[2u * index], geometry.value[2u * index + 1u]);
+}
+
+float packed16(uint value, uint index) {
+    uint word = value;
+    return float((index & 1u) == 0u ? (word & 0xffffu) : (word >> 16u));
+}
+
+#define DEFINE_PLANE_SAMPLE(NAME, WORDS) \
+float NAME(float pw, float ph, float s, float t) { \
+    if (!(s >= 0.0 && s <= 1.0 && t >= 0.0 && t <= 1.0)) return 0.0; \
+    uint w = uint(pw), h = uint(ph); \
+    float x = clamp(s * pw - 0.5, 0.0, pw - 1.0); \
+    float y = clamp(t * ph - 0.5, 0.0, ph - 1.0); \
+    float x0f = floor(x), y0f = floor(y); \
+    float tx = x - x0f, ty = y - y0f; \
+    uint x0 = uint(x0f), y0 = uint(y0f); \
+    uint x1 = min(x0 + 1u, w - 1u), y1 = min(y0 + 1u, h - 1u); \
+    uint pitch = (w + 1u) >> 1u; \
+    uint row0 = y0 * pitch, row1 = y1 * pitch; \
+    float a = packed16(WORDS.value[row0 + (x0 >> 1u)], x0) * (1.0 / 65535.0); \
+    float b = packed16(WORDS.value[row0 + (x1 >> 1u)], x1) * (1.0 / 65535.0); \
+    float c = packed16(WORDS.value[row1 + (x0 >> 1u)], x0) * (1.0 / 65535.0); \
+    float d = packed16(WORDS.value[row1 + (x1 >> 1u)], x1) * (1.0 / 65535.0); \
+    float top = a + (b - a) * tx; \
+    float bottom = c + (d - c) * tx; \
+    return top + (bottom - top) * ty; \
+}
+
+DEFINE_PLANE_SAMPLE(sample0, plane0)
+DEFINE_PLANE_SAMPLE(sample1, plane1)
+DEFINE_PLANE_SAMPLE(sample2, plane2)
+DEFINE_PLANE_SAMPLE(sample3, plane3)
+DEFINE_PLANE_SAMPLE(sample4, plane4)
+DEFINE_PLANE_SAMPLE(sample5, plane5)
+DEFINE_PLANE_SAMPLE(sample6, plane6)
+DEFINE_PLANE_SAMPLE(sample7, plane7)
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta.value[0]) return;
+    uint width = meta.value[1];
+    uint ox = i % width, oy = meta.value[2] + i / width;
+    float source_h = float(meta.value[3]), source_w = float(meta.value[4]);
+    uint out_h = meta.value[5], out_w = meta.value[6], turns = meta.value[7], flips = meta.value[8];
+    precise float u = float(ox) + 0.5;
+    precise float v = float(oy) + 0.5;
+    if ((flips & 1u) != 0u) u = float(out_w) - u;
+    if ((flips & 2u) != 0u) v = float(out_h) - v;
+    float turn_aux;
+    switch (turns) {
+        case 1u: turn_aux = u; u = v; v = float(out_w) - turn_aux; break;
+        case 2u: u = float(out_w) - u; v = float(out_h) - v; break;
+        case 3u: turn_aux = u; u = float(out_h) - v; v = turn_aux; break;
+        default: break;
+    }
+    vec2 px = df_sub(df_mul_f(pair_at(0u), u), pair_at(2u));
+    vec2 py = df_sub(df_mul_f(pair_at(1u), v), pair_at(3u));
+    vec2 ca = pair_at(6u), sa = pair_at(7u);
+    vec2 fx = df_add(pair_at(4u), df_sub(df_mul(px, ca), df_mul(py, sa)));
+    vec2 fy = df_add(pair_at(5u), df_add(df_mul(px, sa), df_mul(py, ca)));
+    float nu = ((fx.x + 0.5) + fx.y) / source_w;
+    float nv = ((fy.x + 0.5) + fy.y) / source_h;
+    float s = parameters.value[0] * nu + parameters.value[1] * nv + parameters.value[2];
+    float t = parameters.value[3] * nu + parameters.value[4] * nv + parameters.value[5];
+    float w = parameters.value[6] * nu + parameters.value[7] * nv + parameters.value[8];
+    if (w != 1.0) { s /= w; t /= w; }
+
+    uint count = meta.value[9];
+    bool colour = meta.value[10] != 0u;
+    float exposure = 0.0;
+    vec3 gain = vec3(0.0);
+    for (uint layer = 0u; layer < count; ++layer) {
+        uint q = 27u + 8u * layer;
+        float mask = layer == 0u ? sample0(parameters.value[q + 5u], parameters.value[q + 6u], s, t) :
+                     layer == 1u ? sample1(parameters.value[q + 5u], parameters.value[q + 6u], s, t) :
+                     layer == 2u ? sample2(parameters.value[q + 5u], parameters.value[q + 6u], s, t) :
+                     layer == 3u ? sample3(parameters.value[q + 5u], parameters.value[q + 6u], s, t) :
+                     layer == 4u ? sample4(parameters.value[q + 5u], parameters.value[q + 6u], s, t) :
+                     layer == 5u ? sample5(parameters.value[q + 5u], parameters.value[q + 6u], s, t) :
+                     layer == 6u ? sample6(parameters.value[q + 5u], parameters.value[q + 6u], s, t) :
+                                   sample7(parameters.value[q + 5u], parameters.value[q + 6u], s, t);
+        float coverage = parameters.value[q] * mask;
+        if (coverage == 0.0) continue;
+        exposure += coverage * parameters.value[q + 1u];
+        gain += coverage * vec3(parameters.value[q + 2u], parameters.value[q + 3u],
+                                parameters.value[q + 4u]);
+    }
+    float r = image_data.value[3u * i];
+    float g = image_data.value[3u * i + 1u];
+    float b = image_data.value[3u * i + 2u];
+    if (!colour) {
+        float scale = exp2(exposure);
+        output_data.value[3u * i] = r * scale;
+        output_data.value[3u * i + 1u] = g * scale;
+        output_data.value[3u * i + 2u] = b * scale;
+        return;
+    }
+    if (gain.x == 0.0 && gain.y == 0.0 && gain.z == 0.0) {
+        output_data.value[3u * i] = r;
+        output_data.value[3u * i + 1u] = g;
+        output_data.value[3u * i + 2u] = b;
+        return;
+    }
+    vec3 e = exp(gain);
+    float l0 = (parameters.value[9] * r + parameters.value[10] * g + parameters.value[11] * b) * e.x;
+    float l1 = (parameters.value[12] * r + parameters.value[13] * g + parameters.value[14] * b) * e.y;
+    float l2 = (parameters.value[15] * r + parameters.value[16] * g + parameters.value[17] * b) * e.z;
+    output_data.value[3u * i] = parameters.value[18] * l0 + parameters.value[19] * l1 + parameters.value[20] * l2;
+    output_data.value[3u * i + 1u] = parameters.value[21] * l0 + parameters.value[22] * l1 + parameters.value[23] * l2;
+    output_data.value[3u * i + 2u] = parameters.value[24] * l0 + parameters.value[25] * l1 + parameters.value[26] * l2;
+}
