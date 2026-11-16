@@ -72,10 +72,17 @@ done: a release path that reaches code under `#if DEBUG` compiles in Debug and f
 - **Regenerate the project after adding or removing a Swift file**, and rerun `build_engine_mac.sh`
   after adding an engine `.cpp` (it globs `engine/src/{core,gpu,pipeline}`). A missing Swift file
   reads as `cannot find X in scope`; a stale engine library as a link error.
-- **Test gates.** While working: build the affected target and run only the covering tests; show a new
-  regression test red before green. Before a push or at an integration boundary: the full suite once.
-  Engine parity harnesses only when engine inputs, kernels, resources or the render boundary changed.
-  A commit records the gate that ran.
+- **Test gates** (`app/SpektraLab/tools/gate.py`; `docs/agents/BUILD-AND-TEST.md`, "The Mac app's gates"). While
+  working: the narrowest self-test (`gate.py selftest --only <id>`); show a new regression test red before green.
+  **Before a commit: `gate.py change`**: the self-tests the change compiles into, and the in-app checks of the
+  components it touches; **across every component** where it touches shared code or a contract
+  (`tools/gate_components.json`); a file nothing owns falls up to the whole suite. **Before a merge to `main`: `gate.py
+  full`**, by hand on the Mac mini (~30-40 min; the nightly that was to run it is paused, 2026-11-15: BUILD-AND-TEST.md,
+  "The nightly"). **At a GitHub release: `gate.py release`** (full, every check's broken rules,
+  the timing rows). Timing rows are graded only by `gate.py timing`, on a quiet Mac. The engine's parity harnesses are
+  the `engine` component's check, so they run when engine inputs, kernels, resources or the boundary changed. A new
+  self-test or check gets its row in `tools/selftests.json` or the table, and `gate.py self-test` stays green. **A
+  commit records the gate's summary line** (scope, what ran, the time).
 - **Read the duration, not the failure count.** A full run with fixtures takes minutes; under a minute
   means the fixture cases skipped (trap 26). A stale test binary can report a stale result — rerun
   once before investigating an impossible failure.
@@ -134,8 +141,9 @@ Full text in `docs/agents/TRAPS.md`. 1–13 are the upstream Python/MLX engine's
   `tools/build_engine_mac.sh` after adding an engine `.cpp`. A missing Swift file reads as
   `cannot find X in scope`; a stale engine library as a link error. (In 1.x both were
   `Tools/gen-project.py`.)
-- **Test gates** (see "Build and test" above): the narrowest self-tests while working, the full set
-  before a push. Record the gate in the commit message. Show a new regression test red before green.
+- **Test gates** (see "Build and test" above): `gate.py change` before a commit, `gate.py full` before a
+  merge to `main`, `gate.py release` at a release. Record the gate's summary line in the commit message. Show a new regression test
+  red before green.
 - **Anything that shows the frame gets a `SurfaceAgreementTests` case** (trap
   33). Anything that changes the open frame checks `batchExporting` (trap 34).
 - **A test owns its inputs**: inject a `UserDefaults` suite (trap 24), copy

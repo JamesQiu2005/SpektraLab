@@ -731,7 +731,7 @@ fields. Design and measurements: RFC-032 §26–§29 and RFC-031 (the date back)
 | field | path | type | default | range | meaning |
 |---|---|---|---|---|---|
 | `overscan_active` | `film_render.overscan.active` | bool | `false` | — | the switch; `false` dispatches nothing (byte-identical to the pre-RFC build) |
-| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `135_half` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` \| `135_xpan` \| `120_6x12` \| `120_6x17` | the film and its gate (`135_half`: 18 × 24 mm half frame, below). The panoramic long formats (2026-10-03, reversing "nothing larger than 6×9"): `135_xpan` 24 × 65 on 14 perforations, `120_6x12` 56 × 112, `120_6x17` 56 × 168; their gates are `square` until real strips are measured, and none carries a date |
+| `overscan_format` | `…overscan.format` | str | `"135"` | `135` \| `135_half` \| `120_645` \| `120_6x6` \| `120_6x7` \| `120_6x8` \| `120_6x9` \| `135_xpan` \| `120_6x12` \| `120_6x17` \| `135_sprocket` (§21.4) \| `8_super` \| `16_super` \| `35_4perf` \| `65_5perf` \| `65_15perf` (the cine gauges, §24) | the film and its gate (`135_half`: 18 × 24 mm half frame, below). The panoramic long formats (2026-10-03, reversing "nothing larger than 6×9"): `135_xpan` 24 × 65 on 14 perforations, `120_6x12` 56 × 112, `120_6x17` 56 × 168; their gates are `square` until real strips are measured, and none carries a date. The cine gauges (2026-11-15, §24) print nothing at all on the film: no edge print, frame number, DX, stripes or date |
 | `overscan_mode` | `…overscan.mode` | str | `"strip"` | `strip` \| `filed` | the whole film width, or a filed-out carrier's sliver of rebate |
 | `overscan_gate` | `…overscan.gate` | str | `"auto"` | `auto` \| `square` \| `rounded` \| `eared` \| `shouldered` \| `kicked` | the gate's shape family (RFC-032 §29.2, §30.2); `auto` lets the camera seed pick one the format's real cameras have. `shouldered` (6×8) also seats the gate at the stock-name edge, with its ears ~1.2 mm from it and the edge print in the recess between them |
 | `overscan_holes` | `…overscan.holes` | str | `"white"` | `white` \| `black` | what shows through the perforations (past the film's long edges is `overscan_carrier`'s). `white`: the picture's white (a scan's light). `black`: a black backing or a darkroom print. Either way the cut is not a perfectly vertical knife: a slight rounding of the base shows as a faint, patchy shoulder just outside each hole (1-6 % lift, ~0.03 mm), different on every hole, plus per-hole punch tolerances, roughness and burrs (RFC-032 §30.5, §31.5) |
@@ -1360,7 +1360,8 @@ engine built at `af5173b9`.
   slots are appended from 261: `P_LEAK_KIND` … `P_LEAK_CORE` 261–273, `P_LEAK_REAR_*` /
   `P_LEAK_FRONT_*` 274–279, `P_FALLOFF`, `_F`, `_N` 280–282, `P_PERF_DT` 283, `P_COUNT = 284`.
 - **Unknown enum values are refused** at an open and in a delta, with the field named
-  (`'leak_kind' = 'x' is not one of (off, auto, band, wash, spot)`).
+  (`'leak_kind' = 'x' is not one of (off, auto, band, wash, spot)`; `edge` was one on 2026-11-15 only and is
+  refused since 2026-11-16, when the edge burn became `leak_edge`, §21.9).
 - **The date back changes on purpose** (§21.2): the LED's glow and `date_imprint_ev` 5.5. Every render with
   `date_imprint_active` changes look; nothing more than 1 mm from an imprint moves (measured, max 0.02/255).
 
@@ -1374,7 +1375,7 @@ when `overscan_active || date_imprint_active || leak_kind != "off"`.
 
 | field | path | type | default | range | meaning |
 |---|---|---|---|---|---|
-| `leak_kind` | `film_render.leak.kind` | str | `"off"` | `off` \| `auto` \| `band` \| `wash` \| `spot` | `band`: across the film, 5–14 mm along, brighter at one long edge. `wash`: a graded flood from one end, falling by e in 3.5–6.5 mm. `spot`: the 120 window (120 formats only; refused elsewhere): an irregular oval core 2–4.5 mm in radius, hot, and the backing paper's scatter around it. `auto`: the camera seed picks (135: band 65 % / wash 35 %; 120: 55 / 30 / 15) |
+| `leak_kind` | `film_render.leak.kind` | str | `"off"` | `off` \| `auto` \| `band` \| `wash` \| `spot` | `band`: across the film, 5–14 mm along, brighter at one long edge. `wash`: a graded flood from one end, falling by e in 3.5–6.5 mm. `spot`: the 120 window: an irregular oval core 2–4.5 mm in radius, hot, and the backing paper's scatter around it (120 formats only until 2026-11-15; since then on every format, smaller off 120: §21.8). `auto`: the camera seed picks (135: band 65 % / wash 35 %; 120: 55 / 30 / 15). The edge burn is not a kind: it is `leak_edge` (§21.9), beside any of these or `off` (on 2026-11-15 alone it was `edge` here) |
 | `leak_amount` | `film_render.leak.amount` | float | `1.0` | 0–4 | the peak's light, `amount` × 18 % × 2^(6.0 ± 1.5) |
 | `leak_rate` | `film_render.leak.rate` | float | `1.0` | 0–1 | the chance this frame shows the camera's leak (frame seed; frames 1–2 ×4 and ≥ 33 ×3 when `overscan_frame_number` is sent). A frame that does not show it takes the copy path, byte for byte |
 | `leak_front` | `film_render.leak.front` | float | `-1` | −1, 0–1 | the core's share of front (emulsion-side) light; −1 = the camera seed's (band 0.3–0.7, wash and spot 0) |
@@ -1584,6 +1585,177 @@ cost is the aberrations' gathers at full resolution, once per setting: a re-deve
 setting does not pay it again. The lensed copy is a file-backed full-tier plane (545 MB at 45 MP),
 reported as `lensed_source_bytes`.
 
+### 21.8 The leak's own seed (`leak_seed`) and a spot on every format (2026-11-15, branch `mac/leak-seed-2026-11-15`)
+
+The leak's draws get a seed of their own, so 随机 can re-roll a leak without moving anything else, and `spot`
+is made on every format rather than on 120 alone. In the kernel's parameter block `P_LEAK_KIND` is slot 261.
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `leak_kind` | (§21.1) | str | `"off"` | (§21.1) | `spot` is made on **every** `overscan_format`. On 120 it is the window, exactly as in §21.1. Elsewhere it is a pinhole in the shutter curtain or a cracked back, smaller than the window: radius `len` 1.5–3.5 mm (**unconfirmed**: a first pass, which the owner has not judged), its scatter's e-length 1–2.5 mm and its across wobble ±1.5 mm, each × `leak_scale(format)` (the factor a smaller gauge's camera scales them by, the cine `small = min(1, 2·mech)`: 0.5 on `8_super`, 0.7 on `16_super`, 1 on every other format; §24, 2026-11-15). Its centre across the film is `gate_t0 + (0.3…0.7)·gate_across`: inside the gate, off the perforation rows |
+| `leak_seed` | `film_render.leak.seed` | int | `0` | 0–2³¹−1 | 0: the leak's draws are the camera's and the frame's, as before. ≠ 0: both leak streams (camera 21, frame 22) are seeded from it alone — where it falls, its edge, width, tilt, a spot's shape, an edge burn's (§21.9), the ±1.5 EV jitter, the wobble and whether it shows (`leak_rate`) — and no other stream reads it, so nothing else in the render moves. SHOOT, not live. Native-only, after `scene_layers` and before `preview_long_edge` (since 2026-11-16 with `leak_edge`, §21.9, between them; `parity_schema.py`'s `NATIVE_ONLY` likewise) |
+
+- **Draws.** A spot off 120 reads the same camera draws as the window, through the ranges above: no draw
+  is added for it, and since a spot off 120 was refused before, no render that was made moves. `auto` on 135
+  still picks band 65 % / wash 35 % from `u_kind`; a spot is reached there only by `spot`.
+- **The seed's streams** are `stream(c, camera, 21)` and `stream(c ^ (c << 32), frame, 22)` with
+  `c = uint32(leak_seed) | 2³¹`: bit 31 is no camera or frame seed's (both 0…2³¹−1), so a seeded leak is never a
+  body's. With the film edge off the nominal gate is still the body's (±0.1 mm on 135, ±0.15–0.45 mm on 120), so
+  under one seed another body moves a band by at most that (measured ≤ 4.0 codes of 255); the edge burn, which
+  is measured from the film's edge, moves with it against the picture by the same ±0.1–0.45 mm. **A seeded `auto`
+  draws its kind from the seed** (`u_kind`), so 随机 can change which kind `auto` shows.
+- **The spot's angle at its exact centre** is set, not asked for (`th = rho > 0 ? atan2(q.y, q.x) : 0`): at ρ = 0 the result does not depend on the angle, so no pixel moves (below).
+- **A host learns all three from the schema** (`leak_seed` present): the seed, `spot` everywhere, and `edge`
+  (§21.9) came in together. The Mac app's `EngineFeatures.leakSeed`. (Since 2026-11-16 the edge burn is
+  learnt from its own field, `leak_edge`: `EngineFeatures.leakEdge`.)
+- **Measured** (`film_effects_checks.py --only-seed`, six cameras, Portra 400 → Supra Endura, film edge off):
+  the spot's half-level radius 2.1–4.3 mm on 135, the same cameras' 120 window 2.8–5.6 mm, every one larger;
+  every off-120 centre 0.31–0.51 of the gate across; with the film edge on, inside the gate. Two seeds differ by
+  56–196 codes on every kind (band, wash, spot, auto, edge; 135 and 120); seed 0 = none sent, byte for byte.
+  Against main's engine (`058f0248`, built from `git archive` in a scratch directory): `auto`/`band`/`wash` on 135,
+  `auto`/`spot` on 120, `auto` on the half frame and `auto` on 135 with the film edge on, byte for byte
+  (six cameras each; `--seed-base-dylib`), and 680 of 680 renders of a wider set (every kind 120 and 135, the
+  film edge on and off, ks65, fog and spool leaks on, three amounts, 6 cameras × 3 frames) byte for byte.
+
+### 21.9 The edge burn: `leak_edge` (2026-11-15 as `leak_kind = edge`, branch `mac/leak-seed-2026-11-15`; its own field beside the kind since 2026-11-16, branch `mac/leak-edge-layer-2026-11-16`)
+
+**Since 2026-11-16 the edge burn is not a kind but a layer beside it** (the owner's hand test of 2026-11-16: "we
+should be able to select it together with other leak methods, separate strength control should be there"). A
+frame can have `band` + the edge burn, each at its own strength; or the edge burn alone (`leak_kind = off`).
+
+| field | path | type | default | range | meaning |
+|---|---|---|---|---|---|
+| `leak_edge` | `film_render.leak.edge` | float | `0` | 0–4 | the edge burn's strength, on `leak_amount`'s scale: its peak is `leak_edge × 18 % × 2^(6 ± 1.5)`, the rim `kEdgeBoost` = 2⁵ over it (below). **0 = none**: nothing is laid out, the kernel reads none of its slots, byte for byte as before. SHOOT, not live. Native-only, after `leak_seed` and before `preview_long_edge` (`parity_schema.py`'s `NATIVE_ONLY` likewise) |
+
+- **What it shares with the kind:** the leak's two streams and so `leak_seed` (one 随机 re-rolls both), the
+  frame's `u_jit` (the ±1.5 EV: a frame that leaks strongly burns strongly), `u_show` (`leak_rate`: a frame
+  shows both or neither), `u_edge` (the burn's stronger edge is the band's bright edge, one camera's gap), the
+  rear and front light, and `leak_front` when it is sent (−1: the kind's camera share for the kind, 0–0.1 for the
+  burn, each its own). **What is its own:** its strength (`leak_edge`; `leak_amount` is the kind's alone) and its
+  peak, so a kind at amount 0 leaves the burn byte for byte as alone, and the burn at 0 leaves the kind.
+- **Both add as exposure**, in `leak_field`: the kind's part (`leak_kind_field`, §21.1, unchanged), then the
+  burn's added to it (`leak_edge`). With the kind off the kind's part is 0 and the sum is the burn's to the bit.
+- **`leak_kind = edge` is refused** (§21.0's list). It was never in a release (2026-11-15's builds only); a host
+  that stored it maps it to `off` + `leak_edge` = its `leak_amount` (the Mac app does, on reading an edit), which
+  renders the same picture **byte for byte** (below). The engine keeps no alias: one meaning per value.
+- **The node** runs for `leak_kind != off || leak_edge > 0` (the film edge off included; the node count, the
+  bare-frame path `spk_leak_frame` and the Windows refusal likewise).
+- **Kernel slots**, appended after the cine slots (§24, 304–310): `P_EDGE_AMP` 311 (the burn's peak; > 0 is it
+  on), `P_EDGE_FRONT` 312; `P_COUNT = 313`. `P_LEAK_KIND` is 1–3 or 0; the burn's slots 284–303 below keep their
+  places and are filled only while `P_EDGE_AMP` > 0. No draw is added or moved.
+- **Measured** (2026-11-16): against the integration head's engine (`71f2d0cf`, built from `git archive` in a
+  scratch directory), 770 renders with no burn (every kind incl. `off`, 135 and 120_6x7 film edge off, 135 with fog
+  and spool leaks and 645 film edge on, three amounts, ks65, seeded band, half frame, rate 0.25; 6 cameras × 3
+  frames) byte for byte with `leak_edge` unsent and sent at 0; and 180 cases of that engine's `leak_kind = edge`
+  at amount a (0.5–4; 135 and 645 film edge off and on, ks65, Super 8, 16 mm, a seed with `leak_front` 0.4,
+  rate 0.25) byte for byte this engine's `off` + `leak_edge = a` and `band` at amount 0 + `leak_edge = a`.
+  `film_effects_checks.py`'s `leak_edge_layer`: with band, wash, spot and auto, film edge on (135, 645) and off
+  (135), two cameras each, the burn is drawn together as alone (over its own pixels the pair's mean ≥ the burn's alone − 1 code, and > the kind's alone + 8), and
+  away from it (no channel moved by the burn alone, 3 px margin) the kind is its own to ≤ 0.01 codes.
+
+The rest of this section is the burn as it was made on 2026-11-15, unchanged but for the strength's name: read
+`leak_amount` in it as `leak_edge`, and "kind 4" as "`P_EDGE_AMP` > 0".
+
+A loosely wound ("fat") roll: light past the spool's flanges (120,
+under the backing paper) or through the cassette's felt lip (135) creeps in along **both long edges of the
+film**, burning them to yellow at the very edge, through orange to deep red and to nothing within a few
+millimetres. The owner's sample: a 645 frame on HARMAN 120 (`research/467641ad92690ac04ee9457d943677a4.jpg`,
+21.4 px/mm), the burn continuous through the rebate and the edge print, deeper and stronger on one side, its inner
+boundary slowly wavy along the film.
+
+**Light, not paint.** The burn is exposure on the film in the same pass as every leak (`leak_field`), lit by the
+leak's own two lights through this film's own sensitivity: rear (through the base: the paper side of a 120 roll —
+red first, green × 0.08, blue × 0.003) and a little front (on the emulsion, at the very edge). At 2¹¹ over 18 %
+grey the rear light alone saturates the red and green layers and the print goes to yellow; further in it walks
+back through orange to red, exactly the hue path of §21.1, which is the film's and the print's.
+
+**How it relates to `overscan_leaks`** (§13, 片边 › 细节's spool leaks). The same cause, taken much further, and
+kept apart: the spool leaks are short Gaussian blobs at the long edges, Film Edge only, lit by the fog's 2800 K
+front light (`fog_rgb`); the edge burn is continuous along the whole film, the leak's 5500 K rear-and-front light,
+and works with the Film Edge off too. Both may be on: they add as exposure in `spk_overscan_canvas` (the fog's sum,
+then `leak_field`), never as paint. The burn reuses their physics where it is right — an exponential fall inward
+from the edge (`exp(−d/λ)`, as each blob's `exp(−dd/σ_t)`), slowly varying along the film — and the leak's light
+where they differ.
+
+| field | meaning for `edge` (2026-11-15; since 2026-11-16 read `leak_edge` for `leak_amount`, above) |
+|---|---|
+| `leak_kind` | `edge`. Made on every format; `auto` never picks it (since 2026-11-16: any kind, or `off`) |
+| `leak_amount` | the leak's peak as for every kind (`amount × 18 % × 2^(6 ± 1.5)`); the burn's rim is `kEdgeBoost` = 2⁵ over it, so at amount 1 the rim is 2¹¹ over grey (more aggressive than a band at 1, by design), 4 clips it to its widest |
+| `leak_rate` | whether this frame shows it, as for every kind |
+| `leak_front` | the front share at the very edge; −1 = the camera's (0–0.1) |
+| `leak_seed` | re-rolls every draw below (§21.8) |
+
+The exposure at film position (s, t), for each long edge k (0 at t = 0, 1 at t = W), `d` the distance from it:
+
+```
+w(s)  = 0.55 sin(k1·s' + φ1k) + 0.33 sin(k2·s' + φ2k) + 0.12 sin(2.9 k2·s' + φ1k + φ2k)     s' = s + shift
+w2(s) = 0.6 sin(k1·s' + φ2k + 2.1) + 0.4 sin(k2·s' + φ1k + 0.7)
+λk(s) = λk · exp(Uk · w(s))                         the undulating depth: tongues and shoulders
+Sk(s) = Sk · 2^(J · (0.6 w + 0.4 w2))               the strength's own swing
+p     = exp(−d/λk) + T · exp(−d/(R·λk))             the hot burn and the paper's (the felt's) scatter
+      + [perforated] H · exp(−dh/(R·λk))            dh: the distance to the hole rows' band (0 inside it)
+E     = amp · Σk Sk(s) · ((1 − f) · p · rear + f · exp(−d/(C·λk)) · front)
+```
+
+Only on the film (0 ≤ t ≤ W): an open carrier's canvas beyond the film is not burnt. The constants
+(`overscan.cpp`, beside `kLeakEv0`), **every one fitted by eye against the owner's one sample, on Portra 400 →
+Supra Endura, 2026-11-15; none is measured on a real roll**:
+
+| constant | value | what |
+|---|---|---|
+| `kEdgeBoost` | 32 | the stronger edge's rim, × the leak's peak |
+| `kEdgeWeak0`, `…Span` | 0.3, 1.5 | the other edge: 2^−(0.3…1.8) of it |
+| `kEdgeLen` | 0.004 × W | the hot part's e-length λ, × 0.75…1.25 per edge: 0.18–0.31 mm on 120 (W 61), 0.11–0.18 mm on 135 (W 35) |
+| `kEdgeTail` T, `kEdgeTailLen` R | 0.005, 3.5 | the scatter beyond it: 2^−7.6 of the rim, 3.5 × as long — what reaches into the picture in places |
+| `kEdgeUnd0`, `…Span` U | 0.3, 0.25 | the undulation's depth, λ × exp(±(0.3…0.55)) |
+| `kEdgeWave1Lo…Hi`, `kEdgeWave2Lo…Hi` | 18–40 mm, 5–12 mm | the two wavelengths along the film on 120, × W/61 on other gauges |
+| `kEdgeJit` J | 0.7 | the strength's swing along the film, ± stops |
+| `kEdgeCore` C | 0.5 | the front light's e-length, × λ |
+| `kEdgeFront0`, `…Span` | 0, 0.1 | the camera's front share f |
+| `kEdgeHoles0`, `…Span` H | 0.02, 0.05 | on a perforated film, the light the holes' cut walls let in, × the rim |
+
+**Per gauge: the depth scales with the film's width** (λ ∝ W; the wavelengths too), not a constant — a fat
+roll's gap opens with its flange. So a 135 burn is 35/61 of a 120 one, and a smaller gauge (the cine stage's) is
+scaled by its own width with no further rule. **On a perforated film** (135 and its family; 120 with `ks65`) the
+holes' cut walls let the same light in (the felt-lip light reaching the hole rows), so the burn also lies on the
+hole rows, between the holes (the band `perf_edge`…`perf_edge + perf_h` from each edge; with the film edge off,
+135's 2.00…4.80 mm), and its glow reaches out from there: on 135 the burn falls from the edge to ~1.3 mm, then
+rises again towards the holes. A hole itself is a hole (no film, no burn).
+
+**Draws** (all after every earlier draw of their stream, so no other leak moves): camera stream 21, after
+`u_spot_phase`: `u_eg_weak, u_eg_len0, u_eg_len1, u_eg_k1, u_eg_k2, u_eg_ph0…3, u_eg_und0, u_eg_und1, u_eg_holes,
+u_eg_front` (13); frame stream 22, after `u_wob_t`: `u_eg_shift` (the frame's place along the roll's pattern,
+0–300 mm, so each frame shows another stretch of its camera's burn). It also reads §21.1's `u_edge` (which edge is
+the stronger), `u_jit` (±1.5 EV) and `u_show` (`leak_rate`). They are drawn whatever the kind, so changing the
+kind moves nothing else.
+
+**Kernel slots**, appended after `P_PERF_DT = 283`: `P_EDGE_S` 284–285, `P_EDGE_L` 286–287, `P_EDGE_U`
+288–289, `P_EDGE_K` 290–291, `P_EDGE_PH` 292–295, `P_EDGE_JIT` 296, `P_EDGE_CORE` 297, `P_EDGE_P0` 298, `P_EDGE_P1`
+299, `P_EDGE_PA` 300, `P_EDGE_SHIFT` 301, `P_EDGE_TAIL` 302, `P_EDGE_TLEN` 303; `P_COUNT = 304`. Each is 0 on every
+render without the burn; `leak_field` reads them only for kind 4 (since 2026-11-16: only while `P_EDGE_AMP` > 0).
+
+**With the Film Edge off** the node lays the format's nominal gate over the frame (§21.1), so only what reaches
+into the picture shows: on 135 a fringe along both long edges of the picture (the hole rows' glow is 0.55 mm
+from the gate); on 120, whose rebate is 2.5 mm, a faint fringe where the undulation's tongues reach in, often
+nothing at amount 1 — as on the sample, where the burn stays in the rebate.
+
+**Measured** (`film_effects_checks.py`, `leak_seed_spot_edge`, Portra 400 → Supra Endura, a dark flat frame):
+both long edges lit on 120_645 and 135 (six cameras: the stronger rim 572–656 codes summed over RGB, the weaker
+486–588); on average (six cameras, both edges) falling from the edge inward in 0.25 mm bins — 120_645, 0–2 mm:
+535 379 275 228 189 143 104 69; 135, 0–1.25 mm: 460 263 189 141 133; the frame's middle untouched (< 3 codes);
+on 135 the hole rows lit between the holes (90th percentile 157 codes 2.4–4.4 mm in); film edge off, the
+picture's middle untouched; energy rising with `leak_amount` 0.5 / 1 / 2 / 4 (2.2 / 4.4 / 7.8 / 12.5 M);
+amount 0 and rate 0 byte for byte none; 64-row strips = the whole frame.
+
+**Where it is not the sample** (the look, 2026-11-15, by eye): the sample is a lab scan of the negative; this is
+the print. The print caps red near 170 of 255 (§21.1), and with the print's hue from the negative a strong leak
+holds near orange, so the burn's middle reads amber-brown where the sample's is a saturated orange-red (244, 72,
+6), and its faint tail brown-red where the sample's is red (114, 28, 3). The shape — the yellow rim, the depth
+(≈ 1–2 mm on 120), the slow wavy inner boundary, the two edges' difference, the edge print running through the
+burn — is matched, except that this engine's 120 edge print sits ~1.5–2.5 mm in, where at amount 1 the burn is
+already orange-brown, so the print stays legible through it at amounts 1 and 2 (seen) rather than being swallowed; the colour is the print stage's, and was not retuned (AGENTS.md: do not pollute the
+material model).
+
 ## 22. `spk_trim_pool` — the render pool given back on the host's word (2026-11-13, branch `mac/memory-16gb-2026-11-13`)
 
 ```c
@@ -1719,3 +1891,105 @@ engine/resources gates`: 100 checks, 0 failed, 18 s, on the device's own `MTLBuf
   (main's build: 47 s, the same output); `parity_session` 137 fields, 0 failed (`scene_layers` refused by name,
   the walk holding no set); `parity_grain` 9 levels, 0 failed; `parity_lut` 3 stocks, 0 failed; `gpu_smoke` and
   `check_math_guard.sh` green.
+
+## 24. The cine gauges: `8_super`, `16_super`, `35_4perf`, `65_5perf`, `65_15perf` (2026-11-15, branch `mac/cine-formats-2026-11-15`)
+
+Motion-picture camera negatives as a lab's overscan scan shows them. Five new **values** of `overscan_format`; **no
+new field**, no new schema entry. Their kernel slots are **304–310** (`P_COUNT` 311; 313 since §21.9's 2026-11-16
+slots), and `film_and_gate` is shared by the layout and the Film-Edge-off leak path. `16_super` is Super 16, from
+SMPTE 109 and 201M (below). Every
+existing format renders the engine of `cc20c683` byte for byte, film edge on and off, every leak kind and
+`leak_seed` included, and its geometry JSON is the same string (`cine_edge_checks.py --base-dylib`; 518 renders and
+285 geometries in the stage's scratch comparison).
+
+| `overscan_format` | film | gate across × along | holes | a frame | canvas along the film |
+|---|---|---|---|---|---|
+| `8_super` | 7.976 (SMPTE 149) | 5.79 × 4.01 (the owner's reference frame, not SMPTE's 5.69 × 4.22), 1.47 from the perforated edge | KS-style 0.914 across × 1.143 along, r 0.13, 0.51 from the edge, pitch 4.234, **one row, the t-low edge** (the picture's right on a film running down a landscape picture) | 1, centred on the frame | 3:2 of the film's width (5.317): the frame and a sliver of each neighbour |
+| `16_super` | 15.95 (0.628 in, SMPTE 109) | **12.35 × 7.50**, 2.825 from the perforated edge | 1.829 across × 1.270 along (0.0720 × 0.0500 in), r 0.25 (0.010 in), 0.902 from the edge (0.0355 in), pitch **7.605** (1R-2994, SMPTE 109; Kodak's 16 mm camera negatives are short pitch), **one row, the t-high edge** (the picture's left, as on the owner's scan) | 1, **centred on the frame line** | 16:9 of the film's width (8.972): the frame and a sliver of each neighbour |
+| `35_4perf` | 35.0 | 24.89 × 18.67 (full / Super 35 aperture, 0.980 × 0.735 in), centred | **Bell & Howell** 2.794 across × 1.854 along (a disc cut flat along, corners 0.127), 2.01 from the edge, pitch 4.740, both edges | 4, the frame line midway between two | one advance, 18.96 (single frame) |
+| `65_5perf` | 64.97 | 52.63 × 23.01 (2.072 × 0.906 in), centred | KS 2.794 × 1.981, r 0.51, 2.97 from the edge, pitch 4.75 (`ks65`'s, SMPTE 145), both edges | 5 | one advance, 23.75 (single frame) |
+| `65_15perf` | 64.97 | 52.63 × 70.41 (the film running across a landscape picture; 2.772 × 2.072 in) | as `65_5perf` | 15 | one advance, 71.25 (single frame) |
+
+(mm; `kCine` in `overscan.cpp` holds every number, one row a gauge, each with its source.)
+
+- **16 mm's numbers.** The gate is SMPTE 201M-1996's type W (Super 16) camera aperture image: A = 12.35 mm nominal
+  across, B = 7.42 +0.15/−0 along, its centre C = 9.00 mm from the reference edge (the perforated one), so its near
+  side 2.825 (D, max) and far side 15.175 (E, min). B is taken as **7.50**, inside its tolerance, because the owner's
+  reference (`research/v2.4.1/16mm_film.png`, measured at 122.0 px/mm off its 7.605 mm pitch) shows a 12.31 × 7.50 mm
+  picture and frame lines of 0.09–0.10 mm (7.42 would leave 0.19). The scan's hole is centred on the frame line, as
+  is the engine's. The scan crops the film's perforated edge through the holes; the engine draws the film's whole
+  width (its canvas rule), so its canvas shows the hole whole and 0.90 mm of rebate outside it.
+- **Direction.** The existing rule: the gate's long edge on the picture's long edge. A landscape picture runs Super 8,
+  16 mm, 35 mm and 65 mm 5-perf **down** (holes left and/or right) and 15-perf **across**; a portrait picture turns the
+  film, as on every format.
+- **Sprocket-locked.** The camera's pins hold the frame on the perforations: an even count a frame puts the frame
+  line midway between two holes, an odd count centres a hole on the frame, and 16 mm's `at_line` centres its one hole
+  on the frame line; plus the camera's registration (camera stream 29: ±0.08 mm Super 8, ±0.04 16 mm, ±0.03
+  elsewhere) and this frame's advance (frame stream 30, σ 0.02 / 0.015 / 0.01 mm).
+- **The neighbours (Super 8 and 16 mm only).** The same picture exposed again one advance before and after (each
+  advance with its own error, frame stream 30): the sliver before the frame shows the picture's far end, the sliver
+  after it the near end; halation, the couplers and grain run across the frame line as on film. On 16 mm each
+  neighbour's picture is 0.63 mm, 7.0 % of the canvas along (the owner's scan: 5.9 % and 7.3 %). 35 mm, 65 mm 5-perf
+  and 15-perf are **single frames** (the owner's decision, 2026-11-12): their neighbours' draws are made,
+  their advances reported 0. `spk_overscan_geometry` adds **`"neighbours_mm":[prev, next]`** on every cine gauge
+  (`[0, 0]` on a single-frame one) and on no other format — the one place a host learns whether a gauge shows its
+  neighbours (the app's `FilmLayout` reads it; it never keeps its own copy of the rule).
+- **The camera's scale** (`mech`: 0.25 Super 8, 0.35 16 mm (E), 0.5 35 / 65 mm): the gate family's corner radii, its
+  roughness, its penumbra (the gate's gap) and its edges' wobble times `mech`; Super 8 and 16 mm keep no nicks. On a
+  gauge smaller than 35 mm, `small = min(1, 2·mech)` (Super 8 0.5, 16 mm 0.7, 1 elsewhere — §21.8's
+  `leak_scale(format)`): the fog's width, the spool leaks' sizes, the scan's offsets, a big leak's wobble, a band's
+  width, a wash's length and a spot's size, scatter and across wobble.
+- **The edge burn (§21.9)** on a cine gauge takes its hole rows from the gauge — with the film edge on (the layout's
+  holes) and off (`kCine`'s, where a still format with no layout gets 135's 2.00 / 2.80 mm) — and on a one-row gauge
+  only that edge's (slot `P_PERF_ROWS`, read by the kernel's `leak_edge`).
+- **Gates.** `auto` = `rounded` on Super 8, `square` on the others; any named family is accepted (its radii scaled).
+- **Nothing printed, ever:** `overscan_edge_text` and `overscan_frame_number` are accepted and print nothing; no DX,
+  no stripes (a Fujifilm negative included); **a date is ignored** with the film edge on, as on the panoramic
+  formats. (With the film edge off the date is the bare frame's, as for every format.) A real 16 mm or 35 mm camera
+  negative does carry the maker's latent KEYKODE numbers in its rebate; this engine draws none (a later
+  decision, one table row).
+- **`overscan_mode = filed` is accepted**, as on `135_sprocket`: the gate and 1.1 mm a side.
+- **Refused**, each naming its field, by the existing rules: `overscan_pair` (it needs `135_half`),
+  `overscan_perforation = ks65` (it needs a 120 format). Every leak kind draws, film edge on or off.
+- **`film_format_mm`** with the film edge on is the gate's long edge, as for every format: 5.79, 12.35, 24.89, 52.63,
+  70.41. **There is no small-format working size**: the engine renders a Super 8 or 16 mm frame at the source's own
+  resolution, as every format.
+- **The kernel** (`overscan.metal`): slots 304–310 — the hole's shape, rows (0 both, 1 t-low, 2 t-high), radius clamp
+  and tolerance scale, the neighbours' advances — each 0 on every other format, where every reader keeps today's
+  arithmetic (`×1.0` and the old clamp, exactly).
+- Check: `engine/tests/cine_edge_checks.py` (every gauge's canvas, gate, holes, rows, pitch, lock, neighbours, nothing
+  printed, refusals, the edge burn's rows; 16 mm against the owner's scan; `--base-dylib` byte identity);
+  `film_effects_checks.py` (the spot at each gauge's scale, the edge burn on each gauge).
+
+## 25. `extended_dynamic_range` under a film edge — the picture's only (2026-11-16, branch `mac/fullsize-edr-2026-11-16`)
+
+No field is added, renamed or moved; what an existing one does is narrowed. The owner (2026-11-16): with EDR on and a
+film edge shown, the clear holes "create bizarre dark spot around the white keyholes … EDR apply to the canvas only,
+though with this the blurred edge between canvas and film edge would need extra care".
+
+- **Before:** EDR's print curve (`spk_edr`, the print's last node before encoding, `Pipeline::node_edr`) was laid on
+  every pixel of the canvas. Under a film edge the canvas is the film: the rebate was crushed toward black, a clear
+  hole printed grey with a light rim and a dark ring at its soft edge, and the edge print moved with them.
+- **Now, with `overscan_active` (a film edge shown):** the edge, the holes (135's, `ks65`'s keyholes, a cine gauge's)
+  and the edge print print exactly as with `extended_dynamic_range` false; the picture prints with EDR; between them
+  the two prints of each pixel are mixed in linear light by a weight that is the picture's presence:
+  1. the gate's coverage at that film position — the canvas kernel's own `cov` (its penumbra; a half-frame pair's
+     second exposure and a cine gauge's neighbour frames are pictures too) — `spk_overscan_picture_weight`;
+  2. blurred by the spread the picture's own edge goes through between gate and print, as variances in quadrature
+     (`Pipeline::edr_edge_sigma`): the camera's lens blur, halation's scatter (green's core, and its exponential tail
+     as 2λ²), the base's back-reflection (its first bounce, scaled by √`halation_amount` as §16 / RFC-034 scale it)
+     and the scanner's blur — 66 µm σ with the film's defaults. Measured without EDR, a 135 and a 645 edge fall from
+     90 % to 10 % over 0.12–0.19 mm at every render size, of which the geometric penumbra is 0.02 mm; a weight that
+     followed the penumbra alone left a one-pixel step, a line on a bright edge and a seam on a dark one;
+  3. times the film's presence after that blur (`film_alpha`: 0 in a hole and past the strip, with the holes'
+     measured soft edge — the scan's light through a hole is laid after the scanner's blur, so it is not blurred in).
+  Where the weight is 1 (to within 10⁻⁶) the pixel is `spk_edr`'s to the bit; where it is 0 the print is untouched.
+  (`spk_edr_weighted`, `overscan.metal`.)
+- **Unchanged to the bit:** every render with `extended_dynamic_range` false (with or without a film edge), every
+  render without a film edge (EDR on or off: `spk_edr` as before), a scanned film and a Digital Intermediate (EDR
+  stands down as before). The Vulkan path has no overscan and is not touched.
+- **Cost:** one extra full-canvas three-float plane for the weight and its blur, held inside `node_edr` only, and one
+  Gaussian of σ ≈ 66 µm at the render's pitch (IIR above the FIR limit); only on a film-edge render with EDR on.
+- Check: `engine/tests/overscan_checks.py` (EDR under a film edge: the rebate and a hole the print without EDR, the
+  gate's middle EDR's to the bit, the mix monotone across the gate's edge; byte identity without a film edge and with
+  EDR off), on 135, 120 + `ks65`, 645, Super 8 and 16 mm.

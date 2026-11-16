@@ -266,10 +266,18 @@ struct DateImprintParams {
 // emulsion (front). Works with the film edge on or off. `kind = off` is
 // structural: nothing is added and no new light is computed.
 struct LeakParams {
-    std::string kind = "off";        // off | auto | band | wash | spot (spot: 120 formats only)
+    // off | auto | band | wash | spot. spot: every format since 2026-11-15 (120 only before). The edge
+    // burn was `edge` here on 2026-11-15; since 2026-11-16 it is `edge` below, beside the kind.
+    std::string kind = "off";
     double amount = 1.0;             // 0..4, on overscan.fog's scale
     double rate = 1.0;               // 0..1, the chance this frame shows the camera's leak
     double front = -1.0;             // -1 = the camera seed's; 0..1 = the core's share of front light
+    // API-SPEC §21.8 (2026-11-15): 0 = the leak's draws are the camera's and the frame's, as before;
+    // non-zero seeds both leak streams (camera 21, frame 22) from it, and nothing else in the render moves.
+    int seed = 0;
+    // API-SPEC §21.9 (2026-11-16): the edge burn's strength, 0..4 on `amount`'s scale; 0 = none. Its own,
+    // beside the kind's: a frame can have a band and the edge burn, each at its strength.
+    double edge = 0.0;
 };
 
 struct FilmRenderParams {

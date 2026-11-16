@@ -61,6 +61,39 @@ enum MacMasksCheck {
         }
     }
 
+    /// "Full size unavailable" (the owner, 2026-11-16): a frame with an acting 场景 layer, its full render asked as the
+    /// page's zoom asks it (`FullView.want`) and as a prefetch asks it (`FullRenderJobs.submit`, `importDevelop`): each
+    /// made and read back, and no request of the run turned away for a 场景 set it names and does not carry
+    /// (`EngineRouter.hand`). Before the fix the engine refused both: `scene_layers: the render's wire names 'sl1.…' but
+    /// the session holds no set`.
+    static func fullSize(_ m: AppServices, _ r: Report, _ s: OpenFrameSession, a: UUID) async {
+        guard let frame = m.library.frame(a), frame.edit.layers?.active(.scene).isEmpty == false,
+              let made = FullRenderJobs.made(frame, darkroom: m.darkroom) else {
+            return r.check(false, "full size: a frame with a 场景 layer has a full render to make")
+        }
+        await settle(m)
+        try? FileManager.default.removeItem(at: made.ask.url)
+        s.fullView.want()
+        _ = await until(180, every: 100) { s.fullView.state == .ready || s.fullView.state == .failed }
+        let page = s.fullView.state
+        s.fullView.unwant()
+        let pageWords = m.scheduler.records.last { $0.kind == JobKind.fullView.rawValue }?.outcome ?? ""
+        r.check(page == .ready && FullRender.Reader(made.ask.url, stamp: made.ask.stamp) != nil,
+                "full size: the page's zoom makes the full render of a frame with a 场景 layer", "\(page) \(pageWords)")
+        await settle(m)
+        try? FileManager.default.removeItem(at: made.ask.url)
+        guard let id = FullRenderJobs.submit(frame, made, kind: .importDevelop, asker: .prefetch, scheduler: m.scheduler, darkroom: m.darkroom) else {
+            return r.check(false, "full size: a prefetch of the frame is submitted")
+        }
+        let outcome = await m.scheduler.outcome(of: id)
+        var said = ""
+        if case .failed(let message) = outcome { said = message }
+        r.check(said.isEmpty && FullRender.Reader(made.ask.url, stamp: made.ask.stamp) != nil,
+                "full size: a prefetch makes the full render of a frame with a 场景 layer", said)
+        r.check(EngineRouter.unhandedSceneSets == 0, "full size: no request names a 场景 set it does not carry (EngineRouter.hand)",
+                "\(EngineRouter.unhandedSceneSets) turned away")
+    }
+
     /// One frame's rows as kept: what run 2 reads back.
     struct KeptRow: Codable, Equatable { var name: String; var stage: String; var opacity: Double; var on: Bool }
     struct Kept: Codable {
@@ -122,9 +155,33 @@ enum MacMasksCheck {
         return live.shown
     }
 
+    /// `--masks-check-function` (`tools/masks_check.sh --function`, the gate's area tier, 2026-11-14): every case's checks,
+    /// and none of what is for a person or is timing: no capture and no second language (the drawings' steps still run,
+    /// for their checks), and neither the stroke cost (`MacMaskToolsCheck.cost`) nor the transitions
+    /// (`MacTransitionsCheck`), which another session's load turned red for changes that touched neither
+    /// (`masks_check.sh --timing` runs those two alone).
+    static let function = CommandLine.arguments.contains("--masks-check-function")
+
+    /// The cost and transitions rows left out (`--function`, or `--masks-check-untimed`: `tools/masks_check.sh --untimed`,
+    /// the whole check `gate.py full` and the nightly run, 2026-11-15). Timing is graded by `gate.py timing` alone, on a
+    /// quiet Mac: the nightly's runner holds its jobs to four cores by stopping them, which no cost row survives.
+    static let untimed = function || CommandLine.arguments.contains("--masks-check-untimed")
+
+    /// `--masks-check-skip find,flat` (`tools/masks_check.sh --skip`, chosen by `tools/gate.py change` from the paths a
+    /// change touches, 2026-11-15): parts of run 1 and run 2 left out because the change reaches none of what they test.
+    /// `find` is M1c's finding (`MacMaskFindCheck`, run 1's cases and run 2's read-back: ~6 of `--function`'s minutes),
+    /// `flat` the overlay's geometry on the flat frame (`MacMaskFlatCheck`). Each part left out is said in the report, so
+    /// a short run reads as the skip it is (trap 26); the nightly runs both.
+    static let skipped: Set<String> = {
+        let a = CommandLine.arguments
+        guard let i = a.firstIndex(of: "--masks-check-skip"), i + 1 < a.count else { return [] }
+        return Set(a[i + 1].split(separator: ",").map(String.init))
+    }()
+
     /// The window as it stands, for a person: the app's own drawing (`--capture-window`), and with `--masks-check-hold`
     /// a line `masks-check: CAPTURE <name>` and a pause, for the shell's `screencapture -l` of the real window.
     static func capture(_ name: String) async {
+        if function { return }
         MacHistoryPageCheck.layoutWindows()
         await pause(1.0)
         MacWindowCapture.capture(named: name)
@@ -138,6 +195,7 @@ enum MacMasksCheck {
 
     /// Both languages of one state.
     static func captured(_ name: String) async {
+        if function { return }
         await capture(name + ".en")
         Language.shared.choose(.simplified)
         await capture(name + ".zh-Hans")
@@ -214,6 +272,13 @@ enum MacMasksCheck {
             if let b24 { await MacMaskToolsCheck.cost(m, r, a: a, b: b24) }
             return await MacMaskToolsCheck.liveMatches(m, r, a: a)
         case "live": return await MacMaskToolsCheck.liveMatches(m, r, a: a)
+        case "fullsize":
+            guard let s = await develop(m, a.id) else { return r.check(false, "A opens in Develop") }
+            s.makeLayer(stage: .scene); await pause(0.25)
+            guard let sid = s.layerPick.maskID else { return r.check(false, "a 场景 layer for the full render") }
+            s.changeLayer(sid) { wholeFrame(&$0); $0.scene?.exposure = 1 }
+            await settle(m)
+            return await fullSize(m, r, s, a: a.id)
         case "transitions": return await MacTransitionsCheck.run(m, r, a: a, b: b24)
         case "keys": if let s = await develop(m, a.id) { return await MacMaskToolsCheck.keys(m, r, s, a: a) }
         case "tools": return await MacMaskToolsCheck.run(m, r, a: a, b24: nil, out: out, broken: nil)
@@ -267,6 +332,8 @@ enum MacMasksCheck {
         guard let sid = s.layerPick.maskID else { return r.check(false, "a 场景 layer for identity") }
         await act { s.changeLayer(sid) { wholeFrame(&$0); $0.scene?.exposure = broken == "identity" ? e * 0.5 : e } }
         let layered = await developed(s, m, from: stamp)
+        // The same frame's full render, with the layer acting (2026-11-16, "Full size unavailable").
+        if broken == nil { await fullSize(m, r, s, a: a.id) }
         stamp = s.developed?.stamp
         await act { s.removeLayer(sid); s.change { $0.params.exposureCompensationEV += e } }
         let moved = await developed(s, m, from: stamp)
@@ -481,13 +548,14 @@ enum MacMasksCheck {
         // ---- M1b: the tools on the picture (MASKS-SPEC §12's rows 5, 6, 7; the keys; the cost; drawings 04–07) ----
         if broken == nil { await MacMaskToolsCheck.run(m, r, a: a, b24: b24, out: out, broken: nil) }
         // ---- 2.4.0 A2: how soon each act's state is on the screen (`MacTransitionsCheck`) ----
-        if broken == nil { await MacTransitionsCheck.run(m, r, a: a, b: b24) }
+        if broken == nil, !untimed { await MacTransitionsCheck.run(m, r, a: a, b: b24) }
 
         // ---- M1c step 0b: the overlay's edge on the effect's, on a flat frame ----
-        if broken == nil, let flat { await MacMaskFlatCheck.run(m, r, flat: flat, broken: nil) }
+        if broken == nil, let flat, !skipped.contains("flat") { await MacMaskFlatCheck.run(m, r, flat: flat, broken: nil) }
 
         // ---- M1c: 主体 · 背景 · 人, 组合蒙版, 完善蒙版…, the geometry mark, the files; drawings 08, 09, 10, 14, 16 ----
-        if broken == nil { await MacMaskFindCheck.run(m, r, a: a, b: [b, c].first { $0.fileName.contains("bund") } ?? b, out: out, broken: nil) }
+        if broken == nil, !skipped.contains("find") { await MacMaskFindCheck.run(m, r, a: a, b: [b, c].first { $0.fileName.contains("bund") } ?? b, out: out, broken: nil) }
+        for part in skipped.sorted() { r.check(true, "SKIPPED \(part): --masks-check-skip (the change reaches none of it)") }
 
         // ---- kept: what run 2 reads back ----
         await keptRun1(m, r, a: a, c: c, clone: clone, cloneRows: cloneRows, out: out)
@@ -676,7 +744,7 @@ enum MacMasksCheck {
         r.check(keptRows(s.edit.layers) == k.rows, "kept: and Redo takes it again")
         if let f = k.strokesFrame, let n = k.strokes { await MacMaskToolsCheck.kept(m, r, frame: f, strokes: n) }
         else { r.check(false, "kept: run 1 wrote the strokes' frame") }
-        await MacMaskFindCheck.kept(m, r, run1: run1)
+        if !skipped.contains("find") { await MacMaskFindCheck.kept(m, r, run1: run1) }
         m.router.toLibrary()
         await pause(1)
     }

@@ -224,7 +224,8 @@ final class EngineRouter {
                                decode: edit.decode, isRAW: frame.developsFromRAW, longEdge: longEdge, engine: identity,
                                origin: frame.stampOrigin,
                                lens: LensCorrection.word(source: frame.developSource, fileName: frame.fileName, decode: edit.decode,
-                                                         isRAW: frame.developsFromRAW))
+                                                         isRAW: frame.developsFromRAW),
+                               base: WatermarkComposite.Base.word(edit, isComposite: false))
     }
 
     // MARK: an original that stays in Photos
@@ -336,7 +337,7 @@ final class EngineRouter {
 
     /// Whether the file a job would be handed is there to hand: a frame read
     /// in place from Photos has one only while its working copy is here.
-    private func isHere(_ frame: LibraryFrame) -> Bool {
+    func isHere(_ frame: LibraryFrame) -> Bool {
         guard frame.readsFromPhotos else { return true }
         return originals?.copies.has(frame.id, named: frame.fileName) ?? FileManager.default.fileExists(atPath: frame.workingCopy.path)
     }
@@ -373,6 +374,28 @@ final class EngineRouter {
         return SceneLayerWire.ask(edit.layers, source: frame.originalSize, hostCut: cut, decode: decode)
     }
 
+    #if SPK_ENGINE
+    /// Every request the router makes goes to the host through here, held to RFC-052 §6.4's rule on the host: **a
+    /// request whose wire names a 场景 set carries that set** (`EngineHost.Request.carriesItsSceneSet`). One that does not
+    /// is a path that built the wire and forgot the ask (the full render's, until 2026-11-16): it is not registered, so its
+    /// job is not submitted — said in the log once, rather than a decode of the whole original the engine then refuses.
+    /// A check counts them (`unhandedSceneSets`).
+    private func hand(_ host: EngineHost, _ job: RenderJob, _ request: EngineHost.Request) -> Bool {
+        guard request.carriesItsSceneSet else {
+            var named = ""
+            if case .string(let s) = request.wire["scene_layers"] { named = s }
+            log.fault("a \(job.kind.rawValue, privacy: .public) request names the 场景 set '\(named, privacy: .public)' and carries \(request.sceneLayers?.stamp ?? "none", privacy: .public): not submitted")
+            Log.note(.develop, "scene set not carried", ["kind": job.kind.rawValue, "named": named, "carried": request.sceneLayers?.stamp ?? ""])
+            Self.unhandedSceneSets += 1
+            return false
+        }
+        host.register(job.id, request)
+        return true
+    }
+    /// How many requests `hand` turned away since launch (the masks check holds it at zero).
+    nonisolated(unsafe) static var unhandedSceneSets = 0
+    #endif
+
     /// `film_format_mm` as this frame's crop says it, where Settings makes the crop the frame
     /// (`FrameEdit.wireFilmFormatMM`); untouched otherwise. The develop page, a card and an export
     /// all go through here, so they are developed at the same pitch.
@@ -396,8 +419,10 @@ final class EngineRouter {
         if let pair = frame.pair { return sourceKey(pair, frames: held(by: pair), look: edit, longEdge: longEdge) }
         #if SPK_ENGINE
         guard host != nil, let source = frame.developSource else { return nil }
+        // 水印's 底片 marks are in the source the engine is handed (`EngineHost.Request.sourceKey`, the same word).
+        let base = WatermarkComposite.Base(edit, isComposite: false).map { $0.sourceWord(wire: wire(frame, edit: edit, longEdge: longEdge)) } ?? ""
         return EngineHost.Request.sourceKey(source: source, isRAW: frame.developsFromRAW, decode: edit.decode,
-                                            longEdge: longEdge, cut: edit.hostCut(source: frame.originalSize))
+                                            longEdge: longEdge, cut: edit.hostCut(source: frame.originalSize)) + base
         #else
         return nil
         #endif
@@ -410,7 +435,8 @@ final class EngineRouter {
     /// then not to be submitted. `longEdge` is the decode's size for a job
     /// below the full tier — its canvas — and nil for a full-size one.
     @discardableResult
-    func prepare(_ job: RenderJob, frame: LibraryFrame, edit: FrameEdit, purpose: Purpose, longEdge: Int?) -> Bool {
+    func prepare(_ job: RenderJob, frame: LibraryFrame, edit: FrameEdit, purpose: Purpose, longEdge: Int?,
+                 keepsBaseSource: Bool = false) -> Bool {
         // A double exposure: the frame is its two photographs' light, added by the host (RFC-048).
         if let double = frame.double {
             return prepare(job, double: double, item: frame, look: edit, purpose: purpose, longEdge: longEdge)
@@ -432,20 +458,24 @@ final class EngineRouter {
         let wire = wire(frame, edit: edit, longEdge: longEdge)
         let cut = edit.hostCut(source: frame.originalSize)
         let turns = edit.hostTurns(source: frame.originalSize)
+        // 水印's 底片 marks, laid into this job's source (`EngineHost.decode`); their word in the stamp.
+        let base = WatermarkComposite.Base(edit, isComposite: false)
         let stamp = DevelopStamp.of(wire: wire, cut: cut, turns: turns, decode: edit.decode, isRAW: frame.developsFromRAW,
                                     longEdge: longEdge ?? frame.originalSize.longEdge, engine: identity,
-                                    origin: frame.stampOrigin, lens: lens?.word ?? "")
+                                    origin: frame.stampOrigin, lens: lens?.word ?? "", base: base?.key ?? "")
         var request = EngineHost.Request(frameID: frame.id, source: source, isRAW: frame.developsFromRAW,
                                          decode: edit.decode, longEdge: longEdge, cut: cut, wire: wire, turnsAfter: turns,
                                          stamp: stamp, purpose: purpose == .canvas ? .canvas : .keep, proxy: proxy)
         request.lens = lens
+        request.base = base
+        request.keepsBaseSource = purpose == .canvas && keepsBaseSource
         // The 场景 layers the wire names, captured with the rest (`wire` put their stamp in it).
         request.sceneLayers = sceneAsk(frame, edit: edit, longEdge: longEdge, cut: cut)
         if !edit.appliesFilm { request.digital = cut ?? edit.geometry }
         // The page's canvas asks for Enable HDR's curve with a develop where its HDR is drawn (`curveWithDevelop`);
         // otherwise the page asks once the edit settles (`OpenFrameSession.askCurve`), not with every develop.
         if purpose == .canvas, Self.curveWithDevelop(edit) { request.hdrCurve = HDRSessionCurve.request(for: edit) }
-        host.register(job.id, request)
+        guard hand(host, job, request) else { return false }
         return true
         #else
         return true
@@ -613,7 +643,7 @@ final class EngineRouter {
                                          stripPixels: pair.piece(frames, look: look, longEdge: StockPreviewSize.openLongEdge).key)
         // A pair's page has Enable HDR as a photograph's has (a pair is a frame to develop like any other).
         if purpose == .canvas, Self.curveWithDevelop(look) { request.hdrCurve = HDRSessionCurve.request(for: look) }
-        host.register(job.id, request)
+        guard hand(host, job, request) else { return false }
         return true
         #else
         return true
@@ -693,10 +723,10 @@ final class EngineRouter {
         // The strip's cards compose the same piece without the film edge and the date (`doubleCardPlan`):
         // only where that is these pixels — no film edge, or one that cuts and turns nothing — is the
         // page's own decode made the strip's (`DoubleExposure.stripPixels`, `EngineHost.feedStrip`).
-        host.register(job.id, EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
+        guard hand(host, job, EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
                                                  longEdge: longEdge, cut: nil, wire: wire, turnsAfter: shape.turnsAfter, stamp: stamp,
                                                  purpose: purpose == .canvas ? .canvas : .keep, piece: piece,
-                                                 stripPixels: made.stripPixels(frames, look: look)))
+                                                 stripPixels: made.stripPixels(frames, look: look))) else { return false }
         note(job, piece: piece, frames: frames)
         return true
         #else
@@ -731,9 +761,9 @@ final class EngineRouter {
         let wire = wire(made, item: item, frames: frames, look: look, longEdge: longEdge)
         let stamp = DevelopStamp.of(wire: wire, turns: shape.turnsAfter, decode: DecodeSettings(), isRAW: false,
                                     longEdge: longEdge ?? piece.size.longEdge, engine: identity, piece: piece.key)
-        host.register(job.id, EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
+        guard hand(host, job, EngineHost.Request(frameID: job.frameID, source: first.url, isRAW: false, decode: DecodeSettings(),
                                                  longEdge: longEdge, cut: nil, wire: wire, turnsAfter: shape.turnsAfter, stamp: stamp,
-                                                 purpose: .alone, piece: piece))
+                                                 purpose: .alone, piece: piece)) else { return false }
         note(job, piece: piece, frames: frames)
         return true
         #else
@@ -810,6 +840,16 @@ final class EngineRouter {
         #endif
     }
 
+    /// What a job's 水印 底片 pass holds, for the scheduler's price of it (`RenderQueue.marks`): asked once, when the job
+    /// is submitted, of the answers `prepare` handed the host. 0 for a job without base marks.
+    func watermarkBytes(of job: RenderJob) -> UInt64 {
+        #if SPK_ENGINE
+        return host?.baseBytes(job) ?? 0
+        #else
+        return 0
+        #endif
+    }
+
     // MARK: Develop's strips
 
     /// What a card of a frame is rendered from (`StockPreviews`), for an edit
@@ -881,8 +921,11 @@ final class EngineRouter {
         pixels = EngineHost.Request.pixelsKey(source: source, isRAW: frame.developsFromRAW, decode: edit.decode, cut: cut, lens: lens)
         #endif
         let turns = edit.hostTurns(source: original)
+        // 水印's 底片 marks are in the photograph a card develops (each card lays them into its copy of the strip's decode,
+        // `EngineHost.decode`): a mark moved is other cards. Nothing for a card without.
+        let baseWord = WatermarkComposite.Base(edit, isComposite: false).map { " wmb " + $0.key } ?? ""
         return CardPlan(key: StockPreviewKey.of(wire: wire, decode: decodeWord, cut: cut.map { $0.cutKey + " turned \(turns)" },
-                                                source: sourceWord, engine: identity),
+                                                source: sourceWord + baseWord, engine: identity),
                         source: StockPreviewKey.tag(sourceWord), strip: strip, pixels: pixels, wire: wire, cut: cut, turns: turns,
                         // A perspective alone is cut by the host at the decode's own size (`hostCut`).
                         decodeLongEdge: decodeLongEdge, opens: cut == nil || !edit.filmEdge.effective ? decoded : inDecode,
@@ -961,10 +1004,10 @@ final class EngineRouter {
         if let piece = plan.piece {
             guard let host, let first = piece.pictures.first,
                   sources(of: frame).allSatisfy({ isHere($0) }) else { return false }
-            host.register(job.id, EngineHost.Request(frameID: frame.id, source: first.url, isRAW: false,
+            guard hand(host, job, EngineHost.Request(frameID: frame.id, source: first.url, isRAW: false,
                             decode: DecodeSettings(), longEdge: plan.decodeLongEdge, cut: nil,
                             wire: plan.wire, stamp: plan.key, purpose: .card(plan.key),
-                            piece: piece, layers: plan.layers, strip: strip, decodesStrip: decodes))
+                            piece: piece, layers: plan.layers, strip: strip, decodesStrip: decodes)) else { return false }
             if decodes, let double = frame.double { note(job, piece: piece, frames: held(by: double)) }
             return true
         }
@@ -978,7 +1021,8 @@ final class EngineRouter {
                                          stamp: plan.key, purpose: .card(plan.key), strip: strip, decodesStrip: decodes,
                                          proxy: proxy)
         request.lens = plan.lens ?? lens
-        host.register(job.id, request)
+        request.base = WatermarkComposite.Base(edit, isComposite: false)
+        guard hand(host, job, request) else { return false }
         return true
         #else
         return false
@@ -1025,9 +1069,9 @@ final class EngineRouter {
             guard !piece.pictures.isEmpty,
                   let shape = double.pieceFrame(double.framed(frames), look: edit, longEdge: plan.decodeLongEdge) else { return false }
             let wire = wire(double, item: frame, frames: frames, look: edit, longEdge: job.tier == .full ? nil : plan.decodeLongEdge)
-            host.register(job.id, EngineHost.Request(frameID: frame.id, source: source, isRAW: false, decode: DecodeSettings(),
+            guard hand(host, job, EngineHost.Request(frameID: frame.id, source: source, isRAW: false, decode: DecodeSettings(),
                                                      longEdge: plan.decodeLongEdge, cut: nil, wire: wire, turnsAfter: shape.turnsAfter,
-                                                     stamp: "", purpose: .export(order), piece: piece))
+                                                     stamp: "", purpose: .export(order), piece: piece)) else { return false }
             note(job, piece: piece, frames: frames)
             return true
         }
@@ -1045,7 +1089,7 @@ final class EngineRouter {
                                              layers: layers(pair, piece: piece, look: edit))
             // Enable HDR: the map's curve is the session's that prints the pair (never rendered twice: no slide rendition).
             if order.gainMap { request.hdrCurve = HDRSessionCurve.request(for: edit) }
-            host.register(job.id, request)
+            guard hand(host, job, request) else { return false }
             return true
         }
         let wire = exportWire(frame, plan: plan, full: job.tier == .full)
@@ -1064,7 +1108,12 @@ final class EngineRouter {
         // whose curve (or second rendition) needs the session a kept render has not.
         if job.tier == .full, !order.gainMap { request.fullRender = fullAsk(frame, plan: plan, source: source, isRAW: isRAW, lens: request.lens) }
         if !edit.appliesFilm { request.digital = plan.cut ?? (plan.engineCuts ? edit.geometry : .default) }
-        host.register(job.id, request)
+        // 水印's 成片 marks, laid over the finished picture last (`WatermarkRules.finished`: a single photograph's own;
+        // a pair's and a double's requests above carry none).
+        request.watermarks = WatermarkRules.finished(edit, isComposite: frame.isComposite)
+        // And its 底片 marks, laid into the export's own decode, in place, before the engine (`EngineHost.decode`).
+        request.base = WatermarkComposite.Base(edit, isComposite: frame.isComposite)
+        guard hand(host, job, request) else { return false }
         return true
         #else
         return true
@@ -1109,7 +1158,7 @@ final class EngineRouter {
         let lens = given ?? (isRAW ? LensResolver.current(source, fileName: frame.fileName, decode: frame.edit.decode) : nil)
         let stamp = DevelopStamp.of(wire: wire, cut: plan.cut, turns: plan.turnsAfter, decode: frame.edit.decode, isRAW: isRAW,
                                     longEdge: plan.decodeLongEdge ?? 0, engine: identity, origin: frame.stampOrigin,
-                                    lens: lens?.word ?? "")
+                                    lens: lens?.word ?? "", base: WatermarkComposite.Base.word(frame.edit, isComposite: frame.isComposite))
             + "|\(plan.engineCanvas.width)x\(plan.engineCanvas.height)|\(source.lastPathComponent)"
         return FullRender.Ask(url: folder.appendingPathComponent(FullRender.fileName(frame: frame.id, stamp: stamp)), stamp: stamp, lens: lens)
     }
@@ -1126,9 +1175,13 @@ final class EngineRouter {
                                          wire: exportWire(frame, plan: plan, full: true),
                                          turnsAfter: plan.turnsAfter, stamp: ask.stamp, purpose: .fullView(ask))
         request.lens = ask.lens
+        // The 场景 layers the wire names (`exportWire` put their stamp in it), as an export at Full carries them: without
+        // them the engine refused every full render of a frame with a 场景 layer (2026-11-16, "Full size unavailable"),
+        // and Apple's decode made it with none.
+        request.sceneLayers = sceneAsk(frame, edit: frame.edit, longEdge: plan.decodeLongEdge, cut: plan.cut)
         if !frame.edit.appliesFilm { request.digital = plan.cut ?? (plan.engineCuts ? frame.edit.geometry : .default) }
-        host.register(job.id, request)
-        return true
+        request.base = WatermarkComposite.Base(frame.edit, isComposite: false)
+        return hand(host, job, request)
         #else
         return false
         #endif
@@ -1201,6 +1254,8 @@ final class EngineRouter {
     func closeEditing(_ frameID: UUID) {
         #if SPK_ENGINE
         guard let spk else { return }
+        // The page's kept decode for its 底片 marks goes with its session (`EngineHost.baseSource`).
+        host?.dropBaseSource()
         Task { await spk.closeEditing(frameID: frameID) }
         #endif
     }

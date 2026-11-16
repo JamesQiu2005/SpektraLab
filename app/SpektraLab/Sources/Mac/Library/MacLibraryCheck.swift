@@ -201,6 +201,8 @@ enum MacLibraryCheck {
                 // one does, through its mirror; Capture One's file is never written (the census says so).
                 r.check(MacWords.symbol(.captureOneCatalog) == MacWords.symbol(.catalog), "a Capture One catalog is drawn as a catalog")
                 r.check(store.tree.folders.allSatisfy(isVolume), "every top folder of the Capture One catalog is a volume")
+                // Never an import destination (2026-11-16; 2.4.0 imported into the mirror, and Remove from SpektraLab
+                // then did nothing): the store refuses, and the catalog lists what it did. `--import-c1-check` has the rest.
                 let into = work.appending(path: "Into Capture One")
                 try fm.createDirectory(at: into, withIntermediateDirectories: true)
                 var files: [MacImportFile] = []
@@ -209,18 +211,18 @@ enum MacLibraryCheck {
                     try? fm.copyItem(at: u, to: d)
                     files.append(MacImportFile(url: d, header: MacHeaders.readIfReadable(d)))
                 }
-                let (chunk, impMS) = try await timed { try await store.importChunk(files, into: s.id, copyIntoLibrary: false, album: nil) }
-                await store.showImport(in: s.id, album: chunk.album)
-                let rows = store.tree.fixed.filter { $0.kind == .recentImports }
-                r.note("capture one: an import into it (its mirror)", impMS, [
-                    "added": chunk.added, "album": chunk.album ?? "-", "recent_imports_rows": rows.count,
-                    "recent_imports": rows.first?.children.prefix(3).map(\.title) ?? [], "listed": store.total,
-                    "volumes": store.tree.folders.map(\.title)])
-                r.check(s.acceptsImports, "a Capture One catalog takes imports")
-                r.check(!files.isEmpty && chunk.added == files.count && chunk.album != nil, "an import into it adds its files as one Recent Import")
-                r.check(rows.count == 1 && rows[0].children.contains { $0.id == chunk.album }, "one Recent Imports row holds Capture One's imports and SpektraLab's")
-                r.check(store.selectedCollectionID == chunk.album && store.total == files.count, "the import is shown")
-                r.check(store.tree.folders.allSatisfy(isVolume), "the import's folder sits under its volume, as Capture One's do")
+                let listedBefore = store.total
+                var refused = false
+                let (_, impMS) = await timed { () async -> Void in
+                    do { _ = try await store.importChunk(files, into: s.id, copyIntoLibrary: false, album: nil) }
+                    catch { refused = (error as? MacLibraryError) == .readOnly }
+                }
+                await store.select(collection: store.tree.defaultSelection)
+                r.note("capture one: an import into it, refused", impMS, ["refused": refused, "listed": store.total, "was": listedBefore,
+                                                                          "volumes": store.tree.folders.map(\.title)])
+                r.check(!s.acceptsImports, "a Capture One catalog takes no imports")
+                r.check(!files.isEmpty && refused, "an import into it is refused as read-only")
+                r.check(store.tree.folders.allSatisfy(isVolume), "its folders still sit under their volumes")
 
                 // The Light Table, from the library, by the one filter (the owner, 2026-10-24): a picture
                 // with no frame, or a frame SpektraLab never developed and with no film edge, is refused; with a film

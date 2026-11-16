@@ -205,6 +205,8 @@ final class LibraryPersistence {
     let layersURL: URL
     /// The variants' frames' own file (`LibraryShelf.variantsURL`).
     let variantsURL: URL
+    /// The watermarks' own record (`WatermarkShelf.url`, PRD-8): every frame's marks, which `library.json` never holds.
+    let watermarksURL: URL
     private var pending: Task<Void, Never>?
     /// The items of `doubles.json` this build did not read (a later build's), written back as they were
     /// (`LibraryShelf.read`); and whether the file was there and did not read at all, so that it is not
@@ -217,12 +219,16 @@ final class LibraryPersistence {
     /// The same for `variants.json`.
     private var unreadVariants: [ShelfJSON] = []
     private var variantsUnreadable = false
+    /// `watermarks.json`'s entries this build did not read, and whether the file did not read at all (`WatermarkShelf`).
+    private var unreadWatermarks: [UUID: ShelfJSON] = [:]
+    private var watermarksUnreadable = false
 
     init(url: URL = ImportService.root.appendingPathComponent(fileName)) {
         self.url = url
         doublesURL = LibraryShelf.doublesURL(beside: url)
         layersURL = LayerShelf.url(beside: url)
         variantsURL = LibraryShelf.variantsURL(beside: url)
+        watermarksURL = WatermarkShelf.url(beside: url)
     }
 
     /// The library as it was kept; nil when there is none, or none this build can read. A file that
@@ -281,6 +287,18 @@ final class LibraryPersistence {
             Log.warn(.library, "layers.json: layers this build does not read, kept", ["count": layers.unread.count])
         }
         stored.frames = LayerShelf.joined(stored.frames, layers, id: \.id, edit: \.edit)
+        // The watermarks, from their own record (`WatermarkShelf`), the same way.
+        let marks = WatermarkShelf.read(try? Data(contentsOf: watermarksURL))
+        unreadWatermarks = marks.unread
+        watermarksUnreadable = marks.unreadable
+        if marks.unreadable {
+            let aside = WatermarkShelf.setAside(watermarksURL)
+            Log.warn(.library, "watermarks.json does not read: kept as it is, not written over", ["aside": aside?.lastPathComponent ?? "nowhere"])
+        }
+        if !marks.unread.isEmpty {
+            Log.warn(.library, "watermarks.json: watermarks this build does not read, kept", ["count": marks.unread.count])
+        }
+        stored.frames = WatermarkShelf.joined(stored.frames, marks, id: \.id, edit: \.edit)
         return stored
     }
 
@@ -299,7 +317,8 @@ final class LibraryPersistence {
     /// time was main-thread work for a file written once a second later — 4 % of the main thread in a sampled
     /// Brightness drag on a library of two frames, growing with the library.
     func save(_ frames: [LibraryFrame], folders: [LinkedFolder] = [], selectedID: UUID?) {
-        let url = self.url, doublesURL = self.doublesURL, variantsURL = self.variantsURL, layersURL = self.layersURL
+        let url = self.url, doublesURL = self.doublesURL, variantsURL = self.variantsURL, layersURL = self.layersURL,
+            watermarksURL = self.watermarksURL
         pending?.cancel()
         // Unsaved for that second: a quit then writes it first (`AppServices.settleForQuit`, on entering the
         // background, which a Catalyst quit passes through: `flush`, `saveNow`).
@@ -308,7 +327,8 @@ final class LibraryPersistence {
             guard !Task.isCancelled, let self else { return }
             let stored = self.stored(frames, folders: folders, selectedID: selectedID)
             await Task.detached(priority: .utility) {
-                Self.write(stored, to: url, doublesTo: doublesURL, variantsTo: variantsURL, layersTo: layersURL)
+                Self.write(stored, to: url, doublesTo: doublesURL, variantsTo: variantsURL, layersTo: layersURL,
+                           watermarksTo: watermarksURL)
             }.value
         }
     }
@@ -322,7 +342,7 @@ final class LibraryPersistence {
         pending?.cancel()
         pending = nil
         Self.write(stored(frames, folders: folders, selectedID: selectedID), to: url, doublesTo: doublesURL, variantsTo: variantsURL,
-                   layersTo: layersURL)
+                   layersTo: layersURL, watermarksTo: watermarksURL)
     }
 
     /// What is written, split by file (`LibraryShelf.split`): the photographs, pairs and every image's primary variant
@@ -332,8 +352,10 @@ final class LibraryPersistence {
     /// The mask layers are taken out of every edit first — a variant's and a double's too — and kept in their own
     /// record (`LayerShelf`): none of the three files ever carries them, so no older build's coder can drop them.
     private func stored(_ frames: [LibraryFrame], folders: [LinkedFolder], selectedID: UUID?) -> StoredFiles {
-        let (bare, record, madeLayers) = LayerShelf.split(frames.filter { !$0.isDemo }.map(StoredFrame.init), unread: unreadLayers,
-                                                          id: \.id, edit: \.edit)
+        let (layerless, record, madeLayers) = LayerShelf.split(frames.filter { !$0.isDemo }.map(StoredFrame.init), unread: unreadLayers,
+                                                               id: \.id, edit: \.edit)
+        // The watermarks too (`WatermarkShelf`): none of the three files carries them.
+        let (bare, marks, madeMarks) = WatermarkShelf.split(layerless, unread: unreadWatermarks, id: \.id, edit: \.edit)
         let (rest, doubles) = LibraryShelf.split(bare, isDouble: { $0.double != nil })
         let (kept, variants) = LibraryShelf.split(rest, isDouble: { $0.variant != nil })
         return StoredFiles(library: StoredLibrary(frames: kept, selectedID: selectedID,
@@ -342,7 +364,8 @@ final class LibraryPersistence {
                                           made: doubles.count, unreadable: doublesUnreadable),
                            variants: .init(items: variants.map { ShelfItem.read($0) } + unreadVariants.map { .unread($0) },
                                            made: variants.count, unreadable: variantsUnreadable),
-                           layers: record, madeLayers: madeLayers, layersUnreadable: layersUnreadable)
+                           layers: record, madeLayers: madeLayers, layersUnreadable: layersUnreadable,
+                           watermarks: marks, madeWatermarks: madeMarks, watermarksUnreadable: watermarksUnreadable)
     }
 
     /// One shelf file's contents, and what decides whether it is written (`LibraryShelf.writes`).
@@ -361,13 +384,16 @@ final class LibraryPersistence {
         var layers: LayerShelf.Record
         var madeLayers: Int
         var layersUnreadable: Bool
+        var watermarks: WatermarkShelf.Record
+        var madeWatermarks: Int
+        var watermarksUnreadable: Bool
     }
 
     /// `doubles.json` first, then `library.json`, each atomically (`LibraryShelf`: what an app ended between
     /// the two leaves). A library with no double exposure and no `doubles.json` makes none: the library on
     /// disk of someone who never made one is the one file it was.
     nonisolated private static func write(_ stored: StoredFiles, to url: URL, doublesTo doublesURL: URL, variantsTo variantsURL: URL,
-                                          layersTo layersURL: URL) {
+                                          layersTo layersURL: URL, watermarksTo watermarksURL: URL) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -378,6 +404,13 @@ final class LibraryPersistence {
                              fileExists: FileManager.default.fileExists(atPath: layersURL.path), unreadable: stored.layersUnreadable),
            let data = LayerShelf.encode(stored.layers) {
             try? data.write(to: layersURL, options: .atomic)
+        }
+        // The watermarks' record beside it, by the same rule (`WatermarkShelf`).
+        if WatermarkShelf.writes(entries: stored.watermarks.frames.count, made: stored.madeWatermarks,
+                                 fileExists: FileManager.default.fileExists(atPath: watermarksURL.path),
+                                 unreadable: stored.watermarksUnreadable),
+           let data = WatermarkShelf.encode(stored.watermarks) {
+            try? data.write(to: watermarksURL, options: .atomic)
         }
         // The shelves next, then `library.json`: an app ended between them leaves a shelf one change newer, never a
         // variant's frame on no file at all (it would be read from neither).

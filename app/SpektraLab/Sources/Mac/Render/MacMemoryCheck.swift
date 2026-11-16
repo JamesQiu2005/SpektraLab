@@ -43,7 +43,7 @@ import UIKit
 @MainActor
 enum MacMemoryCheck {
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
-        guard let i = arguments.firstIndex(of: "--memory-check"), i + 1 < arguments.count, arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--memory-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         guard let p = arguments.firstIndex(of: "--memory-check-pictures"), p + 1 < arguments.count else {
             print("memory-check: supply --memory-check-pictures <folder>; nothing was run")

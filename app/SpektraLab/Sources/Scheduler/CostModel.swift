@@ -203,6 +203,11 @@ struct CostModel: Sendable {
             peak += Double(job.scenePlaneBytes)
             seconds += (0.096 + 0.011 * Double(job.scenePlanes)) * mp / 1000
         }
+        if job.watermarkBytes > 0 {
+            // 水印's 底片 pass (RFC-067 §4.2, `WatermarkComposite.held`): what it holds beside the source, on the peak. The
+            // pass is a few milliseconds at a preview (the marks' boxes only): no time.
+            peak += Double(job.watermarkBytes)
+        }
         if job.printLayers > 0 {
             // A half-frame pair whose frames print as their own (`RenderJob.printLayers`): after
             // its own print the job prints the same negative again for each, and cuts that print

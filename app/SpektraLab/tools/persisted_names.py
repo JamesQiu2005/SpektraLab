@@ -569,6 +569,14 @@ FORMATS = [
      "writer": "Model/HalfFramePair.swift + Mac/Library/MacPairRows.swift", "roots": ["HalfFramePair"],
      "note": "A pair's recipe; its catalog row (spklib kind `pair`) points at the file. HalfFramePair's "
              "JSON plus a merged `spektralab` object (JSONSerialization, literal keys)."},
+    {"id": "Watermarks/index.json", "class": "disk", "where": "<root>/Watermarks/index.json (+ <uuid>.png)",
+     "writer": "Services/WatermarkStore.swift", "roots": ["WatermarkMark"],
+     "note": "The watermark library (PRD-8): a bare JSON array of marks, a fixed on-disk shape "
+             "and keys that must not move. Pretty-printed, sorted keys, dates ISO 8601."},
+    {"id": "watermarks.json", "class": "disk", "where": "<root>/watermarks.json, beside library.json",
+     "writer": "Services/WatermarkShelf.swift", "roots": ["WatermarkShelf.Record"],
+     "note": "Each frame's watermarks (FrameEdit.watermarks), kept beside library.json, which an older build "
+             "rewrites through a coder that would drop them (as layers.json is for the mask layers)."},
     {"id": "look-presets.json", "class": "disk", "where": "<root>/look-presets.json",
      "writer": "Services/PresetStore.swift", "roots": ["PresetStore.File"],
      "note": "Saved looks (LookPreset -> SettingsClip -> FrameEdit)."},
@@ -617,6 +625,7 @@ CLASS_WEIGHT = {"disk": 10, "defaults-blob": 4, "defaults": 4, "wire": 7, "bundl
                 "derived-hash": 3}
 # formats whose loss is the user's own work
 CROWN = {"library.json": 10, ".spektrapair": 6, "look-presets.json": 6, "export-recipes.json": 4,
+         "Watermarks/index.json": 5, "watermarks.json": 6,
          "lighttable.json": 5, "MacLibrary/sources.json": 6, "MacLibrary/pairs.json": 3,
          "MacLibrary/moved.json": 3}
 # what a renamed key does to a reader: "required" -- the decode throws, so the whole file (or
@@ -1458,6 +1467,7 @@ def apply_rename_map(path):
 BASELINE_FORMATS = {
     "library.json", "MacLibrary/sources.json", "MacLibrary/pairs.json", "MacLibrary/moved.json", ".spektrapair",
     "look-presets.json", "export-recipes.json", "lighttable.json", "defaults:scheduler.costCorrections.v1",
+    "Watermarks/index.json", "watermarks.json",
     "UserDefaults", "UserDefaults raw values", "engine-wire", "spklib-host",
 }
 

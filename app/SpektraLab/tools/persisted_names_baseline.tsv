@@ -14,6 +14,7 @@
 .spektrapair	$.left.decode.rawExposureTreatment=source-reference.2	path
 .spektrapair	$.left.decode.temperature	path
 .spektrapair	$.left.decode.tint	path
+.spektrapair	$.left.decode.tintAsShot	path
 .spektrapair	$.left.decode.whiteBalance	path
 .spektrapair	$.left.decode.whiteBalance=As Shot	path
 .spektrapair	$.left.decode.whiteBalance=Cloudy	path
@@ -86,6 +87,7 @@
 .spektrapair	$.right.decode.rawExposureTreatment=source-reference.2	path
 .spektrapair	$.right.decode.temperature	path
 .spektrapair	$.right.decode.tint	path
+.spektrapair	$.right.decode.tintAsShot	path
 .spektrapair	$.right.decode.whiteBalance	path
 .spektrapair	$.right.decode.whiteBalance=As Shot	path
 .spektrapair	$.right.decode.whiteBalance=Cloudy	path
@@ -189,9 +191,11 @@ UserDefaults	clipboard.groups	key
 UserDefaults	develop.wide.dateBack.collapsed	key
 UserDefaults	develop.wide.decode.collapsed	key
 UserDefaults	develop.wide.filmEdge.collapsed	key
+UserDefaults	develop.wide.filmGrid.height	key
 UserDefaults	develop.wide.filmRow.collapsed	key
 UserDefaults	develop.wide.histogram.collapsed	key
 UserDefaults	develop.wide.histogram.style	key	retired: the histogram has one style since 2026-11-09 (the owner dropped SpektraLab Style and its menu); the stored choice is no longer read
+UserDefaults	develop.wide.paperGrid.height	key
 UserDefaults	develop.wide.paperRow.collapsed	key
 UserDefaults	diagnostics.consent	key
 UserDefaults	diagnostics.install	key
@@ -219,6 +223,7 @@ UserDefaults	scheduler.costCorrections.v1	key
 UserDefaults	settings. + (b.id == "fullRenders" ? "fullRenderCacheLimit" : b.id + "Limit")	key
 UserDefaults	settings.bodySeed	key
 UserDefaults	settings.cropRemapsFrame	key
+UserDefaults	settings.edrByDefault	key
 UserDefaults	settings.finishInBackground	key
 UserDefaults	settings.fullRenderCacheLimit	key
 UserDefaults	settings.galleryView	key
@@ -254,6 +259,9 @@ UserDefaults raw values	$=curve	path
 UserDefaults raw values	$=dark	path
 UserDefaults raw values	$=declined	path
 UserDefaults raw values	$=decode	path
+UserDefaults raw values	$=decodeCurve	path
+UserDefaults raw values	$=decodeTemperature	path
+UserDefaults raw values	$=decodeTint	path
 UserDefaults raw values	$=drag	path
 UserDefaults raw values	$=en	path
 UserDefaults raw values	$=enlarger	path
@@ -281,10 +289,17 @@ UserDefaults raw values	$=shared	path
 UserDefaults raw values	$=spektraLab	path	retired: HistogramStyle, the histogram's two styles, removed 2026-11-09 (one style since); develop.wide.histogram.style is no longer read
 UserDefaults raw values	$=system	path
 UserDefaults raw values	$=unasked	path
+UserDefaults raw values	$=watermark	path
 UserDefaults raw values	$=whiteBalance	path
 UserDefaults raw values	$=withTable	path	retired: still LightTableExportStyle's literal raw value, read from lighttable.export.style; only the deleted debug harness wrote it here
 UserDefaults raw values	$=zh-Hans	path
 UserDefaults raw values	$=zh-Hant	path
+Watermarks/index.json	$.added	path
+Watermarks/index.json	$.h	path
+Watermarks/index.json	$.id	path
+Watermarks/index.json	$.name	path
+Watermarks/index.json	$.sha256	path
+Watermarks/index.json	$.w	path
 defaults:scheduler.costCorrections.v1	$.peak	path
 defaults:scheduler.costCorrections.v1	$.samples	path
 defaults:scheduler.costCorrections.v1	$.time	path
@@ -415,6 +430,12 @@ engine-wire	grain_sublayers_active	literal
 engine-wire	halation_active	literal
 engine-wire	halation_amount	literal
 engine-wire	halation_scatter_amount	literal
+engine-wire	leak_amount	literal
+engine-wire	leak_edge	literal
+engine-wire	leak_front	literal
+engine-wire	leak_kind	literal
+engine-wire	leak_rate	literal
+engine-wire	leak_seed	literal
 engine-wire	m_filter_shift	literal
 engine-wire	overscan_active	literal
 engine-wire	overscan_camera_seed	literal
@@ -506,6 +527,7 @@ library.json	$.frames[].developed.size	path
 library.json	$.frames[].developed.size.height	path
 library.json	$.frames[].developed.size.width	path
 library.json	$.frames[].developed.stamp	path
+library.json	$.frames[].double.exposures[].decode.tintAsShot	path
 library.json	$.frames[].edit	path
 library.json	$.frames[].edit.adjustments	path
 library.json	$.frames[].edit.adjustments.blackPoint	path
@@ -670,6 +692,7 @@ library.json	$.frames[].edit.decode.rawExposureTreatment=source-reference.1	path
 library.json	$.frames[].edit.decode.rawExposureTreatment=source-reference.2	path
 library.json	$.frames[].edit.decode.temperature	path
 library.json	$.frames[].edit.decode.tint	path
+library.json	$.frames[].edit.decode.tintAsShot	path
 library.json	$.frames[].edit.decode.whiteBalance	path
 library.json	$.frames[].edit.decode.whiteBalance=As Shot	path
 library.json	$.frames[].edit.decode.whiteBalance=Cloudy	path
@@ -771,6 +794,17 @@ library.json	$.frames[].edit.geometry.horizontal	path
 library.json	$.frames[].edit.geometry.intendedSize	path
 library.json	$.frames[].edit.geometry.quarterTurns	path
 library.json	$.frames[].edit.geometry.vertical	path
+library.json	$.frames[].edit.leak	path
+library.json	$.frames[].edit.leak.amount	path
+library.json	$.frames[].edit.leak.edge	path
+library.json	$.frames[].edit.leak.kind	path
+library.json	$.frames[].edit.leak.kind=auto	path
+library.json	$.frames[].edit.leak.kind=band	path
+library.json	$.frames[].edit.leak.kind=edge	path	retired: 2026-11-15's builds only (never released): the edge burn as a kind; read since 2026-11-16 as off + leak.edge (API-SPEC §21.9), never written
+library.json	$.frames[].edit.leak.kind=off	path
+library.json	$.frames[].edit.leak.kind=spot	path
+library.json	$.frames[].edit.leak.kind=wash	path
+library.json	$.frames[].edit.leak.seed	path
 library.json	$.frames[].edit.params	path
 library.json	$.frames[].edit.params.antihalationRemoved	path
 library.json	$.frames[].edit.params.autoExposure	path
@@ -783,6 +817,7 @@ library.json	$.frames[].edit.params.contrastMask.scale	path
 library.json	$.frames[].edit.params.contrastMask.scheme	path
 library.json	$.frames[].edit.params.contrastMask.shadows	path
 library.json	$.frames[].edit.params.digitalIntermediate	path
+library.json	$.frames[].edit.params.edrOff	path
 library.json	$.frames[].edit.params.effects	path
 library.json	$.frames[].edit.params.effects.couplers	path
 library.json	$.frames[].edit.params.effects.couplersActive	path
@@ -936,6 +971,24 @@ library.json	$.frames[].edit.rawExposureFacts.treatment=source-reference.2	path
 library.json	$.frames[].edit.schemaVersion	path
 library.json	$.frames[].edit.schemaVersion…	path
 library.json	$.frames[].edit.solvedEV	path
+library.json	$.frames[].edit.watermarks	path
+library.json	$.frames[].edit.watermarks[].anchor	path
+library.json	$.frames[].edit.watermarks[].anchor=bl	path
+library.json	$.frames[].edit.watermarks[].anchor=br	path
+library.json	$.frames[].edit.watermarks[].anchor=tl	path
+library.json	$.frames[].edit.watermarks[].anchor=tr	path
+library.json	$.frames[].edit.watermarks[].dx	path
+library.json	$.frames[].edit.watermarks[].dy	path
+library.json	$.frames[].edit.watermarks[].fill	path
+library.json	$.frames[].edit.watermarks[].id	path
+library.json	$.frames[].edit.watermarks[].mark	path
+library.json	$.frames[].edit.watermarks[].on	path
+library.json	$.frames[].edit.watermarks[].opacity	path
+library.json	$.frames[].edit.watermarks[].rotation	path
+library.json	$.frames[].edit.watermarks[].size	path
+library.json	$.frames[].edit.watermarks[].stage	path
+library.json	$.frames[].edit.watermarks[].stage=base	path
+library.json	$.frames[].edit.watermarks[].stage=full	path
 library.json	$.frames[].exposure	path
 library.json	$.frames[].fileName	path
 library.json	$.frames[].id	path
@@ -972,6 +1025,7 @@ library.json	$.frames[].pair.left.decode.rawExposureTreatment=source-reference.1
 library.json	$.frames[].pair.left.decode.rawExposureTreatment=source-reference.2	path
 library.json	$.frames[].pair.left.decode.temperature	path
 library.json	$.frames[].pair.left.decode.tint	path
+library.json	$.frames[].pair.left.decode.tintAsShot	path
 library.json	$.frames[].pair.left.decode.whiteBalance	path
 library.json	$.frames[].pair.left.decode.whiteBalance=As Shot	path
 library.json	$.frames[].pair.left.decode.whiteBalance=Cloudy	path
@@ -1044,6 +1098,7 @@ library.json	$.frames[].pair.right.decode.rawExposureTreatment=source-reference.
 library.json	$.frames[].pair.right.decode.rawExposureTreatment=source-reference.2	path
 library.json	$.frames[].pair.right.decode.temperature	path
 library.json	$.frames[].pair.right.decode.tint	path
+library.json	$.frames[].pair.right.decode.tintAsShot	path
 library.json	$.frames[].pair.right.decode.whiteBalance	path
 library.json	$.frames[].pair.right.decode.whiteBalance=As Shot	path
 library.json	$.frames[].pair.right.decode.whiteBalance=Cloudy	path
@@ -1144,6 +1199,9 @@ look-presets.json	$.presets[].clip.groups=colour	path
 look-presets.json	$.presets[].clip.groups=couplers	path
 look-presets.json	$.presets[].clip.groups=curve	path
 look-presets.json	$.presets[].clip.groups=decode	path
+look-presets.json	$.presets[].clip.groups=decodeCurve	path
+look-presets.json	$.presets[].clip.groups=decodeTemperature	path
+look-presets.json	$.presets[].clip.groups=decodeTint	path
 look-presets.json	$.presets[].clip.groups=enlarger	path
 look-presets.json	$.presets[].clip.groups=exposure	path
 look-presets.json	$.presets[].clip.groups=filmAndPaper	path
@@ -1155,6 +1213,7 @@ look-presets.json	$.presets[].clip.groups=light	path
 look-presets.json	$.presets[].clip.groups=preflash	path
 look-presets.json	$.presets[].clip.groups=printEffects	path
 look-presets.json	$.presets[].clip.groups=scenePlacement	path
+look-presets.json	$.presets[].clip.groups=watermark	path
 look-presets.json	$.presets[].clip.groups=whiteBalance	path
 look-presets.json	$.presets[].clip.settings	path
 look-presets.json	$.presets[].clip.settings.adjustments	path
@@ -1320,6 +1379,7 @@ look-presets.json	$.presets[].clip.settings.decode.rawExposureTreatment=source-r
 look-presets.json	$.presets[].clip.settings.decode.rawExposureTreatment=source-reference.2	path
 look-presets.json	$.presets[].clip.settings.decode.temperature	path
 look-presets.json	$.presets[].clip.settings.decode.tint	path
+look-presets.json	$.presets[].clip.settings.decode.tintAsShot	path
 look-presets.json	$.presets[].clip.settings.decode.whiteBalance	path
 look-presets.json	$.presets[].clip.settings.decode.whiteBalance=As Shot	path
 look-presets.json	$.presets[].clip.settings.decode.whiteBalance=Cloudy	path
@@ -1421,6 +1481,17 @@ look-presets.json	$.presets[].clip.settings.geometry.horizontal	path
 look-presets.json	$.presets[].clip.settings.geometry.intendedSize	path
 look-presets.json	$.presets[].clip.settings.geometry.quarterTurns	path
 look-presets.json	$.presets[].clip.settings.geometry.vertical	path
+look-presets.json	$.presets[].clip.settings.leak	path
+look-presets.json	$.presets[].clip.settings.leak.amount	path
+look-presets.json	$.presets[].clip.settings.leak.edge	path
+look-presets.json	$.presets[].clip.settings.leak.kind	path
+look-presets.json	$.presets[].clip.settings.leak.kind=auto	path
+look-presets.json	$.presets[].clip.settings.leak.kind=band	path
+look-presets.json	$.presets[].clip.settings.leak.kind=edge	path	retired: 2026-11-15's builds only (never released): the edge burn as a kind; read since 2026-11-16 as off + leak.edge (API-SPEC §21.9), never written
+look-presets.json	$.presets[].clip.settings.leak.kind=off	path
+look-presets.json	$.presets[].clip.settings.leak.kind=spot	path
+look-presets.json	$.presets[].clip.settings.leak.kind=wash	path
+look-presets.json	$.presets[].clip.settings.leak.seed	path
 look-presets.json	$.presets[].clip.settings.params	path
 look-presets.json	$.presets[].clip.settings.params.antihalationRemoved	path
 look-presets.json	$.presets[].clip.settings.params.autoExposure	path
@@ -1433,6 +1504,7 @@ look-presets.json	$.presets[].clip.settings.params.contrastMask.scale	path
 look-presets.json	$.presets[].clip.settings.params.contrastMask.scheme	path
 look-presets.json	$.presets[].clip.settings.params.contrastMask.shadows	path
 look-presets.json	$.presets[].clip.settings.params.digitalIntermediate	path
+look-presets.json	$.presets[].clip.settings.params.edrOff	path
 look-presets.json	$.presets[].clip.settings.params.effects	path
 look-presets.json	$.presets[].clip.settings.params.effects.couplers	path
 look-presets.json	$.presets[].clip.settings.params.effects.couplersActive	path
@@ -1586,6 +1658,23 @@ look-presets.json	$.presets[].clip.settings.rawExposureFacts.treatment=source-re
 look-presets.json	$.presets[].clip.settings.schemaVersion	path
 look-presets.json	$.presets[].clip.settings.schemaVersion…	path
 look-presets.json	$.presets[].clip.settings.solvedEV	path
+look-presets.json	$.presets[].clip.settings.watermarks	path
+look-presets.json	$.presets[].clip.settings.watermarks[].anchor	path
+look-presets.json	$.presets[].clip.settings.watermarks[].anchor=bl	path
+look-presets.json	$.presets[].clip.settings.watermarks[].anchor=br	path
+look-presets.json	$.presets[].clip.settings.watermarks[].anchor=tl	path
+look-presets.json	$.presets[].clip.settings.watermarks[].anchor=tr	path
+look-presets.json	$.presets[].clip.settings.watermarks[].dx	path
+look-presets.json	$.presets[].clip.settings.watermarks[].dy	path
+look-presets.json	$.presets[].clip.settings.watermarks[].id	path
+look-presets.json	$.presets[].clip.settings.watermarks[].mark	path
+look-presets.json	$.presets[].clip.settings.watermarks[].on	path
+look-presets.json	$.presets[].clip.settings.watermarks[].opacity	path
+look-presets.json	$.presets[].clip.settings.watermarks[].rotation	path
+look-presets.json	$.presets[].clip.settings.watermarks[].size	path
+look-presets.json	$.presets[].clip.settings.watermarks[].stage	path
+look-presets.json	$.presets[].clip.settings.watermarks[].stage=base	path
+look-presets.json	$.presets[].clip.settings.watermarks[].stage=full	path
 look-presets.json	$.presets[].clip.sourceAspect	path
 look-presets.json	$.presets[].clip.sourceName	path
 look-presets.json	$.presets[].id	path
@@ -1999,3 +2088,22 @@ spklib-host	source	literal
 spklib-host	text	literal
 spklib-host	to	literal
 spklib-host	variant	literal
+watermarks.json	$.frames	path
+watermarks.json	$.frames{}.anchor	path
+watermarks.json	$.frames{}.anchor=bl	path
+watermarks.json	$.frames{}.anchor=br	path
+watermarks.json	$.frames{}.anchor=tl	path
+watermarks.json	$.frames{}.anchor=tr	path
+watermarks.json	$.frames{}.dx	path
+watermarks.json	$.frames{}.dy	path
+watermarks.json	$.frames{}.fill	path
+watermarks.json	$.frames{}.id	path
+watermarks.json	$.frames{}.mark	path
+watermarks.json	$.frames{}.on	path
+watermarks.json	$.frames{}.opacity	path
+watermarks.json	$.frames{}.rotation	path
+watermarks.json	$.frames{}.size	path
+watermarks.json	$.frames{}.stage	path
+watermarks.json	$.frames{}.stage=base	path
+watermarks.json	$.frames{}.stage=full	path
+watermarks.json	$.version	path

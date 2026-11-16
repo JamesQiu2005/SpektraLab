@@ -40,8 +40,7 @@ import ImageIO
 @MainActor
 enum MacExportHDRCheck {
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
-        guard let i = arguments.firstIndex(of: "--export-hdr-check"), i + 1 < arguments.count,
-              arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--export-hdr-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         var pictures: [URL] = []
         if let p = arguments.firstIndex(of: "--export-check-pictures") {

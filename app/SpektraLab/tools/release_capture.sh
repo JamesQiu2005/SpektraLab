@@ -15,7 +15,7 @@ src="$here/Sources"
 mkdir -p "$here/build/tools"
 # The seeder: the app's own model types encode the layer (tools/release_capture_seed.swift).
 swiftc -O -parse-as-library -o "$here/build/tools/release_capture_seed" "$src/Model/Format.swift" "$src/Model/Localization.swift" \
-  "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" "$src/Model/Adjustments.swift" \
+  "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" "$src/Model/Watermark.swift" "$src/Model/Adjustments.swift" \
   "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/LensEdge.swift" "$src/Model/Stock.swift" \
   "$src/Model/HalfFramePair.swift" "$src/Model/DoubleExposure.swift" "$here/tools/selftest_theme_shim.swift" "$here/tools/release_capture_seed.swift" \
   2> "$here/build/tools/release-capture-seed-build.log" || { cat "$here/build/tools/release-capture-seed-build.log"; exit 2; }

@@ -23,6 +23,9 @@ struct Layer2Picture<Base: View>: View {
     @Environment(\.displayScale) private var scale
     @Environment(\.isSnapshot) private var isSnapshot
     @Environment(\.gamutProof) private var gamutProof
+    /// This picture's own hold on the pass's size: the crop screen's picture closing, or a view swapped for another in
+    /// either order, never takes the size from a picture still on screen (issue #123).
+    @State private var holder = UUID().uuidString
 
     /// `FramePicture`'s size for the same place: the screen's pixels, in steps of 64.
     private var maxPixel: Int { max(64, Int((pointSize * scale / 64).rounded(.up)) * 64) }
@@ -39,8 +42,8 @@ struct Layer2Picture<Base: View>: View {
                     .accessibilityHidden(true)
             }
         }
-        .onAppear { live.display(maxPixel: px) }
-        .onChange(of: px) { _, now in live.display(maxPixel: now) }
-        .onDisappear { live.display(maxPixel: nil) }
+        .onAppear { live.display(holder, maxPixel: px) }
+        .onChange(of: px) { _, now in live.display(holder, maxPixel: now) }
+        .onDisappear { live.display(holder, maxPixel: nil) }
     }
 }

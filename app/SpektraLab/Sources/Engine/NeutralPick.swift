@@ -93,9 +93,7 @@ enum NeutralPick {
                               start: (temperature: Double, tint: Double)) -> DecodeBalance? {
         func measure(_ temperature: Double, _ tint: Double) -> SIMD2<Double>? {
             var s = settings
-            s.whiteBalance = .custom
-            s.temperature = temperature
-            s.tint = tint
+            s.setCustom(temperature: temperature, tint: tint)
             guard let image = RawExposure.prepare(url, settings: s, longEdge: measureEdge)?.image else { return nil }
             let e = image.extent
             // Core Image counts from the bottom.

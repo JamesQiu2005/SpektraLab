@@ -143,9 +143,12 @@ extension CatalogSourcesStore {
 
     /// The library a pair's row goes into: the one shown first, then the other SpektraLab catalogs and
     /// sessions (and a Capture One catalog only if it is the one shown: linking one is a snapshot), the
-    /// first that holds `firstFile`; with none, the one shown, if it takes imports.
+    /// first that holds `firstFile`; with none, the one shown, if it takes imports. A Capture One catalog takes no
+    /// imports since 2026-11-16, but a pair's or a double's row is SpektraLab's own, made of its pictures, kept in the
+    /// mirror (never the `.cocatalog`) beside them and removed from there as a SpektraLab catalog's row is.
     func pairHome(_ firstFile: URL?) async -> (MacSource, String)? {
-        var order = sources.filter { $0.acceptsImports && ($0.kind != .captureOneCatalog || $0.id == selectedSourceID) }
+        func holds(_ s: MacSource) -> Bool { s.acceptsImports || (s.kind == .captureOneCatalog && s.id == selectedSourceID) }
+        var order = sources.filter(holds)
         if let i = order.firstIndex(where: { $0.id == selectedSourceID }) { order.insert(order.remove(at: i), at: 0) }
         if let firstFile {
             for s in order {
@@ -154,7 +157,7 @@ extension CatalogSourcesStore {
                 return (s, h)
             }
         }
-        if let s = selectedSource, s.acceptsImports, let h = try? await handle(s) { return (s, h) }
+        if let s = selectedSource, holds(s), let h = try? await handle(s) { return (s, h) }
         return nil
     }
 

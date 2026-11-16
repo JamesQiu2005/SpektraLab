@@ -96,9 +96,20 @@ def main():
         idx = [names.index(n) for n in want]
         check(idx == sorted(idx) and idx == list(range(idx[0], idx[0] + len(idx))),
               "the new fields are one block, in API-SPEC's order")
-        check(names[idx[0] - 1] == "grain_seed" and names[idx[-1] + 1] == "preview_long_edge",
-              "the block sits after grain_seed and before preview_long_edge",
-              f"{names[idx[0] - 1]} .. {names[idx[-1] + 1]}")
+        # the native fields appended since sit between it and preview_long_edge, in order: scene_layers
+        # (API-SPEC §23, 2026-11-13), leak_seed (§21.8, 2026-11-15) and leak_edge (§21.9, 2026-11-16)
+        after = names[idx[-1] + 1:idx[-1] + 5]
+        check(names[idx[0] - 1] == "grain_seed" and after == ["scene_layers", "leak_seed", "leak_edge", "preview_long_edge"],
+              "the block sits after grain_seed; scene_layers, leak_seed and leak_edge follow it, then preview_long_edge",
+              f"{names[idx[0] - 1]} .. {after}")
+        by = {f["name"]: f for f in fields} if isinstance(fields, list) else fields
+        ls = by.get("leak_seed") or {}
+        check(ls.get("type") == "int" and ls.get("layer") == "shoot" and not ls.get("live") and ls.get("default") == 0,
+              "leak_seed: int, SHOOT, not live, default 0 (API-SPEC §21.8)", str(ls))
+        le = by.get("leak_edge") or {}
+        check(le.get("type") == "float" and le.get("layer") == "shoot" and not le.get("live") and le.get("default") == 0
+              and list(le.get("range") or []) == [0, 4],
+              "leak_edge: float, SHOOT, not live, default 0, 0..4 (API-SPEC §21.9, 2026-11-16)", str(le))
         by = {f["name"]: f for f in fields} if isinstance(fields, list) else fields
         bad = [n for n in want if by[n].get("layer") != "shoot" or by[n].get("live")]
         check(not bad, "all SHOOT, none live", ", ".join(bad))
@@ -116,6 +127,8 @@ def main():
             s.close()
 
     defaults = dict(NEW)
+    defaults["leak_seed"] = 0
+    defaults["leak_edge"] = 0.0
     for i, case in enumerate(CASES):
         plain = render(e, img, case)
         full = dict(case); full.update(defaults)

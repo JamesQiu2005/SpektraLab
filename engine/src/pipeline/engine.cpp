@@ -624,6 +624,32 @@ spk_engine* spk_engine_create(const char* resources_dir, void* device) {
             return nullptr;
         }
     }
+    // The product's own colour films (`engine/resources_product/neutral_print_filters_colour.json`,
+    // laid beside spektrafilm's table by both bundle steps): their packs, fitted through this engine
+    // the way the reference fits its own (2026-11-15, Portra 160NC/VC and 400NC/VC). A row only
+    // fills a film the table does not name -- spektrafilm's rows are never replaced -- and the
+    // black-and-white packs stay out of it: the host sends those on the wire per paper grade, and a
+    // database row would override the grade.
+    const std::string colour_text = read_text_file(engine->resources_dir + "/neutral_print_filters_colour.json");
+    if (!colour_text.empty()) {
+        Json colour_filters;
+        std::string parse_error;
+        if (!Json::parse(colour_text, colour_filters, parse_error)) {
+            g_error = "neutral_print_filters_colour.json: " + parse_error;
+            return nullptr;
+        }
+        if (!engine->neutral_filters.is_object()) engine->neutral_filters = Json::object();
+        for (const auto& [paper, by_illuminant] : colour_filters.fields()) {
+            Json paper_rows = engine->neutral_filters.has(paper) ? engine->neutral_filters.at(paper) : Json::object();
+            for (const auto& [illuminant, rows] : by_illuminant.fields()) {
+                Json ill_rows = paper_rows.has(illuminant) ? paper_rows.at(illuminant) : Json::object();
+                for (const auto& [film, row] : rows.fields())
+                    if (!ill_rows.has(film)) ill_rows.set(film, row);
+                paper_rows.set(illuminant, std::move(ill_rows));
+            }
+            engine->neutral_filters.set(paper, std::move(paper_rows));
+        }
+    }
 
     if (!engine->print_luts.init(engine->resources_dir, error)) { g_error = error; return nullptr; }
 
@@ -2219,6 +2245,7 @@ Params medium_probe_params(const Params& session) {
     p.film_render.date_imprint.active = false;
     // Nor a leak or the lens in front of it (API-SPEC §21): the medium is the film's.
     p.film_render.leak.kind = "off";
+    p.film_render.leak.edge = 0.0;
     p.camera.diffusion_filter.active = false;
     p.camera.lens_aberrations.active = false;
     p.print_render.glare.active = false;
@@ -2421,6 +2448,19 @@ spk_status spk_overscan_geometry(spk_session* session, char** out_json) {
     std::string parse_error;
     const std::string text = session->pipeline ? session->pipeline->overscan_geometry_json() : std::string("{\"valid\":false}");
     if (!Json::parse(text, reply, parse_error)) { g_error = "overscan geometry: " + parse_error; return SPK_ERR_INTERNAL; }
+    *out_json = dup_json(reply);
+    return SPK_OK;
+}
+
+spk_status spk_overscan_formats(char** out_json) {
+    if (!out_json) { g_error = "out_json is null"; return SPK_ERR_INVALID_ARG; }
+    g_error.clear();
+    Json reply;
+    std::string parse_error;
+    if (!Json::parse(spk::Pipeline::overscan_formats_json(), reply, parse_error)) {
+        g_error = "overscan formats: " + parse_error;
+        return SPK_ERR_INTERNAL;
+    }
     *out_json = dup_json(reply);
     return SPK_OK;
 }

@@ -1,0 +1,252 @@
+{
+ "formats": [
+  {
+   "across_mm": 24.3,
+   "along_mm": 36.25,
+   "families": "square",
+   "film_mm": 35,
+   "name": "135",
+   "perforated": true
+  },
+  {
+   "across_mm": 24,
+   "along_mm": 18,
+   "families": "square",
+   "film_mm": 35,
+   "name": "135_half",
+   "perforated": true
+  },
+  {
+   "across_mm": 56,
+   "along_mm": 41.5,
+   "families": "eared rounded",
+   "film_mm": 61,
+   "name": "120_645",
+   "perforated": false
+  },
+  {
+   "across_mm": 56,
+   "along_mm": 56,
+   "families": "kicked square",
+   "film_mm": 61,
+   "name": "120_6x6",
+   "perforated": false
+  },
+  {
+   "across_mm": 56,
+   "along_mm": 69.5,
+   "families": "square",
+   "film_mm": 61,
+   "name": "120_6x7",
+   "perforated": false
+  },
+  {
+   "across_mm": 56,
+   "along_mm": 76,
+   "families": "shouldered",
+   "film_mm": 61,
+   "name": "120_6x8",
+   "perforated": false
+  },
+  {
+   "across_mm": 56,
+   "along_mm": 84,
+   "families": "square",
+   "film_mm": 61,
+   "name": "120_6x9",
+   "perforated": false
+  },
+  {
+   "across_mm": 24,
+   "along_mm": 65,
+   "families": "square",
+   "film_mm": 35,
+   "name": "135_xpan",
+   "perforated": true
+  },
+  {
+   "across_mm": 56,
+   "along_mm": 112,
+   "families": "square",
+   "film_mm": 61,
+   "name": "120_6x12",
+   "perforated": false
+  },
+  {
+   "across_mm": 56,
+   "along_mm": 168,
+   "families": "square",
+   "film_mm": 61,
+   "name": "120_6x17",
+   "perforated": false
+  },
+  {
+   "across_mm": 36,
+   "along_mm": 72,
+   "families": "square",
+   "film_mm": 35,
+   "name": "135_sprocket",
+   "perforated": true
+  },
+  {
+   "across_mm": 5.79,
+   "along_mm": 4.01,
+   "cine": {
+    "adv_err_mm": 0.02,
+    "aspect": [
+     3,
+     2
+    ],
+    "at_line": false,
+    "guided_mm": 1.47,
+    "hole_across_mm": 0.914,
+    "hole_along_mm": 1.143,
+    "hole_edge_mm": 0.51,
+    "hole_r_mm": 0.13,
+    "jit": 0.5,
+    "mech": 0.25,
+    "neighbours": true,
+    "perfs": 1,
+    "pitch_mm": 4.234,
+    "r_max_mm": 0.18,
+    "r_min_mm": 0.08,
+    "reg_mm": 0.08,
+    "rows": 1,
+    "shape": 0,
+    "t_tol_mm": 0.025
+   },
+   "families": "rounded",
+   "film_mm": 7.976,
+   "name": "8_super",
+   "perforated": false
+  },
+  {
+   "across_mm": 12.35,
+   "along_mm": 7.5,
+   "cine": {
+    "adv_err_mm": 0.015,
+    "aspect": [
+     16,
+     9
+    ],
+    "at_line": true,
+    "guided_mm": 2.825,
+    "hole_across_mm": 1.829,
+    "hole_along_mm": 1.27,
+    "hole_edge_mm": 0.902,
+    "hole_r_mm": 0.25,
+    "jit": 0.75,
+    "mech": 0.35,
+    "neighbours": true,
+    "perfs": 1,
+    "pitch_mm": 7.605,
+    "r_max_mm": 0.32,
+    "r_min_mm": 0.18,
+    "reg_mm": 0.04,
+    "rows": 2,
+    "shape": 0,
+    "t_tol_mm": 0.04
+   },
+   "families": "square",
+   "film_mm": 15.95,
+   "name": "16_super",
+   "perforated": false
+  },
+  {
+   "across_mm": 24.89,
+   "along_mm": 18.67,
+   "cine": {
+    "adv_err_mm": 0.01,
+    "aspect": [
+     3,
+     2
+    ],
+    "at_line": false,
+    "guided_mm": 0,
+    "hole_across_mm": 2.794,
+    "hole_along_mm": 1.854,
+    "hole_edge_mm": 2.01,
+    "hole_r_mm": 0.127,
+    "jit": 1,
+    "mech": 0.5,
+    "neighbours": false,
+    "perfs": 4,
+    "pitch_mm": 4.74,
+    "r_max_mm": 0.2,
+    "r_min_mm": 0.05,
+    "reg_mm": 0.03,
+    "rows": 0,
+    "shape": 1,
+    "t_tol_mm": 0.05
+   },
+   "families": "square",
+   "film_mm": 35,
+   "name": "35_4perf",
+   "perforated": false
+  },
+  {
+   "across_mm": 52.63,
+   "along_mm": 23.01,
+   "cine": {
+    "adv_err_mm": 0.01,
+    "aspect": [
+     20,
+     9
+    ],
+    "at_line": false,
+    "guided_mm": 0,
+    "hole_across_mm": 2.794,
+    "hole_along_mm": 1.981,
+    "hole_edge_mm": 2.97,
+    "hole_r_mm": 0.51,
+    "jit": 1,
+    "mech": 0.5,
+    "neighbours": false,
+    "perfs": 5,
+    "pitch_mm": 4.75,
+    "r_max_mm": 0.6,
+    "r_min_mm": 0.3,
+    "reg_mm": 0.03,
+    "rows": 0,
+    "shape": 0,
+    "t_tol_mm": 0.05
+   },
+   "families": "square",
+   "film_mm": 64.97,
+   "name": "65_5perf",
+   "perforated": false
+  },
+  {
+   "across_mm": 52.63,
+   "along_mm": 70.41,
+   "cine": {
+    "adv_err_mm": 0.01,
+    "aspect": [
+     4,
+     3
+    ],
+    "at_line": false,
+    "guided_mm": 0,
+    "hole_across_mm": 2.794,
+    "hole_along_mm": 1.981,
+    "hole_edge_mm": 2.97,
+    "hole_r_mm": 0.51,
+    "jit": 1,
+    "mech": 0.5,
+    "neighbours": false,
+    "perfs": 15,
+    "pitch_mm": 4.75,
+    "r_max_mm": 0.6,
+    "r_min_mm": 0.3,
+    "reg_mm": 0.03,
+    "rows": 0,
+    "shape": 0,
+    "t_tol_mm": 0.05
+   },
+   "families": "square",
+   "film_mm": 64.97,
+   "name": "65_15perf",
+   "perforated": false
+  }
+ ]
+}

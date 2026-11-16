@@ -25,6 +25,14 @@
 //  own, unticked when the sheet opens, offered on every Mac (its controls are greyed, not hidden, on one with no
 //  HDR screen). Before the enlarger's, so Edit's three stay the list's last. EDR reprints; Enable HDR and the
 //  peak develop nothing for a print; a slide's HDR is its stretched scan (`HDRGain.sdrWire`).
+//
+//  **解码's parts, each its own box** (2.4.1; a user's ask relayed by the owner, 2026-11-16: "把曲线、色调、色温、曝光
+//  这几个都单独做成一个选项"). The sheet's Decode is a parent of four: Exposure (`filmExposure`, the box it always had,
+//  now under Decode as the Decode section shows it), Temperature, Tint and Curve. `.decode` stays what 2.4.0 wrote
+//  (all three of the white balance's two axes and the curve): a clip, a preset or a kept choice that says it reads
+//  as its three parts (`expanded`), and all three are written back as `decode` (`stored`), so a copy of all of Decode
+//  is the JSON 2.4.0 wrote and a 2.4.0 build reads it. A paste of Temperature or Tint carries As Shot as a mode
+//  (`DecodeSettings.takeTemperature`, `takeTint`): each target's own camera, never the source's numbers.
 
 import Foundation
 
@@ -41,8 +49,30 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
     /// 编辑 › 镜头's settings on the negative (PRD-D §3.4): the 柔光镜 and the 像差. The vignette shown beside them
     /// is Layer 2's and travels with Light, as it always has. Offered while the engine has the filter.
     case lens = "lens"
+    /// 水印 (PRD-8 §4.4, the group `watermark`): the photograph's watermarks, placed corner-anchored so a paste onto
+    /// the other orientation keeps the corner; each pasted mark a new placement. Unticked by default (a frame's own,
+    /// like the film edge); after HDR.
+    case watermark = "watermark"
+    /// 解码's parts (2.4.1): 色温, 色调 (each with its As Shot), and the decode's curve. What `.decode` was, one by one.
+    case decodeTemperature = "decodeTemperature", decodeTint = "decodeTint", decodeCurve = "decodeCurve"
 
     var id: String { rawValue }
+
+    /// The sheet's Decode, a box over these: the Decode section's parts, in its order (曝光 · 白平衡's two · 曲线).
+    static let decodeParts: [ClipboardGroup] = [.filmExposure, .decodeTemperature, .decodeTint, .decodeCurve]
+    /// What `.decode` meant until 2.4.1, and still means where it is read.
+    static let decodeLeaves: Set<ClipboardGroup> = [.decodeTemperature, .decodeTint, .decodeCurve]
+
+    /// Groups as this build holds them: `.decode` as its three parts.
+    static func expanded(_ groups: Set<ClipboardGroup>) -> Set<ClipboardGroup> {
+        guard groups.contains(.decode) else { return groups }
+        return groups.subtracting([.decode]).union(decodeLeaves)
+    }
+    /// Groups as they are written: all three of Decode's parts as `.decode`, as 2.4.0 wrote it.
+    static func stored(_ groups: Set<ClipboardGroup>) -> Set<ClipboardGroup> {
+        guard groups.isSuperset(of: decodeLeaves) else { return groups }
+        return groups.subtracting(decodeLeaves).union([.decode])
+    }
 
     /// The boxes the sheet shows. A box for settings that cannot be seen or
     /// changed would be a box that lies.
@@ -50,29 +80,31 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         // Scene Placement has no control since the Decode curve replaced it (2026-10-24): a box
         // for it would be a box for something that cannot be seen. Decode is the white balance
         // and the curve.
-        [.filmAndPaper, .filmExposure, .format, .filmEdgeAndDateBack, .hdr,
-         .enlarger, .decode, .couplers, .preflash, .light, .curve, .colour, .lens]
+        [.filmAndPaper, .filmExposure, .format, .filmEdgeAndDateBack, .hdr, .watermark,
+         .enlarger, .decodeTemperature, .decodeTint, .decodeCurve, .couplers, .preflash, .light, .curve, .colour, .lens]
             .filter { $0 != .filmEdgeAndDateBack || FeatureFlags.filmEdge || FeatureFlags.dateBack }
             .filter { $0 != .lens || EngineFeatures.offers(.softFilter) || EngineFeatures.offers(.lensCharacter) }
     }
 
-    /// Ticked when the sheet opens: everything but the film edge and HDR.
+    /// Ticked when the sheet opens: everything but the film edge, HDR and the watermarks.
     static var defaultSelection: Set<ClipboardGroup> {
-        Set(offered.filter { $0 != .filmEdgeAndDateBack && $0 != .hdr })
+        Set(offered.filter { $0 != .filmEdgeAndDateBack && $0 != .hdr && $0 != .watermark })
     }
+
 
     /// The groups last ticked on the Copy Settings sheet, kept: what the Mac's ⌘C copies without
     /// asking, and what the Mac's sheet opens with. (Capture One's ⇧⌘C copies at once too; which groups
     /// it takes is set beforehand in its Adjustments Clipboard tool, where this app has the sheet.) Never copied yet, or nothing left that is still offered: `defaultSelection`.
     static let rememberedKey = "clipboard.groups"
     static func remembered(in defaults: UserDefaults = .standard) -> Set<ClipboardGroup> {
-        let kept = Set((defaults.stringArray(forKey: rememberedKey) ?? []).compactMap(ClipboardGroup.init(rawValue:)))
+        // A 2.4.0 choice's Decode is its three parts, ticked as it was.
+        let kept = expanded(Set((defaults.stringArray(forKey: rememberedKey) ?? []).compactMap(ClipboardGroup.init(rawValue:))))
             .intersection(offered)
         return kept.isEmpty ? defaultSelection : kept
     }
     static func remember(_ groups: Set<ClipboardGroup>, in defaults: UserDefaults = .standard) {
         guard !groups.isEmpty else { return }
-        defaults.set(groups.map(\.rawValue).sorted(), forKey: rememberedKey)
+        defaults.set(stored(groups).map(\.rawValue).sorted(), forKey: rememberedKey)
     }
 
     var title: String {
@@ -92,7 +124,21 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         case .filmEdgeAndDateBack: L("Film Edge & Date Back")
         case .hdr: L("High Dynamic Range")
         case .lens: L("Lens", as: "the edit section")
+        case .watermark: L("Watermarks")
+        case .decodeTemperature: L("Temperature")
+        case .decodeTint: L("Tint")
+        case .decodeCurve: L("Decode Curve")
         case .light, .curve, .colour: layer2Tool?.title ?? ""
+        }
+    }
+
+    /// The name of a row under the sheet's Decode, as the Decode section names its part (曝光, 色温, 色调, 曲线);
+    /// `title` elsewhere, where the row is not under Decode's name (the "what is held" line).
+    var partTitle: String {
+        switch self {
+        case .filmExposure: L("Exposure")
+        case .decodeCurve: L("Curve")
+        default: title
         }
     }
 
@@ -113,7 +159,7 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         switch self {
         case .filmExposure: return Fmt.signed(p.exposureCompensationEV) + " EV"
         case .format:
-            let leak = edit.leak.kind == .off ? "" : Fmt.dot + L("Light Leak") + " " + edit.leak.kind.label
+            let leak = edit.leak.summary.map { Fmt.dot + $0 } ?? ""
             return FilmFrame.named(p.filmFrame).title + Fmt.dot + L("Grain") + " " + Fmt.times(p.effects.grain) + Fmt.dot + L("Halation") + " " + Fmt.times(p.effects.halation) + leak
         case .lens:
             var parts: [String] = []
@@ -123,6 +169,12 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         case .decode:
             let balance = L(shown: edit.decode.whiteBalance.rawValue)
             return p.sceneCurve.isIdentity ? balance : balance + Fmt.dot + L("Curve")
+        case .decodeTemperature:
+            return edit.decode.temperatureAsShot ? L("As Shot") : "\(Int(edit.decode.temperature.rounded())) K"
+        case .decodeTint:
+            return edit.decode.tintAsShot ? L("As Shot") : Fmt.signed(edit.decode.tint, decimals: 0)
+        case .decodeCurve:
+            return p.sceneCurve.isIdentity ? L("Off") : L("Curve")
         case .enlarger: return Fmt.signed(p.printBrightnessStops) + " EV" + Fmt.dot + Fmt.signed(p.yFilterShift) + Fmt.dot + Fmt.signed(p.mFilterShift)
         case .couplers: return Fmt.times(p.effects.couplers)
         case .preflash: return String(format: "%.3f", p.preflashExposure)
@@ -151,6 +203,8 @@ enum ClipboardGroup: String, CaseIterable, Codable, Sendable, Identifiable {
         case .hdr:
             let hdr = edit.hdr ? L("HDR") + " " + String(format: "%.1f EV", edit.hdrPeak) : L("HDR off")
             return edit.params.extendedDynamicRange ? "EDR" + Fmt.dot + hdr : hdr
+        case .watermark:
+            return edit.watermarks.summary(names: WatermarkNames.library())
         case .light, .curve, .colour:
             return layer2Tool.map { edit.adjustments.summary($0) } ?? ""
         }
@@ -177,7 +231,7 @@ struct SettingsClip: Codable, Equatable, Sendable {
     /// photograph's subject. Stripped where a clip is made and where one is read (a clipboard or a preset kept by a
     /// build that wrote them), so no paste and no preset can bring a layer; the sheet says so in one line.
     init(groups: Set<ClipboardGroup>, settings: FrameEdit, sourceName: String, sourceAspect: Double? = nil) {
-        self.groups = groups
+        self.groups = ClipboardGroup.expanded(groups)
         self.settings = Self.withoutLayers(settings)
         self.sourceName = sourceName
         self.sourceAspect = sourceAspect
@@ -185,7 +239,7 @@ struct SettingsClip: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        groups = try c.decode(Set<ClipboardGroup>.self, forKey: .groups)
+        groups = ClipboardGroup.expanded(try c.decode(Set<ClipboardGroup>.self, forKey: .groups))
         settings = Self.withoutLayers(try c.decode(FrameEdit.self, forKey: .settings))
         sourceName = try c.decode(String.self, forKey: .sourceName)
         sourceAspect = try c.decodeIfPresent(Double.self, forKey: .sourceAspect)
@@ -193,7 +247,7 @@ struct SettingsClip: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(groups, forKey: .groups)
+        try c.encode(ClipboardGroup.stored(groups), forKey: .groups)
         try c.encode(Self.withoutLayers(settings), forKey: .settings)
         try c.encode(sourceName, forKey: .sourceName)
         try c.encodeIfPresent(sourceAspect, forKey: .sourceAspect)
@@ -201,10 +255,23 @@ struct SettingsClip: Codable, Equatable, Sendable {
 
     static func withoutLayers(_ e: FrameEdit) -> FrameEdit { var e = e; e.layers = nil; return e }
 
+    /// How many of the clip's watermarks a paste leaves out, their PNG gone from the library: the note after a paste.
+    var droppedWatermarks: Int {
+        guard groups.contains(.watermark) else { return 0 }
+        return WatermarkGeometry.pasted(settings.watermarks, exists: WatermarkNames.library().exists).dropped
+    }
+
     /// "Clipboard: Film & Paper, Exposure · 2 of 6": what Select says above Paste.
     var summary: String {
         let held = ClipboardGroup.offered.filter(groups.contains)
-        return L("Clipboard: ") + held.map(\.title).joined(separator: ", ")
+        // All of Decode's white balance and curve said as Decode, as 2.4.0 said it.
+        var titles: [String] = []
+        for g in held {
+            if ClipboardGroup.decodeLeaves.contains(g), groups.isSuperset(of: ClipboardGroup.decodeLeaves) {
+                if g == .decodeTemperature { titles.append(ClipboardGroup.decode.title) }
+            } else { titles.append(g.title) }
+        }
+        return L("Clipboard: ") + titles.joined(separator: ", ")
             + L("  ·  \(held.count) of \(ClipboardGroup.offered.count)")
     }
 
@@ -249,12 +316,8 @@ struct SettingsClip: Codable, Equatable, Sendable {
             if meterChanged { out.solvedEV = nil }
         }
         if groups.contains(.whiteBalance) {
-            out.decode.whiteBalance = s.decode.whiteBalance
             // As Shot is the *target's* camera: its numbers are its own.
-            if s.decode.whiteBalance != .asShot {
-                out.decode.temperature = s.decode.temperature
-                out.decode.tint = s.decode.tint
-            }
+            out.decode.takeWhiteBalance(from: s.decode)
             out.params.yFilterShift = s.params.yFilterShift
             out.params.mFilterShift = s.params.mFilterShift
         }
@@ -314,17 +377,20 @@ struct SettingsClip: Codable, Equatable, Sendable {
             out.params.effects.grain = s.params.effects.grain
             out.params.effects.halation = s.params.effects.halation
             out.params.antihalationRemoved = s.params.antihalationRemoved
-            // Format's effects carry its 漏光 (PRD-D §3.3): where it falls stays the target's, its body and frame seed.
+            // Format's effects carry its 漏光 (PRD-D §3.3): where it falls stays the target's, its body and frame seed —
+            // unless 随机 gave the leak a seed of its own (API-SPEC §21.8), which travels with it, so the pasted leak
+            // looks the same.
             out.leak = s.leak
         }
         if groups.contains(.lens) { out.lens = s.lens }
-        if groups.contains(.decode) {
-            out.decode.whiteBalance = s.decode.whiteBalance
-            if s.decode.whiteBalance != .asShot {
-                out.decode.temperature = s.decode.temperature; out.decode.tint = s.decode.tint
-            }
-            out.params.sceneCurve = s.params.sceneCurve
-        }
+        // Decode's parts (`.decode` is all three; a clip holds it expanded, but a group set may still say it). As Shot
+        // is a mode: the target's camera's own numbers, filled at its decode (`DecodeSettings.takeCamera`).
+        let decodeAll = groups.contains(.decode)
+        let temperature = decodeAll || groups.contains(.decodeTemperature), tint = decodeAll || groups.contains(.decodeTint)
+        if temperature && tint { out.decode.takeWhiteBalance(from: s.decode) }
+        else if temperature { out.decode.takeTemperature(from: s.decode) }
+        else if tint { out.decode.takeTint(from: s.decode) }
+        if decodeAll || groups.contains(.decodeCurve) { out.params.sceneCurve = s.params.sceneCurve }
         if groups.contains(.enlarger) {
             out.params.printBrightnessStops = s.params.printBrightnessStops
             out.params.yFilterShift = s.params.yFilterShift; out.params.mFilterShift = s.params.mFilterShift
@@ -339,6 +405,12 @@ struct SettingsClip: Codable, Equatable, Sendable {
             out.hdr = s.hdr
             out.hdrPeakStops = s.hdrPeakStops
             out.params.extendedDynamicRange = s.params.extendedDynamicRange
+        }
+        // 水印 (PRD-8 §4.4): the target's marks replaced by the source's, each a new placement, those whose PNG the
+        // library no longer has left out (`pastedWatermarks` says how many), at most 4. The numbers travel as they are:
+        // corner-anchored, in short sides, so a corner mark lands in the same corner on the other orientation.
+        if groups.contains(.watermark) {
+            out.watermarks = WatermarkGeometry.pasted(s.watermarks, exists: WatermarkNames.library().exists).placements
         }
         // Edit's tools: each group its own fields of Layer 2, nothing else.
         for group in groups.sorted(by: { $0.rawValue < $1.rawValue }) {
@@ -372,9 +444,8 @@ extension SettingsClip {
         clean.solvedEV = nil; clean.placementNeedsFit = false
         clean.geometry = .default; clean.frameSeed = FrameEdit.default.frameSeed
         clean.decode.lensCorrection = false
-        if clean.decode.whiteBalance == .asShot {
-            clean.decode.temperature = DecodeSettings().temperature; clean.decode.tint = DecodeSettings().tint
-        }
+        // An As Shot axis keeps no camera's number: the preset's own paste reads the target's.
+        clean.decode = clean.decode.withoutCameraNumbers(DecodeSettings().temperature, tint: DecodeSettings().tint)
         clean.filmEdge.framing = nil; clean.filmEdge.cameraSeed = 0
         return SettingsClip(groups: groups, settings: clean, sourceName: "", sourceAspect: sourceAspect)
     }

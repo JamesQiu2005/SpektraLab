@@ -37,6 +37,7 @@
 		0711B18E4740058A18AF9002 /* MacLightTableAddPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableAddPage.swift; sourceTree = "<group>"; };
 		07149ABD4B8FA34C49A82499 /* LightTableController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8952C903AF5236EF3F1C9308 /* LightTableController.swift */; };
 		073AC3410610903127CFD4E6 /* DrawnLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D466C54CCD5FD603C47AB4E3 /* DrawnLayout.swift */; };
+		0773E59D8B2462FAA1A52B1C /* HDRLatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBD3E651D29C5991BA44CAA0 /* HDRLatch.swift */; };
 		07CAD6596F43CCFA445A22F8 /* LCPReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LCPReader.swift; sourceTree = "<group>"; };
 		07D41F3BE91FDA82433733CE /* RenderQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF55B480EDB2D0B74A40403 /* RenderQueue.swift */; };
 		091120469326DFB285F3E52E /* ExportRecipeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRecipeStore.swift; sourceTree = "<group>"; };
@@ -86,6 +87,7 @@
 		0F1F06C1E0FCD37464AAB7B4 /* AdjustSliders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdjustSliders.swift; sourceTree = "<group>"; };
 		0F9A1452D64CDD2461BF4B31 /* HistogramPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD5DC2E22462390BE2E041F /* HistogramPanel.swift */; };
 		0FB360C0872C14CAC3ED2463 /* ExportRecipeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091120469326DFB285F3E52E /* ExportRecipeStore.swift */; };
+		0FD35F0A448C42364924AB8E /* MacCheckFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCheckFolder.swift; sourceTree = "<group>"; };
 		1004577F499CCD09FBEEBE81 /* Gallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gallery.swift; sourceTree = "<group>"; };
 		10A187E71E276CDB08F36834 /* SampleFrames */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SampleFrames; path = build/SampleFrames; sourceTree = "<group>"; };
 		10CC5FD61470EA95AD7257EE /* LightTableHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableHarness.swift; sourceTree = "<group>"; };
@@ -100,6 +102,7 @@
 		127DB119A57280FC2E1D80EE /* MacClipboardCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacClipboardCheck.swift; sourceTree = "<group>"; };
 		12B55DEC29C6996723D17B6D /* EditHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EEC93E66264818BF57FCF91 /* EditHistoryStore.swift */; };
 		1309042FEFF9E6A6C21BD868 /* LightTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C4090D253B3A032192FAE6 /* LightTableView.swift */; };
+		13764C0A4634D42C1C29E290 /* WatermarkPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DBF462CD708500A334D5635 /* WatermarkPage.swift */; };
 		138B1987DA53ACF8897FF78B /* LayerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBEFF2E8D4957B7E7C46EC83 /* LayerPage.swift */; };
 		13EE332ABA7A3CB0E346E2A2 /* MacDevelopBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDevelopBrowser.swift; sourceTree = "<group>"; };
 		147AA99F4B36591BF612F652 /* MacLayersCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC720AF052BF5C5016D8A97C /* MacLayersCheck.swift */; };
@@ -146,6 +149,7 @@
 		1D83EE801E16F4DE1342CF19 /* ColourPads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44D5D1E6C5949563F8A371FA /* ColourPads.swift */; };
 		1DC9954555209E60282F2B58 /* ExportNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportNaming.swift; sourceTree = "<group>"; };
 		1DE1A0B2F5CCA1EB741AFCE0 /* DarkroomSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = D696E2623A672FF2E9AF7849 /* DarkroomSnapshots.swift */; };
+		1E2B3E251BEC10443B273D58 /* PictureMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69C698E75392E85547D54B70 /* PictureMemory.swift */; };
 		1E51731BDF2C3970D7AFD1AF /* PairFramePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairFramePicker.swift; sourceTree = "<group>"; };
 		1E70BA0B3D0B661D4865D7A5 /* CopySettingsDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935FD39F1EE1B7BBEAF29F48 /* CopySettingsDialog.swift */; };
 		1F020A6723BA2CC6AA7BC9E9 /* MacDevelopBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EE332ABA7A3CB0E346E2A2 /* MacDevelopBrowser.swift */; };
@@ -160,6 +164,7 @@
 		22919E979FA48D80151913F8 /* Render */ = {
 			isa = PBXGroup;
 			children = (
+				D3086CEA05B8AD0C4191E72C /* MacEditRefreshCheck.swift */,
 				BA1E1B5711C9AC5BC58A6677 /* MacMemoryCheck.swift */,
 				806CA75FACB855E02484D2E0 /* MacRenderCache.swift */,
 				15A9FDA0FDB8A0B6FF8A2BDA /* MacRenderCheck.swift */,
@@ -170,6 +175,7 @@
 		22A03C40B0A1713C477832E6 /* Format.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8A77E55D52918BC5778B05 /* Format.swift */; };
 		22E5938C603CC64270BA9E1E /* LightTableRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D8994A44C706B5BBC77D68F /* LightTableRenderer.swift */; };
 		23027C76F45CA6D51C45862C /* MacTransitionsCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AACB4B185ECEFDAC0A7F5D /* MacTransitionsCheck.swift */; };
+		2322FC1A503AA87A4B2F00D9 /* Layer2DisplaySizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2DisplaySizes.swift; sourceTree = "<group>"; };
 		234E694E206D12A16A234AF8 /* DevelopedPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F106739DC8980EECF5DAFD3D /* DevelopedPicture.swift */; };
 		2411DB8A1CC539A4DEC62490 /* Planner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Planner.swift; sourceTree = "<group>"; };
 		2577859D50BAF5D589A2AF74 /* LayersPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADE8EF8E350DD3B4DF05598 /* LayersPanel.swift */; };
@@ -179,9 +185,12 @@
 		260942587A06E41C0BCDEAE9 /* MacScrollZoom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacScrollZoom.swift; sourceTree = "<group>"; };
 		2699E0B37C2AC6E894936E26 /* LightTableTextures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D2F25F1891C5670D7751BB2 /* LightTableTextures.swift */; };
 		269E29C07F78CF46DDE951DC /* LensEdge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LensEdge.swift; sourceTree = "<group>"; };
+		26A088D33495EE1E2F0F496C /* MacWatermarkCanvasCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWatermarkCanvasCheck.swift; sourceTree = "<group>"; };
 		26DE04F7A88858186CA00094 /* CameraCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = E09A2B5CD6234E5E2F1C58A8 /* CameraCrop.swift */; };
+		27011CAAB743D678CEBD3FCD /* WatermarkComposite.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B2AF5473B4D83468D87B5D /* WatermarkComposite.swift */; };
 		2702D0710CF3F5F03168FB49 /* Navigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Navigation.swift; sourceTree = "<group>"; };
 		2776C4B1458ED9380E8FCDE5 /* DevelopCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopCanvas.swift; sourceTree = "<group>"; };
+		27949988DF70FAEDD34B5885 /* MacSettingsWatermarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsWatermarks.swift; sourceTree = "<group>"; };
 		27B2019A7C8009687F3B163E /* MacImportDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportDrop.swift; sourceTree = "<group>"; };
 		27E074CEB9973C5386D30499 /* MacLibraryMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryMove.swift; sourceTree = "<group>"; };
 		27F78D56440AD13EFD1AE51C /* Chips.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2080FFCEBEDFECEA32FF678 /* Chips.swift */; };
@@ -217,12 +226,18 @@
 				91864D73C262242E78B94CF3 /* MaskRules.swift */,
 				2B85AC6924937C576E38E33E /* MaskStage.swift */,
 				EAF7E7132546B321A901EEA8 /* MaskTools.swift */,
+				FA311A9977FC502634683319 /* WatermarkActs.swift */,
+				2E54F26E0E2CD3E29F8F7B47 /* WatermarkCanvasStage.swift */,
+				5DBF462CD708500A334D5635 /* WatermarkPage.swift */,
+				FC525614F4650451C64E321D /* WatermarkParts.swift */,
+				D31AA2B7F6A6A38EA462E722 /* WatermarkRows.swift */,
 			);
 			path = Layers;
 			sourceTree = "<group>";
 		};
 		2D9FF35EF802679AE3B7371A /* Layer2Export.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer2Export.swift; sourceTree = "<group>"; };
 		2DB9B887C9CE11099BA6445E /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
+		2E54F26E0E2CD3E29F8F7B47 /* WatermarkCanvasStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkCanvasStage.swift; sourceTree = "<group>"; };
 		2EEC93E66264818BF57FCF91 /* EditHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditHistoryStore.swift; sourceTree = "<group>"; };
 		2FDA04419DAB374C321717FD /* PairLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180F8E4A85CDF29CCE6FD27B /* PairLayout.swift */; };
 		2FE693940F9BEBB6313D4A94 /* HDRGain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRGain.swift; sourceTree = "<group>"; };
@@ -241,6 +256,7 @@
 			isa = PBXGroup;
 			children = (
 				C69B70207FD05E71EF604F86 /* MacDropOffer.swift */,
+				D2CC5109473760366947C143 /* MacImportC1Check.swift */,
 				18CA00C33D1E68E05087E8CD /* MacImportCheck.swift */,
 				27B2019A7C8009687F3B163E /* MacImportDrop.swift */,
 				11F06B4A285A40D2CCF27137 /* MacImportDropCheck.swift */,
@@ -259,6 +275,7 @@
 		39217BB874BCAFA3F4950B13 /* LightTablePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTablePane.swift; sourceTree = "<group>"; };
 		395190775B5BF17EE5EC7BEB /* DiagnosticsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6059218083541AF4F23B08D /* DiagnosticsPage.swift */; };
 		399E3BC5426C1DE8E5B5C9CF /* EngineRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineRouter.swift; sourceTree = "<group>"; };
+		39E01A106A8729626C6CE473 /* Layer2DisplaySizes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2322FC1A503AA87A4B2F00D9 /* Layer2DisplaySizes.swift */; };
 		39E11A0807C3788C69112DF5 /* MacWindowCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWindowCapture.swift; sourceTree = "<group>"; };
 		3A9F5D64781CA88D8F81C580 /* Model */ = {
 			isa = PBXGroup;
@@ -291,6 +308,7 @@
 				63E2FF0BD16B7810F9A5D37C /* Sources.swift */,
 				E45EFD95B503E9EBF93999E9 /* Stock.swift */,
 				F154C6E8C9F0FCEB3736F12A /* Supporters.swift */,
+				7118AA9831CD52A358BE6C08 /* Watermark.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -365,6 +383,7 @@
 		4819F7FF4E95787364003CA5 /* CropScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropScreen.swift; sourceTree = "<group>"; };
 		481EBCB7F399BC5679C23C3D /* Segmented.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Segmented.swift; sourceTree = "<group>"; };
 		48358155B913CE5C93A04BD8 /* MacExportPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4131D600B94F92B01867A854 /* MacExportPage.swift */; };
+		48CC9B01028AD224442E0462 /* WatermarkBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE949402822399DAABE8ABE5 /* WatermarkBase.swift */; };
 		494340B340DB2450A826EFEF /* InputFeedbackRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1199CF6ED911E7A14BDB4757 /* InputFeedbackRules.swift */; };
 		49A2B934FBC037472B398F48 /* MacImportFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47EC52328A77F0D5E207E84D /* MacImportFlow.swift */; };
 		49B9A4311B3A5039B4E43AB0 /* Export */ = {
@@ -382,10 +401,12 @@
 		4B58A0F3321D142FADE9B7D6 /* Layer2Local.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD1F8163E391B39349189D6 /* Layer2Local.swift */; };
 		4B7D3D529933DBF7910FE0B0 /* HDRZoneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRZoneView.swift; sourceTree = "<group>"; };
 		4BEE9D51F0DF78B565FC1FBA /* MacPageActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPageActions.swift; sourceTree = "<group>"; };
+		4C239D9424AD3269005A7005 /* MacImportC1Check.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CC5109473760366947C143 /* MacImportC1Check.swift */; };
 		4C385A5AC6717F3A602E3EE6 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C65BF85E66C547F8282A9FAC /* Localizable.xcstrings */; };
 		4C3D7674468781F445893E6D /* StockCatalog.json in Resources */ = {isa = PBXBuildFile; fileRef = 28AADA651E1FAD0527CF9611 /* StockCatalog.json */; };
 		4C7EBAD0B4F86EBFCDE1B7FD /* FilmEdgeColumn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeColumn.swift; sourceTree = "<group>"; };
 		4C975047393D56D16A894911 /* MaskPointer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5436B67517003D17CA925F6F /* MaskPointer.swift */; };
+		4D17BF9BAF0FEB67C835B812 /* WatermarkRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31AA2B7F6A6A38EA462E722 /* WatermarkRows.swift */; };
 		4D638E290798BD46B588AFDB /* Badges.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0FBFBA73B44578C79838D17 /* Badges.swift */; };
 		4D67B327DA246DA5958B2530 /* MacColourWheel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 459B5A51503E36BA2B8328C0 /* MacColourWheel.swift */; };
 		4D6EE8038E92C40335E69E36 /* SettingsWindowRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowRoot.swift; sourceTree = "<group>"; };
@@ -406,6 +427,7 @@
 		507F21339D36A64176F3FA6C /* SceneLayerWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57496FB95C89BC99CBDABBBD /* SceneLayerWire.swift */; };
 		50D6D2741D61CBE212748998 /* HDRImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRImage.swift; sourceTree = "<group>"; };
 		5106684521E1C080C4E8AE05 /* LibraryHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F6A6597797456F679ED6F6 /* LibraryHost.swift */; };
+		51A2D431B42473FD9F13B92C /* WatermarkActs.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA311A9977FC502634683319 /* WatermarkActs.swift */; };
 		51C0998C0F9C5F5F035423EF /* Layers */ = {
 			isa = PBXGroup;
 			children = (
@@ -417,6 +439,9 @@
 				C3B147BEAFA7732AC8701646 /* MacMasksCheck.swift */,
 				F397A0E7F5C7BA94805F007F /* MacMaskToolsCheck.swift */,
 				74AACB4B185ECEFDAC0A7F5D /* MacTransitionsCheck.swift */,
+				26A088D33495EE1E2F0F496C /* MacWatermarkCanvasCheck.swift */,
+				7EAE8884D6A1A513C5484E6D /* MacWatermarkCheck.swift */,
+				7165086F9BFB0E066DEB29BD /* MacWatermarkHandCheck.swift */,
 			);
 			path = Layers;
 			sourceTree = "<group>";
@@ -465,7 +490,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202611141240;
+				CURRENT_PROJECT_VERSION = 202611162056;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
@@ -477,7 +502,7 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 2.4.0;
+				MARKETING_VERSION = 2.4.1;
 				OTHER_LDFLAGS = ("$(inherited)", "-lsqlite3");
 				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -493,6 +518,7 @@
 			};
 			name = Debug;
 		};
+		53B3241373AB4016E8C0D18E /* StockGridPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C576F98A4B95B41F1E912C27 /* StockGridPanel.swift */; };
 		53BA58019251248590395073 /* RemovalWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42B236436D38BA2CD30190B4 /* RemovalWords.swift */; };
 		53CC1B28785C9CABAF2F77C2 /* Sheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sheets.swift; sourceTree = "<group>"; };
 		5436B67517003D17CA925F6F /* MaskPointer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaskPointer.swift; sourceTree = "<group>"; };
@@ -503,6 +529,7 @@
 		55A46E754F6E89F5F26D5E82 /* DevelopLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopLayout.swift; sourceTree = "<group>"; };
 		55FDDF40A78C751E9C0EE4E5 /* SpektraLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpektraLabApp.swift; sourceTree = "<group>"; };
 		563E1D4AE762163417201C17 /* GamutProof.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703D18873770C875EAF17CC5 /* GamutProof.swift */; };
+		5667F524E62B2741299C5AF2 /* WatermarkShelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkShelf.swift; sourceTree = "<group>"; };
 		56E40A1F9429775CF3AC3168 /* DevelopWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49DB28897704CD14F706651 /* DevelopWorkspace.swift */; };
 		57496FB95C89BC99CBDABBBD /* SceneLayerWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneLayerWire.swift; sourceTree = "<group>"; };
 		578514C6C8E56EA89859F86B /* DevelopRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947C954706C56517539C574E /* DevelopRevision.swift */; };
@@ -521,6 +548,7 @@
 		5846BFA5FC3D9E00BB5194AE /* MacMaskToolsCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F397A0E7F5C7BA94805F007F /* MacMaskToolsCheck.swift */; };
 		5899CD471BA6156875091453 /* MacImportCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18CA00C33D1E68E05087E8CD /* MacImportCheck.swift */; };
 		593EA219AF3B7E8313AB7258 /* MacHDRChoiceCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHDRChoiceCheck.swift; sourceTree = "<group>"; };
+		5954F2E98A891FFF7927389F /* MacStockGridHandCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacStockGridHandCheck.swift; sourceTree = "<group>"; };
 		596DE2C127DD132B30BA47D6 /* MacHistoryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHistoryPage.swift; sourceTree = "<group>"; };
 		597251C3ACE697D3DC174A22 /* CurveMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9E4736C2882AD9FA3DBFA5 /* CurveMath.swift */; };
 		59B5B2E7007EC5AD74D707F9 /* HistoryFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A7DA1A0D68DE0DBA4B0FD5 /* HistoryFields.swift */; };
@@ -616,6 +644,7 @@
 				019A685312FE20CD6C47FD58 /* JobDiagnostics.swift */,
 				0985E1B72C90E9E49323987F /* LCPReader.swift */,
 				25A15B83D345B74E6556F9A8 /* Layer2Copies.swift */,
+				39E01A106A8729626C6CE473 /* Layer2DisplaySizes.swift */,
 				B21305164722E3DA1F238861 /* Layer2Export.swift */,
 				B5B14C267A2367F250324533 /* Layer2Kernel.swift */,
 				EEBB3C70E6945B9C03A4383D /* Layer2Live.swift */,
@@ -632,6 +661,7 @@
 				B4D4A3450BB9CC7790AD2295 /* NeutralPick.swift */,
 				7843833E299D9E4F6264A21F /* OutputTransform.swift */,
 				D75D8DEC3E3BBA082648243F /* PairDevelop.swift */,
+				1E2B3E251BEC10443B273D58 /* PictureMemory.swift */,
 				EFF8B17124E83BD574C42237 /* PieceAdder.swift */,
 				DF42DC6D01CBF34E856B01D2 /* PieceComposer.swift */,
 				60DB7BE413C50A355BA82980 /* PiecePlacer.swift */,
@@ -645,6 +675,8 @@
 				507F21339D36A64176F3FA6C /* SceneLayerWire.swift */,
 				2D000294C69A6C581031647A /* ScenePlacement.swift */,
 				DB33B55595BF16E3EA8DA383 /* SubjectFinder.swift */,
+				48CC9B01028AD224442E0462 /* WatermarkBase.swift */,
+				27011CAAB743D678CEBD3FCD /* WatermarkComposite.swift */,
 				C7C5679126080EA0B2DB93DE /* CanvasZoom.swift */,
 				1E70BA0B3D0B661D4865D7A5 /* CopySettingsDialog.swift */,
 				1DE1A0B2F5CCA1EB741AFCE0 /* DarkroomSnapshots.swift */,
@@ -673,6 +705,7 @@
 				03584F0760EB51C724348857 /* HDRDisplays.swift */,
 				C3F483AFF9D622711AA65504 /* HDRHistogram.swift */,
 				45148732EC225408C8E2D9EB /* HDRImage.swift */,
+				0773E59D8B2462FAA1A52B1C /* HDRLatch.swift */,
 				E58E3AB25F6D4121351CBC40 /* HDRZoneView.swift */,
 				FFE09AB67492BDFF4058EF94 /* HighDynamicRangeGroup.swift */,
 				0F9A1452D64CDD2461BF4B31 /* HistogramPanel.swift */,
@@ -686,6 +719,7 @@
 				8A4D4C6C2EBA2EFA5C2876EC /* PaneDividers.swift */,
 				0D182527EA5E1EC07086FA0E /* PresetSheet.swift */,
 				38D84B32A6872C0671B75E42 /* StockCards.swift */,
+				53B3241373AB4016E8C0D18E /* StockGridPanel.swift */,
 				42935C2450AC381AC3C47489 /* StockPreviewPanel.swift */,
 				689F7423F291018251FB4022 /* ViewerPane.swift */,
 				EFDAC7EBD8D20CAC865F5C98 /* WorkspaceSnapshots.swift */,
@@ -717,6 +751,11 @@
 				BCBD2BC1097BF22838FD7191 /* MaskRules.swift */,
 				8BB1B6F967EFD6D5797F7DA7 /* MaskStage.swift */,
 				3FB1FE1915D0E53009A972C8 /* MaskTools.swift */,
+				51A2D431B42473FD9F13B92C /* WatermarkActs.swift */,
+				BC8C4EA7A9BA20175E1752BE /* WatermarkCanvasStage.swift */,
+				13764C0A4634D42C1C29E290 /* WatermarkPage.swift */,
+				B4B02B06CBA189C842053C4F /* WatermarkParts.swift */,
+				4D17BF9BAF0FEB67C835B812 /* WatermarkRows.swift */,
 				D264157254C76D9C167F111B /* InfoSheet.swift */,
 				0175F4A8C750D00DE12FD8DB /* LibraryParts.swift */,
 				5B4F591CD84C4B38EDB18FF5 /* LibraryScreen.swift */,
@@ -770,6 +809,7 @@
 				5CCBEB8E89A3F0A443E184C5 /* MacHistoryPage.swift */,
 				BCD9B74B4A73E19A5A84AF39 /* MacHistoryPageCheck.swift */,
 				0484872E1166DE3A38DED89E /* MacDropOffer.swift */,
+				4C239D9424AD3269005A7005 /* MacImportC1Check.swift */,
 				5899CD471BA6156875091453 /* MacImportCheck.swift */,
 				85184072DF0F2A41EB70F6A1 /* MacImportDrop.swift */,
 				5AF1121C6548FC6C8CD816C3 /* MacImportDropCheck.swift */,
@@ -784,6 +824,9 @@
 				5846BFA5FC3D9E00BB5194AE /* MacMaskToolsCheck.swift */,
 				BEE813BDD2CB16EE96B5CE36 /* MacMasksCheck.swift */,
 				23027C76F45CA6D51C45862C /* MacTransitionsCheck.swift */,
+				A154BD2096149FB848E59BB9 /* MacWatermarkCanvasCheck.swift */,
+				BE520CA670DB5CF255A2FA07 /* MacWatermarkCheck.swift */,
+				8EC59C235B45943D46211365 /* MacWatermarkHandCheck.swift */,
 				AF6C9C3ACFA46D107CC19227 /* MacLensCheck.swift */,
 				C4655522C1CF9DF986387530 /* CatalogSourcesStore.swift */,
 				A5B4441C6C89D05D521F91D4 /* HelperProcess.swift */,
@@ -825,19 +868,24 @@
 				70C0619AA6FE760AD6A50259 /* MacLightTableMenu.swift */,
 				5587FF259227416BF5EC56D5 /* MacLightTablePanel.swift */,
 				CAD30BF3557AEBA5D1ACCBA0 /* MacLightTableRail.swift */,
+				F7B8AFD3C9B02E889245FE9A /* MacCheckFolder.swift */,
 				4D67B327DA246DA5958B2530 /* MacColourWheel.swift */,
 				B0943D86E1AEC6349F66CBA3 /* MacDriver.swift */,
 				6C81384AF42D9F55B4BCD02D /* MacEditCommands.swift */,
 				9F5CBD1524E8DA1827B03413 /* MacFlowBar.swift */,
+				F0C576DFA61CFFB44DB72871 /* MacHIDPost.swift */,
 				0A78E61E0EDBD46E1087435C /* MacPageActions.swift */,
 				44F53DF9FD982ECF0C81122E /* MacScrollZoom.swift */,
 				92A655FE74D5F1D7B27B5C1F /* MacShortcuts.swift */,
+				910DB5AE5BC6001BE7AC3D23 /* MacStockGridCheck.swift */,
+				767C0B01F030CE626C690DA6 /* MacStockGridHandCheck.swift */,
 				6F5459DC6629D35BE1B47E34 /* MacWheelRow.swift */,
 				3FEEBE350CADF17D573CDB21 /* MacWindow.swift */,
 				3C9ADAADC7EB1A20EF56F836 /* MacWindowCapture.swift */,
 				AE52D3251F01C2B3FF04BABB /* MacCatalogCheck.swift */,
 				A69BBC1028968E7A9B0A64F3 /* MacLibraryMove.swift */,
 				0CAC6FFA99CC79A6C51E2F9A /* MacLibraryMovePage.swift */,
+				C103C8F942D08906E2D21398 /* MacEditRefreshCheck.swift */,
 				3ACD468BEE98427E6184291C /* MacMemoryCheck.swift */,
 				9152B5330E8742D119A8D8EE /* MacRenderCache.swift */,
 				87C2C796F387FC849381F734 /* MacRenderCheck.swift */,
@@ -851,6 +899,7 @@
 				90DC59BD4506263FB7B0DD57 /* MacSettingsSources.swift */,
 				721634B96286FC5C61BF7A51 /* MacSettingsStorage.swift */,
 				0B6276A380BD74C13A89E90D /* MacSettingsSupporters.swift */,
+				84A5FB360F6CB67F06087A7B /* MacSettingsWatermarks.swift */,
 				D2D91492B5196DDFFE31A217 /* SettingsWindowRoot.swift */,
 				16E0093FB8EA7FE5616A593D /* Adjustments.swift */,
 				26DE04F7A88858186CA00094 /* CameraCrop.swift */,
@@ -880,6 +929,7 @@
 				46A53981DEA987207EE41850 /* Sources.swift */,
 				7CBAFCB92B9FCC1AB0ADDE03 /* Stock.swift */,
 				37C292D2FE3F407F8C4FB677 /* Supporters.swift */,
+				79CE6CF1CB7C8318F632E534 /* Watermark.swift */,
 				409A72DFCB795B8530270414 /* CostModel.swift */,
 				15A16AEBDB7879A3320E30EA /* DevelopEngine.swift */,
 				33375B2E462E6FE9235829BE /* DevicePolicy.swift */,
@@ -922,12 +972,15 @@
 				032B94A8EEC3690AE07902F4 /* PairKeeping.swift */,
 				61D8A9C89EF0F5D70FFE324A /* PresetStore.swift */,
 				C9758DDC9C326E61E169FBDF /* SQLiteEditHistoryStore.swift */,
+				7AD123E10271E71C8932B973 /* StockPreviewGrid.swift */,
 				C2EFC26BDDD2FF4AEADF0518 /* StockPreviewRules.swift */,
 				D8F0B5B58AA48C13983928BC /* StockPreviews.swift */,
 				AE23EC30D107D03BCCC14599 /* StorageTidy.swift */,
 				718BE959984B4B59D1BB5254 /* StripSource.swift */,
 				617FDEB7B98A3238E31D5531 /* ThumbnailStore.swift */,
 				A6CB5F773280E9A8A0AA89B6 /* UpdateCheck.swift */,
+				878FC0EE300F2ABA05D2360E /* WatermarkShelf.swift */,
+				C1FBF9117C4442ADFDDA401A /* WatermarkStore.swift */,
 				00B47E6BF16737FF9D61497D /* WorkingCopies.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -953,6 +1006,7 @@
 		};
 		5C9C6377AC9BACD93CB57436 /* PairWithSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairWithSheet.swift; sourceTree = "<group>"; };
 		5CCBEB8E89A3F0A443E184C5 /* MacHistoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596DE2C127DD132B30BA47D6 /* MacHistoryPage.swift */; };
+		5DBF462CD708500A334D5635 /* WatermarkPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkPage.swift; sourceTree = "<group>"; };
 		5E7DA9C40C4D74BADA40D562 /* StockPreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPreviewPanel.swift; sourceTree = "<group>"; };
 		5E8ACABCCBE1DB5D311988C9 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -1014,6 +1068,7 @@
 		68CDF1B276DE5467D1CB8EB4 /* MacVariantActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVariantActions.swift; sourceTree = "<group>"; };
 		69991894737BCB987E8B2AD3 /* MacExportCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacExportCheck.swift; sourceTree = "<group>"; };
 		69A3D5D19DF0480A6EEB4DDE /* StockPairPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E26307015F20083A8C7C57 /* StockPairPicker.swift */; };
+		69C698E75392E85547D54B70 /* PictureMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureMemory.swift; sourceTree = "<group>"; };
 		69EC72ABA6AA86A1C1A073AF /* LookTransactions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0251BA3150C8B651326A7921 /* LookTransactions.swift */; };
 		6A7DE718C2AF7A05C67F7EFB /* RawProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E23AAFD9BE0F7A57D346DB49 /* RawProxy.swift */; };
 		6ACEB6A3B360F096E2EFE063 /* MacSettingsCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F47FCAF8EA089197D6648F37 /* MacSettingsCheck.swift */; };
@@ -1079,6 +1134,8 @@
 		};
 		703D18873770C875EAF17CC5 /* GamutProof.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamutProof.swift; sourceTree = "<group>"; };
 		70C0619AA6FE760AD6A50259 /* MacLightTableMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A203435A2388291ACDE8A0A8 /* MacLightTableMenu.swift */; };
+		7118AA9831CD52A358BE6C08 /* Watermark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Watermark.swift; sourceTree = "<group>"; };
+		7165086F9BFB0E066DEB29BD /* MacWatermarkHandCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWatermarkHandCheck.swift; sourceTree = "<group>"; };
 		718BE959984B4B59D1BB5254 /* StripSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A85FBE4CB83C62A52F8729 /* StripSource.swift */; };
 		721634B96286FC5C61BF7A51 /* MacSettingsStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2A60FA313F19E17F49134A /* MacSettingsStorage.swift */; };
 		73026FC526167298CBF94981 /* PieceAdder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PieceAdder.swift; sourceTree = "<group>"; };
@@ -1093,6 +1150,7 @@
 		75336A09B29F10FE098C4539 /* DigitalDecode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigitalDecode.swift; sourceTree = "<group>"; };
 		758E54DAA98B7B40C82AF0F8 /* CropStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0369904EA89C422A48059347 /* CropStage.swift */; };
 		75C838BC48226ABBC08E86FF /* MaskPopovers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaskPopovers.swift; sourceTree = "<group>"; };
+		767C0B01F030CE626C690DA6 /* MacStockGridHandCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5954F2E98A891FFF7927389F /* MacStockGridHandCheck.swift */; };
 		76BFBC872F5579DB55A98EED /* LogShipping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A859784FCF48628C1664F93 /* LogShipping.swift */; };
 		76E0A4DF1AF82920B88A3AB2 /* SimulatedEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56704A7E7DD74FACAB8CE6D /* SimulatedEngine.swift */; };
 		77050384F72B91CF75DB1310 /* FilmEdgeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeResolver.swift; sourceTree = "<group>"; };
@@ -1114,9 +1172,11 @@
 			sourceTree = "<group>";
 		};
 		7954D65A0556D418983ED254 /* LensEdgePanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74F18D170CFE7B99837B931B /* LensEdgePanels.swift */; };
+		79CE6CF1CB7C8318F632E534 /* Watermark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7118AA9831CD52A358BE6C08 /* Watermark.swift */; };
 		79F83B476E9B48342C2B3E8F /* HDRSessionCurve.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADE33BA803417D9CAB251562 /* HDRSessionCurve.swift */; };
 		79FE2EFDD06CF75B360A2185 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41E7BB6A1CDB66786D10C8C9 /* Theme.swift */; };
 		7A1244BD6FBE732BD2295CD9 /* LightTableSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightTableSizing.swift; sourceTree = "<group>"; };
+		7AD123E10271E71C8932B973 /* StockPreviewGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CAF441508B705CD27BE8D8 /* StockPreviewGrid.swift */; };
 		7B9B37171A7550B40803BEC1 /* FolderReach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderReach.swift; sourceTree = "<group>"; };
 		7B9DFB2BFA0F784E94342F95 /* MemoryLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F665C099579B0018EDCF397 /* MemoryLog.swift */; };
 		7BC2CAB9094C6A3F6E6AF09E /* Agent */ = {
@@ -1142,6 +1202,7 @@
 		7DA770AF9B201BF27917A67D /* SceneLayerHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneLayerHost.swift; sourceTree = "<group>"; };
 		7DB82D3ECC8C402A19BE2C8B /* LibraryPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPersistence.swift; sourceTree = "<group>"; };
 		7E4F162E8397EA9F2F690FF2 /* DoubleHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleHarness.swift; sourceTree = "<group>"; };
+		7EAE8884D6A1A513C5484E6D /* MacWatermarkCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacWatermarkCheck.swift; sourceTree = "<group>"; };
 		7F53927C8F6F6FBF206049EC /* MacDoubleRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15DE3B069FD0B9EA53483D76 /* MacDoubleRows.swift */; };
 		7FBCE1C61100E28132893BA3 /* DevicePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePolicy.swift; sourceTree = "<group>"; };
 		806CA75FACB855E02484D2E0 /* MacRenderCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRenderCache.swift; sourceTree = "<group>"; };
@@ -1152,17 +1213,20 @@
 		81B989948C15D30A71BE44ED /* MacSavePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B707CACFA39BD7C5F1C38922 /* MacSavePanel.swift */; };
 		830B2710B4076FBC2AB5B287 /* ExportPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPlan.swift; sourceTree = "<group>"; };
 		83C362294C3339C8848BC9B5 /* AppServices+DoubleDarkroom.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppServices+DoubleDarkroom.swift"; sourceTree = "<group>"; };
+		83CAF441508B705CD27BE8D8 /* StockPreviewGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPreviewGrid.swift; sourceTree = "<group>"; };
 		83D7277A7315A21B47E6F6E2 /* MacLibraryUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryUIState.swift; sourceTree = "<group>"; };
 		83E5889983D3CDFFB8AFE2E5 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C26D799E104D4DCF911A44EF /* JSONValue.swift */; };
 		8479D90A2318869A9B04AA49 /* FilmEdge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9995DFFEAC52EE9F16B882C7 /* FilmEdge.swift */; };
 		8483640F95DD62C7F5D74052 /* FilmEdgeStock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CA80992883C4894E66FF5A8 /* FilmEdgeStock.swift */; };
 		84A57786F406596B7EB6FD96 /* MacSettingsCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B711D31CE0CD25559F91AEF /* MacSettingsCoverage.swift */; };
+		84A5FB360F6CB67F06087A7B /* MacSettingsWatermarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27949988DF70FAEDD34B5885 /* MacSettingsWatermarks.swift */; };
 		84A85FBE4CB83C62A52F8729 /* StripSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StripSource.swift; sourceTree = "<group>"; };
 		85184072DF0F2A41EB70F6A1 /* MacImportDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B2019A7C8009687F3B163E /* MacImportDrop.swift */; };
 		85871CDF06A93EC639715F79 /* MaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaskStore.swift; sourceTree = "<group>"; };
 		86668A6A636992A786357B85 /* CurvePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurvePanel.swift; sourceTree = "<group>"; };
 		86F0048ACF8DBD8EBE70899E /* MacCombineMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCombineMenu.swift; sourceTree = "<group>"; };
 		87520CEDDC9B20D0BC2F20CF /* RecipeChips.swift in Sources */ = {isa = PBXBuildFile; fileRef = 548B4BA44F76C00C49192494 /* RecipeChips.swift */; };
+		878FC0EE300F2ABA05D2360E /* WatermarkShelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5667F524E62B2741299C5AF2 /* WatermarkShelf.swift */; };
 		87C2C796F387FC849381F734 /* MacRenderCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A9FDA0FDB8A0B6FF8A2BDA /* MacRenderCheck.swift */; };
 		87CA7C5FC5A9A8EA7E43FF31 /* ResetAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8942FCE16E118FAA7371B57A /* ResetAlert.swift */; };
 		886E83887947A4C888AD708C /* KeptFileAside.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeptFileAside.swift; sourceTree = "<group>"; };
@@ -1216,12 +1280,14 @@
 		8E57384C300B3B0EB9DB240D /* EditHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8F4F17133932923125F54E /* EditHistory.swift */; };
 		8E64F6B4F2B88FDE5DD69BBF /* SpkIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpkIcon.swift; sourceTree = "<group>"; };
 		8E8A77E55D52918BC5778B05 /* Format.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Format.swift; sourceTree = "<group>"; };
+		8EC59C235B45943D46211365 /* MacWatermarkHandCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7165086F9BFB0E066DEB29BD /* MacWatermarkHandCheck.swift */; };
 		8F7D9781A4CD00E26D4D55CD /* StockPreviewRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockPreviewRules.swift; sourceTree = "<group>"; };
 		902EC57EF384C3F937548EEE /* PairOriginalPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AEF1053C986EBC89A174A4A /* PairOriginalPreview.swift */; };
 		9036911B81CC1B40F2E6B7CC /* HistoryLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryLabel.swift; sourceTree = "<group>"; };
 		909280D8F6F80DD1B075485E /* PairPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEAB01098E89E57E5BAA040 /* PairPanels.swift */; };
 		90B25C99B8EC912182463593 /* OpenFrameSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenFrameSession.swift; sourceTree = "<group>"; };
 		90DC59BD4506263FB7B0DD57 /* MacSettingsSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D48FF37D111C9D5A4101EA /* MacSettingsSources.swift */; };
+		910DB5AE5BC6001BE7AC3D23 /* MacStockGridCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99EDE9D2C55108736DE667BF /* MacStockGridCheck.swift */; };
 		91468586F9881985D065A03B /* App */ = {
 			isa = PBXGroup;
 			children = (
@@ -1299,6 +1365,7 @@
 				99569E92BF5FB3CE3D415CE9 /* HDRDisplays.swift */,
 				0D88C6C581C7E8C606AA78EA /* HDRHistogram.swift */,
 				50D6D2741D61CBE212748998 /* HDRImage.swift */,
+				CBD3E651D29C5991BA44CAA0 /* HDRLatch.swift */,
 				4B7D3D529933DBF7910FE0B0 /* HDRZoneView.swift */,
 				FA503191453842D64286FD0E /* HighDynamicRangeGroup.swift */,
 				DFD5DC2E22462390BE2E041F /* HistogramPanel.swift */,
@@ -1312,6 +1379,7 @@
 				A1D1DA80476563F2C9E68A0F /* PaneDividers.swift */,
 				AE07A959C09525C683183F58 /* PresetSheet.swift */,
 				FA61A4EC609AB88F353095D4 /* StockCards.swift */,
+				C576F98A4B95B41F1E912C27 /* StockGridPanel.swift */,
 				5E7DA9C40C4D74BADA40D562 /* StockPreviewPanel.swift */,
 				E91C427AD55C4053CF4488D7 /* ViewerPane.swift */,
 				B416DFA20655306A9F4F76F2 /* WorkspaceSnapshots.swift */,
@@ -1386,6 +1454,7 @@
 			sourceTree = "<group>";
 		};
 		9995DFFEAC52EE9F16B882C7 /* FilmEdge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdge.swift; sourceTree = "<group>"; };
+		99EDE9D2C55108736DE667BF /* MacStockGridCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacStockGridCheck.swift; sourceTree = "<group>"; };
 		9A5426FBDBEBBA592A99EC4C /* MacPairRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPairRows.swift; sourceTree = "<group>"; };
 		9A84DD039B077207EC917A1E /* PairEntrySnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = E357344D7257C38EAA5F8B4E /* PairEntrySnapshots.swift */; };
 		9A97241FEEBFFF6420AEDB98 /* MacMaskFlatCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9B3A9DF21B33E15C318AB7A /* MacMaskFlatCheck.swift */; };
@@ -1443,6 +1512,7 @@
 		A0441D3924939B612631D2EF /* MaskPopovers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C838BC48226ABBC08E86FF /* MaskPopovers.swift */; };
 		A08555755771CFDF00A8B5BD /* Layer2Snapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5A1AFFAE02722854CCDB74 /* Layer2Snapshots.swift */; };
 		A0B87377B34C355B1851787F /* SliderProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliderProbe.swift; sourceTree = "<group>"; };
+		A154BD2096149FB848E59BB9 /* MacWatermarkCanvasCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26A088D33495EE1E2F0F496C /* MacWatermarkCanvasCheck.swift */; };
 		A1D1DA80476563F2C9E68A0F /* PaneDividers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDividers.swift; sourceTree = "<group>"; };
 		A1D2F15514D1036BE6528A00 /* MacLibraryDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB1735149B54079AE8094685 /* MacLibraryDriver.swift */; };
 		A203435A2388291ACDE8A0A8 /* MacLightTableMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableMenu.swift; sourceTree = "<group>"; };
@@ -1549,6 +1619,7 @@
 		B16E3AF64522EBC47F7FF2AC /* PrintLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B94B5E80C71B114C5D3C6F3 /* PrintLayers.swift */; };
 		B17D59121C62DF6A22F93F02 /* HDRRendition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A709081BE540FB707E982614 /* HDRRendition.swift */; };
 		B18BE81F223B985E1A172E7E /* DevelopController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0992E8801560EDB7F1ED83E9 /* DevelopController.swift */; };
+		B20BA7C017AA3E37476533EB /* MacHIDPost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHIDPost.swift; sourceTree = "<group>"; };
 		B21305164722E3DA1F238861 /* Layer2Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D9FF35EF802679AE3B7371A /* Layer2Export.swift */; };
 		B243BBD5D9B14870AC4A93DE /* MacVariantCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC6F3B6CB74DE587A19E9C06 /* MacVariantCheck.swift */; };
 		B252D9EA4DC1F503CE18F18C /* FolderHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderHarness.swift; sourceTree = "<group>"; };
@@ -1585,6 +1656,7 @@
 		B33A8913422DC58250A2B8F2 /* LensCorrectionPart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069EDC30D16AC74285049FF2 /* LensCorrectionPart.swift */; };
 		B3D54DFB0F3A009780734FA1 /* MacExportHDRCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacExportHDRCheck.swift; sourceTree = "<group>"; };
 		B416DFA20655306A9F4F76F2 /* WorkspaceSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSnapshots.swift; sourceTree = "<group>"; };
+		B4B02B06CBA189C842053C4F /* WatermarkParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC525614F4650451C64E321D /* WatermarkParts.swift */; };
 		B4D4A3450BB9CC7790AD2295 /* NeutralPick.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995AABAEC6CA70F22F3EA14B /* NeutralPick.swift */; };
 		B4FEB4596A34246A3AC3F5F5 /* LightTablePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39217BB874BCAFA3F4950B13 /* LightTablePane.swift */; };
 		B519D0A3C5C7E08A61DA5752 /* SpektraLab.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = SpektraLab.icon; path = Resources/SpektraLab.icon; sourceTree = "<group>"; };
@@ -1641,9 +1713,11 @@
 		BAE73C9416DD8232815E2DF7 /* MacModeSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58C6E514707C414C3CBD0B1 /* MacModeSwitch.swift */; };
 		BB211ACB77C38A6810755645 /* MaskPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaskPage.swift; sourceTree = "<group>"; };
 		BBA9B4086F546FD4833D8996 /* LibraryPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPreviews.swift; sourceTree = "<group>"; };
+		BC8C4EA7A9BA20175E1752BE /* WatermarkCanvasStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E54F26E0E2CD3E29F8F7B47 /* WatermarkCanvasStage.swift */; };
 		BCBD2BC1097BF22838FD7191 /* MaskRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91864D73C262242E78B94CF3 /* MaskRules.swift */; };
 		BCD9B74B4A73E19A5A84AF39 /* MacHistoryPageCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF02992C68D02F18BDCB59C /* MacHistoryPageCheck.swift */; };
 		BDEE8AE5F8AD76E74CCF4157 /* LibraryPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA9B4086F546FD4833D8996 /* LibraryPreviews.swift */; };
+		BE520CA670DB5CF255A2FA07 /* MacWatermarkCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EAE8884D6A1A513C5484E6D /* MacWatermarkCheck.swift */; };
 		BE7F861D904122EFC7902D6C /* AdjustColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = B940C744C011F1D4533210DD /* AdjustColumn.swift */; };
 		BEA270BDB4CC88A2CEADF82E /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
 		BECDFBC9C0BFBDED2E6EFE7C /* AppearancePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A97330053E180E9B7A67ABAC /* AppearancePage.swift */; };
@@ -1664,7 +1738,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202611141240;
+				CURRENT_PROJECT_VERSION = 202611162056;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
@@ -1676,7 +1750,7 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 2.4.0;
+				MARKETING_VERSION = 2.4.1;
 				OTHER_LDFLAGS = ("$(inherited)", "-lsqlite3");
 				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1694,6 +1768,9 @@
 		C06BE30AD323E4200C411449 /* MacEditCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacEditCommands.swift; sourceTree = "<group>"; };
 		C07FD8557167CE2A9C81C1DE /* WindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C289C7854C884A46E5D34D11 /* WindowLayout.swift */; };
 		C0D1D13338B335BA4D9CAE25 /* FilmEdgeSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmEdgeSnapshots.swift; sourceTree = "<group>"; };
+		C103C8F942D08906E2D21398 /* MacEditRefreshCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3086CEA05B8AD0C4191E72C /* MacEditRefreshCheck.swift */; };
+		C19C799E4E7CEF6C68413936 /* WatermarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkStore.swift; sourceTree = "<group>"; };
+		C1FBF9117C4442ADFDDA401A /* WatermarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19C799E4E7CEF6C68413936 /* WatermarkStore.swift */; };
 		C2409111B1F57851AB13D4C1 /* HDRMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B51D59FABEB45E18D28B9B /* HDRMath.swift */; };
 		C24ECB06AF3EAC6AFB855825 /* MacExportRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ED5786A6DCBB92DB6EF94CF /* MacExportRun.swift */; };
 		C26D799E104D4DCF911A44EF /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONValue.swift; sourceTree = "<group>"; };
@@ -1712,6 +1789,7 @@
 		C4655522C1CF9DF986387530 /* CatalogSourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67BA0371C085119BC103B8A1 /* CatalogSourcesStore.swift */; };
 		C46DB2A13F7DFE025F878087 /* CaptureOneSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92BEE4B2FF96DBA8ABAC8EAF /* CaptureOneSource.swift */; };
 		C49DB28897704CD14F706651 /* DevelopWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopWorkspace.swift; sourceTree = "<group>"; };
+		C576F98A4B95B41F1E912C27 /* StockGridPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockGridPanel.swift; sourceTree = "<group>"; };
 		C5926192950FAB508AE8C163 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1740,6 +1818,7 @@
 		C84467E65F28C8F304ECEFBB /* FilmEdgeSteps.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F3C16DBF37CD134278226AB /* FilmEdgeSteps.swift */; };
 		C851391AE6B38BEEC83CCFF0 /* AgentClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80047D42DC496B98DBAF88F /* AgentClient.swift */; };
 		C89B752F05E4DF8008296F7E /* DemoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47DB8F19E2CF45F9767DCBE0 /* DemoLibrary.swift */; };
+		C8B2AF5473B4D83468D87B5D /* WatermarkComposite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkComposite.swift; sourceTree = "<group>"; };
 		C8D68B4089123276BDA27481 /* Indicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA18D29B842F25802E87E341 /* Indicators.swift */; };
 		C9166ECF597DB5A9B99D8FF6 /* MacSharedControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A3568DE16F373C074D695B /* MacSharedControls.swift */; };
 		C917686F64745665B6C467AD /* MacLibraryEntryCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DE328DFED1D62DD2F783F0 /* MacLibraryEntryCheck.swift */; };
@@ -1754,6 +1833,7 @@
 		CB1735149B54079AE8094685 /* MacLibraryDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryDriver.swift; sourceTree = "<group>"; };
 		CB834054720006343E96BD6D /* DevelopPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 640025A011B09D62BFC05B9C /* DevelopPanels.swift */; };
 		CB8F4F17133932923125F54E /* EditHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditHistory.swift; sourceTree = "<group>"; };
+		CBD3E651D29C5991BA44CAA0 /* HDRLatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRLatch.swift; sourceTree = "<group>"; };
 		CC2FA04F065B6F2088EADFC5 /* ExportRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportRecipe.swift; sourceTree = "<group>"; };
 		CC33E9634D96F72D705161E7 /* Mac */ = {
 			isa = PBXGroup;
@@ -1770,13 +1850,17 @@
 				22919E979FA48D80151913F8 /* Render */,
 				CEC96E16F4C63591AE0A4892 /* Settings */,
 				92BEE4B2FF96DBA8ABAC8EAF /* CaptureOneSource.swift */,
+				0FD35F0A448C42364924AB8E /* MacCheckFolder.swift */,
 				459B5A51503E36BA2B8328C0 /* MacColourWheel.swift */,
 				DADC9850397FEEC96308FE20 /* MacDriver.swift */,
 				C06BE30AD323E4200C411449 /* MacEditCommands.swift */,
 				04171A8BD6053A51486176E9 /* MacFlowBar.swift */,
+				B20BA7C017AA3E37476533EB /* MacHIDPost.swift */,
 				4BEE9D51F0DF78B565FC1FBA /* MacPageActions.swift */,
 				260942587A06E41C0BCDEAE9 /* MacScrollZoom.swift */,
 				657052AA022CC1DC06835C45 /* MacShortcuts.swift */,
+				99EDE9D2C55108736DE667BF /* MacStockGridCheck.swift */,
+				5954F2E98A891FFF7927389F /* MacStockGridHandCheck.swift */,
 				8BE0CA9D7D07E66456FB4D03 /* MacWheelRow.swift */,
 				67202E6DB48DD39BB5318021 /* MacWindow.swift */,
 				39E11A0807C3788C69112DF5 /* MacWindowCapture.swift */,
@@ -1804,6 +1888,7 @@
 				F8D48FF37D111C9D5A4101EA /* MacSettingsSources.swift */,
 				CF2A60FA313F19E17F49134A /* MacSettingsStorage.swift */,
 				9DB755F2BBA0EF6618DCFB1F /* MacSettingsSupporters.swift */,
+				27949988DF70FAEDD34B5885 /* MacSettingsWatermarks.swift */,
 				4D6EE8038E92C40335E69E36 /* SettingsWindowRoot.swift */,
 			);
 			path = Settings;
@@ -1860,6 +1945,7 @@
 				DDA5DAFC2CC8326D51F5AAD6 /* HostCut.swift */,
 				F67795B6D2BBF81AD6D72197 /* JobDiagnostics.swift */,
 				CE3C578F6D2980FC7CDEDD78 /* Layer2Copies.swift */,
+				2322FC1A503AA87A4B2F00D9 /* Layer2DisplaySizes.swift */,
 				2D9FF35EF802679AE3B7371A /* Layer2Export.swift */,
 				CAF51F184B82293C13DBF678 /* Layer2Kernel.swift */,
 				E8A152F47AB36BF5705F2161 /* Layer2Live.swift */,
@@ -1877,6 +1963,7 @@
 				995AABAEC6CA70F22F3EA14B /* NeutralPick.swift */,
 				88D7561E935AA38FE4B43DF2 /* OutputTransform.swift */,
 				E11C0385836F64E8056CD76C /* PairDevelop.swift */,
+				69C698E75392E85547D54B70 /* PictureMemory.swift */,
 				73026FC526167298CBF94981 /* PieceAdder.swift */,
 				5070E5241BDE4621F862A19C /* PieceComposer.swift */,
 				E974799B6367D44B5E8244BA /* PiecePlacer.swift */,
@@ -1890,6 +1977,8 @@
 				57496FB95C89BC99CBDABBBD /* SceneLayerWire.swift */,
 				FC8BAA475F60491FDB00FF81 /* ScenePlacement.swift */,
 				CC6A752EB674CEB407ED0AB7 /* SubjectFinder.swift */,
+				EE949402822399DAABE8ABE5 /* WatermarkBase.swift */,
+				C8B2AF5473B4D83468D87B5D /* WatermarkComposite.swift */,
 			);
 			path = Engine;
 			sourceTree = "<group>";
@@ -1898,7 +1987,10 @@
 		D16597A7DAFE93B72E432F37 /* AppMenuCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuCommands.swift; sourceTree = "<group>"; };
 		D1972080FD6ED57A3CD78CBD /* LibraryBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBrowser.swift; sourceTree = "<group>"; };
 		D264157254C76D9C167F111B /* InfoSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C175FF4848E19A59D0E5DE /* InfoSheet.swift */; };
+		D2CC5109473760366947C143 /* MacImportC1Check.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportC1Check.swift; sourceTree = "<group>"; };
 		D2D91492B5196DDFFE31A217 /* SettingsWindowRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6EE8038E92C40335E69E36 /* SettingsWindowRoot.swift */; };
+		D3086CEA05B8AD0C4191E72C /* MacEditRefreshCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacEditRefreshCheck.swift; sourceTree = "<group>"; };
+		D31AA2B7F6A6A38EA462E722 /* WatermarkRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkRows.swift; sourceTree = "<group>"; };
 		D34C9194D3129C67EDD07200 /* MacSettingsRecipes.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5F1F49C7F32C47CDBD4B95 /* MacSettingsRecipes.swift */; };
 		D3C175FF4848E19A59D0E5DE /* InfoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoSheet.swift; sourceTree = "<group>"; };
 		D422D63D8072C1C601B2B438 /* MacMetadataPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMetadataPicker.swift; sourceTree = "<group>"; };
@@ -1997,6 +2089,7 @@
 		ECB44BE50A00C6F2CCED158C /* FullDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullDetail.swift; sourceTree = "<group>"; };
 		ECB468703CD975CD98AA56A9 /* CurvePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86668A6A636992A786357B85 /* CurvePanel.swift */; };
 		ECE8BB01A1C8B0F170354B48 /* DoubleExposure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleExposure.swift; sourceTree = "<group>"; };
+		EE949402822399DAABE8ABE5 /* WatermarkBase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkBase.swift; sourceTree = "<group>"; };
 		EEAA43A8BBBB50C35EC2CF5F /* HistoryLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9036911B81CC1B40F2E6B7CC /* HistoryLabel.swift */; };
 		EEBB3C70E6945B9C03A4383D /* Layer2Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A152F47AB36BF5705F2161 /* Layer2Live.swift */; };
 		EED76DFFCD8D9F71AE99023A /* ExportRecipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2FA04F065B6F2088EADFC5 /* ExportRecipe.swift */; };
@@ -2035,12 +2128,15 @@
 				0461DDEBA01EAC413228AEB0 /* PairKeeping.swift */,
 				42A3FA76845ADAD4052BCC5A /* PresetStore.swift */,
 				A39A613AD3593A1368392DF4 /* SQLiteEditHistoryStore.swift */,
+				83CAF441508B705CD27BE8D8 /* StockPreviewGrid.swift */,
 				8F7D9781A4CD00E26D4D55CD /* StockPreviewRules.swift */,
 				9C5D5F39357306E91F89DC85 /* StockPreviews.swift */,
 				EC31C3FDC920757C4D167A55 /* StorageTidy.swift */,
 				84A85FBE4CB83C62A52F8729 /* StripSource.swift */,
 				524906E579F01B81BDD196E4 /* ThumbnailStore.swift */,
 				C30D38BF4C37498062174B5C /* UpdateCheck.swift */,
+				5667F524E62B2741299C5AF2 /* WatermarkShelf.swift */,
+				C19C799E4E7CEF6C68413936 /* WatermarkStore.swift */,
 				63CD3E70E698C9644CFB51EA /* WorkingCopies.swift */,
 			);
 			path = Services;
@@ -2053,6 +2149,7 @@
 		F01E30743B99413B68B1BECD /* BlackAndWhiteSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3419AD5DDAB7E8EAC306487 /* BlackAndWhiteSnapshots.swift */; };
 		F07E74802FF918B355FA11B3 /* PairFramePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E51731BDF2C3970D7AFD1AF /* PairFramePicker.swift */; };
 		F09A0DBCBD8E535F7BA1845E /* SizePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02E7045D35F848D4B8FF7D6E /* SizePage.swift */; };
+		F0C576DFA61CFFB44DB72871 /* MacHIDPost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20BA7C017AA3E37476533EB /* MacHIDPost.swift */; };
 		F0CBE4AFB72208EBD6FAA83D /* FilmGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmGeometry.swift; sourceTree = "<group>"; };
 		F106739DC8980EECF5DAFD3D /* DevelopedPicture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevelopedPicture.swift; sourceTree = "<group>"; };
 		F154C6E8C9F0FCEB3736F12A /* Supporters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supporters.swift; sourceTree = "<group>"; };
@@ -2095,6 +2192,7 @@
 			sourceTree = "<group>";
 		};
 		F7AAA2E334719BFCE3A380BB /* MacBrowserSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5071F7FF48AD55E4D62AA57E /* MacBrowserSplit.swift */; };
+		F7B8AFD3C9B02E889245FE9A /* MacCheckFolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD35F0A448C42364924AB8E /* MacCheckFolder.swift */; };
 		F84FD35CA8548076F2B51EDF /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -2126,6 +2224,7 @@
 		F9B3A9DF21B33E15C318AB7A /* MacMaskFlatCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMaskFlatCheck.swift; sourceTree = "<group>"; };
 		F9C5D986E0DC2D1ED45ADEBF /* CropGuides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropGuides.swift; sourceTree = "<group>"; };
 		F9E11AE867B58EF93E162646 /* RawBlack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B896AB6571DA424CC845447 /* RawBlack.swift */; };
+		FA311A9977FC502634683319 /* WatermarkActs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkActs.swift; sourceTree = "<group>"; };
 		FA503191453842D64286FD0E /* HighDynamicRangeGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighDynamicRangeGroup.swift; sourceTree = "<group>"; };
 		FA61A4EC609AB88F353095D4 /* StockCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockCards.swift; sourceTree = "<group>"; };
 		FADF9681965FC9CA02A9DE69 /* DecodeSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B787AA25680451B11140C5B6 /* DecodeSection.swift */; };
@@ -2141,6 +2240,7 @@
 		};
 		FBF55B480EDB2D0B74A40403 /* RenderQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderQueue.swift; sourceTree = "<group>"; };
 		FC0CB21E6ADF24E540AC513C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C75666A906ECECB3B24031AB /* PrivacyInfo.xcprivacy */; };
+		FC525614F4650451C64E321D /* WatermarkParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkParts.swift; sourceTree = "<group>"; };
 		FC6F3B6CB74DE587A19E9C06 /* MacVariantCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVariantCheck.swift; sourceTree = "<group>"; };
 		FC8BAA475F60491FDB00FF81 /* ScenePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenePlacement.swift; sourceTree = "<group>"; };
 		FC8C0596B0F1B29CBAF77A5B /* Frame */ = {

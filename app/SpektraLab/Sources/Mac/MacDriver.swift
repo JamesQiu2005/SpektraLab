@@ -214,6 +214,7 @@ enum MacDriver {
             }),
             ("cropframe.on", { m in m.settings.cropRemapsFrame = true; m.cropRemapsFrameChanged() }),
             ("cropframe.off", { m in m.settings.cropRemapsFrame = false; m.cropRemapsFrameChanged() }),
+            // Settings' Offer No Paper on or off, as its checkbox sets it (the paper strip's No Paper card, 2.4.1).
             ("crop.quarter", { m in edit(m) { e, _ in e.geometry.crop = CropRect(x: 0.375, y: 0.375, width: 0.25, height: 0.25) } }),
             ("crop.whole", { m in edit(m) { e, _ in e.geometry.crop = .full } }),
             ("zoom.100", { _ in NotificationCenter.default.post(name: zoomHundred, object: true) }),
@@ -317,12 +318,17 @@ enum MacDriver {
             ("filmformat.135", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .film135 }),
             ("filmformat.120", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .film120 }),
             ("filmformat.wide", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .panoramic }),
+            ("filmformat.cine", { _ in DevelopPanelPrefs.shared.filmEdgeFilter = .cine }),
             ("format.sprocket", { m in page(m) { s in let a = s.frame?.originalSize.aspect ?? 1.5
                 s.change { $0.filmEdge.take(format: .sprocket135, stockID: $0.params.filmStock); $0.filmEdge.framing = nil
                            $0.filmEdge.turn = FilmEdgeFormat.sprocket135.defaultTurn(pictureAspect: a) } } }),
             ("format.6x7.keyhole", { m in page(m) { s in let a = s.frame?.originalSize.aspect ?? 1.5
                 s.change { $0.filmEdge.take(format: .f6x7, stockID: $0.params.filmStock); $0.filmEdge.perforation = .ks65
                            $0.filmEdge.framing = nil; $0.filmEdge.turn = FilmEdgeFormat.f6x7.defaultTurn(pictureAspect: a) } } }),
+            // API-SPEC §24: a cine gauge, as its 电影 card takes it
+            ("format.cine16", { m in page(m) { s in let a = s.frame?.originalSize.aspect ?? 1.5
+                s.change { $0.filmEdge.take(format: .cine16, stockID: $0.params.filmStock); $0.filmEdge.framing = nil
+                           $0.filmEdge.turn = FilmEdgeFormat.cine16.defaultTurn(pictureAspect: a) } } }),
             ("format.135", { m in page(m) { s in let a = s.frame?.originalSize.aspect ?? 1.5
                 s.change { $0.filmEdge.take(format: .f135, stockID: $0.params.filmStock); $0.filmEdge.framing = nil
                            $0.filmEdge.turn = FilmEdgeFormat.f135.defaultTurn(pictureAspect: a) } } }),
@@ -340,6 +346,11 @@ enum MacDriver {
             ("leak.wash", { m in page(m) { $0.change { $0.leak.kind = .wash } } }),
             ("leak.auto", { m in page(m) { $0.change { $0.leak.kind = .auto } } }),
             ("leak.spot", { m in page(m) { $0.change { $0.leak.kind = .spot } } }),
+            // 边缘漏光 beside the kind (API-SPEC §21.9): on at its rest, off, and at 2 (`leak.band` then `leak.edge`: both)
+            ("leak.edge", { m in page(m) { $0.change { $0.leak.edge = LeakSettings.edgeRest } } }),
+            ("leak.edge.off", { m in page(m) { $0.change { $0.leak.edge = 0 } } }),
+            ("leak.edge.2", { m in page(m) { $0.change { $0.leak.edge = 2 } } }),
+            ("leak.shuffle", { m in page(m) { s in let n = LeakSettings.drawSeed(other: s.edit.leak.seed); s.change { $0.leak.seed = n } } }),
             ("softfilter.half", { m in page(m) { $0.change { $0.lens.filter = .blackMist; $0.lens.strength = 0.5 } } }),
             ("softfilter.2", { m in page(m) { $0.change { $0.lens.filter = .blackMist; $0.lens.strength = 2 } } }),
             ("leak.band", { m in page(m) { $0.change { $0.leak.kind = .band } } }),
@@ -363,8 +374,8 @@ enum MacDriver {
             ("hdr.on", { m in page(m) { $0.switchHDR(true) } }),
             ("hdr.off", { m in page(m) { $0.switchHDR(false) } }),
             // 解码 › 高动态范围 (PRD-B): the print's EDR, and HDR Peak Brightness at 1, 3 stops and back to 2.
-            ("edr.on", { m in page(m) { $0.change { $0.params.extendedDynamicRange = true } } }),
-            ("edr.off", { m in page(m) { $0.change { $0.params.extendedDynamicRange = false } } }),
+            ("edr.on", { m in page(m) { $0.switchEDR(true) } }),
+            ("edr.off", { m in page(m) { $0.switchEDR(false) } }),
             ("hdr.peak.1", { m in page(m) { $0.change { $0.hdrPeak = 1 } } }),
             ("hdr.peak.3", { m in page(m) { $0.change { $0.hdrPeak = 3 } } }),
             ("hdr.peak.2", { m in page(m) { $0.change { $0.hdrPeak = 2 } } }),

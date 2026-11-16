@@ -24,6 +24,15 @@
 //     placement is its Capture folder; the default destination is the selected catalog.
 //  7. **The page itself**, presented over the library with the Z7ii folder as picked (no Finder panel),
 //     drawn to `<dir>/page-*.png` from inside the app, as `MacWindowCapture` does.
+//  8. **The way in and out, timed** (2026-11-16; alone with `--import-check-only open`): Import, the real
+//     Finder panel cancelled; the panel answered Cancel (no cover ever, under 100 ms to idle); a pick, the
+//     page, its Cancel 0–800 ms after it appeared (one dismissal, never the watchdog); one ask at a time.
+//  9. **Checks and the divider** (2.4.1 E1, E3; alone with `--import-check-only picks`, no fixture needed: a folder
+//     of twelve pictures made here): checks win over the selection, survive a filter and a rescan; on the page,
+//     by a hand's events in the app's own queue (`MacHIDPost`, the app in the background): → and Space check the
+//     picture shown, Space over several chosen checks them all and again unchecks them, a click on a cell's box
+//     checks it without touching the selection; the divider dragged to the left widens the browser, its columns
+//     grow, the width is kept; Space in the new catalog's name types a space; Return imports the checked ones only.
 //  The drop (2026-11-05) has a check of its own, `--drop-check` (MacImportDropCheck.swift): it makes
 //  catalogs and opens and closes the page many times, which this run's steps must not see.
 //
@@ -41,6 +50,8 @@ enum MacImportCheck {
     static let defaultDisk = ProcessInfo.processInfo.environment["SPK_TEST_DISK"] ?? ""
 
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
+        // Capture One is never an import destination (2026-11-16): a check of its own, with its own fixtures.
+        MacImportC1Check.startIfAsked(model: model, arguments: arguments)
         guard let i = arguments.firstIndex(of: "--import-check"), i + 1 < arguments.count else { return }
         func arg(_ name: String) -> String? {
             arguments.firstIndex(of: name).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
@@ -48,7 +59,7 @@ enum MacImportCheck {
         let out = URL(fileURLWithPath: arguments[i + 1])
         let z7Path = arg("--import-check-z7") ?? defaultZ7
         let diskPath = arg("--import-check-disk") ?? defaultDisk
-        guard !z7Path.isEmpty, !diskPath.isEmpty else {
+        guard (!z7Path.isEmpty && !diskPath.isEmpty) || arg("--import-check-only") == "picks" else {
             print("import-check: supply --import-check-z7 and --import-check-disk, or SPK_TEST_IMAGES and SPK_TEST_DISK; no fixtures were run")
             if arguments.contains("--import-check-exit") { exit(2) }
             return
@@ -56,9 +67,15 @@ enum MacImportCheck {
         let z7 = URL(fileURLWithPath: z7Path)
         let disk = URL(fileURLWithPath: diskPath)
         let exits = arguments.contains("--import-check-exit")
+        // `--import-check-only open`: step 8 alone (the way in and out, timed), without the imports.
+        let onlyOpen = arg("--import-check-only") == "open"
+        let onlyPicks = arg("--import-check-only") == "picks"
+        let repeats = arg("--import-check-repeats").flatMap(Int.init) ?? 20
+        realPanel = arguments.contains("--import-check-real-panel")
         Task {
             try? await Task.sleep(for: .seconds(2))
-            let report = await run(model, out: out, z7: z7, disk: disk)
+            let report = onlyPicks ? await runPicks(model, out: out)
+                : onlyOpen ? await runOpen(model, folder: z7, repeats: repeats) : await run(model, out: out, z7: z7, disk: disk)
             try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
             if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: out.appending(path: "report.json"))
@@ -374,8 +391,401 @@ enum MacImportCheck {
         // 7. The page itself, over the library, with the Z7ii folder picked (no Finder panel).
         if haveZ7 { await drawPage(r, out: out, folder: z7) }
 
+        // 8. The way in and out, timed.
+        if haveZ7 { await openAndLeave(r, store: store, router: model.router, folder: z7, repeats: 20) }
+
+        // 9. Checks and the divider.
+        await checksAndDivider(r, store: store, out: out)
+
         print("import-check: \(r.failures.isEmpty ? "passed" : "\(r.failures.count) failure(s)")")
         return ["steps": r.steps, "failures": r.failures, "not_run": r.notRun, "passed": r.failures.isEmpty]
+    }
+
+    /// Step 8 alone (`--import-check-only open`).
+    static func runOpen(_ model: AppServices, folder: URL, repeats: Int) async -> [String: Any] {
+        let r = Report()
+        await model.macLibrary.start()
+        await openAndLeave(r, store: model.macLibrary, router: model.router, folder: folder, repeats: repeats)
+        print("import-check: \(r.failures.isEmpty ? "passed" : "\(r.failures.count) failure(s)")")
+        return ["steps": r.steps, "failures": r.failures, "not_run": r.notRun, "passed": r.failures.isEmpty]
+    }
+
+    /// Step 9 alone (`--import-check-only picks`).
+    static func runPicks(_ model: AppServices, out: URL) async -> [String: Any] {
+        let r = Report()
+        await model.macLibrary.start()
+        await checksAndDivider(r, store: model.macLibrary, out: out)
+        print("import-check: \(r.failures.isEmpty ? "passed" : "\(r.failures.count) failure(s)")")
+        return ["steps": r.steps, "failures": r.failures, "not_run": r.notRun, "passed": r.failures.isEmpty]
+    }
+
+    // MARK: - 9. checks and the divider
+
+    /// Twelve pictures, ten JPEGs and two PNGs (so a format filter hides some), each its own colour, and one in a
+    /// subfolder (so Include Subfolders rescans to a different set).
+    private static func makeTwelve(in folder: URL) -> URL {
+        let fm = FileManager.default
+        try? fm.removeItem(at: folder)
+        try? fm.createDirectory(at: folder.appending(path: "sub"), withIntermediateDirectories: true)
+        for i in 0..<12 {
+            let picture = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 64)).image { ctx in
+                UIColor(hue: CGFloat(i) / 12, saturation: 0.7, brightness: 0.9, alpha: 1).setFill()
+                ctx.fill(CGRect(x: 0, y: 0, width: 96, height: 64))
+            }
+            let name = String(format: "p%02d", i)
+            if i >= 10 { try? picture.pngData()?.write(to: folder.appending(path: "\(name).png")) }
+            else if i == 9 { try? picture.jpegData(compressionQuality: 0.9)?.write(to: folder.appending(path: "sub/\(name).jpg")) }
+            else { try? picture.jpegData(compressionQuality: 0.9)?.write(to: folder.appending(path: "\(name).jpg")) }
+        }
+        return folder
+    }
+
+    private static func checksAndDivider(_ r: Report, store: any MacLibraryData, out: URL) async {
+        let work = out.appending(path: "work")
+        let folder = makeTwelve(in: work.appending(path: "twelve"))
+        let paths = { (rows: [MacImage]) in Set(rows.map { CatalogSourcesStore.key($0.url.path) }) }
+
+        // 9a. The rule, on the session alone.
+        let s = await scanned(store, [folder])
+        let rows = s.rows
+        guard rows.count == 12 else { r.check(false, "9a: twelve pictures found (\(rows.count))"); s.close(); return }
+        s.toggleCheck(rows[1].id)
+        s.toggleCheck(rows[3].id)
+        s.browser.click(rows[5].id, command: false, shift: false, in: rows)
+        let title = s.importTitle
+        r.check(Set(s.toImport.map(\.id)) == [rows[1].id, rows[3].id], "9a: checks win over the selection (\(s.toImport.map(\.fileName)))")
+        r.check(title == L("Import \(2.formatted()) Checked"), "9a: the button reads Import 2 Checked (\(title))")
+        let png = s.formatCounts.first { $0.count == 2 }?.format ?? "PNG"
+        s.formats = [png]
+        let filtered = (s.checkedRows.count, s.importTitle)
+        r.check(filtered.0 == 0 && s.importTitle == L("Import All (\(2.formatted()))"), "9a: a filter hiding the checked falls back to the rows shown (\(filtered))")
+        s.formats = []
+        r.check(s.checkedRows.count == 2, "9a: the filter taken off, the checks are back (\(s.checkedRows.count))")
+        if let sub = rows.first(where: { $0.fileName == "p09.jpg" }) { s.toggleCheck(sub.id) }   // in sub/: gone without subfolders
+        s.includeSubfolders = false
+        await s.scanFinished()
+        r.check(s.checkedRows.count == 2 && s.rows.count == 11, "9a: a rescan keeps the checks of the pictures still there (\(s.checkedRows.count) of \(s.rows.count))")
+        s.includeSubfolders = true
+        await s.scanFinished()
+        r.check(s.checkedRows.count == 2, "9a: a check of a picture a rescan did not find is let go (\(s.checkedRows.count))")
+        s.uncheckAll()
+        r.check(s.importTitle == L("Import \(1.formatted()) Selected") || s.importTitle == L("Import All (\(s.rows.count.formatted()))"),
+                "9a: unchecked, the button is the selection's again (\(s.importTitle))")
+        r.record("9a checks against the selection", 0, ["title_checked": title, "filtered": "\(filtered)", "after_uncheck": s.importTitle])
+        s.close()
+
+        #if targetEnvironment(macCatalyst)
+        await pageChecks(r, store: store, out: out, folder: folder, paths: paths)
+        #else
+        r.notRun.append("9b the page by a hand's events: Mac only")
+        #endif
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// 9b–9f, on the page presented over the library, by events posted into the app's own queue.
+    private static func pageChecks(_ r: Report, store: any MacLibraryData, out: URL, folder: URL,
+                                   paths: ([MacImage]) -> Set<String>) async {
+        let library = MacLibraryBrowser.shared
+        MacImportFlow.debugPicks = [folder]
+        MacImportFlow.debugCells = true
+        defer { MacImportFlow.debugPicks = nil; MacImportFlow.debugCells = false }
+        UserDefaults.standard.removeObject(forKey: MacImportSession.browserWidthKey)
+        let old = MacImportFlow.debugSession
+        library.importAsked = true
+        _ = await until(10) { MacImportFlow.debugSession.map { $0 !== old } ?? false }
+        guard let s = MacImportFlow.debugSession, s !== old else { r.check(false, "9b: the import page was presented"); library.importAsked = false; return }
+        await s.scanFinished()
+        await s.existingRead()
+        s.destination = .newCatalog
+        s.newCatalogName = "Checked"
+        s.newCatalogFolder = out.appending(path: "work/Catalogs")
+        s.placement = .inPlace
+        s.browser.viewerShown = true
+        try? await Task.sleep(for: .seconds(1.5))
+        let rows = s.rows
+        r.check(rows.count == 12, "9b: the page shows the twelve (\(rows.count))")
+        guard rows.count == 12 else { library.importAsked = false; return }
+        var drawn: [String] = [draw(out, "page-9-opened")]
+
+        // 9b. → and Space: the shown picture checked; → → Space: the third.
+        let k = MacHIDPost.self
+        _ = await k.key(keyCode: 124)
+        let firstShown = s.browser.primary(rows)?.id
+        _ = await k.key(keyCode: 49)
+        _ = await k.key(keyCode: 124)
+        _ = await k.key(keyCode: 124)
+        _ = await k.key(keyCode: 49)
+        let byKey = Set(s.checkedRows.map(\.id))
+        r.record("9b → and Space", 0, ["first_shown": firstShown?.image ?? "-", "checked": s.checkedRows.map(\.fileName),
+                                       "shown": s.browser.primary(rows)?.fileName ?? "-"])
+        r.check(firstShown == rows[0].id, "9b: → shows the first picture (\(firstShown?.image ?? "none"))")
+        r.check(byKey == [rows[0].id, rows[2].id], "9b: Space checks the picture shown, each time (\(s.checkedRows.map(\.fileName)))")
+        r.check(s.importTitle == L("Import \(2.formatted()) Checked"), "9b: the button reads Import 2 Checked (\(s.importTitle))")
+
+        // 9c. Several chosen: Space checks them all; again, unchecks them all.
+        s.browser.click(rows[4].id, command: false, shift: false, in: rows)
+        s.browser.click(rows[6].id, command: false, shift: true, in: rows)
+        _ = await k.key(keyCode: 49)
+        let several = Set(s.checkedRows.map(\.id))
+        _ = await k.key(keyCode: 49)
+        let again = Set(s.checkedRows.map(\.id))
+        r.check(several == [rows[0].id, rows[2].id, rows[4].id, rows[5].id, rows[6].id], "9c: Space over three chosen checks the three (\(several.count))")
+        r.check(again == [rows[0].id, rows[2].id], "9c: and again unchecks them (\(again.count))")
+        drawn.append(draw(out, "page-9-checked-by-key"))
+
+        // 9d. A click on a cell's box: checked, the selection untouched; on the picture: chosen, not checked.
+        s.browser.click(rows[1].id, command: false, shift: false, in: rows)
+        try? await Task.sleep(for: .milliseconds(600))     // not a double click with what follows
+        let layout = MacImportFlow.debugLayout
+        /// Where the cell is in the window now, scrolled into view first.
+        func cellFrame(_ i: Int) async -> CGRect? {
+            s.browser.scrollTarget = rows[i].id
+            try? await Task.sleep(for: .milliseconds(500))
+            return MacImportFlow.debugFrames["cell:" + rows[i].fileName]
+        }
+        var clicked: [String: Any] = ["columns": layout.columns, "side": layout.side]
+        if let c = await cellFrame(7) {
+            let box = CGPoint(x: c.maxX - MacMetric.pt(11), y: c.minY + MacMetric.pt(11))
+            _ = await k.drag(box, box, steps: 1)
+            clicked["box_at"] = MacHIDPost.f(box)
+        }
+        let boxChecked = s.isChecked(rows[7].id), selectionKept = s.browser.selection == [rows[1].id]
+        try? await Task.sleep(for: .milliseconds(600))
+        if let c = await cellFrame(8) {
+            let middle = CGPoint(x: c.midX, y: c.midY)
+            _ = await k.drag(middle, middle, steps: 1)
+        }
+        let middleChose = s.browser.selection == [rows[8].id], middleUnchecked = !s.isChecked(rows[8].id)
+        clicked["selection_after_middle"] = s.browser.selection.map(\.image)
+        r.record("9d a click on the box", 0, clicked)
+        r.check(boxChecked, "9d: a click on a cell's box checks it")
+        r.check(selectionKept, "9d: and leaves the selection as it was")
+        r.check(middleChose && middleUnchecked, "9d: a click on the picture chooses it and does not check it")
+
+        // 9e. The divider dragged 250 points to the right (narrower), then 300 to the left: the browser wider, more
+        // columns, the width kept. (A check's window is small — the viewer keeps its least, so the browser has some
+        // 130 points to grow by — and the cells are made small, so that is columns.)
+        s.browser.cell = 80
+        try? await Task.sleep(for: .milliseconds(400))
+        if let d = MacImportFlow.debugFrames["divider"] {
+            let from = CGPoint(x: d.midX, y: d.midY)
+            _ = await k.drag(from, CGPoint(x: from.x + 250, y: from.y), steps: 25)
+            try? await Task.sleep(for: .milliseconds(700))
+        }
+        let narrowed = s.browser.browserWidth
+        let libraryKept = UserDefaults.standard.double(forKey: MacLibraryBrowser.browserWidthKey)
+        let before = (width: s.browser.browserWidth, columns: MacImportFlow.debugLayout.columns, grid: MacImportFlow.debugLayout.width)
+        drawn.append(draw(out, "page-9-divider-before"))
+        var dragged = false
+        if let d = MacImportFlow.debugFrames["divider"] {
+            let from = CGPoint(x: d.midX, y: d.midY)
+            dragged = await k.drag(from, CGPoint(x: from.x - 300, y: from.y), steps: 30)
+        }
+        try? await Task.sleep(for: .milliseconds(700))
+        let after = (width: s.browser.browserWidth, columns: MacImportFlow.debugLayout.columns, grid: MacImportFlow.debugLayout.width)
+        let kept = UserDefaults.standard.double(forKey: MacImportSession.browserWidthKey)
+        drawn.append(draw(out, "page-9-divider-after"))
+        r.record("9e the divider dragged", 0, ["posted": dragged, "divider": MacImportFlow.debugFrames["divider"].map { "\($0)" } ?? "-",
+                                              "width_before": before.width, "narrowed_from": narrowed, "width_after": after.width, "columns_before": before.columns,
+                                              "columns_after": after.columns, "grid_before": before.grid, "grid_after": after.grid, "kept": kept])
+        r.check(after.grid - before.grid > 100, "9e: the divider dragged left widens the browser (\(before.grid) → \(after.grid) points)")
+        r.check(after.columns > before.columns, "9e: and its columns grow (\(before.columns) → \(after.columns))")
+        r.check(abs(kept - Double(after.width)) < 1, "9e: the width is kept for the import page (\(kept))")
+        r.check(UserDefaults.standard.double(forKey: MacLibraryBrowser.browserWidthKey) == libraryKept, "9e: and the library's own is left as it was")
+
+        // 9f. Space in the new catalog's name types a space; the checks stay.
+        let checksBefore = Set(s.checkedRows.map(\.id))
+        if let f = MacImportFlow.debugFrames["name"] {
+            let p = CGPoint(x: f.maxX - 6, y: f.midY)
+            _ = await k.drag(p, p, steps: 1)
+        }
+        _ = await until(1.5) { MacKeyFocus.editingField != nil }
+        let editing = MacKeyFocus.editingField != nil
+        // While the field has the keys no command offers Space (trap 32: the menu would take it first), so it is the field's.
+        let offered = MacShortcutRegistry.shared.keyCommands.contains { $0.input == " " && $0.modifierFlags.isEmpty }
+        let performs = MacShortcutRegistry.shared.canPerform(UIKeyCommand(input: " ", modifierFlags: [], action: #selector(MacKeyAnchor.spkShortcut(_:))))
+        _ = await k.key(keyCode: 49)
+        _ = await k.key(keyCode: 7)
+        let typed = s.newCatalogName
+        r.record("9f Space in the name field", 0, ["editing": editing, "name": typed, "checked": s.checkedRows.count,
+                                                   "space_offered": offered, "space_performs": performs])
+        r.check(editing, "9f: a click on the name field gives it the keys")
+        r.check(!offered && !performs, "9f: while it has them, no command takes Space (offered \(offered), performs \(performs))")
+        r.check(Set(s.checkedRows.map(\.id)) == checksBefore, "9f: and Space checks nothing")
+        // The text itself: a posted key reaches a field's text only through the input context of the active app,
+        // which a background run never is (measured: neither " " nor "x" arrived). Said, and left to the hand check.
+        if typed == "Checked x" { r.record("9f the field typed the space", 0, ["name": typed]) }
+        else { r.notRun.append("9f the space typed into the name: a key's text needs the app in front (hand check); \"\(typed)\"") }
+        MacKeyFocus.endEditing()
+        try? await Task.sleep(for: .milliseconds(400))
+        s.newCatalogName = "Checked"
+
+        // 9g. Return: the checked ones imported, and only they.
+        let want = paths(s.toImport)
+        let wantTitle = s.importTitle
+        let stillEditing = await until(2) { MacKeyFocus.editingField == nil } < 0
+        // A field that still has the keys takes the first Return (its submit), as under a hand; the next is the page's.
+        var returns = 0
+        for _ in 0..<2 where s.result == nil && s.problem == nil {
+            _ = await k.key(keyCode: 36)
+            returns += 1
+            _ = await until(returns == 1 ? 3 : 10) { s.result != nil || s.problem != nil }
+        }
+        let landed = Set((s.result?.files ?? []).map { CatalogSourcesStore.key($0.path) })
+        r.record("9g Return imports the checked", 0, ["button": wantTitle, "want": want.count, "returns": returns, "field_kept_keys": stillEditing, "added": s.result?.added ?? -1,
+                                                     "problem": s.problem ?? "-", "drawn": drawn])
+        r.check(wantTitle == L("Import \(3.formatted()) Checked"), "9g: the button reads Import 3 Checked (\(wantTitle))")
+        r.check(s.result?.added == 3 && landed == want, "9g: Return imports the three checked, and only they (\(s.result?.added ?? -1))")
+        _ = await until(4) { idle }
+        if !idle { library.importAsked = false; _ = await until(4) { idle } }
+    }
+    #endif
+
+    // MARK: - 8. the way in and out
+
+    /// `--import-check-real-panel`: 8a, the real Finder panel. Only with the app in front: in the background
+    /// the panel is never drawn and holds the main thread for a minute before it answers Cancel by itself
+    /// (measured 2026-11-16, three times out of three), so nothing it times there is the owner's.
+    static var realPanel = false
+
+    /// Polls `ok` every 5 ms for `seconds`; the ms it took, or -1. `meanwhile` is called on every look.
+    private static func until(_ seconds: Double, from t0: ContinuousClock.Instant = .now, meanwhile: () -> Void = {},
+                              _ ok: () -> Bool) async -> Int {
+        func ms() -> Int { let d = ContinuousClock.now - t0; return Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000) }
+        while ms() < Int(seconds * 1000) {
+            meanwhile()
+            if ok() { return ms() }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return ok() ? ms() : -1
+    }
+
+    /// Nothing of the import is left: no cover, no request, no page, no Finder panel.
+    private static var idle: Bool {
+        let b = MacLibraryBrowser.shared
+        return MacImportDropCheck.covers().isEmpty && b.importRequest == nil && b.importShown == nil && MacImportDropCheck.openPanel() == nil
+    }
+
+    private static func marks() -> [String: Int] {
+        Dictionary(MacImportClock.marks.map { ($0.step, $0.ms) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Import, and leaving without importing (the owner, 2026-11-16: "why entering the import page, without
+    /// import and cancel still takes this long?"), each step timed from the ask (`MacImportClock`). Import is
+    /// `askImport`, the sidebar's button's own call: Finder first, the page only for picks.
+    /// - **8a** (`realPanel` only) the real Finder panel, three times (the first of a run is the slow one):
+    ///   when it is on screen, then its `cancel:` (in the process): no cover ever presented, Cancel to idle.
+    /// - **8b** the panel answered Cancel by the check (`MacOpenPanel.debugAnswer`), `repeats` times: no cover
+    ///   ever presented, the answer to idle under 100 ms.
+    /// - **8c** the panel answered with a pick, the page, then the page's Cancel, `repeats` times, at 0–800 ms
+    ///   after the page appeared: every page gone in one dismissal, never by the watchdog.
+    /// - **8d** a drop while Import's panel is up is refused; a second Import then does nothing.
+    private static func openAndLeave(_ r: Report, store: any MacLibraryData, router: AppRouter, folder: URL, repeats: Int) async {
+        let library = MacLibraryBrowser.shared
+        func ms(since t0: ContinuousClock.Instant) -> Int {
+            let d = ContinuousClock.now - t0
+            return Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
+        }
+        func coverWatch(_ seen: inout Bool) { if !MacImportDropCheck.covers().isEmpty { seen = true } }
+        _ = await until(4) { idle }
+
+        // 8a. The real Finder panel, cancelled (with the app in front only).
+        var rowsA: [[String: Any]] = []
+        if !realPanel { r.notRun.append("8a the real Finder panel: run with --import-check-real-panel, the app in front") }
+        for i in 0..<(realPanel ? 3 : 0) {
+            var coverSeen = false
+            let t0 = ContinuousClock.now
+            library.askImport(store)
+            let visible = await until(3, from: t0, meanwhile: { coverWatch(&coverSeen) }) { MacImportDropCheck.openPanel() != nil }
+            let begun = await until(1, from: t0) { MacImportDropCheck.openPanel(visible: false) != nil }
+            try? await Task.sleep(for: .milliseconds(300))
+            let tc = ContinuousClock.now
+            (MacImportDropCheck.openPanel() ?? MacImportDropCheck.openPanel(visible: false))?.perform(NSSelectorFromString("cancel:"), with: nil)
+            let off = await until(5, from: tc, meanwhile: { coverWatch(&coverSeen) }) { idle && !library.importFinding }
+            let m = marks()
+            rowsA.append(["run": i, "panel_visible_ms": visible, "panel_begun_ms": begun, "cover_shown": coverSeen,
+                          "cancel_to_idle_ms": off, "watchdog": m["watchdog"] != nil, "marks": m, "total_ms": ms(since: t0)])
+            print("import-check: 8a #\(i) panel visible \(visible) ms (begun \(begun)), cancel to idle \(off) ms, cover \(coverSeen), marks \(m)")
+            if off < 0 { _ = await until(70) { idle && !library.importFinding } }
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        if realPanel { r.record("8a Import, the real Finder panel cancelled", 0, ["runs": rowsA]) }
+        r.check(rowsA.allSatisfy { ($0["cancel_to_idle_ms"] as? Int ?? -1) >= 0 }, "8a: Cancel in Finder leaves nothing on screen")
+        r.check(rowsA.allSatisfy { ($0["cover_shown"] as? Bool) == false }, "8a: and no cover is ever presented")
+
+        // 8b. The panel answered Cancel.
+        var rowsB: [[String: Any]] = []
+        MacOpenPanel.debugAnswerAfter = .milliseconds(200)
+        for i in 0..<max(repeats, 1) {
+            var coverSeen = false
+            MacOpenPanel.debugAnswer = .some(nil)
+            library.askImport(store)
+            _ = await until(2) { MacImportClock.at("panel answered") != nil }
+            let ta = ContinuousClock.now
+            let off = await until(3, from: ta, meanwhile: { coverWatch(&coverSeen) }) { idle && !library.importFinding }
+            let m = marks()
+            rowsB.append(["run": i, "answer_to_idle_ms": off, "cover_shown": coverSeen, "marks": m])
+            if off < 0 { _ = await until(4) { idle } }
+        }
+        let worstB = rowsB.compactMap { $0["answer_to_idle_ms"] as? Int }.max() ?? -1
+        r.record("8b Import, the panel answered Cancel", 0, ["runs": rowsB.count, "worst_answer_to_idle_ms": worstB,
+                                                            "covers_shown": rowsB.filter { ($0["cover_shown"] as? Bool) == true }.count])
+        print("import-check: 8b worst answer to idle \(worstB) ms")
+        r.check(rowsB.allSatisfy { ($0["cover_shown"] as? Bool) == false }, "8b: Cancel in Finder shows no cover")
+        r.check(worstB >= 0 && worstB < 100, "8b: Cancel in Finder to idle under 100 ms (worst \(worstB) ms)")
+
+        // 8c. A pick, the page, the page's Cancel.
+        var rowsC: [[String: Any]] = []
+        let delays = [0, 30, 80, 150, 200, 400, 800]
+        MacOpenPanel.debugAnswerAfter = .milliseconds(100)
+        for i in 0..<max(repeats, 1) {
+            let delay = delays[i % delays.count]
+            let old = MacImportFlow.debugSession
+            MacOpenPanel.debugAnswer = .some([folder])
+            let t0 = ContinuousClock.now
+            library.askImport(store)
+            let appeared = await until(6, from: t0) { MacImportFlow.debugSession.map { $0 !== old } ?? false && MacImportClock.at("page appeared") != nil }
+            guard appeared >= 0, let s = MacImportFlow.debugSession else {
+                rowsC.append(["run": i, "failed": "no page"]); library.importAsked = false; _ = await until(4) { idle }; continue
+            }
+            try? await Task.sleep(for: .milliseconds(delay))
+            let state = library.importShown.map(MacImportCover.state) ?? "none"
+            let tc = ContinuousClock.now
+            s.debugCancel?()
+            let off = await until(5, from: tc) { idle }
+            let m = marks()
+            let picked = s.picked == [folder]
+            rowsC.append(["run": i, "cancel_after_appear_ms": delay, "cover_at_cancel": state, "page_appeared_ms": appeared,
+                          "cancel_to_idle_ms": off, "watchdog": m["watchdog"] != nil, "by_uikit": m["taken down by UIKit"] != nil,
+                          "picks_taken": picked, "marks": m])
+            print("import-check: 8c #\(i) cancel \(delay) ms after appearing (\(state)): to idle \(off) ms, watchdog \(m["watchdog"] != nil), marks \(m)")
+            if off < 0 { library.importAsked = false; _ = await until(4) { idle } }
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        MacOpenPanel.debugAnswerAfter = .zero
+        let worstC = rowsC.compactMap { $0["cancel_to_idle_ms"] as? Int }.max() ?? -1
+        r.record("8c a pick, the page, its Cancel", 0, ["runs": rowsC, "worst_cancel_to_idle_ms": worstC])
+        r.check(rowsC.allSatisfy { ($0["picks_taken"] as? Bool) == true }, "8c: the page opens with Finder's picks")
+        r.check(rowsC.allSatisfy { ($0["cancel_to_idle_ms"] as? Int ?? -1) >= 0 }, "8c: every Cancel on the page takes it away")
+        r.check(rowsC.allSatisfy { ($0["watchdog"] as? Bool) == false }, "8c: never by the watchdog (\(rowsC.filter { ($0["watchdog"] as? Bool) == true }.count) of \(rowsC.count))")
+
+        // 8d. One ask at a time while the panel is up.
+        MacOpenPanel.debugAnswer = .some(nil)
+        MacOpenPanel.debugAnswerAfter = .milliseconds(600)
+        library.askImport(store)
+        try? await Task.sleep(for: .milliseconds(50))
+        let finding = library.importFinding
+        let refused = !MacImportDrop.accepts(router)
+        MacOpenPanel.debugAnswer = .some([folder])     // a second Import now must not take this answer
+        library.askImport(store)
+        let secondTook = MacOpenPanel.debugAnswer == nil
+        _ = await until(3) { idle && !library.importFinding }
+        MacOpenPanel.debugAnswer = nil
+        MacOpenPanel.debugAnswerAfter = .zero
+        r.record("8d one ask at a time", 0, ["finding": finding, "drop_refused": refused, "second_import_asked_finder": secondTook,
+                                           "covers": MacImportDropCheck.covers()])
+        r.check(finding && refused, "8d: a drop while Import's Finder panel is up is refused")
+        r.check(!secondTook && idle, "8d: a second Import while it is up does nothing")
     }
 
     /// The import page presented as the library presents it, drawn from inside the app: as it opens, with

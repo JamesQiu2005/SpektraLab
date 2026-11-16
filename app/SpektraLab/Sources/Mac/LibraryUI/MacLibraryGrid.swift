@@ -428,9 +428,14 @@ struct MacLibraryGrid: View {
                     Label(L("Move to Trash"), systemImage: "trash")
                 }
             } else {
+                // Capture One's own pictures with nothing of SpektraLab's: greyed, the reason under it (2026-11-16).
+                let made = Set(frames.filter { library.frame($0) != nil })
+                let refused = MacLibraryActions.removeRefusal(chosen, frames: made, store: store)
                 Button(role: .destructive) {
-                    actions.removeFromSpektraLab(chosen, frames: Set(frames.filter { library.frame($0) != nil }), store: store)
+                    actions.removeFromSpektraLab(chosen, frames: made, store: store)
                 } label: { Label(L("Remove from SpektraLab"), systemImage: "trash") }
+                .disabled(refused != nil)
+                if let refused { Text(refused) }
             }
         }
     }

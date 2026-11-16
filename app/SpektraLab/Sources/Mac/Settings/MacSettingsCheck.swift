@@ -72,8 +72,7 @@ enum MacSettingsCheck {
     // MARK: running
 
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
-        guard let i = arguments.firstIndex(of: "--settings-check"), i + 1 < arguments.count,
-              arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--settings-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         let exits = arguments.contains("--settings-check-exit")
         Task {

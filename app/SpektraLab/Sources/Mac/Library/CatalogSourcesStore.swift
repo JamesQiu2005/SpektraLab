@@ -689,7 +689,9 @@ final class CatalogSourcesStore: MacLibraryData {
                               // The Digital Intermediate takes the paper's place (2.2.1): it is what the frame is "on".
                               paper: !f.edit.appliesFilm ? nil
                                   : f.edit.params.digitalIntermediateActive(filmIsPositive: catalog.isSlide(f.edit.params.filmStock))
-                                  ? L("Digital Intermediate") : catalog.stock(f.edit.params.printStock)?.name,
+                                  ? L("Digital Intermediate")
+                                  // Nothing is printed on a scanned film, a slide or a negative set to No Paper.
+                                  : catalog.isScanned(f.edit.params) ? L("Scanned") : catalog.stock(f.edit.params.printStock)?.name,
                               state: state)
     }
 
@@ -1028,15 +1030,32 @@ final class CatalogSourcesStore: MacLibraryData {
     }
 
     /// 从 SpektraLab 中移除, and 放回 (`trashed` false): the pictures into their source's 回收站 (`images.trash`)
-    /// and out again. Nothing on disk moves. Capture One's sources are read one way, so they have no 回收站
-    /// of SpektraLab's: there the removal is only of the frames (`MacLibraryActions.remove`).
+    /// and out again. Nothing on disk moves. Capture One's own pictures (`MacSource.isCaptureOnes`: a Capture One
+    /// session's, and Capture One's rows in a catalog's mirror) are left as they are: there the removal is only of
+    /// the frames (`MacLibraryActions.remove`). SpektraLab's own rows in a mirror — a pair's, a double's, one 2.4.0
+    /// imported — go into the catalog's Trash as a SpektraLab catalog's do: the flag is the mirror's, written by the
+    /// helper in `Libraries/Linked/<uuid>.spkcatalog`, never in the `.cocatalog` (2026-11-16: until then the whole
+    /// call returned here for a Capture One catalog, so Remove from SpektraLab on 2.4.0's imports did nothing).
     func setTrashed(_ trashed: Bool, for ids: [MacImage.ID]) async throws {
         guard let first = ids.first else { return }
         let s = try source(first.source)
-        guard s.isHelperBacked, s.kind != .captureOneCatalog, s.kind != .captureOneSession else { return }
+        guard s.isHelperBacked, s.kind != .captureOneSession else { return }
+        var wanted = ids
+        if s.kind == .captureOneCatalog {
+            var ours: [MacImage.ID] = []
+            for id in ids {
+                // A row not among the loaded ones (an agent names any picture) is asked of the helper.
+                let row = images.first { $0.id.image == id.image }
+                if let row { if !s.isCaptureOnes(row) { ours.append(id) }; continue }
+                if let asked = try? await detail(of: id).image, !s.isCaptureOnes(asked) { ours.append(id) }
+            }
+            wanted = ours
+        }
         // An image's cells (its variants) name it once: the flag is the image's (PRD-G).
         var seen = Set<String>()
-        try await client.trash(try await handle(s), images: ids.map(\.image).filter { seen.insert($0).inserted }, trashed: trashed)
+        let named = wanted.map(\.image).filter { seen.insert($0).inserted }
+        guard !named.isEmpty else { return }
+        try await client.trash(try await handle(s), images: named, trashed: trashed)
         await reload()
         // The counts beside All Images and 回收站 are the tree's, which a reload of the rows does not read.
         await refreshTree()

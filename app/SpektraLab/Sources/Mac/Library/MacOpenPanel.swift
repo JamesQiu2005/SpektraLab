@@ -6,6 +6,27 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum MacOpenPanel {
+    #if DEBUG
+    /// A check's answer instead of the panel, for Import's sources (`MacLibraryBrowser.askImport`): the panel
+    /// is AppKit's, served from outside the process, and a check in the background cannot press it. `nil`
+    /// (none set) shows the real panel; `.some(nil)` is Cancel; `.some(urls)` is those picked. Taken once.
+    static var debugAnswer: [URL]??
+    /// The answer comes after this long, as a person's would.
+    static var debugAnswerAfter: Duration = .zero
+    #endif
+
+    /// Folders, pictures and library documents for Import, several (`MacLibraryBrowser.askImport`).
+    static func chooseSources() async -> [URL]? {
+        #if DEBUG
+        if let answer = debugAnswer {
+            debugAnswer = nil
+            try? await Task.sleep(for: debugAnswerAfter)
+            return answer
+        }
+        #endif
+        return await choose(multiple: true)
+    }
+
     static func choose(multiple: Bool) async -> [URL]? {
         guard let cls = NSClassFromString("NSOpenPanel") as? NSObject.Type,
               let panel = cls.perform(NSSelectorFromString("openPanel"))?.takeUnretainedValue() as? NSObject else { return nil }
@@ -46,6 +67,19 @@ enum MacOpenPanel {
         let lcp = UTType(filenameExtension: "lcp") ?? UTType(exportedAs: "com.adobe.lens-profile", conformingTo: .xml)
         panel.setValue([lcp], forKey: "allowedContentTypes")
         return await present(panel)?.first
+    }
+
+    /// PNG files for Settings › Watermarks' Add…: files only, several at once, filtered to PNG. The filter is the panel's
+    /// courtesy; the library checks every file by its content (`WatermarkStore.validate`).
+    static func choosePNGs() async -> [URL]? {
+        guard let cls = NSClassFromString("NSOpenPanel") as? NSObject.Type,
+              let panel = cls.perform(NSSelectorFromString("openPanel"))?.takeUnretainedValue() as? NSObject else { return nil }
+        panel.setValue(true, forKey: "canChooseFiles")
+        panel.setValue(false, forKey: "canChooseDirectories")
+        panel.setValue(true, forKey: "allowsMultipleSelection")
+        panel.setValue(L("Add"), forKey: "prompt")
+        panel.setValue([UTType.png], forKey: "allowedContentTypes")
+        return await present(panel)
     }
 
     private static func present(_ panel: NSObject) async -> [URL]? {

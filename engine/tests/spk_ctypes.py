@@ -160,6 +160,17 @@ class Engine:
     def params_schema(self) -> dict:
         return json.loads(self._lib.spk_params_schema(self._handle).decode())
 
+    def overscan_formats(self) -> dict:
+        """API-SPEC §24: the engine's film-edge format table (`spk_overscan_formats`), no session."""
+        if not hasattr(self._lib, "spk_overscan_formats"):
+            raise EngineError("this engine predates API-SPEC §24: no spk_overscan_formats")
+        out = ctypes.c_char_p()
+        self._lib.spk_overscan_formats.restype = ctypes.c_int32
+        self._lib.spk_overscan_formats.argtypes = [ctypes.POINTER(ctypes.c_char_p)]
+        if self._lib.spk_overscan_formats(ctypes.byref(out)) != SPK_OK:
+            raise EngineError(self._last_error())
+        return self._take_json(out)
+
     def memory_report(self) -> dict:
         """What the engine holds, in bytes (RFC-020 §3.3).
 

@@ -16,6 +16,8 @@ import os
 @Observable
 final class AppServices {
     let presets: PresetStore
+    /// 水印's library: the person's PNGs (`WatermarkStore`, Settings › Watermarks).
+    let watermarks: WatermarkStore
     /// The app's side of the engine: which one runs, and what a job hands it.
     let darkroom: EngineRouter
     let engine: any DevelopEngine
@@ -103,6 +105,9 @@ final class AppServices {
         scheduler.developsBesideCamera = false
         library = FrameCatalog(DemoLibrary.seed(scenario, now: pinnedNow))
         presets = PresetStore(url: realLibrary && persists ? ImportService.root.appendingPathComponent("look-presets.json") : nil)
+        // 水印's library (PRD-8 §4.1): `<root>/Watermarks` where the library is kept; a test's, the drawings' and the
+        // snapshot harness's are a scratch folder of their own, gone with the run.
+        watermarks = WatermarkStore(folder: realLibrary && persists ? WatermarkStore.folder(in: ImportService.root) : nil)
         settings = AppSettings(defaults: persists ? defaults : nil)
         // Kept only where the library is: the drawings' own library, and a test, save nothing.
         recipes = ExportRecipeStore(url: realLibrary && persists ? ImportService.root.appendingPathComponent(ExportRecipeStore.fileName) : nil,
@@ -131,6 +136,16 @@ final class AppServices {
         // thread. A test or a snapshot library keeps none: no database lens is resolved there.
         LensResolver.configure(database: keepsHistory ? LensDatabase(url: LensDatabase.file(in: ImportService.root)) : nil)
         exporter.film = { [weak self] frame in self?.exportFilm(frame) }
+        // 水印: how many photographs place a mark (Settings' delete asks), and the library's names as the model reads
+        // them (Copy Settings' row, a paste leaving out a mark that is gone, the history's steps).
+        watermarks.usageCount = { [weak library] id in
+            library?.frames.filter { f in f.edit.watermarks.contains { $0.mark == id } }.count ?? 0
+        }
+        WatermarkNames.library = { [watermarks] in watermarks.namesNow }
+        // Every renderer reads its marks' pixels from the library, and a page's HDR holds a picture's gain to none
+        // under the marks it carries (`WatermarkComposite.planeHold`, read in `HDRRendition.prepare`).
+        WatermarkComposite.library = watermarks
+        HDRRendition.heldUnderMarks = { WatermarkComposite.planeHold(for: $0) }
         LensLibrary.shared.changed = { [weak self] in self?.lensDatabaseChanged() }
         exporter.finishedLayers = { [weak self] frame in self?.finishedLayers(frame) }
         exporter.cropIsFrame = { [settings] in settings.cropRemapsFrame }
@@ -209,6 +224,7 @@ final class AppServices {
         darkroom.onDoubleMetered = { [weak self] id, position, ev, key in self?.meteredDouble(id, position.rawValue, ev, key) }
         // What a double exposure's open decodes, for the scheduler's price of the job (RFC-048 §5).
         scheduler.composition = { [weak darkroom] job in darkroom?.composition(of: job.id) }
+        scheduler.marks = { [weak darkroom] job in darkroom?.watermarkBytes(of: job) ?? 0 }
         // Where a pair's two frames are on the strip its page has just developed: the page's to know.
         darkroom.onGates = { [weak self] pair, rects in self?.openSession(pair)?.located(rects) }
         darkroom.bodySeed = { [settings] in settings.bodySeed }
@@ -558,6 +574,19 @@ final class AppServices {
         let e = edit ?? frame.edit
         guard !frame.isComposite, let (picture, film) = finishedPlace(frame, e) else { return nil }
         return MaskFrame.finished(picture: picture, source: CGSize(width: frame.originalSize.width, height: frame.originalSize.height), film: film)
+    }
+
+    /// **Where a photograph's 底片 canvas lies on its 成片 one** (`WatermarkCanvases`): the picture's box on the film under a
+    /// film edge (the numbers the guide is drawn from, `FilmGeometry.pictureBox`, in the film's millimetres), the whole
+    /// finished picture (`finished`, its pixels) otherwise, and Edit's crop. What the canvas's overlay draws a 底片 mark
+    /// through and what 叠加于 converts its numbers by. Nil for a piece made of frames, and under a film edge whose layout
+    /// is not to be had.
+    func watermarkCanvases(_ frame: LibraryFrame, edit: FrameEdit, finished: CGSize) -> WatermarkCanvases? {
+        guard !frame.isComposite, finished.width > 0, finished.height > 0 else { return nil }
+        guard edit.filmEdge.effective else { return .of(finished: finished, film: nil, printCrop: edit.printCrop) }
+        guard let resolved = filmEdge(for: frame, edit: edit) else { return nil }
+        let g = resolved.geometry, (box, tilt, centre) = g.pictureBox
+        return .of(finished: g.canvasMM, film: (box, tilt, centre), printCrop: edit.printCrop)
     }
 
     /// What `finishedLayers` is made of, for its memo.
@@ -1321,9 +1350,11 @@ final class AppServices {
     /// to. Kept only while the frame is As Shot, and it is not an edit — the
     /// decode it describes is the one just made.
     private func readAsShot(_ frameID: LibraryFrame.ID, _ temperature: Double, _ tint: Double) {
-        guard let frame = library.frame(frameID), frame.edit.decode.whiteBalance == .asShot,
-              frame.edit.decode.temperature != temperature || frame.edit.decode.tint != tint else { return }
-        library.update(frameID) { $0.edit.decode.temperature = temperature; $0.edit.decode.tint = tint }
+        // Each axis that is As Shot (2.4.1: 色调 has its own), the other left as it is.
+        guard let frame = library.frame(frameID) else { return }
+        var decode = frame.edit.decode
+        guard decode.takeCamera(temperature: temperature, tint: tint) else { return }
+        library.update(frameID) { $0.edit.decode.takeCamera(temperature: temperature, tint: tint) }
         sessions[frameID]?.session?.readAsShot(temperature, tint)
     }
 

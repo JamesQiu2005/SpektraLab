@@ -13,9 +13,17 @@
 //    *Filters* (format, the day taken);
 //  - **the right**: the pictures found, in the library's own cells and with its selection (click,
 //    ⌘-click, ⇧-click, a marquee from the space between, ⌘A, ⇧⌘A, the arrows), a duplicate greyed; the
-//    viewer (⌥⌘V, a double click, `BrowserViewerSplit`) beside them;
-//  - **the bottom bar**: *Select All*, *Cancel* (Escape), and *Import All (n)* or *Import n Selected*
-//    (Return).
+//    viewer (⌥⌘V, a double click, `BrowserViewerSplit`) beside them, the browser as wide as its divider is
+//    dragged (2.4.1 E3); each cell's check box (Lightroom's import check box, 2.4.1 E1), clicked, or Space on
+//    the picture shown (on every picture chosen when several are);
+//  - **the bottom bar**: *Select All*, *Uncheck All*, *Cancel* (Escape), and *Import n Checked*, *Import All
+//    (n)* or *Import n Selected* (Return): checked pictures win over the selection (`MacImportSession.toImport`).
+//
+//  **Space on this page is the check** (2.4.1 E1). Elsewhere it shows the original (the develop page's
+//  `spaceOriginal`, through the window's `.original` command, `MacSpaceKey`); here nothing shows an original —
+//  the viewer draws a file's embedded preview and has no before/after — and the window's command stands down
+//  while the page is up (`shortcutsFree`: `MacLibraryBrowser.modal`). A field being edited (the new catalog's
+//  name) keeps Space as typing: the registry gives no plain key while a field has the keys (trap 32).
 //  The page's state and the import itself are `MacImportSession`'s; the scan is `MacImportScan`'s.
 
 import SwiftUI
@@ -26,6 +34,53 @@ import UniformTypeIdentifiers
 /// flow takes its id as its identity, so every Import or drop that finds no page up gets a page of its own.
 struct MacImportRequest: Identifiable, Equatable {
     let id = UUID()
+}
+
+/// The import's way in and out, timed (2026-11-16, the owner: "why entering the import page, without import
+/// and cancel still takes this long?"): each step a log line with the ms since Import was asked — asked, the
+/// Finder panel asked, begun and answered, the cover presented, the request closed, the cover gone.
+@MainActor
+enum MacImportClock {
+    private static var asked: ContinuousClock.Instant?
+    /// An ask is under way (from `start` to idle or the cover gone): a request it makes does not restart it.
+    private static var open = false
+
+    /// Import (or a drop) asked: the clock starts again.
+    static func start(_ by: String) {
+        asked = .now
+        #if DEBUG
+        marks = []
+        #endif
+        open = true
+        mark("asked", ["by": by])
+    }
+
+    /// A request for the page: its own ask, unless Import's Finder panel asked for it.
+    static func requestOpened(_ by: String) { if !open { start(by) } }
+
+    /// Ms since the ask, or -1 when nothing was asked.
+    static var ms: Int {
+        guard let asked else { return -1 }
+        let d = ContinuousClock.now - asked
+        return Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
+    }
+
+    static func mark(_ step: String, _ facts: [String: Any] = [:]) {
+        let at = ms
+        var f = facts
+        f["ms"] = at
+        Log.note(.library, "mac import: " + step, f)
+        if step == "idle" || step == "cover gone" { open = false }
+        #if DEBUG
+        marks.append((step, at))
+        #endif
+    }
+
+    #if DEBUG
+    /// This ask's steps, in order, for the checks (`MacImportCheck`'s "open and leave").
+    static var marks: [(step: String, ms: Int)] = []
+    static func at(_ step: String) -> Int? { marks.last { $0.step == step }?.ms }
+    #endif
 }
 
 /// What UIKit has presented for the import page: the cover's last word, when SwiftUI's has not come.
@@ -39,6 +94,36 @@ enum MacImportCover {
     static func note(_ controller: UIViewController, request: MacImportRequest.ID) {
         page = controller
         pageRequest = request
+        // Closed while the cover was still coming in. SwiftUI has kept its dismissal for the end of the
+        // presentation in every case measured (`MacImportCheck` 8c: 42 of 42, closed 0–450 ms into it); if it
+        // has not started it by the next turn, UIKit takes the page down now that it has arrived.
+        if MacLibraryBrowser.shared.importRequest?.id != request {
+            DispatchQueue.main.async { leave(request, after: "presented") }
+        }
+    }
+
+    /// The request of a page on screen was closed (`MacLibraryBrowser.importRequest` → nil). SwiftUI is given
+    /// one frame to start the cover's dismissal; if it has not (the cover standing, or still coming in, when
+    /// the request went), UIKit takes the page down at once, never after the watchdog's wait.
+    static func closed(_ request: MacImportRequest.ID) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(17))
+            leave(request, after: "a frame")
+        }
+    }
+
+    private static func leave(_ request: MacImportRequest.ID, after: String) {
+        guard MacLibraryBrowser.shared.importRequest?.id != request else { return }   // asked again: not closed
+        let pending = MacLibraryBrowser.shared.importShown == request
+        switch pending ? state(request) : "gone" {
+        case "standing":
+            MacImportClock.mark("taken down by UIKit", ["after": after])
+            takeDown(request)
+        case "presenting", "not noted":
+            break   // not arrived yet: taken down as it arrives (`note`)
+        default:
+            break   // dismissing (SwiftUI's own) or gone
+        }
     }
     /// The page of `request` is presented and nothing is taking it away.
     static func stands(_ request: MacImportRequest.ID) -> Bool {
@@ -49,6 +134,14 @@ enum MacImportCover {
     static func going(_ request: MacImportRequest.ID) -> Bool {
         guard pageRequest == request, let p = page else { return false }
         return p.presentingViewController != nil && p.isBeingDismissed
+    }
+    /// UIKit's word on the page of `request`, for the log: "standing", "presenting", "dismissing", "gone".
+    static func state(_ request: MacImportRequest.ID) -> String {
+        guard pageRequest == request, let p = page else { return "not noted" }
+        if p.presentingViewController == nil { return "gone" }
+        if p.isBeingPresented { return "presenting" }
+        if p.isBeingDismissed { return "dismissing" }
+        return "standing"
     }
     /// Takes the page of `request` down, and nothing else.
     static func takeDown(_ request: MacImportRequest.ID) {
@@ -74,6 +167,7 @@ private struct MacImportCoverProbe: UIViewControllerRepresentable {
             while let here = v {
                 if let presenter = here.presentingViewController, presenter.presentedViewController === here {
                     MacImportCover.note(here, request: request)
+                    MacImportClock.mark("cover presented")
                     return
                 }
                 v = here.parent
@@ -96,6 +190,13 @@ struct MacImportFlow: View {
     static var debugPicks: [URL]?
     /// The session the page shows, for a check to drive.
     static weak var debugSession: MacImportSession?
+    /// Where the page's parts are in the window (`MacImportDebugFrame`: "divider", "cells", "name"), for a
+    /// check's pointer (`MacHIDPost`).
+    static var debugFrames: [String: CGRect] = [:]
+    /// The grid as last laid out: its columns, a cell's side and its width (this page's points).
+    static var debugLayout: (columns: Int, side: CGFloat, width: CGFloat) = (0, 0, 0)
+    /// A check is asking where each cell is (`debugFrames["cell:<file name>"]`).
+    static var debugCells = false
     #endif
 
     var body: some View {
@@ -109,6 +210,7 @@ struct MacImportFlow: View {
         .onAppear {
             // On screen: a request asked for meanwhile waits until this page has gone (`importPresented`).
             MacLibraryBrowser.shared.importShown = request
+            MacImportClock.mark("page appeared")
             guard session == nil else { return }
             let s = MacImportSession(store: store)
             session = s
@@ -126,6 +228,7 @@ struct MacImportFlow: View {
             // Off the screen: the next request's page may be presented now.
             let browser = MacLibraryBrowser.shared
             if browser.importShown == request { browser.importShown = nil }
+            MacImportClock.mark("cover gone")
         }
     }
 
@@ -134,6 +237,7 @@ struct MacImportFlow: View {
     private static func finish(_ session: MacImportSession?, done: () -> Void) {
         session?.close()
         MacImportDrop.letGo()
+        MacLibraryBrowser.shared.finderPicks = nil
         done()
     }
 }
@@ -215,6 +319,12 @@ private struct MacImportPage: View {
         .onAppear {
             guard !askedFirst else { return }
             askedFirst = true
+            // Import's Finder panel answered before the page was asked for (`MacLibraryBrowser.askImport`).
+            if let picks = library.finderPicks {
+                library.finderPicks = nil
+                Task { if await session.receivePicks(picks) { done() } }
+                return
+            }
             // Dropped on the window (`MacImportDrop`): those are the picks, and Finder is not asked.
             if let picks = library.droppedPicks {
                 library.droppedPicks = nil
@@ -227,6 +337,7 @@ private struct MacImportPage: View {
                 return
             }
             #endif
+            // Asked with nothing picked (no way in does so now; kept so such a page is never empty): Finder.
             ask(.sources)
         }
         .fileImporter(isPresented: $panelShown, allowedContentTypes: asking.types,
@@ -258,7 +369,10 @@ private struct MacImportPage: View {
             session.finderUp = true
             Task {
                 defer { choosingSources = false; session.finderUp = panelShown }
-                guard let urls = await MacOpenPanel.choose(multiple: true), !urls.isEmpty else { cancelled(); return }
+                MacImportClock.mark("panel asked", ["from": "page"])
+                let answer = await MacOpenPanel.choose(multiple: true)
+                MacImportClock.mark("panel answered", ["picked": answer?.count ?? 0])
+                guard let urls = answer, !urls.isEmpty else { cancelled(); return }
                 if await session.receivePicks(urls) { done() }
             }
             return
@@ -266,8 +380,8 @@ private struct MacImportPage: View {
         panelShown = true
     }
 
-    /// Cancel and Escape. **The Finder panel goes first.** The page asks for it as it opens, and on the Mac it
-    /// is a window of its own that can sit behind the app's; while it is presented the cover cannot go, so
+    /// Cancel and Escape. **The Finder panel goes first.** A panel the page asked for (Choose…, a folder) is, on the
+    /// Mac, a window of its own that can sit behind the app's; while it is presented the cover cannot go, so
     /// Cancel on the page waited on a panel the owner could not see (2026-10-24: "cancel in this page won't
     /// work fast"; a sample of the app showed its main thread idle and the panel's ViewBridge up). Taken
     /// down here, its own cancellation (`cancelled`) closes nothing twice: `done` is idempotent.
@@ -301,6 +415,12 @@ private struct MacImportPage: View {
                 Button(L("Select None")) { browser.selectNone() }
                     .buttonStyle(MacImportButtonStyle(kind: .plain))
                     .disabled(session.progress != nil)
+            }
+            if !session.checkedRows.isEmpty {
+                Button(L("Uncheck All")) { session.uncheckAll() }
+                    .buttonStyle(MacImportButtonStyle(kind: .plain))
+                    .disabled(session.progress != nil)
+                    .accessibilityIdentifier("mac.import.uncheck")
             }
             status
                 .frame(maxWidth: .infinity)
@@ -352,6 +472,14 @@ private struct MacImportPage: View {
         } else if let why = session.notReady {
             Text(why).font(MacMetric.font(12)).foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
+        } else if !session.checkedRows.isEmpty {
+            Text(L("\(session.checkedRows.count.formatted()) checked")).font(MacMetric.font(12)).foregroundStyle(Theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("mac.import.checked")
+        } else if !session.rows.isEmpty {
+            Text(L("Space checks the picture shown; Import then takes the checked ones."))
+                .font(MacMetric.font(12)).foregroundStyle(Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -382,6 +510,8 @@ private struct MacImportPage: View {
             HiddenKeyEquivalent(title: L("Select All"), key: "a", modifiers: .command, enabled: !typing) { browser.selectAll(rows) }
             HiddenKeyEquivalent(title: L("Select None"), key: "a", modifiers: [.command, .shift], enabled: !typing) { browser.selectNone() }
             HiddenKeyEquivalent(title: L("Viewer"), key: "v", modifiers: [.command, .option], enabled: !typing) { browser.viewerShown.toggle() }
+            // Space: the check of the picture shown, or of every picture chosen (`toggleCheckShown`).
+            HiddenKeyEquivalent(title: L("Check for Import"), key: " ", enabled: !typing && browser.primary(rows) != nil) { session.toggleCheckShown() }
             HiddenKeyEquivalent(title: L("Larger Thumbnails"), key: "=", modifiers: .command) { browser.resize(by: 1.25) }
             HiddenKeyEquivalent(title: L("Larger Thumbnails"), key: "+", modifiers: .command) { browser.resize(by: 1.25) }
             HiddenKeyEquivalent(title: L("Smaller Thumbnails"), key: "-", modifiers: .command) { browser.resize(by: 1 / 1.25) }
@@ -493,6 +623,13 @@ private struct MacImportColumn: View {
             destinationMenu
                 .padding(.horizontal, MacMetric.pt(12))
                 .padding(.vertical, MacMetric.pt(3))
+            // Capture One's catalog or session shown: never a destination, said in one line (2026-11-16).
+            if let note = session.captureOneNote {
+                Text(note).font(MacMetric.font(11)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, MacMetric.pt(12))
+                    .accessibilityIdentifier("import.captureOneNote")
+            }
             if session.destination == .newCatalog { newCatalog }
             MacImportRadioRow(title: session.destinationSource?.kind == .session ? L("Add to Session") : L("Add to Catalog"), detail: L("Your files stay where they are."),
                               on: session.placement == .inPlace) { session.placement = .inPlace }
@@ -558,6 +695,7 @@ private struct MacImportColumn: View {
                     .font(MacMetric.font(12)).textFieldStyle(.plain)
                     .focused(naming)
                     .onSubmit { naming.wrappedValue = false }
+                    .modifier(MacImportDebugFrame(name: "name"))
                     .padding(.horizontal, MacMetric.pt(6))
                     .frame(height: MacMetric.pt(22))
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: MacMetric.pt(5), style: .continuous))
@@ -625,16 +763,47 @@ private struct MacImportBrowser: View {
             header
             Rectangle().fill(Theme.wall).frame(height: 1)
             if browser.viewerShown {
-                HStack(spacing: 0) {
-                    BrowserViewerSplit(image: browser.primary(session.rows), open: { _ in })
-                    Rectangle().fill(Theme.wall).frame(width: 1)
-                    content.frame(width: MacMetric.pt(browser.browserWidth))
+                GeometryReader { geo in
+                    let range = Self.widthRange(room: geo.size.width)
+                    let width = MacMetric.pt(browser.browserWidth).clamped(to: range)
+                    HStack(spacing: 0) {
+                        BrowserViewerSplit(image: browser.primary(session.rows), open: { _ in })
+                        Rectangle().fill(Theme.wall).frame(width: 1)
+                            .overlay { divider(width: width, range: range) }
+                            .zIndex(1)
+                        content.frame(width: width)
+                    }
                 }
             } else {
                 content
             }
         }
         .background(Theme.background)
+    }
+
+    /// The least the viewer keeps beside the browser, Mac points (the floating browser's, `FloatingBrowser.limit`).
+    static let viewerLeast: CGFloat = 320
+
+    /// The browser's widths in a room `room` wide (this page's points): the library's 240 to 900 Mac points, and
+    /// never so wide that the viewer has less than `viewerLeast`.
+    static func widthRange(room: CGFloat) -> ClosedRange<CGFloat> {
+        let least = MacMetric.pt(MacMetric.browserRange.lowerBound)
+        let most = min(MacMetric.pt(MacMetric.browserRange.upperBound), room - MacMetric.pt(viewerLeast) - 1)
+        return least...max(least, most)
+    }
+
+    /// The line between the viewer and the browser, dragged for the browser's width (2.4.1 E3; the owner: the
+    /// thumbnails were "a narrow two-column strip" that would not widen). The page drew a plain line there — the
+    /// library's layout before its wall could be dragged (`MacBrowserSplit`, 2026-10-26), never brought over — so
+    /// nothing took the drag. The develop page's grip (`DividerGrip`): the resize cursor, in the window's space
+    /// (the grip rides the line it moves), a drag to the left widening the browser; kept when it ends.
+    private func divider(width: CGFloat, range: ClosedRange<CGFloat>) -> some View {
+        DividerGrip(way: .sideways, value: width, range: range, grows: -1, label: L("Browser width"),
+                    set: { browser.browserWidth = ($0 * MacMetric.scale).clamped(to: MacMetric.browserRange) },
+                    ended: { browser.saveWidths() })
+            .frame(width: DividerGrip.reach)
+            .modifier(MacImportDebugFrame(name: "divider"))
+            .accessibilityIdentifier("mac.import.divider")
     }
 
     private var header: some View {
@@ -704,9 +873,11 @@ private struct MacImportBrowser: View {
                     LazyVGrid(columns: layout.items, alignment: .leading, spacing: layout.gap) {
                         ForEach(rows) { image in
                             let excluded = session.isExcluded(image.id)
+                            let checked = session.isChecked(image.id)
                             MacGridCell(image: image, side: layout.side, selected: browser.selection.contains(image.id),
                                         focused: browser.focus == image.id && browser.selection.count > 1)
                                 .opacity(excluded ? 0.35 : 1)
+                                .overlay(alignment: .topTrailing) { MacImportCheckBox(on: checked) }
                                 .overlay(alignment: .topLeading) {
                                     if excluded {
                                         Text(L("Already Imported")).font(MacMetric.font(9, .semibold)).foregroundStyle(Theme.text)
@@ -717,14 +888,20 @@ private struct MacImportBrowser: View {
                                     }
                                 }
                                 .id(image.id)
-                                .modifier(MacClick { flags in click(image, flags, rows) })
+                                .gesture(MacImportCellClick { point, flags in
+                                    if MacImportCheckBox.hit(point, side: layout.side) { session.toggleCheck(image.id) } else { click(image, flags, rows) }
+                                })
                                 .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(excluded ? image.fileName + ", " + L("Already Imported") : image.fileName)
+                                .accessibilityLabel((excluded ? image.fileName + ", " + L("Already Imported") : image.fileName)
+                                                    + (checked ? ", " + L("Checked for Import") : ""))
                                 .accessibilityAddTraits(browser.selection.contains(image.id) ? [.isButton, .isSelected] : .isButton)
+                                .accessibilityAction(named: checked ? L("Uncheck") : L("Check for Import")) { session.toggleCheck(image.id) }
                                 .accessibilityIdentifier("mac.import.cell")
+                                .modifier(MacImportDebugFrame(name: "cell:" + image.fileName, onlyWhileChecked: true))
                         }
                     }
                     .padding(layout.gap)
+                    .modifier(MacImportDebugFrame(name: "cells"))
                     // The space under the last row is the grid's too: a marquee starts there, as in Finder.
                     .frame(minHeight: geo.size.height, alignment: .top)
                     .contentShape(Rectangle())
@@ -745,6 +922,11 @@ private struct MacImportBrowser: View {
                 }
                 .onAppear { browser.columns = layout.columns }
                 .onChange(of: layout.columns) { _, n in browser.columns = n }
+                #if DEBUG
+                .onAppear { MacImportFlow.debugLayout = (layout.columns, layout.side, geo.size.width) }
+                .onChange(of: geo.size.width) { _, w in MacImportFlow.debugLayout = (layout.columns, layout.side, w) }
+                .onChange(of: layout.columns) { _, n in MacImportFlow.debugLayout = (n, layout.side, geo.size.width) }
+                #endif
             }
         }
     }
@@ -766,6 +948,63 @@ private struct MacImportBrowser: View {
 }
 
 // MARK: - small parts
+
+/// A cell's check box (Lightroom's import check box, 2.4.1 E1): a square at the cell's top right, ticked in the
+/// accent. Drawn on every cell, so a picture not checked says so too; the click on it is the cell's own
+/// recogniser's (`MacImportCellClick`, by where it landed: `hit`), so it never also changes the selection.
+private struct MacImportCheckBox: View {
+    let on: Bool
+
+    /// The square, and the corner it is clicked in (larger than it, as a hand's click is loose).
+    static var box: CGFloat { MacMetric.pt(15) }
+    static var reach: CGFloat { MacMetric.pt(26) }
+    static var margin: CGFloat { MacMetric.pt(4) }
+
+    /// Whether `p` (in the cell's space) is on the box's corner of a cell `side` square.
+    static func hit(_ p: CGPoint, side: CGFloat) -> Bool {
+        p.x >= side - reach && p.x <= side && p.y >= 0 && p.y <= reach
+    }
+
+    var body: some View {
+        Image(systemName: on ? "checkmark.square.fill" : "square")
+            .font(MacMetric.font(14, .medium))
+            .foregroundStyle(on ? Theme.accent : Theme.text.opacity(0.85))
+            .background { RoundedRectangle(cornerRadius: MacMetric.pt(3), style: .continuous).fill(Color.black.opacity(on ? 0 : 0.35)).padding(1) }
+            .frame(width: Self.box, height: Self.box)
+            .padding(Self.margin)
+            .contentShape(Rectangle())
+            .help(on ? L("Uncheck (Space)") : L("Check for Import (Space)"))
+            .accessibilityHidden(true)
+    }
+}
+
+/// A click on a cell and where it landed, in the cell's space, with the modifier keys: the check box's corner
+/// is the box's (`MacImportCheckBox.hit`), the rest the cell's (`MacClick`).
+private struct MacImportCellClick: UIGestureRecognizerRepresentable {
+    let action: (CGPoint, UIKeyModifierFlags) -> Void
+    func makeUIGestureRecognizer(context: Context) -> UITapGestureRecognizer { UITapGestureRecognizer() }
+    func handleUIGestureRecognizerAction(_ recognizer: UITapGestureRecognizer, context: Context) {
+        if recognizer.state == .ended { action(context.converter.localLocation, recognizer.modifierFlags) }
+    }
+}
+
+/// A debug build notes where a part of the page is in the window (`MacImportFlow.debugFrames`); nothing in a release.
+private struct MacImportDebugFrame: ViewModifier {
+    let name: String
+    /// A cell's: noted only while a check asks (`MacImportFlow.debugCells`), never for a debug build's 600 cells.
+    var onlyWhileChecked = false
+    func body(content: Content) -> some View {
+        #if DEBUG
+        if onlyWhileChecked && !MacImportFlow.debugCells {
+            content
+        } else {
+            content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { MacImportFlow.debugFrames[name] = $0 }
+        }
+        #else
+        content
+        #endif
+    }
+}
 
 /// A section's heading: small capitals in `dim`, as the sidebar's.
 private struct MacImportHeading: View {

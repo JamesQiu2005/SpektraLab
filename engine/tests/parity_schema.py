@@ -502,6 +502,18 @@ NATIVE_ONLY = {
         "path": "camera.scene_layers", "type": "str", "layer": "shoot",
         "default": '', "live": False, "range": None,
     },
+    # API-SPEC §21.8 (2026-11-15): the leak's own seed. The reference has no
+    # leaks; 0 is the camera's and the frame's draws, as before.
+    "leak_seed": {
+        "path": "film_render.leak.seed", "type": "int", "layer": "shoot",
+        "default": 0, "live": False, "range": [0, 2147483647],
+    },
+    # API-SPEC §21.9 (2026-11-16): the edge burn's own strength, beside the
+    # leak's kind. The reference has no leaks; 0 is none.
+    "leak_edge": {
+        "path": "film_render.leak.edge", "type": "float", "layer": "shoot",
+        "default": 0.0, "live": False, "range": [0.0, 4.0],
+    },
 }
 
 

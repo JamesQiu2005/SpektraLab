@@ -1,0 +1,81 @@
+#!/bin/bash
+# tools/gate/swiftc -- the self-tests' compiler, as `tools/gate.py` puts it first on PATH (2026-11-14).
+#
+# A full `selftest.sh` was 965 s on this Mac, 753 s of it 55 `swiftc -O` builds one after another, each compiling the
+# same model files again, cached nowhere: a run with no change paid all of it. Through this shim a build is made once
+# per its inputs.
+#
+# - **The key**: the compiler's version, the arguments as given, and the contents of every input file. The same key is
+#   the same binary, which is copied to `-o`. A `-typecheck` run that passed is remembered the same way.
+# - **The optimisation**: `-O` becomes `-Onone` (16 s against 42 s for the largest build, measured 2026-11-14), except
+#   for the binaries named in tools/gate/keep-O.txt, whose run is measured to need it. `SPK_GATE_OPT=asis` keeps the
+#   flags as written (a cost measurement).
+# - **What a build read** is written to `$SPK_GATE_DEPS/<step>.deps`, one absolute path a line (`SPK_GATE_STEP`):
+#   `gate.py --changed` chooses the steps a change reaches from these, never from a list kept by hand (trap 28).
+#
+# Outside `gate.py` (no SPK_GATE_CACHE) it is the plain compiler.
+set -uo pipefail
+real=/usr/bin/swiftc
+[[ -n "${SPK_GATE_CACHE:-}" ]] || exec "$real" "$@"
+
+args=("$@")
+out=""; typecheck=0
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    -o) out=${args[$((i + 1))]} ;;
+    -typecheck) typecheck=1 ;;
+  esac
+done
+name=$(basename "${out:-typecheck}")
+
+# -O to -Onone, unless kept.
+if [[ "${SPK_GATE_OPT:-}" != "asis" ]] && ! grep -qx "$name" "$(dirname "$0")/keep-O.txt" 2> /dev/null; then
+  for ((i = 0; i < ${#args[@]}; i++)); do [[ "${args[$i]}" == "-O" ]] && args[$i]="-Onone"; done
+fi
+
+# The inputs: every argument that is a file and is not the output.
+inputs=()
+for ((i = 0; i < ${#args[@]}; i++)); do
+  a=${args[$i]}
+  [[ $i -gt 0 && "${args[$((i - 1))]}" == "-o" ]] && continue
+  [[ -f "$a" ]] && inputs+=("$a")
+done
+
+if [[ -n "${SPK_GATE_DEPS:-}" && -n "${SPK_GATE_STEP:-}" ]]; then
+  mkdir -p "$SPK_GATE_DEPS"
+  for f in "${inputs[@]}"; do
+    (cd "$(dirname "$f")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$f")")
+  done >> "$SPK_GATE_DEPS/$SPK_GATE_STEP.deps"
+fi
+
+version_file="$SPK_GATE_CACHE/.swiftc-version"
+[[ -s "$version_file" ]] || { mkdir -p "$SPK_GATE_CACHE"; "$real" --version > "$version_file" 2>&1; }
+key=$( {
+  cat "$version_file"
+  printf '%s\n' "${args[@]}"
+  for f in "${inputs[@]}"; do shasum -a 256 < "$f"; done
+} | shasum -a 256 | cut -c1-40)
+entry="$SPK_GATE_CACHE/$key"
+
+if [[ -e "$entry/ok" ]]; then
+  touch "$entry/ok"
+  if [[ $typecheck -eq 0 && -n "$out" ]]; then
+    mkdir -p "$(dirname "$out")"
+    cp -p "$entry/$name" "$out.gate-tmp.$$" && mv -f "$out.gate-tmp.$$" "$out"
+  fi
+  [[ -n "${SPK_GATE_LOG:-}" ]] && echo "hit $name" >> "$SPK_GATE_LOG"
+  exit 0
+fi
+
+t0=$(perl -MTime::HiRes=time -e 'printf "%.1f", time')
+"$real" "${args[@]}"
+rc=$?
+t1=$(perl -MTime::HiRes=time -e 'printf "%.1f", time')
+[[ -n "${SPK_GATE_LOG:-}" ]] && echo "built $name rc=$rc $(echo "$t1 - $t0" | bc) s" >> "$SPK_GATE_LOG"
+[[ $rc -eq 0 ]] || exit $rc
+tmp="$SPK_GATE_CACHE/.tmp.$key.$$"
+mkdir -p "$tmp"
+[[ $typecheck -eq 0 && -n "$out" ]] && cp -p "$out" "$tmp/$name"
+touch "$tmp/ok"
+mv "$tmp" "$entry" 2> /dev/null || rm -rf "$tmp"   # another build of the same key landed first: keep that one
+exit 0

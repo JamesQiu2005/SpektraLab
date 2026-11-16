@@ -55,7 +55,7 @@ struct LayerPictureColumn: View {
     var body: some View {
         VStack(spacing: 0) {
             switch LayerRules.page(pick, piece: piece, mode: .develop, has: has) {
-            case .film, .standsDown, .mask: EmptyView()
+            case .film, .standsDown, .mask, .watermark: EmptyView()
             case .empty: empty
             case .picture(let sections):
                 ForEach(sections, id: \.self) { section in self.section(section) }
@@ -374,24 +374,22 @@ struct LayerWhiteBalance: View {
         VStack(spacing: 0) {
             ColumnSectionHeader(title: L("White Balance"), folded: folded, id: "layers.whiteBalance", toggleFold: toggleFold) {
                 RoundButton(diameter: 22, label: L("As Shot"), action: {
-                    change { d in
-                        d.whiteBalance = .asShot
-                        if let subject, let cam = camera[subject.id] { (d.temperature, d.tint) = cam }
-                    }
+                    change { d in d.setAsShot(camera: subject.flatMap { camera[$0.id] }) }
                     lifted()
                 }) { Icon(.reset, size: 13) }
-                .rowEnabled(reaches && d.whiteBalance != .asShot)
+                .rowEnabled(reaches && !d.isAsShot)
                 .padding(.trailing, 16)
             }
             if !folded {
                 Group {
                     // The scales' tints are Decode's own (`ScenePanel`): where each slider takes the picture.
                     ValueSlider(title: L("Temperature"), value: binding(\.temperature), range: 2000...10000, rest: 5500, step: 50,
-                                text: { "\(Int($0.rounded())) K" }, sub: d.whiteBalance == .asShot ? L("As Shot") : nil,
+                                text: { "\(Int($0.rounded())) K" }, sub: d.temperatureAsShot ? L("As Shot") : nil,
                                 tint: { Color.lerp(0x5F86C9, 0xE0B25E, $0) }, showsRest: false, onEditingChanged: editing)
                         .frame(height: 40)
                     ValueSlider(title: L("Tint"), value: binding(\.tint), range: -150...150, step: 1,
-                                text: { Fmt.signed($0, decimals: 0) }, tint: { Color.lerp(0x6FBF73, 0xB77BD0, $0) },
+                                text: { Fmt.signed($0, decimals: 0) }, sub: d.tintAsShot ? L("As Shot") : nil,
+                                tint: { Color.lerp(0x6FBF73, 0xB77BD0, $0) },
                                 onEditingChanged: editing)
                         .frame(height: 40)
                 }
@@ -405,7 +403,7 @@ struct LayerWhiteBalance: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("layers.page.wb")
         .task(id: subject?.id) {
-            guard let subject, subject.edit.decode.whiteBalance == .asShot, camera[subject.id] == nil else { return }
+            guard let subject, subject.edit.decode.isAsShot, camera[subject.id] == nil else { return }
             camera[subject.id] = (subject.edit.decode.temperature, subject.edit.decode.tint)
         }
     }
@@ -420,7 +418,7 @@ struct LayerWhiteBalance: View {
 
     private func binding(_ path: WritableKeyPath<DecodeSettings, Double>) -> Binding<Double> {
         Binding(get: { decode[keyPath: path] },
-                set: { v in change { d in d[keyPath: path] = v; d.whiteBalance = .custom } })
+                set: { v in change { d in if path == \DecodeSettings.tint { d.setTint(v) } else { d.setTemperature(v) } } })
     }
 }
 

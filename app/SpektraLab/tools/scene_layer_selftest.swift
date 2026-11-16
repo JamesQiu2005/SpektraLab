@@ -87,6 +87,22 @@ import simd
         expect(base.hasPrefix("sl1.") && ask([other])!.stamp != base && ask([moved])!.stamp != base && ask([layer], cut: crop)!.stamp != base
                && ask([renamed])!.stamp == base,
                "the stamp moves with the gain, the mask and the matrix, and not with the name (\(base))")
+        // 3b. A request that names a set carries it (`SceneLayerWire.carries`, held by `EngineRouter.hand` for every
+        // request): the full render's request named the set and carried none until 2026-11-16 ("Full size unavailable").
+        let own = ask([layer])!, cropped = ask([layer], cut: crop)!
+        expect(SceneLayerWire.carries(named: own.stamp, ask: own, throughEngine: true)
+               && SceneLayerWire.carries(named: nil, ask: nil, throughEngine: true)
+               && SceneLayerWire.carries(named: "", ask: nil, throughEngine: true),
+               "carries: the stamp the wire names and the ask's are one; no stamp and no ask")
+        expect(!SceneLayerWire.carries(named: own.stamp, ask: nil, throughEngine: true),
+               "carries: a wire naming a set with no ask is refused (the engine's scene_layers_mismatch)")
+        expect(!SceneLayerWire.carries(named: own.stamp, ask: cropped, throughEngine: true)
+               && !SceneLayerWire.carries(named: nil, ask: own, throughEngine: true),
+               "carries: an ask of another stamp, or an ask under a wire that names none, is refused")
+        expect(SceneLayerWire.carries(named: own.stamp, ask: cropped, throughEngine: false)
+               && !SceneLayerWire.carries(named: own.stamp, ask: nil, throughEngine: false)
+               && !SceneLayerWire.carries(named: nil, ask: own, throughEngine: false),
+               "carries: through Apple's decode a stamp needs an ask (its own cut), and an ask a stamp")
         // 4. The host kernel.
         guard let device = MTLCreateSystemDefaultDevice() else { print("no Metal"); exit(1) }
         let host = try SceneLayerHost(device: device)

@@ -30,6 +30,21 @@ enum CardMetric {
     static let frameOutset = PanelY.Part.cardFrame
 }
 
+/// A favourite's mark at a card's top right (the owner, 2026-11-01: "one tiny star on the top right for the
+/// one claimed to be your favorite"). White with a dark edge, over a photograph of any brightness and not the accent,
+/// which is selection's and action's; a card's words say so to VoiceOver (`, favourite`).
+struct StockStar: View {
+    var size: CGFloat = 9
+    var body: some View {
+        Image(systemName: "star.fill")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.8), radius: 0.6)
+            .shadow(color: .black.opacity(0.45), radius: 2)
+            .accessibilityHidden(true)
+    }
+}
+
 /// A film's card: swatch with perforations, short name, ISO, the CINE pill.
 struct FilmCard: View {
     let stock: Stock
@@ -271,6 +286,10 @@ struct CardRow<Item: Identifiable, Card: View>: View where Item.ID: Hashable {
     /// The card the row opens on, where that is not the chosen one's place:
     /// a snapshot's own, to draw the cards a row keeps past its fourth.
     var opensOn: Item.ID? = nil
+    /// The stock a card's star belongs to, where its cards are stocks (a film's, a paper's): the star at the card's
+    /// top right, the right-click menu's Favourite and a VoiceOver action, so a star shown is a star that can be
+    /// turned off here (the 2026-11-15 brief: no half state). Nil: no star, no menu (a film's size).
+    var stock: ((Item) -> String)? = nil
     @ViewBuilder var card: (Item) -> Card
 
     @State private var leadingID: Item.ID?
@@ -302,6 +321,10 @@ struct CardRow<Item: Identifiable, Card: View>: View where Item.ID: Hashable {
                         }
                         .buttonStyle(PressStyle())
                         .modifier(CardWaits(waits: waiting))
+                        .overlay(alignment: .topTrailing) {
+                            if let id = stock?(item), StockCatalog.shared.isFavourite(id) { StockStar().padding(5).allowsHitTesting(false) }
+                        }
+                        .contextMenu { favouriteMenu(item) }
                         .accessibilityAddTraits(on ? .isSelected : [])
                         .id(item.id)
                     }
@@ -321,6 +344,15 @@ struct CardRow<Item: Identifiable, Card: View>: View where Item.ID: Hashable {
                 leadingID = opensOn
             } else if let i = items.firstIndex(where: { $0.id == selectedID }), i >= 4 {
                 leadingID = items[i - 3].id
+            }
+        }
+    }
+
+    @ViewBuilder private func favouriteMenu(_ item: Item) -> some View {
+        if let id = stock?(item) {
+            let on = StockCatalog.shared.isFavourite(id)
+            Button { StockCatalog.shared.setFavourite(id, !on) } label: {
+                Label(on ? L("Unfavourite") : L("Favourite"), systemImage: on ? "star.slash" : "star")
             }
         }
     }

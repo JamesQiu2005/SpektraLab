@@ -215,7 +215,8 @@ final class MacScrollMonitor {
     // NSEventPhase
     private static let began: UInt = 1, changed: UInt = 4, ended: UInt = 8, cancelled: UInt = 16, mayBegin: UInt = 32
 
-    /// Whether a row of cards took the event (`MacWheelRows`), which is then the row's alone.
+    /// Whether a row of cards took the event (`MacWheelRows`), which is then the row's alone — or the column did, from
+    /// over a strip that scrolls up and down inside it (`MacNestedScrolls`).
     private func scrolled(_ event: AnyObject) -> Bool {
         let e = event as? NSObject
         for entry in entries { if let w = entry.view?.window { watchPointer(in: w) } }
@@ -229,6 +230,12 @@ final class MacScrollMonitor {
             if pointerWindow == nil { pointerWindow = w }
         }
         if let w = pointerWindow, let at = pointer[ObjectIdentifier(w)], MacWheelRows.shared.take(event, window: w, at: at) {
+            return true
+        }
+        // …or a strip's or the column's, from over a strip that scrolls inside the column (`MacNestedScrolls`), at the
+        // event's own place in the window where it has one (round 4, 2026-11-16: the hover's last place can be stale).
+        if let w = pointerWindow, let at = Self.place(of: e, in: w) ?? pointer[ObjectIdentifier(w)],
+           MacNestedScrolls.shared.take(event, window: w, at: at) {
             return true
         }
         let phase = (e?.value(forKey: "phase") as? NSNumber)?.uintValue ?? 0
@@ -279,6 +286,16 @@ final class MacScrollMonitor {
             schedule(after: 0.5)
         }
         return false
+    }
+
+    /// Where `event` is in `window`'s points, from AppKit (its window's content fills its frame, y runs up), when it is
+    /// that window's event.
+    static func place(of e: NSObject?, in window: UIWindow) -> CGPoint? {
+        guard let e, let at = (e.value(forKey: "locationInWindow") as? NSValue)?.cgPointValue,
+              let frame = ((e.value(forKey: "window") as? NSObject)?.value(forKey: "frame") as? NSValue)?.cgRectValue, frame.width > 0,
+              abs(frame.width / max(frame.height, 1) - window.bounds.width / max(window.bounds.height, 1)) < 0.03 else { return nil }
+        let k = window.bounds.width / frame.width
+        return CGPoint(x: at.x * k, y: (frame.height - at.y) * k)
     }
 
     private func begin() -> Session? {

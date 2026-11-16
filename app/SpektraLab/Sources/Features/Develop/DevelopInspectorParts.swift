@@ -26,8 +26,10 @@
 //    not drawn with the switch off; on Edit at the foot of the panel. The progress of a develop is
 //    the canvas's bar, as before; the line keeps its dot and its words.
 //  - **A histogram** heads the panel, under the Develop | Edit row, on both (`HistogramPanel.swift`).
-//  - **The Film and Paper strips fold** (`StockPreviewPanel(foldable:)`), kept across launches; on the Mac a
-//    wheel or a trackpad moves a strip sideways, wheel down to the right (`Sources/Mac/MacWheelRow.swift`).
+//  - **The Film and Paper strips fold** (`StockPreviewPanel(foldable:)`), kept across launches. Since 2026-11-16
+//    each is a grid of half-size cards under their makers' names that scrolls up and down, as tall as its grip
+//    was dragged (`StockGridPanel.swift`, `Services/StockPreviewGrid.swift`); the rows that scrolled sideways
+//    (`Sources/Mac/MacWheelRow.swift`) are Format's 尺寸 strip's still.
 //  - **Every section folds as Edit › Adjust's tools do** (the owner, 2026-11-11: "make Develop's left column
 //    tighter: match Edit's collapse style, and shrink the toggles and pills to Edit's size"): the strips, Decode
 //    (and its Enlarger and High Dynamic Range a step in), 片边, 日期后背 and Format's Effects each under the

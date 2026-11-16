@@ -14,9 +14,9 @@
 //    one page at macOS sizes — no drill-down pages, no 44-pt rows. The one page a row opens is General's
 //    *Supporters* (`MacSettingsSupporters`), which holds no setting: it takes General's place, under a
 //    way back.
-//  - **Seven sections**, from what the settings are: General (language, about and licences),
+//  - **Eight sections**, from what the settings are: General (language, about and licences),
 //    Appearance (the mode, the background, the interface scale: AppearancePage.swift, 2026-10-24), Develop (what new frames develop with, the preview size, lens correction, the film edge's body),
-//    Export (the recipes, edited in place), Sources (the Mac library's catalogs, sessions and folders),
+//    Export (the recipes, edited in place), Watermarks (水印's library, 2.4.1: `MacSettingsWatermarks`), Sources (the Mac library's catalogs, sessions and folders),
 //    Storage (what the app keeps, the three budgets and their usage), Diagnostics (the log, what it
 //    holds, this build).
 //  - **What the Mac leaves out of the window's Settings** is `MacSettingsCoverage`'s table, each with its
@@ -26,7 +26,7 @@
 import SwiftUI
 
 enum MacSettingsSection: String, CaseIterable, Hashable {
-    case general, appearance, develop, export, sources, storage, diagnostics
+    case general, appearance, develop, export, watermarks, sources, storage, diagnostics
 
     var title: String {
         switch self {
@@ -34,6 +34,7 @@ enum MacSettingsSection: String, CaseIterable, Hashable {
         case .appearance: L("Appearance")
         case .develop: L("Develop")
         case .export: L("Export")
+        case .watermarks: L("Watermarks")
         case .sources: L("Sources")
         case .storage: L("Storage")
         case .diagnostics: L("Diagnostics")
@@ -46,6 +47,7 @@ enum MacSettingsSection: String, CaseIterable, Hashable {
         case .appearance: "paintpalette"
         case .develop: "camera.filters"
         case .export: "square.and.arrow.up"
+        case .watermarks: "signature"
         case .sources: "books.vertical"
         case .storage: "internaldrive"
         case .diagnostics: "stethoscope"
@@ -59,6 +61,7 @@ enum MacSettingsSection: String, CaseIterable, Hashable {
         case .storage?, .workingLimit?, .previewLimit?: self = .storage
         case .newFrames?, .previewSize?: self = .develop
         case .recipe?, .recipeEdit?: self = .export
+        case .watermarks?: self = .watermarks
         case .diagnostics?: self = .diagnostics
         case .appearance?: self = .appearance
         case .language?, .credits?, nil: self = .general
@@ -196,6 +199,7 @@ struct SettingsWindowRoot: View {
                 case .appearance: AppearanceSettings(style: .mac)
                 case .develop: MacSettingsDevelop()
                 case .export: MacSettingsRecipes()
+        case .watermarks: MacSettingsWatermarks()
                 case .sources: MacSettingsSources(close: { router.dismissCover() })
                 case .storage: MacSettingsStorage()
                 case .diagnostics: MacSettingsDiagnostics()

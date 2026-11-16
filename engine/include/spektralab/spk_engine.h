@@ -337,6 +337,20 @@ spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* lay
  * quads hold at every tier. Never renders. */
 spk_status spk_overscan_geometry(spk_session* session, char** out_json);
 
+/* API-SPEC §24 (2026-11-15): the film-edge formats this engine knows, its own
+ * table (`kFormats`, `kCine` in overscan.cpp), with no session: `formats`, one
+ * object each, in the engine's order -- `name` (an `overscan_format` value),
+ * `film_mm`, `across_mm`, `along_mm`, `perforated`, `families`; and on a cine
+ * gauge `cine`: `pitch_mm`, `hole_along_mm`, `hole_across_mm`, `hole_edge_mm`,
+ * `hole_r_mm`, `shape` (0 KS, 1 Bell & Howell), `rows` (0 both edges, 1 the
+ * t-low edge, 2 the t-high edge), `perfs`, `aspect` [long, short], `guided_mm`,
+ * `mech`, `t_tol_mm`, `reg_mm`, `adv_err_mm`, `r_min_mm`, `r_max_mm`, `jit`,
+ * `neighbours` (whether the canvas shows the frames before and after: the
+ * engine's own rule, which a host never keeps a copy of) and `at_line`.
+ * `out_json` is caller-freed. The CMake targets (no film edge) answer
+ * `{"formats":[]}`. */
+spk_status spk_overscan_formats(char** out_json);
+
 /* Tiers are the three API-SPEC §6 names: "live", "preview", "full". */
 spk_status spk_reprint(spk_session* session, const char* tier, spk_result* out);
 spk_status spk_render(spk_session* session, const char* tier, spk_result* out);

@@ -96,16 +96,20 @@ struct PresetSaveSheet: View {
 }
 
 /// Nine V5 rows (HDR the ninth, 2026-11-06); EngineRouter expands to independent
-/// canonical leaves.
+/// canonical leaves. **Decode is a box over its four parts** (2.4.1, `ClipboardGroup.decodeParts`): Exposure,
+/// Temperature, Tint and Curve, each a box of its own under it; Decode's own box ticks or unticks all four, and shows
+/// a dash while only some are (`Toggle(sources:)`, SwiftUI's mixed state).
 struct SettingsGroupPicker: View {
     @Binding var picked: Set<ClipboardGroup>
     let edit: FrameEdit
-    // Decode is Film & Paper's since 2026-10-24 (the white balance and the curve); Scene Placement
+    // Decode is Film & Paper's since 2026-10-24 (the exposure, the white balance and the curve); Scene Placement
     // has no control left to set it. HDR is offered only while a screen shows it (`ClipboardGroup.offered`).
-    private let top: [ClipboardGroup] = [.filmAndPaper, .filmExposure, .decode, .format, .filmEdgeAndDateBack, .hdr]
+    private let afterDecode: [ClipboardGroup] = [.format, .filmEdgeAndDateBack, .hdr]
     private let darkroom: [ClipboardGroup] = [.enlarger, .couplers, .preflash]
     var body: some View {
-        ForEach(top.filter { ClipboardGroup.offered.contains($0) }) { row($0) }
+        row(.filmAndPaper)
+        decode
+        ForEach(afterDecode.filter { ClipboardGroup.offered.contains($0) }) { row($0) }
         DisclosureGroup(L("Darkroom")) { ForEach(darkroom) { row($0) } }
         ForEach([ClipboardGroup.light, .curve, .colour, .lens].filter { $0.layer2Tool != nil || ClipboardGroup.offered.contains($0) }) { row($0) }
         // PRD-E §9 q10: a copy and a preset carry no mask layer in M1 (`SettingsClip`).
@@ -115,12 +119,29 @@ struct SettingsGroupPicker: View {
                 .accessibilityIdentifier("copy.masks-note")
         }
     }
-    private func row(_ group: ClipboardGroup) -> some View {
-        Toggle(isOn: Binding(get: { picked.contains(group) }, set: { on in
+
+    /// Decode's box over its parts, and the parts under it, inset as Edit's rows under a tool's name are.
+    @ViewBuilder private var decode: some View {
+        Toggle(sources: ClipboardGroup.decodeParts.map(ticked), isOn: \.self) {
+            Text(ClipboardGroup.decode.title)
+        }
+        .tint(Theme.accent).frame(minHeight: 44)
+        .accessibilityIdentifier("copy.group.decode")
+        ForEach(ClipboardGroup.decodeParts) { part in
+            row(part, title: part.partTitle).padding(.leading, 20)
+        }
+    }
+
+    private func ticked(_ group: ClipboardGroup) -> Binding<Bool> {
+        Binding(get: { picked.contains(group) }, set: { on in
             if on { picked.insert(group) } else { picked.remove(group) }
-        })) {
+        })
+    }
+
+    private func row(_ group: ClipboardGroup, title: String? = nil) -> some View {
+        Toggle(isOn: ticked(group)) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(group.title)
+                Text(title ?? group.title)
                 Text(group.summary(of: edit)).font(.caption).foregroundStyle(Theme.secondaryText).lineLimit(2)
             }
         }.tint(Theme.accent).frame(minHeight: 44)

@@ -350,10 +350,20 @@ struct OverscanLayout {
     // film (`ks65`). The kernels read `holes`.
     bool holes = false;
     double perf_dt = 0;                   // both rows shifted across the film (ks65: the slitter's offset), mm
+    // API-SPEC §24: a cine gauge (Super 8, 16 mm, 35 mm 4-perf, 65 mm 5- and
+    // 15-perf): its holes' shape (0 KS, 1 Bell & Howell), rows (0 both, 1 the
+    // t-low edge, 2 the t-high edge), radius clamp and tolerance scale; the
+    // frames before and after it, the same picture this far along (0 on a
+    // single-frame gauge). Nothing is printed on it.
+    bool cine = false;
+    int perf_shape = 0, perf_rows = 0;
+    double perf_rmin = 0, perf_rmax = 0, perf_jit = 0;
+    double nb_prev = 0, nb_next = 0;
     // API-SPEC §21.4: the lens's cos^n falloff over the picture; 0 = none.
     double falloff = 0, falloff_f = 50, falloff_n = 4;
     // API-SPEC §21.1: the camera's light leak as this frame shows it. kind 0 =
-    // none (off, or this frame does not show it); 1 band, 2 wash, 3 spot.
+    // none (off, or this frame does not show it); 1 band, 2 wash, 3 spot. The
+    // edge burn (API-SPEC §21.9) is `e_amp`, beside the kind (2026-11-16).
     struct BigLeak {
         int kind = 0;
         double amp = 0;                   // raw exposure at the peak, before the across-film profile
@@ -366,6 +376,23 @@ struct OverscanLayout {
         double lambda = 30;               // the decay across the film from the bright edge, mm
         double len = 10;                  // wash: decay length; spot: radius, mm
         double core = 1;                  // band: the front light's sigma, mm
+        // The edge burn (API-SPEC §21.9): beside the kind since 2026-11-16 (it was
+        // kind 4 the day before), so any kind and it may both be on. `e_amp` > 0 is
+        // it on: its own peak (`leak_edge`, as `amp` is `leak_amount`'s, the same
+        // jitter) and its own front share. Each long edge's own light below,
+        // [0] the edge at t = 0, [1] at t = film_w.
+        double e_amp = 0;                 // raw exposure at its peak, x e_str; 0 = none
+        double e_front = 0;               // its share of front light
+        double e_str[2] = {0, 0};         // its strength, x amp, at the very edge
+        double e_len[2] = {1, 1};         // its e-length inward, mm
+        double e_und[2] = {0, 0};         // how far the undulation moves the e-length (a fraction)
+        double e_k[2] = {0, 0};           // the undulation's two slow wave numbers along the film, rad/mm
+        double e_ph[4] = {0, 0, 0, 0};    // their phases: edge 0's two, then edge 1's
+        double e_jit = 0;                 // the strength's swing along the film, stops
+        double e_core = 0.3;              // the front light's e-length, x e_len
+        double e_p0 = 0, e_p1 = 0;        // perforated: the hole row's near and far side from each edge, mm
+        double e_pa = 0;                  // perforated: the light let in at the holes, x e_str (0 = none)
+        double e_shift = 0;               // the frame's place along the roll's pattern, mm
     } leak;
     double leak_rear_rgb[3] = {1, 0, 0}, leak_front_rgb[3] = {1, 1, 1};
     // API-SPEC §21.4: Fujifilm's edge stripes (X-Tra 400, Pro 400H; every 135-gauge format).
@@ -394,6 +421,8 @@ public:
     // `set_source_long_edge`.
     void overscan_frame(uint32_t& frame_w, uint32_t& frame_h) const;
     std::string overscan_geometry_json() const;
+    // API-SPEC §24: the engine's film-edge format table, as `spk_overscan_formats` returns it.
+    static std::string overscan_formats_json();
     bool set_overscan_frame(uint32_t frame_w, uint32_t frame_h, std::string& error);
     // The film's pixel pitch, from the frame this pipeline is about to render.
     //
@@ -901,6 +930,7 @@ private:
     bool node_negative_hue(const Image& negative, const Image& in, Image& out, std::string& error);
     bool node_xyz_to_rgb(const Image& in, Image& out, std::string& error);
     bool node_edr(const Image& in, Image& out, std::string& error);
+    double edr_edge_sigma() const;   // API-SPEC §25: the picture edge's blur, px (EDR's weight)
     bool node_gamut_compress(const Image& in, Image& out, std::string& error);
     bool node_scan_hdr_scale(const Image& in, Image& out, std::string& error);
     bool node_scanner_blur(const Image& in, Image& out, std::string& error);

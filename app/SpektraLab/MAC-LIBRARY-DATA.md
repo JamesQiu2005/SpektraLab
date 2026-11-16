@@ -154,7 +154,7 @@ itself are `MacImportSession`; `--import-check <dir>` drives that same model.
 
   Include Subfolders is on by default. 629 pictures on a USB disk: listed in 0.05 s, headers in
   0.6–0.7 s (a loaded machine, headers probably cached).
-- **Import To**: a SpektraLab catalog or session. The default is the selected one, else the most
+- **Import To**: a SpektraLab catalog or session, never a Capture One one (§2m). The default is the selected one, else the most
   recently opened, else **New Catalog…** ("SpektraLab Catalog" in `~/Pictures`, made only when the
   import starts; a name already taken becomes "… 2"). The placements:
   - *Add to Catalog* (reference): the default for a catalog.
@@ -220,7 +220,7 @@ One style UI." What the person sees no longer depends on whose file a catalog is
   - a folder that holds only folders (a volume, "Users") opens and closes when clicked, in every
     catalog, instead of showing an empty grid;
   - two fixed rows of one kind are one row (a mirror's Recent Imports: Capture One's and SpektraLab's).
-- **The same imports**: a Capture One catalog takes imports (`acceptsImports`), into its mirror. The
+- **The same imports** (*superseded 2026-11-16, §2m: a Capture One catalog takes no imports*): a Capture One catalog took imports (`acceptsImports`), into its mirror. The
   files are SpektraLab's rows there, and each import is a Recent Import under a Recent Imports row of
   SpektraLab's beside Capture One's (spklib 0.2.1, `new_recent_import`), shown as one row. A sync
   writes only Capture One's rows, so these outlive every sync. *Copy into the Catalog* copies into the
@@ -715,6 +715,41 @@ part 2 (below, "The acts") the menus, the keys, the badge, Info and the export n
   its primary now, is given a frame of its own first if it has none (one of Capture One's never opened), stamped with
   its variant, with the edit a fresh open gets — it never joins the other library's frame (`frameForNewPrimary`).
 
+## 2m. Capture One is never an import destination (2026-11-16, 2.4.1 Round 4b E2)
+
+> **This supersedes** §2c's "The same imports" and the Capture One catalog in §2a's *Import To*.
+
+The owner, testing 2.4.0: "I just imported one image, and somehow 'Remove from SpektraLab' didn't work. It happened
+because we're adding images into a Capture One catalog … limit the app-side behaviour of 'import image' while we're
+reading Capture One's catalog / session; since we have the option to copy one instance into SpektraLab straight, this
+should be good."
+
+- **Why Remove did nothing.** 2.4.0 imported into a Capture One catalog's mirror (§2c): SpektraLab's own rows there.
+  `CatalogSourcesStore.setTrashed` returned at once for any Capture One source ("no 回收站 of SpektraLab's"), so Remove
+  from SpektraLab on such a picture with no frame did nothing and said nothing; with a frame, the frame went and the
+  row stayed. The helper itself takes `images.trash` in a mirror and writes only the mirror (probed on spklib 0.4.0
+  with a fixture catalog: the `.cocatalogdb`'s SHA-256 unchanged, the flag kept across a sync).
+- **Import goes to SpektraLab only.** `MacSource.acceptsImports` is a SpektraLab catalog or session. So: *Import To*
+  lists SpektraLab's catalogs and sessions and *New Catalog…*; with a Capture One catalog or session shown, the page
+  defaults to the last SpektraLab one opened (else *New Catalog…*) and says so in one line (`captureOneNote`), without
+  blocking; a drop on the window opens the same page, so the same rule; the store refuses an import into one
+  (`importChunk`, `importFiles`: `readOnly`), which an agent's import reaches too. *Copy into the Catalog* into a
+  mirror's package is gone with it. A Capture One picture comes in by *Copy to SpektraLab Catalog…* (§2h), named in
+  the note. Already not offered for Capture One: *Add Folder* (`acceptsFolders`), adding to Capture One's albums
+  (`read_only`); the grid has no drag into an album.
+- **Still in a mirror: a pair's or a double's row** (`pairHome`, §2i, §2k), SpektraLab's own composite made from the
+  catalog's pictures and shown beside them. It is not an import, and it is removed as below.
+- **Remove from SpektraLab in a Capture One source** (`setTrashed`, `MacLibraryActions.removeFromSpektraLab`):
+  - SpektraLab's own rows in a mirror (2.4.0's imports, a pair's, a double's) go to the catalog's Trash, and *Put
+    Back* brings them back, as in a SpektraLab catalog. *Move to Trash* stays refused there (`moveToSystemTrash`): a
+    referenced file may be one Capture One also lists.
+  - Capture One's own pictures (`MacSource.isCaptureOnes`: every picture of a Capture One session, and Capture One's
+    rows of a mirror) lose only SpektraLab's frame of them. With none, the item is greyed with the reason under it;
+    reached another way, it says why ("This picture stays in Capture One": remove it in Capture One, or *Copy to
+    SpektraLab Catalog…*). Nothing is ever written to the `.cocatalog` or the session.
+- Proved by `tools/import_c1_check.sh` (`--import-c1-check`, `Sources/Mac/Import/MacImportC1Check.swift`): a fixture
+  Capture One catalog (`tools/variant_c1_fixture.py`) and session, the census of both unchanged.
+
 ## 3. Storage, under `~/Library/Application Support/<bundle id>/`
 
 The debug build's bundle id is `com.spektralab.mac.local`.
@@ -727,6 +762,8 @@ The debug build's bundle id is `com.spektralab.mac.local`.
 | `Pairs/<name>.spektrapair`, `MacLibrary/pairs.json` | Each half-frame pair's recipe, the file its row points at, and which library each row went into (§2i) |
 | `Doubles/<name>.spektradouble`, `MacLibrary/doubles.json` | Each double exposure's recipe, the file its row points at, and which library each row went into (§2k) |
 | `doubles.json` | The double exposures' looks, beside `library.json`, which an older build reads whole (§2k) |
+| `Watermarks/index.json`, `Watermarks/<uuid>.png` | 水印's library (2.4.1, PRD-8; `Services/WatermarkStore.swift`): each mark the person's PNG as given, and the index a fixed shape that must not move — a bare JSON array of `{id, name, added, w, h, sha256}`. Made only once a mark is added. Thumbnails (256 px) are a cache, in `~/Library/Caches/<bundle id>/Watermarks` |
+| `watermarks.json` | Each frame's watermarks (`FrameEdit.watermarks`), beside `library.json` (`Services/WatermarkShelf.swift`): 2.4.0's coder writes back only the keys it knows, so a mark kept inside the edit would be dropped by a 2.4.0 build's next save. The layers' rules: each entry read by itself, one this build cannot read kept as it was, a file that does not read set aside and not written over, none made while no frame has a mark |
 | `library.json`, `Originals/`, `Previews/`, … | The app library (`FrameCatalog`). Frames made by `openInDevelop` live here; their develops are in their library's `Cache/Previews` since 2026-11-05 (§2j) |
 | `Masks/<frame id>/<asset>.spkmask` | The found masks (主体, 背景, 人 n, 全部人物; PRD-E §5.3, RFC-052 §8.2, M1c): each an immutable picture in S and its provenance, named by 32 hex of SHA-256 over both (`FoundMaskFiles`, `Engine/MaskStore.swift`), named in turn by a part of `layers.json` (`MaskPart.asset`). **The edit's own files, not a cache**: never under `WorkingCopies`, `Previews` or Caches, so neither *Clear Working Copies*, the working copies' limit, the previews' and cards' tidies nor a 2.3.x build's launch (its tidy walks `Previews` and `WorkingCopies` only, at 88685135; `tools/found_mask_selftest.sh` runs 2.3.2's own two files over such a library) touch them; kept in backups. Keyed by **the frame** (as `layers.json`, the history and the develops are: a variant has its own layers); a Clone Variant's or a pasted layer's asset is read from whichever folder holds it and copied into the frame's own at its page's open and close (`adopt`). A file goes only when no frame's edit, no state of the frame's edit history and no text of `layers.json` (an entry this build cannot read) names it, older than 2 minutes, at the page's close (`FoundMaskKeeping.pageClosed`); never when the history cannot be read. A frame removed takes its folder, handing on any file another frame names (`framesRemoved`); at launch, folders of frames neither the library nor `layers.json` has go (`launchTidy`). 重新查找 writes a new file; the old one stays while Undo can bring it back. 30–620 kB a mask at the 2,048 px rendition (zlib; measured by `tools/subject_find.sh`, a person's soft mask the largest) |
 | `EditHistory/history.sqlite` (+ `-wal`, `-shm`) | Every frame's edit history, keyed by `LibraryFrame.ID` beside the edit it is of (PRD-F, 2026-11-13: `SQLiteEditHistoryStore`, schema 2; schema 1 is moved). 256 steps a frame; removed with its frame (`AppServices.remove`); *Clear Working Copies* leaves it; Settings › Storage's *Clear All…* empties it. A newer build's file is neither read nor written. **At quit** (`AppServices.settleForQuit`, on `didEnterBackground`: a Catalyst ⌘Q posts no `willTerminate` and the process is gone ~5 s later without its main queue running, measured) `library.json` is written and the history's line waited for, at most 0.5 s: what a stuck store still holds then is lost, and the next open reconciles to the library |

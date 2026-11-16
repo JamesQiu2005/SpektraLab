@@ -206,7 +206,7 @@ enum MacMaskToolsCheck {
         await everySurface(m, r, s, a: a, out: out)
         // The keys are run first in the walk (`MacMasksCheck.walk`), before M1a's drawings: see `keys`.
         await pointer(m, r, s, a: a)
-        if let b24 { await cost(m, r, a: a, b: b24) }
+        if let b24, !MacMasksCheck.untimed { await cost(m, r, a: a, b: b24) }
         await liveMatches(m, r, a: a)
         if broken == nil { await drawings(m, r, a: a) }
         // Leave A as the kept walk expects it.

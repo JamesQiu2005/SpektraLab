@@ -74,6 +74,8 @@ struct Rules {
     var pairText: (FilmParams, StockCatalog) -> String = { $1.pairText($0) }
     // What the engine's client sends of a wire, and the pair a new frame takes.
     var step: (inout [String: ParamValue], [String: ParamValue]) -> [String: ParamValue] = { FilmParams.step(from: &$0, to: $1) }
+    // 漏光's 随机 (API-SPEC §21.8).
+    var drawSeed: (Int) -> Int = { LeakSettings.drawSeed(other: $0) }
     var newFramePair: (StockCatalog, String, String) -> (film: String, paper: String) = {
         $0.newFramePair(film: $1, paper: $2)
     }
@@ -228,6 +230,14 @@ struct Rules {
                 return delta
             }
         }
+        rule("漏光's own seed left on the engine when the frame goes back to the camera's leak") { r in
+            r.step = { applied, now in
+                var delta = FilmParams.step(from: &applied, to: now)
+                if delta["leak_seed"] == .double(0) { delta["leak_seed"] = nil; applied["leak_seed"] = .double(7) }
+                return delta
+            }
+        }
+        rule("随机 draws the seed that is there again") { r in r.drawSeed = { $0 == 0 ? 1 : $0 } }
         rule("a new frame on the pair as chosen: a film alone, with the paper of the last one") { r in r.newFramePair = { _, film, paper in (film, paper) } }
         // What the pages say of black and white.
         rule("a silver print's rulers still named for a colour (the page until 2026-10-09)") { r in r.scales = { _, _ in .colour } }
@@ -323,12 +333,12 @@ func noteChecks(_ c: inout Checker, _ rules: Rules, catalog: StockCatalog) {
 /// Frame's size cards: the name on the card is the size the engine is sent.
 func sizeChecks(_ c: inout Checker, _ rules: Rules) {
     let landscape = PixelSize(width: 6000, height: 4000), upright = PixelSize(width: 4000, height: 6000)
-    let phone = PixelSize(width: 4032, height: 3024), square = PixelSize(width: 4000, height: 4000)
+    let fourThree = PixelSize(width: 4032, height: 3024), square = PixelSize(width: 4000, height: 4000)
     let fiveFour = PixelSize(width: 5000, height: 4000)
     // The frame, the photograph, and the long edge the wire carries, in millimetres.
     let cases: [(String, PixelSize, Double, Double)] = [
-        ("135", landscape, 24, 36), ("135", upright, 24, 36), ("135", phone, 24, 32), ("135", square, 24, 24),
-        ("120", landscape, 56, 84), ("120", phone, 56, 56.0 * 4 / 3), ("120", square, 56, 56),
+        ("135", landscape, 24, 36), ("135", upright, 24, 36), ("135", fourThree, 24, 32), ("135", square, 24, 24),
+        ("120", landscape, 56, 84), ("120", fourThree, 56, 56.0 * 4 / 3), ("120", square, 56, 56),
         ("110", landscape, 13, 19.5), ("APS", landscape, 16.7, 25.05),
         // Sheet film (2026-11-11, the Mac's 4×5, 5×7 and 8×10): a sheet is a rectangle both ways, so the
         // picture is the largest cut of its own shape inside the sheet's image area — a 3:2 picture on
@@ -337,7 +347,7 @@ func sizeChecks(_ c: inout Checker, _ rules: Rules) {
         ("5x7", landscape, 120, 170), ("5x7", fiveFour, 120, 150),
         ("8x10", fiveFour, 194, 242.5), ("8x10", landscape, 194, 245), ("8x10", upright, 194, 245),
         // 8mm's gate is fixed as a sheet is: a square picture on it is 3.68 mm, under the engine's old 4.
-        ("8mm", landscape, 3.68, 4.88), ("8mm", square, 3.68, 3.68), ("8mm", phone, 3.68, 4.88),
+        ("8mm", landscape, 3.68, 4.88), ("8mm", square, 3.68, 3.68), ("8mm", fourThree, 3.68, 4.88),
     ]
     for (id, photo, side, long) in cases {
         var p = FilmParams()
@@ -366,7 +376,7 @@ func sizeChecks(_ c: inout Checker, _ rules: Rules) {
     // An edit that enters a frame takes that frame's photograph: a new frame's defaults, a paste.
     let fresh = FilmParams()
     c.expect(rules.heldToPhoto(fresh, landscape) == fresh, "a new frame of a 3:2 photograph is 24 × 36 on 135, as its defaults say")
-    c.expect(rules.heldToPhoto(fresh, phone).filmFormatMM == 32, "a new frame of a phone's 4:3 photograph is 32 mm long on 135, not the defaults' 36")
+    c.expect(rules.heldToPhoto(fresh, fourThree).filmFormatMM == 32, "a new frame of a 4:3 photograph is 32 mm long on 135, not the defaults' 36")
     var onLandscape = FilmParams()
     rules.takeSize(&onLandscape, .named("120"), landscape)
     let pasted = rules.heldToPhoto(onLandscape, square)
@@ -376,11 +386,11 @@ func sizeChecks(_ c: inout Checker, _ rules: Rules) {
     custom.filmFrame = FilmFrame.custom.id
     custom.sideLengthMM = 40
     custom.filmFormatMM = 77
-    c.expect(rules.heldToPhoto(custom, phone) == custom, "a Custom frame, which the page does not offer, keeps its own length")
+    c.expect(rules.heldToPhoto(custom, fourThree) == custom, "a Custom frame, which the page does not offer, keeps its own length")
     var cine = FilmParams()
     cine.filmFrame = "Super 35"
     cine.filmFormatMM = 24.89
-    c.expect(rules.heldToPhoto(cine, phone) == cine, "a cine frame keeps its own length")
+    c.expect(rules.heldToPhoto(cine, fourThree) == cine, "a cine frame keeps its own length")
     c.expect(rules.heldToPhoto(fresh, PixelSize(width: 0, height: 0)) == fresh, "with no photograph to measure, nothing is changed")
     // Every size the page offers is one the catalogue of frames has.
     for id in ["110", "APS", "135", "120"] { c.expect(FilmFrame.named(id).id == id, "\(id) is a still frame the page can offer") }
@@ -873,6 +883,44 @@ func pageChecks(_ c: inout Checker, _ rules: Rules, catalog: StockCatalog) {
     }
 }
 
+/// 漏光's own seed through the engine's client (API-SPEC §21.8, 2026-11-15): 随机 draws a
+/// new non-zero seed each press; the seed is sent while non-zero, told 0 when the frame goes back to the camera's
+/// leak (相机默认) or the leak goes off, and never named to an engine without `leak_seed`.
+func leakSeedChecks(_ c: inout Checker, _ rules: Rules) {
+    EngineFeatures.publish(["leak_kind", "leak_amount", "leak_rate", "leak_front", "leak_seed"])
+    var e = FrameEdit.default
+    e.leak.kind = .wash
+    var applied: [String: ParamValue] = [:]
+    func sent(_ e: FrameEdit) -> [String: ParamValue] {
+        var w: [String: ParamValue] = [:]
+        for f in e.leakWire(bodySeed: 5) { w[f.name] = f.value }
+        return rules.step(&applied, w)
+    }
+    _ = sent(e)
+    var seeds: [Int] = []
+    for _ in 0..<3 {
+        let next = rules.drawSeed(e.leak.seed)
+        c.expect(next != e.leak.seed && next > 0, "随机 draws a new non-zero seed (\(e.leak.seed) → \(next))")
+        e.leak.seed = next
+        seeds.append(next)
+        c.expect(sent(e)["leak_seed"] == .double(Double(next)), "随机's seed is sent: \(next)")
+    }
+    e.leak.seed = 0
+    c.expect(sent(e)["leak_seed"] == .double(0), "相机默认: the engine is told seed 0")
+    e.leak.seed = seeds[0]
+    _ = sent(e)
+    e.leak.kind = .off
+    let off = sent(e)
+    c.expect(off["leak_seed"] == .double(0) && off["leak_kind"] == .string("off"), "a seeded leak turned off: kind off and seed 0")
+    EngineFeatures.publish(["leak_kind", "leak_amount", "leak_rate", "leak_front"])
+    applied = [:]
+    e.leak.kind = .band
+    c.expect(sent(e)["leak_seed"] == nil, "an engine without leak_seed is never sent one")
+    e.leak.seed = 0
+    c.expect(sent(e)["leak_seed"] == nil, "nor its rest")
+    EngineFeatures.publish([])
+}
+
 @main
 struct DevelopSelfTest {
     @MainActor
@@ -892,6 +940,7 @@ struct DevelopSelfTest {
             slideChecks(&c, rules, catalog: catalog)
             silverChecks(&c, rules, catalog: catalog)
             pageChecks(&c, rules, catalog: catalog)
+            leakSeedChecks(&c, rules)
             return c
         }
         if CommandLine.arguments.contains("--self-test") {

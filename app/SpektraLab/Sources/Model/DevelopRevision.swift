@@ -21,9 +21,7 @@ struct DevelopRevision: Equatable, Sendable {
         var copy = self
         func decode(_ saved: DecodeSettings, _ now: DecodeSettings) -> DecodeSettings {
             var value = saved
-            if saved.whiteBalance == .asShot, now.whiteBalance == .asShot {
-                value.temperature = now.temperature; value.tint = now.tint
-            }
+            value.keepCamera(of: now)
             return value
         }
         copy.edit.solvedEV = current.edit.solvedEV

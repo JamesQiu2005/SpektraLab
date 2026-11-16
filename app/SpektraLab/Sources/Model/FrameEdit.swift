@@ -25,6 +25,7 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
             lensCorrection = "lensCorrection", rawExposureTreatment = "rawExposureTreatment"
         case lensProfile = "lensProfile", lensDistortion = "lensDistortion", lensLightFalloff = "lensLightFalloff",
             lensHideDistortedAreas = "lensHideDistortedAreas"
+        case tintAsShotOverride = "tintAsShot"
     }
     /// 镜头校正's 配置文件 when it is not automatic: a lens of the app's lens database (`LensDatabase.Lens.key`, and its
     /// name as it was shown, for a frame opened where the database no longer has it).
@@ -72,6 +73,106 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
     /// camera's, filled in after the first decode; for presets the preset's.
     var temperature: Double = 5500
     var tint: Double = 0
+
+    // **色调's own 原照设置** (2.4.1; a user's ask relayed by the owner, 2026-11-16: "色温和色调都选择'原照设置'", and
+    // a sync that carries As Shot itself). `whiteBalance` is 色温's mode, as it always was, and 色调's too unless this
+    // says otherwise: nil (every edit before 2.4.1, and any whose two axes agree) is the one mode of both; `true` is a
+    // tint As Shot under a temperature that is not, `false` a custom tint under an As Shot temperature. Each axis
+    // under As Shot is the camera's own, read from the file at the decode (`takeCamera`) — never a number another
+    // photograph's camera gave. Written only when it is set, so an edit whose axes agree is the JSON it was, and its
+    // pixels key the key it was (`whiteBalanceKey`).
+
+    /// 色调's mode where it is not `whiteBalance`'s; nil where it is. Set through `tintAsShot`, which keeps it nil
+    /// wherever nil already says it.
+    var tintAsShotOverride: Bool? = nil
+    /// 色温 is the camera's own.
+    var temperatureAsShot: Bool { whiteBalance == .asShot }
+    /// 色调 is the camera's own: what the Tint row says, and what the decode's report fills.
+    var tintAsShot: Bool {
+        get { tintAsShotOverride ?? (whiteBalance == .asShot) }
+        set {
+            // nil wherever it says the same: As Shot is As Shot, Custom custom. A preset's kelvin (no control sets one
+            // since the rulers) never applied a tint, so under one either mode is said out loud.
+            let implied: Bool? = whiteBalance == .asShot ? true : whiteBalance == .custom ? false : nil
+            tintAsShotOverride = newValue == implied ? nil : newValue
+        }
+    }
+    /// Whether the decode sets the tint (`RawExposure.whiteBalance`): a custom tint. As Shot leaves the camera's; so
+    /// did a preset's kelvin, as before 2.4.1.
+    var appliesTint: Bool { !(tintAsShotOverride ?? (whiteBalance != .custom)) }
+    /// Both axes the camera's: what the white balance's ↺ returns to.
+    var isAsShot: Bool { temperatureAsShot && tintAsShot }
+    /// Either axis the camera's: the decode's report is read back into this decode (`takeCamera`).
+    var readsCamera: Bool { temperatureAsShot || tintAsShot }
+
+    /// 色温's mode moved, 色调's kept as it was.
+    mutating func setTemperatureMode(_ mode: WhiteBalance) {
+        let tintWas = tintAsShot
+        whiteBalance = mode
+        tintAsShot = tintWas
+    }
+    /// The Temperature ruler moved: a custom temperature, the tint left as it was (As Shot stays As Shot).
+    mutating func setTemperature(_ kelvin: Double) {
+        temperature = kelvin
+        setTemperatureMode(.custom)
+    }
+    /// The Tint ruler moved: a custom tint, the temperature left as it was.
+    mutating func setTint(_ value: Double) {
+        tint = value
+        tintAsShot = false
+    }
+    /// Both axes back to the camera's (the ↺), with its numbers where they are known.
+    mutating func setAsShot(camera: (temperature: Double, tint: Double)? = nil) {
+        whiteBalance = .asShot
+        tintAsShotOverride = nil
+        if let camera { (temperature, tint) = camera }
+    }
+    /// Both axes custom, at these numbers (the neutral-grey eyedropper).
+    mutating func setCustom(temperature: Double, tint: Double) {
+        whiteBalance = .custom
+        tintAsShotOverride = nil
+        (self.temperature, self.tint) = (temperature, tint)
+    }
+    /// The camera's own numbers, read at a decode, written into the axes that are As Shot: whether anything changed.
+    @discardableResult
+    mutating func takeCamera(temperature t: Double, tint n: Double) -> Bool {
+        let was = (temperature, tint)
+        if temperatureAsShot { temperature = t }
+        if tintAsShot { tint = n }
+        return was != (temperature, tint)
+    }
+    /// The camera's numbers of `now` kept where both this and `now` are As Shot on that axis: what a readback is,
+    /// against a state that has not seen it (a kept edit, a revision of the history).
+    mutating func keepCamera(of now: DecodeSettings) {
+        if temperatureAsShot, now.temperatureAsShot { temperature = now.temperature }
+        if tintAsShot, now.tintAsShot { tint = now.tint }
+    }
+    /// The As Shot axes' numbers taken out (as `value`): what a measurement and a log line compare.
+    func withoutCameraNumbers(_ value: Double = 0, tint tintValue: Double? = nil) -> DecodeSettings {
+        var d = self
+        if temperatureAsShot { d.temperature = value }
+        if tintAsShot { d.tint = tintValue ?? value }
+        return d
+    }
+
+    /// A paste's 色温 (`SettingsClip`): its mode, and its number unless it is As Shot — the target's own camera's then.
+    mutating func takeTemperature(from s: DecodeSettings) {
+        setTemperatureMode(s.whiteBalance)
+        if !s.temperatureAsShot { temperature = s.temperature }
+    }
+    /// A paste's 色调: As Shot as a mode, a custom tint as its number.
+    mutating func takeTint(from s: DecodeSettings) {
+        tintAsShot = s.tintAsShot
+        if !s.tintAsShot { tint = s.tint }
+    }
+    /// A paste of both: the source's modes exactly (so a 2.4.0 clip pastes the decode 2.4.0 pasted), the numbers of
+    /// the axes that are not As Shot.
+    mutating func takeWhiteBalance(from s: DecodeSettings) {
+        whiteBalance = s.whiteBalance
+        tintAsShotOverride = s.tintAsShotOverride
+        if !s.temperatureAsShot { temperature = s.temperature }
+        if !s.tintAsShot { tint = s.tint }
+    }
     /// 镜头校正 on or off: the lens's distortion corrected at decode — by Core
     /// Image, by the app from the file's own parameters or a database profile,
     /// as resolved (`LensResolver`). A RAW-only decode setting, and deliberately
@@ -118,6 +219,8 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
         lensLightFalloff = (try? c.decodeIfPresent(Double.self, forKey: .lensLightFalloff)).flatMap { $0 }
             .map { min(max($0, Self.lensAmountRange.lowerBound), Self.lensAmountRange.upperBound) } ?? Self.defaultLensLightFalloff
         lensHideDistortedAreas = (try? c.decodeIfPresent(Bool.self, forKey: .lensHideDistortedAreas)).flatMap { $0 } ?? true
+        // Absent before 2.4.1: the tint's mode is the white balance's.
+        tintAsShotOverride = (try? c.decodeIfPresent(Bool.self, forKey: .tintAsShotOverride)).flatMap { $0 }
     }
 
     /// As the synthesised encoding wrote the five fields 2.3 had, in its order, and the lens's others only when they
@@ -133,6 +236,7 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
         if lensDistortion != Self.defaultLensDistortion { try c.encode(lensDistortion, forKey: .lensDistortion) }
         if lensLightFalloff != Self.defaultLensLightFalloff { try c.encode(lensLightFalloff, forKey: .lensLightFalloff) }
         if !lensHideDistortedAreas { try c.encode(lensHideDistortedAreas, forKey: .lensHideDistortedAreas) }
+        try c.encodeIfPresent(tintAsShotOverride, forKey: .tintAsShotOverride)
     }
 
     /// The lens correction's own fields (the profile, the amounts, hide distorted areas), as one value: what a copy
@@ -183,8 +287,19 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
     /// Shared by canvas, export, stock cards and pair source identity. Legacy
     /// keys stay byte-for-byte unchanged so existing developed copies survive.
     var pixelsKey: String {
-        whiteBalance.rawValue + (whiteBalance != .asShot ? "|\(temperature)|\(tint)" : "")
-            + (lensCorrection ? "|lens" : "") + exposureKey
+        whiteBalanceKey + (lensCorrection ? "|lens" : "") + exposureKey
+    }
+
+    /// The white balance as a key: 2.4.0's, byte for byte, while the two axes share a mode; with 色调's own (2.4.1)
+    /// each axis's number where it is decoded, and an As Shot axis by its word (the camera's number is the file's).
+    /// 色调's own mode as a meter's key says it: "" while it is the white balance's (the key is what it was).
+    var tintModeWord: String { tintAsShotOverride.map { $0 ? "|tint=as-shot" : "|tint=custom" } ?? "" }
+
+    var whiteBalanceKey: String {
+        guard let tintOwn = tintAsShotOverride else {
+            return whiteBalance.rawValue + (whiteBalance != .asShot ? "|\(temperature)|\(tint)" : "")
+        }
+        return whiteBalance.rawValue + (whiteBalance != .asShot ? "|\(temperature)" : "") + (tintOwn ? "|tint=as-shot" : "|tint=\(tint)")
     }
 
     var exposureKey: String {
@@ -223,7 +338,11 @@ struct FrameEdit: Codable, Equatable, Sendable {
     var schemaVersion = FrameEdit.currentSchema
     var decoder = "coreimage"
     var decode = DecodeSettings()
-    var params = FilmParams.default
+    var params = FilmParams.default {
+        // The frame's own Enable HDR, which a never-chosen EDR yields to (`FilmParams.yieldsToHDR`), on any params handed
+        // in whole (a paste, a preset, an undo). A struct's observer does not run again for its own write.
+        didSet { params.yieldsToHDR = hdrChoice == true }
+    }
     var geometry = Geometry.default
     var filmEdge = FilmEdgeSettings()
     var dateBack = DateBackSettings()
@@ -288,7 +407,7 @@ struct FrameEdit: Codable, Equatable, Sendable {
         set { hdrChoice = newValue }
     }
     /// The frame's own choice; nil follows the default.
-    var hdrChoice: Bool?
+    var hdrChoice: Bool? { didSet { params.yieldsToHDR = hdrChoice == true } }
 
     /// **漏光** (PRD-D §3.3, `Model/LensEdge.swift`): light on the film, with or without a film edge. Shoot layer.
     /// Written only once it is not at rest, so an edit without one is the same JSON as before the field existed.
@@ -309,6 +428,16 @@ struct FrameEdit: Codable, Equatable, Sendable {
     /// `scene_layers` stamp and the planes handed beside it (`SceneLayerWire`); a 成片 layer is Edit's, no develop.
     /// Read with `try?`: a later build's layers this build cannot read are not a reason to refuse the edit.
     var layers: LocalLayers? = nil
+
+    /// **水印, the photograph's watermarks** (PRD-8, RFC-067 §3; a persisted field, its key and its units fixed,
+    /// `Model/Watermark.swift`): placements in z-order, first = bottom — read as layers of 图层. Empty when there is
+    /// none, and then absent from the JSON, so an edit without marks is today's byte for byte. An array: one pointer in
+    /// the edit's inline storage, never an inline value (the thin-stack rule, held by `lens_edge_selftest`).
+    /// **Not written into `library.json`** (`WatermarkShelf`): like the mask layers, a 2.4.0 build's coder writes back
+    /// only the keys it knows and would drop this one at its next write, so the library keeps it in `watermarks.json`
+    /// beside the edit. Read with `try?`: a later build's marks this build cannot read are not a reason to refuse the
+    /// edit. No part of a develop: a 成片 mark is drawn over the finished picture (`WatermarkComposite`).
+    var watermarks: [WatermarkPlacement] = []
 
     /// Whether Edit's pass draws anything on this edit: switched on, and its own controls or a 成片 layer move
     /// something (`Layer2Local.acts`, PRD-E). What a surface asks before it lays the pass on; `adjustments.isActive` alone
@@ -372,6 +501,7 @@ struct FrameEdit: Codable, Equatable, Sendable {
         case hdrPeak = "hdrPeak"
         case leak = "leak", lens = "lens"
         case layers = "layers"
+        case watermarks = "watermarks"
     }
 
     /// Every field as schema 3 read it — those it required, still required —
@@ -393,10 +523,12 @@ struct FrameEdit: Codable, Equatable, Sendable {
         printCrop = try c.decodeIfPresent(Geometry.self, forKey: .printCrop) ?? .default
         filmOff = try c.decodeIfPresent(FilmOff.self, forKey: .filmOff)
         hdrChoice = try c.decodeIfPresent(Bool.self, forKey: .hdr)
+        params.yieldsToHDR = hdrChoice == true      // an initialiser's own assignment runs no observer
         hdrPeakStops = try c.decodeIfPresent(Double.self, forKey: .hdrPeak)
         leak = (try? c.decodeIfPresent(LeakSettings.self, forKey: .leak)) ?? LeakSettings()
         lensBox = Boxed((try? c.decodeIfPresent(LensSettings.self, forKey: .lens)) ?? LensSettings())
         layers = ((try? c.decodeIfPresent(LocalLayers.self, forKey: .layers)) ?? nil)?.kept
+        watermarks = ((try? c.decodeIfPresent([WatermarkPlacement].self, forKey: .watermarks)) ?? nil) ?? []
         schemaVersion = max(schemaVersion, Self.currentSchema)
     }
 
@@ -431,6 +563,8 @@ struct FrameEdit: Codable, Equatable, Sendable {
         if !lens.isAtRest { try c.encode(lens, forKey: .lens) }
         // Only with a layer (PRD-E): an edit without one is the same JSON as before the field existed.
         try c.encodeIfPresent(layers?.kept, forKey: .layers)
+        // Only with a mark (PRD-8): an edit without one is the same JSON as before the field existed.
+        if !watermarks.isEmpty { try c.encode(watermarks, forKey: .watermarks) }
     }
 
     /// What changed against the defaults a new frame starts with, as the Info
@@ -457,7 +591,7 @@ struct FrameEdit: Codable, Equatable, Sendable {
         if params.effects.grain != d.effects.grain { parts.append(L("Grain ") + Fmt.times(params.effects.grain)) }
         if params.effects.halation != d.effects.halation { parts.append(L("Halation ") + Fmt.times(params.effects.halation)) }
         if !geometry.isIdentity || !printCrop.isIdentity { parts.append(L("Crop")) }
-        if leak.kind != .off { parts.append(L("Light Leak") + " " + leak.kind.label) }
+        if let l = leak.summary { parts.append(l) }
         if let f = lens.filter { parts.append(f.label + " " + SoftFilter.strengthText(lens.strength)) }
         if FeatureFlags.lensCharacter, let ch = lens.character { parts.append(ch.label) }
         if adjustments.isActive { parts.append(contentsOf: adjustments.changedTools.map(\.title)) }
@@ -523,7 +657,7 @@ extension FrameEdit {
             // Lens correction is the frame's own control (镜头校正), not the white balance's to reset.
             let lens = e.decode.lensFields
             e.decode = asShot ?? e.decode
-            e.decode.whiteBalance = .asShot
+            e.decode.setAsShot()
             e.decode.lensFields = lens
         case .sceneCurve: e.params.sceneCurve = CurveSet()
         case .couplers:

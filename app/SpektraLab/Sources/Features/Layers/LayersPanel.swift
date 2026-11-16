@@ -59,7 +59,9 @@ extension OpenFrameSession {
     /// double's `doubleLayer`). 胶片 for a single frame.
     var layerPick: LayerPick {
         switch layerPiece {
-        case .single: LayerRules.held(maskPick.map(LayerPick.mask) ?? .film, in: .single, layers: edit.layers)
+        case .single:
+            if let id = watermarkPick, LayerRules.held(.watermark(id), in: .single, marks: shownMarks) != .film { .watermark(id) }
+            else { LayerRules.held(maskPick.map(LayerPick.mask) ?? .film, in: .single, layers: edit.layers) }
         case .pair: LayerPick(layer)
         case .double: LayerPick(doubleLayer)
         }
@@ -69,7 +71,9 @@ extension OpenFrameSession {
     func pick(row: LayerPick) {
         stageNotice = nil
         switch layerPiece {
-        case .single: maskPick = row.maskID
+        case .single:
+            maskPick = row.maskID
+            watermarkPick = row.watermarkID
         case .pair: if let l = row.pairLayer { pick(l) }
         case .double:
             if let l = row.doubleLayer { pickLayer(l) }
@@ -93,9 +97,14 @@ struct LayersPanel: View {
     /// line where it has one (measured where it is drawn, `LayersStage.footHeight`), and the margin.
     @MainActor static func height(_ piece: LayerPiece, session: OpenFrameSession, prefs: DevelopPanelPrefs = .shared) -> CGFloat {
         let masks = LayerRules.takesMasks(piece) ? LayerRules.maskRows(session.maskLayers).count : 0
+        // A single photograph's watermark rows are rows of the same list (`LayerRules.watermarkRows`): 30 each, inside
+        // the list's cap; the mask layers' own rows under the list (不透明度, the buttons) only where there are masks.
+        let marks = piece.isSingle ? session.shownMarks.count : 0
         let folded = folded(piece, prefs: prefs)
         let foot = folded || foot(piece, session: session) == nil ? 0 : LayersStage.shared.footHeight
-        return LayerRules.height(piece, masks: masks, folded: folded) + foot + margin
+        let list = LayerRules.takesMasks(piece) && !folded && !LayerRules.isOneLine(piece)
+            ? LayerRules.listHeight(masks: masks + marks) - LayerRules.listHeight(masks: masks) : 0
+        return LayerRules.height(piece, masks: masks, folded: folded) + list + foot + margin
     }
 
     /// The line at the panel's foot: why a pair or a double has no mask layer (MASKS-SPEC §4.4), or why the last layer
@@ -118,9 +127,10 @@ struct LayersPanel: View {
     private var rows: [LayerRow] {
         LayerRules.rows(piece, layers: session.chromeMaskLayers, lensCorrection: session.edit.decode.lensCorrection,
                         lensWord: session.lensWord,
-                        alone: session.alone, has: has)
+                        alone: session.alone, marks: session.shownMarks, names: model.watermarks.namesNow, has: has)
     }
     private var maskCount: Int { rows.filter { $0.pick.maskID != nil }.count }
+    private var markCount: Int { rows.filter { $0.pick.watermarkID != nil }.count }
 
     var body: some View {
         let rows = rows
@@ -170,6 +180,8 @@ struct LayersPanel: View {
                 if let id = row.pick.maskID, let layer = session.chromeMaskLayers?[id] {
                     MaskLayerRowView(row: row, layer: layer, picked: row.pick == session.layerPick, source: frame.originalSize,
                                      session: session)
+                } else if let id = row.pick.watermarkID, let mark = session.shownMarks.first(where: { $0.id == id }) {
+                    WatermarkLayerRowView(row: row, placement: mark, picked: row.pick == session.layerPick, session: session)
                 } else {
                     pictureRow(row)
                 }
@@ -178,7 +190,7 @@ struct LayersPanel: View {
         if LayerRules.takesMasks(piece), rows.count > 5 {
             ScrollView(.vertical) { content }
                 .scrollIndicators(.automatic)
-                .frame(height: LayerRules.listHeight(masks: maskCount))
+                .frame(height: LayerRules.listHeight(masks: maskCount + markCount))
         } else {
             content
         }
@@ -231,12 +243,17 @@ struct LayersPanel: View {
             if FeatureFlags.maskLayers, !folded {
                 // + − ⋯ (MASKS-SPEC §2): ⋯ is the picked mask layer's menu on a photograph, today's on a pair or a double.
                 // Folded, the head is its title and its words alone (drawing 12's inset): nothing to act on is shown.
-                MaskHeadButtons(takesMasks: LayerRules.takesMasks(piece), picked: session.layerPick.maskID,
-                                add: { session.makeLayer() },
-                                remove: { if let id = session.layerPick.maskID { session.removeLayer(id) } },
-                                menu: { headMenu },
-                                menuEnabled: !piece.isSingle || session.chromeMaskLayer != nil)
+                WatermarkAddDisc(session: session)
                     .padding(.leading, 8)
+                MaskHeadButtons(takesMasks: LayerRules.takesMasks(piece), picked: session.layerPick.maskID ?? session.layerPick.watermarkID,
+                                add: { session.makeLayer() },
+                                remove: {
+                                    if let id = session.layerPick.maskID { session.removeLayer(id) }
+                                    else if let id = session.layerPick.watermarkID { session.removeWatermark(id) }
+                                },
+                                menu: { headMenu },
+                                menuEnabled: !piece.isSingle || session.chromeMaskLayer != nil || session.pickedMark != nil)
+                    .padding(.leading, 6)
             } else if !single {
                 Menu { LayerMenu(session: session, frame: frame, row: session.layerPick) } label: {
                     Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.secondaryText)
@@ -253,7 +270,9 @@ struct LayersPanel: View {
     }
 
     @ViewBuilder private var headMenu: some View {
-        if let layer = session.chromeMaskLayer {
+        if let mark = session.pickedMark {
+            WatermarkLayerMenu(session: session, placement: mark)
+        } else if let layer = session.chromeMaskLayer {
             MaskLayerMenu(session: session, layer: layer, rename: { LayersStage.shared.renaming = layer.id })
         } else {
             LayerMenu(session: session, frame: frame, row: session.layerPick)
@@ -360,8 +379,8 @@ struct LayerRowView: View {
             }
         case .empty:
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .strokeBorder(picked ? Theme.onSelection.opacity(0.5) : Theme.dim, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))        case .mask:
-            // A mask layer's row is `MaskLayerRowView`'s, never this one's.
+                .strokeBorder(picked ? Theme.onSelection.opacity(0.5) : Theme.dim, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))        case .mask, .watermark:
+            // A mask layer's row is `MaskLayerRowView`'s, a watermark's `WatermarkLayerRowView`'s, never this one's.
             Color.black
         }
     }

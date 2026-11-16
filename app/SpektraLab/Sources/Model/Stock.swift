@@ -6,6 +6,7 @@
 //  profile with no name fails the generator. `id` is the engine's profile id:
 //  an internal key that goes on the wire and never reaches the page.
 
+import Observation
 import SwiftUI
 
 struct Stock: Codable, Identifiable, Hashable, Sendable {
@@ -59,6 +60,106 @@ struct Stock: Codable, Identifiable, Hashable, Sendable {
     var edgeName: String { name.uppercased() }
     /// "ISO 400", for a film card.
     var isoText: String? { iso.map { "ISO \($0)" } }
+}
+
+// MARK: - the user's favourites
+
+//  The owner, 2026-11-01 and 2026-11-15 (the Mac's 2.4.1 list): "like, or 收藏 different film ... we add the star
+//  system to film". The store is `stocks.personal`, one JSON record (`{"schema":1,"stocks":{"<id>":{"favourite":true}}}`).
+//  The Mac keeps only what the star is: an entry may also hold a display name or an edge name or a field a later
+//  build wrote, and **none of it is read, dropped or reordered here** — a store that read what it knew and wrote
+//  that back would lose every name and star when an older build ran after a newer one. This one edits the `favourite`
+//  field of the record it read and writes the rest back as it came, a newer `schema` number too. With nothing
+//  starred nothing is written, and a record that has come back to nothing is removed: 2.4.0's defaults, byte for byte.
+
+/// Which stocks are starred. Read from any thread (the lock), and reports to Observation by hand: a page that read a
+/// star while it was drawn is drawn again on a change, in every window.
+final class StockPersonal: Observable, @unchecked Sendable {
+    static let shared = StockPersonal(defaults: .standard)
+
+    static let storedKey = "stocks.personal"
+    static let schema = 1
+
+    private let lock = NSLock()
+    /// The record as it was read, every field of it (`JSONSerialization`'s values); empty where nothing is kept
+    /// or what was kept is not a record this build can edit (bad JSON, no schema number): that is written over.
+    private var record: [String: Any]
+    private var changes = 0
+    private let defaults: UserDefaults
+    private let observers = ObservationRegistrar()
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+        record = Self.read(defaults)
+    }
+
+    private static func read(_ defaults: UserDefaults) -> [String: Any] {
+        guard let data = defaults.data(forKey: storedKey),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let number = root["schema"] as? Int, number >= schema else { return [:] }
+        return root
+    }
+
+    private func access() { observers.access(self, keyPath: \.revision) }
+
+    /// Moves on every change: a page that holds cards reads it, so its cards are drawn again.
+    var revision: Int {
+        access()
+        lock.lock(); defer { lock.unlock() }
+        return changes
+    }
+
+    func isFavourite(_ id: String) -> Bool {
+        access()
+        lock.lock(); defer { lock.unlock() }
+        return Self.starred(record, id)
+    }
+
+    private static func starred(_ record: [String: Any], _ id: String) -> Bool {
+        ((record["stocks"] as? [String: Any])?[id] as? [String: Any])?["favourite"] as? Bool ?? false
+    }
+
+    func setFavourite(_ id: String, _ on: Bool) {
+        guard !id.isEmpty else { return }
+        observers.withMutation(of: self, keyPath: \.revision) {
+            lock.lock()
+            guard Self.starred(record, id) != on else { lock.unlock(); return }
+            var root = record.isEmpty ? ["schema": Self.schema] : record
+            var table = root["stocks"] as? [String: Any] ?? [:]
+            var entry = table[id] as? [String: Any] ?? [:]
+            entry["favourite"] = on ? true : nil
+            table[id] = entry.isEmpty ? nil : entry
+            root["stocks"] = table
+            // Back to nothing: no record, as 2.4.0 had it.
+            let nothing = table.isEmpty && root["schema"] as? Int == Self.schema && Set(root.keys).isSubset(of: ["schema", "stocks"])
+            record = nothing ? [:] : root
+            changes += 1
+            let data = nothing ? nil : try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+            lock.unlock()
+            if nothing { defaults.removeObject(forKey: Self.storedKey) } else if let data { defaults.set(data, forKey: Self.storedKey) }
+        }
+    }
+}
+
+extension StockCatalog {
+    /// The id a star is kept under: **a push card follows its film** (`kodak_portra_800_push1` is Portra 800's
+    /// second card, not a film of its own, so the two are never starred apart). Any other id
+    /// is its own.
+    func favouriteID(of id: String) -> String {
+        guard let range = id.range(of: #"_push[0-9]+$"#, options: .regularExpression) else { return id }
+        let base = String(id[..<range.lowerBound])
+        return stock(base) != nil ? base : id
+    }
+
+    func isFavourite(_ id: String, _ personal: StockPersonal = .shared) -> Bool {
+        personal.isFavourite(favouriteID(of: id))
+    }
+
+    /// Only a stock of the catalogue can be starred: the Digital Intermediate's and No Paper's cards are no stocks.
+    func setFavourite(_ id: String, _ on: Bool, _ personal: StockPersonal = .shared) {
+        guard stock(id) != nil else { return }
+        personal.setFavourite(favouriteID(of: id), on)
+    }
 }
 
 struct StockCatalog: Sendable {

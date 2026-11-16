@@ -42,6 +42,10 @@ def overlay(tmp):
     for d in (ENGINE / "resources" / "profiles", ENGINE / "resources_product" / "profiles"):
         for f in d.glob("*.json"):
             os.symlink(f, res / "profiles" / f.name)
+    # the product colour films' packs, which both bundle steps lay beside spektrafilm's table
+    colour = ENGINE / "resources_product" / "neutral_print_filters_colour.json"
+    if colour.exists():
+        os.symlink(colour, res / colour.name)
     return res
 
 

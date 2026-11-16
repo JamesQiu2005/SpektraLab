@@ -44,7 +44,7 @@ extension Notification.Name {
 @MainActor
 enum MacRenderCheck {
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
-        guard let i = arguments.firstIndex(of: "--render-check"), i + 1 < arguments.count, arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--render-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         func value(_ flag: String) -> String? {
             guard let j = arguments.firstIndex(of: flag), j + 1 < arguments.count else { return nil }

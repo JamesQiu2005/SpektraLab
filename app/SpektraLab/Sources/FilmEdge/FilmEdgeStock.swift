@@ -63,6 +63,8 @@ struct EdgeLook: Sendable {
     var ink120: (Double, Double, Double) = (1, 0.80, 0.55)
     /// Fujifilm's 135 stripes for a stock whose family does not carry them (`stripes135`).
     var stripes = false
+    /// Kodak 135: two blocks after the name on the top band (Portra NC/VC; the engine's `name_blocks`).
+    var nameBlocks = false
 
     /// Fujifilm's red and green factory stripes on every 135-gauge edge (135, half, XPan, 135 Full Width), never
     /// on 120: the colour negatives' edge (the owner, 2026-11-11), so every stock with Fujifilm's negative 135
@@ -81,6 +83,17 @@ struct EdgeLook: Sendable {
         "kodak_portra_800_push2": EdgeLook(k135: .kodak, k120: .kodak, dx: 1278, ink135: (1, 0.74, 0.35)),
         "kodak_ultramax_400": EdgeLook(k135: .kodak, k120: .kodak, dx: 1313, ink135: (1, 0.80, 0.57)),
         "kodak_ektar_100": EdgeLook(k135: .kodak, k120: .kodak, dx: 1307, ink120: (1, 0.77, 0.46)),
+        // Portra 160NC/VC and 400NC/VC (the product's own profiles, from E-190): the owner's 160NC
+        // strips, 135 and 120; the other three share its design. DX 1275 read back off the 135
+        // strip; the database's same series gives 1275 to 160VC and 1277 to 400NC/400VC.
+        "kodak_portra_160nc": EdgeLook(k135: .kodak, k120: .kodak, dx: 1275, ink135: (1, 0.83, 0.60),
+                                       ink120: (1, 0.61, 0.43), nameBlocks: true),
+        "kodak_portra_160vc": EdgeLook(k135: .kodak, k120: .kodak, dx: 1275, ink135: (1, 0.83, 0.60),
+                                       ink120: (1, 0.61, 0.43), nameBlocks: true),
+        "kodak_portra_400nc": EdgeLook(k135: .kodak, k120: .kodak, dx: 1277, ink135: (1, 0.83, 0.60),
+                                       ink120: (1, 0.61, 0.43), nameBlocks: true),
+        "kodak_portra_400vc": EdgeLook(k135: .kodak, k120: .kodak, dx: 1277, ink135: (1, 0.83, 0.60),
+                                       ink120: (1, 0.61, 0.43), nameBlocks: true),
         "kodak_ektachrome_100": EdgeLook(k135: .kodak, k120: .kodak, dx: 382,
                                          ink135: (1, 0.95, 0.92), ink120: (1, 0.95, 0.92)),
         "fujifilm_c200": EdgeLook(k135: .kodak, k120: .kodak, lightNumbers: true, dx: 1550, ink135: (1, 0.77, 0.51)),
@@ -169,6 +182,11 @@ enum StockGauges {
         "kodak_portra_800": ["135", "120"],
         "kodak_portra_800_push1": ["135", "120"],
         "kodak_portra_800_push2": ["135", "120"],
+        // E-190: 135, 120, 220 and long rolls for all four (sheets for three; not a roll gauge)
+        "kodak_portra_160nc": ["135", "120"],
+        "kodak_portra_160vc": ["135", "120"],
+        "kodak_portra_400nc": ["135", "120"],
+        "kodak_portra_400vc": ["135", "120"],
         "kodak_ultramax_400": ["135"],
         // The black-and-white films: the engine's rows name a 135 and a 120
         // strip of Tri-X and of T-Max 100; Acros II and HP5 Plus are made in
@@ -193,6 +211,12 @@ enum EdgeWords {
         "kodak_portra_800_push1": ("KODAK PORTRA 800-3", "KODAK PORTRA 800"),
         "kodak_portra_800_push2": ("KODAK PORTRA 800-3", "KODAK PORTRA 800"),
         "kodak_ultramax_400": ("KODAK GC 400", "KODAK GC 400"),
+        // E-190's codes on 135 (the owner's strip: "KODAK 160NC"); on 120 each film's last code,
+        // which the owner's 120 strip carries ("KODAK 160NC-2"): 400NC and 400VC became -3 in 2008.
+        "kodak_portra_160nc": ("KODAK 160NC", "KODAK 160NC-2"),
+        "kodak_portra_160vc": ("KODAK 160VC", "KODAK 160VC-2"),
+        "kodak_portra_400nc": ("KODAK 400NC", "KODAK 400NC-3"),
+        "kodak_portra_400vc": ("KODAK 400VC", "KODAK 400VC-3"),
         "kodak_ektachrome_100": ("KODAK E100", "KODAK E100"),
         "fujifilm_c200": ("FUJI 200", "FUJI 200"),
         "fujifilm_xtra_400": ("S-400", "FUJI S-400"),
@@ -216,6 +240,8 @@ extension FilmEdgeSettings {
     /// name on the near band; a film that prints it on the far one (HB5 Plus
     /// on 135, cine) has it on the other side of the picture.
     func turnText(stockID: String) -> String {
+        // A cine film prints no name (API-SPEC §24): the line says where its holes are.
+        if format.isCine { return L("Film \(Self.turnDegrees(turn)) · \(format.holesSay(turn: turn))") }
         let far = EdgeLook.of(stockID).nameOnFarBand(on: format)
         return L("Film \(Self.turnDegrees(turn)) · \(Self.turnSays(turn + (far ? 2 : 0)))")
     }
@@ -245,6 +271,9 @@ extension Stock {
     /// `FilmEdgePerforation.cine65Stocks`), where they open with the keyholes
     /// on — on an engine that draws them (`keyholes`); Verita 200D is not.
     func isMade(in format: FilmEdgeFormat, keyholes: Bool = EngineFeatures.offers(.keyholes)) -> Bool {
+        // The cine gauges (API-SPEC §24): every film has every one (the owner's decision, 2026-11-12; the app
+        // has no record of which stocks were made in Super 8, 16 mm, 35 mm or 65 mm motion-picture film).
+        if format.isCine { return true }
         if isCine { return format.gauge == "135" || (keyholes && FilmEdgePerforation.cine65Stocks.contains(id)) }
         guard let gauges = StockGauges.table[id] else { return true }
         return gauges.contains(format.gauge)

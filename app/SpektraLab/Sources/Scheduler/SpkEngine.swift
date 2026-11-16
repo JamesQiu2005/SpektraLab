@@ -259,6 +259,13 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
         let schema = Self.object(String(cString: spk_params_schema(engine)))
         let names = (schema["fields"] as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["name"] as? String }
         EngineFeatures.publish(Set(names))
+        // The engine's film-edge format table (API-SPEC §24), once: the cine gauges' holes, rows and whether their
+        // canvas shows the neighbours, which `FilmLayout` lays a cine film out with and never keeps a copy of.
+        var formats: UnsafeMutablePointer<CChar>?
+        if Int(spk_overscan_formats(&formats)) == Int(SPK_OK), let formats {
+            EngineGauges.publish(json: Data(String(cString: formats).utf8))
+            spk_string_free(formats)
+        }
     }
 
     deinit {
@@ -799,8 +806,7 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
 
     private func open(_ job: RenderJob) throws -> (session: OpaquePointer, decode: Double, open: Double,
                                                    params: [String: ParamValue], size: PixelSize, how: String?) {
-        let params = source.params(job)
-        let json = try Self.json(params)
+        var params: [String: ParamValue] = [:]
         var session: OpaquePointer?
         var decodeSeconds = 0.0, openSeconds = 0.0
         var size = PixelSize(width: 0, height: 0)
@@ -823,6 +829,10 @@ final class SpkEngine: DevelopEngine, @unchecked Sendable {
             guard !job.isOverOpened(frame.size) else {
                 throw EngineError.resource("decoded \(frame.size.width)x\(frame.size.height) exceeds the priced open \(job.pricedOpen.width)x\(job.pricedOpen.height); reopen the original and retry")
             }
+            // The wire after the decode: a host may settle part of it there (水印's 底片 marks with the meter on are
+            // developed at the reading of the frame before them, `EngineHost.params`).
+            params = source.params(job)
+            let json = try Self.json(params)
             var image = spk_device_image(buffer: Unmanaged.passUnretained(frame.buffer as AnyObject).toOpaque(),
                                          width: UInt32(frame.size.width), height: UInt32(frame.size.height),
                                          channels: UInt32(frame.channels))

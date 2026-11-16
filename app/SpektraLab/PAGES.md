@@ -104,6 +104,12 @@ Their pages are `Features/FilmEdge`, their model `Sources/FilmEdge` and `Model/F
 
   `--only id,id` runs some cases; `--keep` writes the engine's renders to `build/film_parity/engine` to look at
   beside the app's masks in `build/film_parity/port`.
+- **The cine gauges (电影, API-SPEC §24)** are laid out with the engine's own table, never a copy of it:
+  `spk_overscan_formats` is read once when the engine starts (`SpkEngine` → `EngineGauges`), and `FilmLayout` takes
+  each gauge's holes, rows, advance, canvas aspect and **whether it shows its neighbours** from there; with no table
+  read no cine card is offered and none is laid out. The parity check lays its cases out with the live engine's
+  table, and holds the model self-tests' kept copy (`tools/overscan_formats.json`) to it: after a `kCine` change,
+  rewrite that file from the engine (`spk_ctypes.Engine.overscan_formats()`).
 - **The half-frame pair** is its own model, pages and wire (`Model/HalfFramePair.swift`, `Features/Pair`,
   `Engine/PairDevelop.swift`). A pair's film edge is the pair's own switch (`HalfFramePair.onStrip`): **its look's
   `filmEdge.active` stays off** (`FrameEdit.asPairLook`), so no page that reads a film edge as one frame in one gate

@@ -27,6 +27,8 @@ struct DevelopWorkspace: View {
     @State var latitudeFolded = true
     @State var enlargerTool = EnlargerTool.colour
     /// The shelf the Enlarger's papers are narrowed to, its header's pill; All when the page opens.
+    /// The Enlarger's paper shelf by kind; Favourites is the row's own and stays (`StockShelfMemory`, shared with
+    /// Develop's Paper pill).
     @State var enlargerPaperShelf = StockShelf.all
     /// EngineRouter's Effects tile: the chip it is showing, kept for the page session. (Film & Paper's
     /// Decode keeps its chip in the session's navigation, `DevelopPageNavigation.decodeTool`.)
@@ -142,7 +144,7 @@ struct DevelopWorkspace: View {
         }
         comparing = opening.compare
         let decode = session.edit.decode
-        if decode.whiteBalance == .asShot { cameraWhiteBalance = (decode.temperature, decode.tint) }
+        if decode.isAsShot { cameraWhiteBalance = (decode.temperature, decode.tint) }
     }
 
     /// Another frame on the kept page: each of the page's own states as a page made for the frame would start it —
@@ -352,7 +354,7 @@ struct DevelopWorkspace: View {
     @ViewBuilder func detailControls(_ page: DarkroomPage) -> some View {
         switch page {
         case .enlarger:
-            PrintPanel(session: session, pro: true, tool: $enlargerTool, papers: stockStrip, paperShelf: enlargerPaperShelf)
+            PrintPanel(session: session, pro: true, tool: $enlargerTool, papers: stockStrip, paperShelf: StockShelfMemory.shared.shelf(.paper, otherwise: enlargerPaperShelf))
         case .effects:
             EffectsPanel(session: session, frame: frame, pro: true, page: $effectsPage, placementOpen: .constant(false),
                          pages: EffectsPage.darkroom)
@@ -367,8 +369,8 @@ struct DevelopWorkspace: View {
                 // The papers' shelf, as Develop's Paper pill: the Enlarger's name is the
                 // ENLARGER line's under the papers, so the pill takes the name's place, as
                 // Tone's and Curve's menus take theirs.
-                StockShelfPill(title: L("Paper"), shelves: StockShelf.paper, shelf: $enlargerPaperShelf,
-                               all: strip.paperCards)
+                StockShelfPill(title: L("Paper"), shelves: StockShelf.paper, shelf: StockShelfMemory.shared.binding(.paper, kind: $enlargerPaperShelf),
+                               all: StockPreviewRules.paperShelf(under: session.edit.params.filmStock))
                     .accessibilityIdentifier("v5.enlarger.paper-shelf")
             } else {
                 Text(page.title).font(Theme.Font.ui(15, .semibold)).lineLimit(1).minimumScaleFactor(0.75)
@@ -462,7 +464,7 @@ struct DevelopWorkspace: View {
         // A pair's selected-layer values live outside FrameEdit.
         if scope == .decode, let pair, let side = pair.pickedSide(session.layer) ?? session.placementSide,
            let source = model.library.frame(pair[side]?.frame) {
-            return source.edit.decode.whiteBalance != .asShot
+            return !source.edit.decode.isAsShot
         }
         if let pair, let side = pair.pickedSide(session.layer) {
             if scope == .filmExposure { return pair[side]?.exposureEV != 0 }

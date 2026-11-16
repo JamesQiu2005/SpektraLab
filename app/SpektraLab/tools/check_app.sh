@@ -55,3 +55,26 @@ check_app_cleanup() {
   rm -rf "$check_app_dir"
   check_bundle_id=""
 }
+
+# check_app_open_background LOG ENV... -- ARGS...: the copy launched as LaunchServices launches an app that must not
+# come to the front (`open -g -n`: never activated, the owner's focus and frontmost app untouched; the owner's rule of
+# 2026-11-16 for every check that drives the app), its stdout and stderr to LOG, each ENV (`NAME=value`) in its
+# environment. Sets `pid` to the app's process (by its executable's path: the copy is the run's own). Returns 1 when
+# no process came up in 20 s.
+check_app_open_background() {
+  local log=$1; shift
+  local envs=()
+  while [[ $# -gt 0 && "$1" != "--" ]]; do envs+=(--env "$1"); shift; done
+  [[ "${1:-}" == "--" ]] && shift
+  # Removed, never emptied: `open --stdout` onto a file that is already there fails with -10810 and starts nothing
+  # (measured 2026-11-16, macOS 27: the same launch onto a new file starts).
+  rm -f "$log"
+  open -g -n "${envs[@]}" --stdout "$log" --stderr "$log" "$app" --args "$@"
+  pid=""
+  local end=$(( $(date +%s) + 20 ))
+  while [[ -z "$pid" && $(date +%s) -lt $end ]]; do
+    pid=$(pgrep -f -n "$(basename "$check_app_dir")/SpektraLab.app/Contents/MacOS/SpektraLab" || true)
+    [[ -z "$pid" ]] && sleep 0.2
+  done
+  [[ -n "$pid" ]]
+}

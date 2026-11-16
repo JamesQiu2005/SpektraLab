@@ -1,8 +1,12 @@
 //  LensEdgePanels.swift — 冲洗 › 格式 › 效果's 漏光, and 编辑 › 镜头's controls (PRD-D §3.3–§3.4, 2026-11-11).
 //
-//  - **漏光 Light Leak**, under Format's effects: the kinds as chips — 关 · 自动 · 光带 · 漫光 · 光斑, Spot only on a 120
-//    camera — and 强度 Strength, `leak_amount` 0…4. Light on the film, with or without a film edge (the leak's wire
-//    sends the overscan seeds itself, `FrameEdit.leakWire`); every change re-develops.
+//  - **漏光 Light Leak**, under Format's effects: the kinds as chips — 关 · 自动 · 光带 · 漫光 · 光斑 (光斑 off 120 only on
+//    an engine with `leak_seed`) — then **随机 Shuffle** (that engine only: a new seed of the leak's own each press, the
+//    kind's and the edge burn's; its context menu, 相机默认, gives the camera's own back), then 强度 Strength,
+//    `leak_amount` 0…4; then **边缘漏光 Edge Burn** beside the kind (API-SPEC §21.9, 2026-11-16; an engine with
+//    `leak_edge`): its own switch and 强度, `leak_edge` 0…4, on with any kind or with the kind off. Light on the film,
+//    with or without a film edge (the leak's wire sends the overscan seeds itself, `FrameEdit.leakWire`); every change
+//    re-develops.
 //  - **镜头 Lens**, a section of Edit's column (`AdjustTool.lens`): first 镜头校正 Lens Correction, Capture One's
 //    (`LensCorrectionPart`, 2.4.0: 配置文件, 隐藏畸变区域, 畸变, 光衰减 and who corrects; a RAW photograph's own), then
 //    the vignette, moved from its own tile unchanged (Layer 2, live), then 柔光镜 Soft Filter — 关 · 黑柔 · 白柔 · 闪柔 · 晕柔 and 强度 on its five detents 1/8 … 2 —
@@ -94,12 +98,14 @@ struct LeakSection: View {
                 guard kind != edit.leak.kind else { return }
                 session.change { $0.leak.kind = kind }
             }
+            if EngineFeatures.offers(.leakSeed) { shuffle }
             ValueSlider(title: L("Strength", as: "a light leak"),
                         value: Binding(get: { edit.leak.amount }, set: { v in session.change { $0.leak.amount = v } }),
                         range: LeakSettings.amountRange, rest: 1, text: { String(format: "%.2f", $0) },
                         detentAtRest: true, onEditingChanged: session.editing(.shoot))
                 .rowEnabled(edit.leak.kind != .off)
                 .accessibilityIdentifier("v5.develop.leak.amount")
+            if EngineFeatures.offers(.leakEdge) { edgeBurn }
         }
         .padding(.horizontal, 16).padding(.bottom, 10)
         .rowEnabled(edit.appliesFilm)
@@ -107,9 +113,74 @@ struct LeakSection: View {
         .accessibilityIdentifier("v5.develop.leak")
     }
 
-    /// What the heading says at its right: why a chosen spot is not drawn, else nothing.
-    private var note: String {
-        edit.leak.kind == .spot && !camera.is120 ? L("Spot needs a 120 film edge") : ""
+    /// **边缘漏光 Edge Burn** (API-SPEC §21.9, 2026-11-16): not a kind but its own layer of the leak, so it is a switch
+    /// and a strength of its own beside the chips — a band and the burn together, each at its strength, or the burn
+    /// with the kind off. The switch brings it on at `edgeRest` (1) and takes it to 0; its slider to 0 is off too. One
+    /// step of Undo each, a slider's drag one step.
+    private var edgeBurn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(L("Edge Burn", as: "a light leak")).font(Theme.Font.ui(12.5, .medium)).foregroundStyle(Theme.text)
+                Spacer(minLength: 8)
+                SpkToggle(isOn: Binding(get: { edit.leak.edgeOn }, set: { on in
+                    let v = on ? LeakSettings.edgeRest : 0
+                    guard v != edit.leak.edge else { return }
+                    session.change { $0.leak.edge = v }
+                }), size: .compact)
+                .accessibilityLabel(L("Edge Burn", as: "a light leak"))
+                .accessibilityIdentifier("v5.develop.leak.edge")
+            }
+            .frame(minHeight: 26)
+            ValueSlider(title: L("Strength", as: "a light leak"),
+                        value: Binding(get: { edit.leak.edge }, set: { v in session.change { $0.leak.edge = v } }),
+                        range: LeakSettings.edgeRange, rest: LeakSettings.edgeRest, text: { String(format: "%.2f", $0) },
+                        detentAtRest: true, onEditingChanged: session.editing(.shoot))
+                .rowEnabled(edit.leak.edgeOn)
+                .accessibilityIdentifier("v5.develop.leak.edgeAmount")
+        }
+    }
+
+    /// What the heading says at its right: why the chosen kind is not drawn, else nothing.
+    private var note: String { edit.leak.kind.reason(on: camera) ?? "" }
+
+    /// 随机 (API-SPEC §21.8): one button with Apple's `dice`, in the pill the Film Edge's dice wear
+    /// (`DicePill`, private to FilmEdgeSteps.swift, draws its own glyph; its look is matched here). Each press draws a
+    /// new non-zero seed — another place, edge and shape for this kind, and another edge burn — and develops again; one
+    /// step of Undo. Greyed while 关 with the edge burn off too (the whole section greys with the film off). Its context menu: 相机默认, the camera's own leak (seed 0)
+    /// again — the Mac's long-press.
+    private var shuffle: some View {
+        let on = edit.leak.isOn
+        return HStack(spacing: 8) {
+            Button {
+                guard edit.leak.isOn else { return }
+                let next = LeakSettings.drawSeed(other: edit.leak.seed)
+                session.change { $0.leak.seed = next }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "dice").font(.system(size: 12.5)).foregroundStyle(Theme.secondaryText)
+                        .frame(width: 16, height: 16)
+                    Text(L("Shuffle", as: "a light leak")).font(Theme.Font.ui(12.5)).foregroundStyle(Theme.secondaryText)
+                        .lineLimit(1).fixedSize()
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(Capsule().fill(Theme.card))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(PressStyle())
+            .contextMenu {
+                Button {
+                    guard edit.leak.seed != 0 else { return }
+                    session.change { $0.leak.seed = 0 }
+                } label: { Label(L("Camera's Own", as: "a light leak"), systemImage: "camera") }
+                    .disabled(edit.leak.seed == 0)
+                    .accessibilityIdentifier("v5.develop.leak.cameraOwn")
+            }
+            .accessibilityIdentifier("v5.develop.leak.shuffle")
+            Spacer(minLength: 0)
+        }
+        .rowEnabled(on)
+        .disabled(!on)
     }
 }
 

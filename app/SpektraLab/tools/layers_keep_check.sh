@@ -11,7 +11,9 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out="$here/build/layers-keep"
 rm -rf "$out"; mkdir -p "$out/old" "$out/library"
 src="$here/Sources"
-tag=spektralab-v2.3.1
+# The 2.3.1 release commit, by hash (as found_mask_selftest pins 2.3.2: 88685135): the tag spektralab-v2.3.1 was
+# only ever local to one Mac, so on another, and in a runner's checkout, `git show` of it failed (rc 128).
+tag=99a82477
 for f in Model/Format Model/Localization Model/FeatureFlags Model/FilmParams Model/FrameEdit Model/Adjustments Model/CurveMath \
          Model/Geometry Model/FilmEdge Model/Stock; do
   git -C "$here" show "$tag:app/SpektraLab/Sources/$f.swift" > "$out/old/$(basename $f).swift"
@@ -20,7 +22,7 @@ git -C "$here" show "$tag:app/SpektraLab/tools/selftest_theme_shim.swift" > "$ou
 swiftc -O -parse-as-library "$out"/old/*.swift "$here/tools/layers_keep_old.swift" -o "$out/layers_keep_old" 2> "$out/old-build.log" \
   || { grep -E "error" "$out/old-build.log" | head -20; exit 1; }
 swiftc -O -parse-as-library -o "$out/layers_keep_check" \
-  "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" \
+  "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift" "$src/Model/LocalLayers.swift" "$src/Model/Watermark.swift" \
   "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift" "$src/Model/LensEdge.swift" "$src/Model/Stock.swift" \
   "$src/Services/LibraryShelf.swift" "$src/Services/LayerShelf.swift" "$here/tools/selftest_theme_shim.swift" \
   "$here/tools/layers_keep_check.swift" 2> "$out/new-build.log" || { grep -E "error" "$out/new-build.log" | head -20; exit 1; }

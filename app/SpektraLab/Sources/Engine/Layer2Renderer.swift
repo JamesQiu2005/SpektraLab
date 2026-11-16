@@ -301,6 +301,8 @@ final class Layer2Renderer: @unchecked Sendable {
                                   shouldInterpolate: true, intent: .defaultIntent) else {
             throw Failure.picture("the adjusted picture could not be made")
         }
+        // 水印 may draw into it where it lies (`WatermarkComposite`): its buffer is this image's alone until it goes.
+        PictureMemory.owns(image, bytes: buffer.contents())
         return image
     }
 

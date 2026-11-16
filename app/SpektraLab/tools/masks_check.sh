@@ -9,7 +9,16 @@
 # the terminal may record the screen, the window server's (`screencapture -l`, <out>/captures/<name>-screen-*.png),
 # which also sees the canvas and a menu. Run 2 relaunches on the same home: the layers kept, an Undo after it.
 #
-#   tools/masks_check.sh [RAW] [--raw24 RAW] [--out DIR] [--app PATH] [--keep] [--self-test]
+#   tools/masks_check.sh [RAW] [--raw24 RAW] [--out DIR] [--app PATH] [--keep] [--self-test] [--function [--skip find,flat] | --untimed | --timing]
+#
+# --function (the gate's area tier, `tools/gate.py area`, 2026-11-14): runs 1 and 2 with every case's checks and the keys
+# and pointer posted for real, but no capture, no second language, and neither the stroke cost nor the transitions
+# (`--masks-check-function`). --timing: those two alone (`MASKS_CHECK_ONLY=cost`, then `transitions`), which
+# `tools/gate.py timing` grades only on a quiet Mac. With neither flag it is the whole check, as before.
+# --skip (with --function; `tools/gate.py change` passes it, 2026-11-15): parts a change reaches none of, left out and
+# said in the report (`--masks-check-skip`): `find`, M1c's finding (run 1's cases and run 2's read-back), and `flat`, the
+# overlay's geometry on the flat frame. gate_components.json's `parts` names the paths that bring each back.
+# --untimed: the whole check (captures, both languages) without the two timing rows: `gate.py full`, the nightly.
 #
 # RAW: default the first NEF of the main checkout's research/natural_shadow/dataset (45 MP); --raw24 a second, for the
 # tools' cost on a 24 MP frame (default its first ILCE-7M3 ARW, 6000 × 4000). --self-test runs run 1 once per
@@ -29,6 +38,7 @@
 set -euo pipefail
 here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out="$here/build/masks-check"; app="$here/build/DerivedData/Build/Products/Debug-maccatalyst/SpektraLab.app"; keep=0; selftest=0; raw=""; raw24=""
+mode=whole; skip=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) out=$2; shift 2 ;;
@@ -36,10 +46,16 @@ while [[ $# -gt 0 ]]; do
     --raw24) raw24=$2; shift 2 ;;
     --keep) keep=1; shift ;;
     --self-test) selftest=1; shift ;;
+    --function) mode=function; shift ;;
+    --timing) mode=timing; shift ;;
+    --untimed) mode=untimed; shift ;;
+    --skip) skip=$2; shift 2 ;;
     -*) echo "unknown: $1"; exit 2 ;;
     *) raw=$1; shift ;;
   esac
 done
+# The app starts a check only for an absolute folder; a relative one used to leave it idle for ever (33 minutes, 2.4.0).
+mkdir -p "$out"; out=$(CDPATH= cd -- "$out" && pwd)
 bin="$app/Contents/MacOS/SpektraLab"
 [[ -x "$bin" ]] || { echo "no app at $app (build Debug first)"; exit 2; }
 # A copy with a bundle identifier of this run's own: the build's preferences are never reachable (tools/check_app.sh).
@@ -77,9 +93,12 @@ cleanup() {
 
 # The check's own process brought to the front by its id (never by name: the owner's SpektraLab may be running), and
 # waited for until it is the front one: a key posted before that is lost (found: the first seven of twelve were).
+# For 15 s at most, and never past the app's own exit: System Events can take tens of seconds to answer a busy Mac
+# (one `osascript` 44 s, 2026-11-14), and 50 such tries held a check whose app had already ended.
 front() {
+  local end=$(( $(date +%s) + 15 ))
   osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $1) to true" > /dev/null 2>&1 || true
-  for _ in $(seq 1 50); do
+  while kill -0 "$1" 2> /dev/null && [[ $(date +%s) -lt $end ]]; do
     [[ "$(osascript -e 'tell application "System Events" to unix id of first process whose frontmost is true' 2> /dev/null)" == "$1" ]] && break
     sleep 0.2
   done
@@ -118,10 +137,13 @@ launch() {
       esac
     done ) &
   local watcher=$!
+  # Killed or interrupted, the app and the watcher's `tail -F` go with this script (they used to live on: eleven, 17 h).
+  trap 'pkill -P '"$watcher"' 2> /dev/null; kill '"$watcher"' '"$pid"' 2> /dev/null; cleanup; check_app_cleanup; exit 130' INT TERM
   local code=0
   wait "$pid" || code=$?
   pkill -P "$watcher" 2> /dev/null || true; kill "$watcher" 2> /dev/null || true
   wait "$watcher" 2> /dev/null || true
+  trap - INT TERM
   return $code
 }
 
@@ -132,7 +154,9 @@ if [[ $selftest -eq 1 ]]; then
     total=$((total + 1))
     fresh_home
     mkdir -p "$out/self-test/$broken"
-    code=0; launch "$out/self-test/$broken.log" --import "$home/in" --masks-check "$out/self-test/$broken" --masks-check-break "$broken" || code=$?
+    # With --function the mutants run in function mode, which must catch them too (the gate's change tier runs that).
+    fn=(); [[ $mode == function ]] && fn=(--masks-check-function)
+    code=0; launch "$out/self-test/$broken.log" --import "$home/in" --masks-check "$out/self-test/$broken" --masks-check-break "$broken" ${fn[@]+"${fn[@]}"} || code=$?
     if [[ $code -ne 0 ]]; then caught=$((caught + 1)); echo "  caught  $broken:"; grep '^masks-check: FAIL' "$out/self-test/$broken.log" | sed 's/^/      /' || echo '      ?' 
     else echo "  NOT CAUGHT  $broken"; fi
     cleanup
@@ -145,10 +169,22 @@ fresh_home
 rm -rf "$out/run1" "$out/run2" "$out/captures" "$out/keys.log" "$out/pointer.log"; mkdir -p "$out/run1" "$out/run2" "$out/captures"
 start=$(date +%s)
 set +e
-s1=0; launch "$out/run1.log" --import "$home/in" --masks-check "$out/run1" --masks-check-hold 2 --capture-window "$out/captures" || s1=$?
-s2=0; launch "$out/run2.log" --masks-check "$out/run2" --masks-check-relaunch "$out/run1" || s2=$?
+if [[ $mode == timing ]]; then
+  # The cost rows alone, each its own launch: the stroke cost on the 24 MP frame, then the transitions.
+  s1=0; MASKS_CHECK_ONLY=cost launch "$out/run1.log" --import "$home/in" --masks-check "$out/run1" || s1=$?
+  cleanup; fresh_home; mkdir -p "$out/run2"
+  s2=0; MASKS_CHECK_ONLY=transitions launch "$out/run2.log" --import "$home/in" --masks-check "$out/run2" || s2=$?
+elif [[ $mode == function ]]; then
+  parts=(); [[ -n "$skip" ]] && parts=(--masks-check-skip "$skip")
+  s1=0; launch "$out/run1.log" --import "$home/in" --masks-check "$out/run1" --masks-check-function ${parts[@]+"${parts[@]}"} || s1=$?
+  s2=0; launch "$out/run2.log" --masks-check "$out/run2" --masks-check-relaunch "$out/run1" --masks-check-function ${parts[@]+"${parts[@]}"} || s2=$?
+else
+  un=(); [[ $mode == untimed ]] && un=(--masks-check-untimed)
+  s1=0; launch "$out/run1.log" --import "$home/in" --masks-check "$out/run1" --masks-check-hold 2 --capture-window "$out/captures" ${un[@]+"${un[@]}"} || s1=$?
+  s2=0; launch "$out/run2.log" --masks-check "$out/run2" --masks-check-relaunch "$out/run1" ${un[@]+"${un[@]}"} || s2=$?
+fi
 set -e
-echo "ran $(( $(date +%s) - start )) s, run 1 exit $s1, run 2 exit $s2"
+echo "ran $(( $(date +%s) - start )) s ($mode${skip:+, skipped $skip}), run 1 exit $s1, run 2 exit $s2"
 grep -h "^masks-check:" "$out/run1.log" "$out/run2.log" || true
 [[ -f "$out/keys.log" ]] && grep -c "posted" "$out/keys.log" | sed 's/^/keys posted: /'
 [[ -f "$out/pointer.log" ]] && cat "$out/pointer.log"

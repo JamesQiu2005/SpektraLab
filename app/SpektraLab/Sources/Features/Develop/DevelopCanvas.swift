@@ -213,6 +213,12 @@ struct DevelopCanvas: View {
             // the film picks the film (the desktop's click on its canvas). At once, and
             // beside the double tap: a frame tapped twice is picked, then looked at closer.
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+                // A click off the picked watermark puts its handles away; its row stays picked. (A click on a mark is
+                // the stage's, which takes the pointer there.)
+                if let session = model.openSession(frame.id), session.watermarkPick != nil, session.watermarkSelected,
+                   WatermarkStageHit.hit(tap.location, session: session, shown: shown, store: model.watermarks) == nil {
+                    session.watermarkSelected = false
+                }
                 guard let piece, !showsSplit, shown.width > 1, shown.height > 1 else { return }
                 let n = CGPoint(x: (tap.location.x - shown.minX) / shown.width, y: (tap.location.y - shown.minY) / shown.height)
                 piece.pick(piece.layer(at: n))
@@ -247,6 +253,16 @@ struct DevelopCanvas: View {
                    let session = model.openSession(frame.id), session.neutralPick == nil, LayerRules.takesMasks(session.layerPiece),
                    let toS = maskViewMatrix {
                     MaskStage(session: session, frameID: frame.id, source: frame.originalSize, shown: shown, area: area, toS: toS)
+                }
+            }
+            // A picked watermark's stage (PRD-8 on the Mac; `WatermarkCanvasStage`): its marks drawn live over the cut picture,
+            // taking the pointer only over a mark and the picked mark's handles — the canvas keeps every other drag.
+            .overlay {
+                if allowsOriginalHold, !showsSplit, !displaysOriginal, let session = model.openSession(frame.id),
+                   session.watermarkPick != nil, session.neutralPick == nil {
+                    WatermarkCanvasStage(session: session, shown: shown,
+                                         canvases: model.watermarkCanvases(frame, edit: edit, finished:
+                                            DevelopedFrameView.finishedSize(frame: frame, edit: edit, model: model, developed: developed)))
                 }
             }
             .overlay(alignment: .bottom) {
@@ -323,7 +339,7 @@ struct DevelopCanvas: View {
             }
             #if SPK_ENGINE
             // Past the preview's pixels: the render at full size, the part on screen of it.
-            .task(id: DetailKey(zoom: zoom, offset: offset, area: area, adjustments: edit.adjustments, layers: edit.layers,
+            .task(id: DetailKey(zoom: zoom, offset: offset, area: area, adjustments: edit.adjustments, layers: edit.layers, marks: detailMarks,
                                 ready: fullView?.state == .ready, moving: pinchBase != nil || dragBase != nil,
                                 showsOriginal: displaysOriginal)) {
                 guard let fullView, pinchBase == nil, dragBase == nil else { return }
@@ -450,7 +466,7 @@ struct DevelopCanvas: View {
     @ViewBuilder private func developedPicture(pointSize: CGFloat) -> some View {
         let base = DevelopedFrameView(frame: frame, edit: edit, pointSize: pointSize, developed: developed, cropsPrint: false)
         Group {
-            if edit.editPassActs, let live = model.openSession(frame.id)?.layer2, live.picture != nil {
+            if edit.finishedActs(isComposite: frame.isComposite), let live = model.openSession(frame.id)?.layer2, live.picture != nil {
                 Layer2Picture(live: live, pointSize: pointSize) { base }
             } else {
                 base
@@ -460,7 +476,9 @@ struct DevelopCanvas: View {
         .overlay {
             // The part on screen of the render at full size, where it is of the edit as it stands — in HDR where
             // the frame's look is, and then never shown before its HDR is made (`HDRPlacedImage`).
-            if let d = fullView?.detail, d.adjustments == edit.adjustments, d.layers?.key == detailLayers?.key, zoom > 1.01 {
+            if let d = fullView?.detail, d.adjustments == edit.adjustments, d.layers?.key == detailLayers?.key, d.marks == detailMarks,
+               zoom > 1.01, model.openSession(frame.id)?.cleanUnderGesture != true {
+                // (Not under a gesture on a 底片 mark: the full render carries the mark at its old place.)
                 HDRPlacedImage(image: GamutProof.shared.proofed(d.image, gamutProof), rect: d.rect)
                     .allowsHitTesting(false)
             }
@@ -485,6 +503,7 @@ struct DevelopCanvas: View {
         var area: CGSize
         var adjustments: Adjustments
         var layers: LocalLayers?
+        var marks: WatermarkComposite.Laid?
         var ready: Bool
         var moving: Bool
         var showsOriginal: Bool
@@ -532,11 +551,17 @@ struct DevelopCanvas: View {
         guard !rect.isNull, rect.width > 0, rect.height > 0 else { return nil }
         let pixels = PixelSize(width: max(1, Int((rect.width * perUnit.width).rounded(.up))),
                                height: max(1, Int((rect.height * perUnit.height).rounded(.up))))
-        return FullView.Ask(rect: rect, pixels: pixels, adjustments: edit.adjustments, layers: detailLayers)
+        return FullView.Ask(rect: rect, pixels: pixels, adjustments: edit.adjustments, layers: detailLayers, marks: detailMarks)
     }
 
     /// The edit's 成片 layers as the zoom's pass takes them (`AppServices.finishedLayers`, memoised there).
     private var detailLayers: FinishedLayers? { edit.editPassActs ? model.finishedLayers(frame, edit: edit) : nil }
+
+    /// The photograph's 成片 watermarks as the zoom's part draws them: none while the canvas draws them itself (a
+    /// watermark's row picked, `OpenFrameSession.watermarkOverlayLive`).
+    private var detailMarks: WatermarkComposite.Laid? {
+        model.openSession(frame.id)?.watermarkOverlayLive == true ? nil : WatermarkComposite.Laid(edit, isComposite: frame.isComposite)
+    }
     #endif
 
     /// The picture's shape: the film's canvas when it wears a film, else the

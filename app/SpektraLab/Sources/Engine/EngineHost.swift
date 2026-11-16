@@ -117,6 +117,15 @@ final class EngineHost: FrameSource, @unchecked Sendable {
 
     /// One job's answers, captured when it was submitted.
     struct Request: Sendable {
+        /// An export's 水印 marks over its finished picture (`EngineRouter.prepareExport`, `WatermarkRules.finished`).
+        var watermarks: [WatermarkPlacement] = []
+        /// 水印's 底片 marks, laid into this job's source before the engine opens it (`WatermarkBase.swift`): a single
+        /// photograph's, the film on. In `sourceKey` (other pixels for the engine), never in `decodeKey`.
+        var base: WatermarkComposite.Base? = nil
+        /// The page's develop under a gesture on its 底片 marks (`OpenFrameSession.developTarget`): the edit without them,
+        /// opened from the page's kept clean decode as it is, and that decode kept for the lift's develop (the owner's
+        /// hand test, 2026-11-16: the old place of a dragged 底片 mark stayed in the picture under the overlay).
+        var keepsBaseSource = false
         var frameID: UUID
         /// The file to develop from: the original — a Photos frame's working copy of it.
         var source: URL
@@ -183,6 +192,14 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         /// lens for) asks the resolver.
         var lens: LensResolution? = nil
 
+        /// Whether this request hands the engine (or Apple's decode) the 场景 set its wire names, as `sceneLayers(_:)`
+        /// and `digital(_:device:)` will read it (`SceneLayerWire.carries`): a piece is handed none.
+        var carriesItsSceneSet: Bool {
+            var named: String?
+            if case .string(let s) = wire["scene_layers"] { named = s }
+            return SceneLayerWire.carries(named: named, ask: piece == nil ? sceneLayers : nil, throughEngine: digital == nil)
+        }
+
         /// Whether the engine draws the film round the frame: the canvas is
         /// then the film, and a pair's frames are where its gates are.
         var wearsFilm: Bool { wire["overscan_active"] == .bool(true) }
@@ -201,9 +218,13 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             [source.path, isRAW ? "raw " + decode.pixelsKey(source: source, lens: lens) : "", cut?.cutKey ?? ""].joined(separator: "|")
         }
         var pixelsKey: String { Self.pixelsKey(source: source, isRAW: isRAW, decode: decode, cut: cut, lens: lens) }
-        var sourceKey: String {
+        /// What the decode is, before anything is laid in it: what a strip keeps its decode under, and the page's kept
+        /// decode (`BaseSource`).
+        var decodeKey: String {
             piece?.key ?? Self.sourceKey(source: source, isRAW: isRAW, decode: decode, longEdge: longEdge, cut: cut, lens: lens)
         }
+        /// What the engine is handed: the decode, and the 底片 marks laid in it (`Base.sourceWord`; nothing without).
+        var sourceKey: String { decodeKey + (base?.sourceWord(wire: wire) ?? "") }
     }
 
     enum Delivery: @unchecked Sendable {
@@ -288,6 +309,19 @@ final class EngineHost: FrameSource, @unchecked Sendable {
     nonisolated(unsafe) static var registered: ((Request) -> Void)?
     #endif
 
+    /// **What `job`'s 底片 pass holds** (`WatermarkComposite.held`, the scheduler's `marks` hook): its marks on its picture,
+    /// and the copy of a kept decode it lays them into — a card's of the strip's, the page's of its own. 0 without marks.
+    func baseBytes(_ job: RenderJob) -> UInt64 {
+        guard let r = request(job.id), let base = r.base else { return 0 }
+        let copies: Bool
+        switch r.purpose {
+        case .canvas, .card: copies = true
+        default: copies = false
+        }
+        return WatermarkComposite.held(base.marks.placements, meters: WatermarkComposite.meters(r.wire), canvas: job.pricedOpen,
+                                       copies: copies ? job.pricedOpen : nil)
+    }
+
     /// The job has ended, however: its answers are no longer needed.
     func forget(_ jobID: UUID) {
         lock.lock(); requests[jobID] = nil; slideMaps[jobID] = nil; lock.unlock()
@@ -358,7 +392,7 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         let generation = r.sourceGeneration ?? feed(for: r.frameID)?.source.generation
         if let piece = r.piece {
             if let strip = r.strip {
-                if let kept = strip.take(r.sourceKey) as? StripDecode {
+                if let kept = strip.take(r.decodeKey) as? StripDecode {
                     var said = kept.frame; said.how = "the strip's composed decode"
                     return said
                 }
@@ -379,17 +413,18 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             var said = frame
             said.how = Self.recorded(report.how.joined(separator: ", "))
             if let strip = r.strip, let generation {
-                strip.keep(StripDecode(said), for: r.sourceKey, bytes: frame.size.width * frame.size.height * 16, expectedGeneration: generation)
+                strip.keep(StripDecode(said), for: r.decodeKey, bytes: frame.size.width * frame.size.height * 16, expectedGeneration: generation)
             }
             feedStrip(r, said, generation: generation)
             return said
         }
         if let strip = r.strip {
             // A strip's card: the picture its cards share, decoded by the first that was priced to.
-            if let kept = strip.take(r.sourceKey) as? StripDecode {
+            if let kept = strip.take(r.decodeKey) as? StripDecode {
                 var said = kept.frame
                 said.how = "the strip's decode"
-                return said
+                // 底片 marks go into the card's own copy: the strip's decode is every card's.
+                return try laidOnCopy(r, said)
             }
             // A RAW whose proxy is here opens from it for the price of an open: no decode of the file.
             guard r.decodesStrip || r.proxy.map({ FileManager.default.fileExists(atPath: $0.url.path) }) == true else {
@@ -400,25 +435,147 @@ final class EngineHost: FrameSource, @unchecked Sendable {
             if let facts = report.rawExposure { onDelivery?(.rawExposure(frame: r.frameID, facts: facts)) }
             if let event = report.proxy { onDelivery?(.proxy(frame: r.frameID, event: event)) }
             if let generation {
-                strip.keep(StripDecode(frame), for: r.sourceKey, bytes: frame.size.width * frame.size.height * 16, expectedGeneration: generation)
+                strip.keep(StripDecode(frame), for: r.decodeKey, bytes: frame.size.width * frame.size.height * 16, expectedGeneration: generation)
             }
             log.info("decoded \(r.source.lastPathComponent, privacy: .public) for a strip by \(report.how, privacy: .public): \(frame.size.width) x \(frame.size.height)")
             var said = frame
             said.how = Self.recorded(report.how)
+            return try laidOnCopy(r, said)
+        }
+        // 水印 (底片) on the page: the frame's clean decode is kept while its develop carries base marks, so a mark moved
+        // opens the frame again from it — the engine keeps the source it was opened with — and nothing is decoded.
+        if r.base != nil, case .canvas = r.purpose, let kept = keptBaseSource(r.decodeKey) {
+            var said = try laidOnCopy(r, kept)
+            said.how = "the kept decode"
+            log.info("the page's kept decode, \(kept.size.width) x \(kept.size.height), opened again for its 底片 marks: no decode")
             return said
+        }
+        // Under a gesture on a 底片 mark the page develops the frame without its 底片 marks: the kept decode is that, clean;
+        // the engine copies what it is handed at its open, so it is handed as it is, and kept for the lift.
+        if r.base == nil, r.keepsBaseSource, case .canvas = r.purpose, var kept = keptBaseSource(r.decodeKey) {
+            kept.how = "the kept decode"
+            log.info("the page's kept decode, \(kept.size.width) x \(kept.size.height), opened clean under a 底片 mark's gesture: no decode")
+            return kept
         }
         let (frame, report) = try decoder.decode(DecodeAsk(url: r.source, isRAW: r.isRAW, settings: r.decode, longEdge: r.longEdge,
                                                            cut: r.cut, proxy: r.proxy, lens: r.lens))
         if let facts = report.rawExposure { onDelivery?(.rawExposure(frame: r.frameID, facts: facts)) }
         if let event = report.proxy { onDelivery?(.proxy(frame: r.frameID, event: event)) }
-        if let wb = report.asShot, r.decode.whiteBalance == .asShot {
+        if let wb = report.asShot, r.decode.readsCamera {
             onDelivery?(.asShot(frame: r.frameID, temperature: wb.temperature, tint: wb.tint))
         }
         feedStrip(r, frame, generation: generation)
         log.info("decoded \(r.source.lastPathComponent, privacy: .public) by \(report.how, privacy: .public): \(frame.size.width) x \(frame.size.height)\(r.cut == nil ? "" : ", cut to the film's framing", privacy: .public)")
         var said = frame
         said.how = Self.recorded(report.how)
+        guard let base = r.base else {
+            if case .canvas = r.purpose { keepBaseSource(r.keepsBaseSource ? (r.decodeKey, frame) : nil) }
+            return said
+        }
+        if case .canvas = r.purpose {
+            // The page's: this decode kept clean, the marks laid into the job's own copy of it.
+            keepBaseSource((r.decodeKey, frame))
+            var laid = try laidOnCopy(r, frame)
+            laid.how = said.how
+            return laid
+        }
+        // Anything else (a frame's own develop, an export, the zoom's full render): the decode is this job's own, made for
+        // it by the decoder, and the engine copies it at its open — the marks go into it in place, no second source.
+        lay(base, into: frame, r)
         return said
+    }
+
+    // MARK: 水印's 底片 pass (`WatermarkBase.swift`)
+
+    /// The page's clean decode while its develop carries 底片 marks, and what it is of (`Request.decodeKey`). One, on the
+    /// engine's queue; let go by a canvas job without base marks, or another decode's.
+    private var baseSource: (key: String, frame: DecodedFrame)?
+    /// The meter's reading of a frame before its marks, by what it read (`meterKey`).
+    private var baseReadings: [String: Double] = [:]
+
+    private func keptBaseSource(_ key: String) -> DecodedFrame? {
+        lock.lock(); defer { lock.unlock() }
+        return baseSource?.key == key ? baseSource?.frame : nil
+    }
+
+    private func keepBaseSource(_ kept: (String, DecodedFrame)?) {
+        lock.lock(); baseSource = kept.map { (key: $0.0, frame: $0.1) }; lock.unlock()
+    }
+
+    /// The page's frame went (`EngineRouter.closeEditing`): its kept decode goes with it.
+    func dropBaseSource() {
+        lock.lock(); baseSource = nil; baseReadings = [:]; lock.unlock()
+    }
+
+    /// Bytes the host keeps for the page's 底片 marks now (a check's, and the book's).
+    var baseSourceBytes: Int {
+        lock.lock(); defer { lock.unlock() }
+        return baseSource.map { $0.frame.size.width * $0.frame.size.height * 16 } ?? 0
+    }
+
+    /// `frame` as the engine is to be handed it for `r`: as it is without base marks; else a copy of it — the job's own
+    /// working copy, priced (`WatermarkComposite.held(copies:)`) — with the marks laid in.
+    private func laidOnCopy(_ r: Request, _ frame: DecodedFrame) throws -> DecodedFrame {
+        guard let base = r.base else { return frame }
+        let bytes = frame.size.width * frame.size.height * frame.channels * 4
+        guard let buffer = device.makeBuffer(length: bytes, options: .storageModeShared) else {
+            throw EngineError.resource("no \(bytes >> 20) MB buffer for the 底片 marks' copy of the decode")
+        }
+        memcpy(buffer.contents(), frame.buffer.contents(), bytes)
+        let copy = DecodedFrame(buffer: buffer, size: frame.size, channels: frame.channels, how: frame.how)
+        lay(base, into: copy, r, clean: frame)
+        return copy
+    }
+
+    /// What the meter's reading of a frame is kept under: the decode, and what of the wire the meter reads it by.
+    private static func meterKey(_ r: Request) -> String {
+        let cut = WatermarkComposite.engineCut(wire: r.wire).cutKey
+        return r.decodeKey + "|" + (r.wire["auto_exposure_method"]?.stringValue ?? "-") + "|" + cut
+    }
+
+    /// **The 底片 pass** into `frame`, in place: the white laid by this develop's exposure — Film Exposure and, with the
+    /// meter on, the engine's own meter's reading of `clean` (the frame before any mark: `frame` itself where it is) from
+    /// a copy at most 1,024 px long, kept for this job's wire (`params`).
+    private func lay(_ base: WatermarkComposite.Base, into frame: DecodedFrame, _ r: Request, clean: DecodedFrame? = nil) {
+        let started = DispatchTime.now().uptimeNanoseconds
+        var meter: Double?
+        if WatermarkComposite.meters(r.wire) {
+            let key = Self.meterKey(r)
+            lock.lock(); meter = baseReadings[key]; lock.unlock()
+            if meter == nil {
+                meter = meterAlone(clean ?? frame, wire: r.wire)
+                if let meter { lock.lock(); baseReadings[key] = meter; lock.unlock() }
+                else { log.error("水印 底片: the meter gave no reading; the mark's white is laid as if it read 0, and the engine meters") }
+            }
+        }
+        let ev = WatermarkComposite.exposureEV(wire: r.wire, meter: meter)
+        let whiteEV = WatermarkComposite.whiteEV(wire: r.wire)
+        let placing = WatermarkComposite.basePlacing(decoded: CGSize(width: frame.size.width, height: frame.size.height),
+                                                     engineCut: WatermarkComposite.engineCut(wire: r.wire), turnsAfter: r.turnsAfter)
+        let n = WatermarkComposite.base(base.marks, into: frame.buffer.contents().assumingMemoryBound(to: Float.self),
+                                        width: frame.size.width, height: frame.size.height, channels: frame.channels,
+                                        placing: placing, white: WatermarkComposite.baseWhite(exposureEV: ev, whiteEV: whiteEV))
+        let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
+        let metered = meter.map { String(format: " (the meter %+.2f, read before the mark)", $0) } ?? ""
+        log.info("水印 底片: \(n) mark(s) into \(clean == nil ? "the decode, in place" : "the job's copy of the decode", privacy: .public), \(frame.size.width) x \(frame.size.height), white +\(whiteEV, format: .fixed(precision: 1)) EV over grey exposed \(ev, format: .fixed(precision: 2)) EV\(metered, privacy: .public), \(ms, format: .fixed(precision: 1)) ms")
+    }
+
+    /// What the engine's meter reads of `frame` alone, before anything is laid in it: a copy at most 1,024 px on its long
+    /// side (the frame itself where it is no larger), opened in a session of its own (`SpkEngine.meterOnQueue`) with this
+    /// job's wire, its own exposure, film edge and date off. Nil where it cannot be read.
+    private func meterAlone(_ frame: DecodedFrame, wire: [String: ParamValue]) -> Double? {
+        guard let engine, frame.channels == 4 else { return nil }
+        let alone = WatermarkComposite.meterWire(wire)
+        let side = WatermarkComposite.meterSide
+        guard frame.size.longEdge > side else { return try? engine.meterOnQueue(frame, wire: alone) }
+        let small = frame.size.scaled(toLongEdge: side)
+        guard let buffer = device.makeBuffer(length: small.width * small.height * 16, options: .storageModeShared) else { return nil }
+        var from = vImage_Buffer(data: frame.buffer.contents(), height: vImagePixelCount(frame.size.height),
+                                 width: vImagePixelCount(frame.size.width), rowBytes: frame.size.width * 16)
+        var to = vImage_Buffer(data: buffer.contents(), height: vImagePixelCount(small.height), width: vImagePixelCount(small.width),
+                               rowBytes: small.width * 16)
+        guard vImageScale_ARGBFFFF(&from, &to, nil, vImage_Flags(kvImageHighQualityResampling)) == kvImageNoError else { return nil }
+        return try? engine.meterOnQueue(DecodedFrame(buffer: buffer, size: small, channels: 4), wire: alone)
     }
 
     /// A decode's word as a job's record carries it. The RAW decoder names its
@@ -483,8 +640,14 @@ final class EngineHost: FrameSource, @unchecked Sendable {
         return r.sourceKey
     }
 
+    /// The job's wire — and for a develop whose 底片 marks are in its source with the meter on, the meter off at Film
+    /// Exposure plus its reading of the frame before the marks (`WatermarkComposite.metered`), read by its open's decode
+    /// (`SpkEngine.open` asks after it), so the engine's meter never reads the mark.
     func params(_ job: RenderJob) -> [String: ParamValue] {
-        request(job.id)?.wire ?? [:]
+        guard let r = request(job.id) else { return [:] }
+        guard r.base != nil, WatermarkComposite.meters(r.wire) else { return r.wire }
+        lock.lock(); let reading = baseReadings[Self.meterKey(r)]; lock.unlock()
+        return WatermarkComposite.metered(r.wire, reading: reading)
     }
 
     func sceneLayers(_ job: RenderJob) -> SceneLayerWire.Ask? {
@@ -666,9 +829,19 @@ final class EngineHost: FrameSource, @unchecked Sendable {
                 made = try transformer.image(pixels, to: target, depth: depth, fetch: fetch)
             }
             var image = try Self.turned(made, quarterTurns: r.turnsAfter)
-            // Edit's crop: a cut of the finished picture, made last (`FinishedCut`).
-            if case .export(let order) = r.purpose, let cut = order.printCrop {
-                image = try FinishedCut.image(image, by: cut.onFinished(CGSize(width: image.width, height: image.height)))
+            // Edit's crop: a cut of the finished picture, made last (`FinishedCut`) — and over it the photograph's 成片
+            // watermarks, the last pass on the pixels (RFC-067 §4.3): into the picture's own memory where its maker
+            // owns it, the cut made after (`WatermarkComposite.finished`).
+            if case .export(let order) = r.purpose {
+                let cut = order.printCrop.map { $0.onFinished(CGSize(width: image.width, height: image.height)) }
+                let marks = WatermarkComposite.Marks(r.watermarks)
+                if marks != nil || cut != nil {
+                    let laid = try WatermarkComposite.finishedSaying(image, crop: cut, marks: marks)
+                    image = laid.image
+                    if let m = marks {
+                        log.info("\(order.url.lastPathComponent, privacy: .public): \(m.placements.count) watermark\(m.placements.count == 1 ? "" : "s", privacy: .public) laid \(laid.inPlace ? "in place" : "on a copy", privacy: .public)")
+                    }
+                }
             }
             switch r.purpose {
             case .canvas:
@@ -775,6 +948,13 @@ final class EngineHost: FrameSource, @unchecked Sendable {
                 log.error("\(name, privacy: .public): HDR on, no gain map: the render carried no curve")
             }
         }
+        // 水印: the map held to no boost under the marks, in proportion to their cover (RFC-067 §4.3): a white mark is
+        // SDR white in the file, as on the canvas. The marks are on `image` already, which the map is of.
+        if var held = made, let marks = request(job.id).flatMap({ WatermarkComposite.Marks($0.watermarks) }) {
+            WatermarkComposite.unboost(&held.map.codes, width: held.map.width, height: held.map.height, subsample: held.map.subsample,
+                                       marks: marks, placing: .whole(CGSize(width: image.width, height: image.height)))
+            made = held
+        }
         if let made {
             let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
             log.info("\(name, privacy: .public): export gain map \(made.map.width) x \(made.map.height), headroom \(made.headroom, format: .fixed(precision: 2)), \(whose, privacy: .public), layout \(order.hdrLayout.rawValue, privacy: .public), made in \(ms, format: .fixed(precision: 0)) ms")
@@ -854,6 +1034,8 @@ final class EngineHost: FrameSource, @unchecked Sendable {
                                  shouldInterpolate: true, intent: .defaultIntent) else {
             throw EngineError.failed("the turned film could not be made a picture")
         }
+        // 水印 may draw into it where it lies (`WatermarkComposite`): the turn's buffer is this picture's alone.
+        PictureMemory.owns(made, bytes: out)
         return made
     }
 

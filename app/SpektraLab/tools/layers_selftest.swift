@@ -26,7 +26,9 @@ extension Color {
                         "a single frame's panel unfolds", "an exposure's page shows the whole's print",
                         "the whole's white balance leads nowhere", "an empty layer exports",
                         "Crop on the whole of a double depends on the pick",
-                        "Combine lays its pictures in the grid's order", "the two shares need not add to 100"]
+                        "Combine lays its pictures in the grid's order", "the two shares need not add to 100",
+                        "the watermarks are listed bottom first", "a watermark row is held after its mark goes",
+                        "a pair lists its edit's watermarks"]
 
     static func main() {
         if CommandLine.arguments.contains("--self-test") {
@@ -215,6 +217,44 @@ extension Color {
         expect(picked([[7], [7, 2], [2], [2, 7]], grid: [1, 2, 3, 7]) == [2, 7], "a picture let go and picked again goes to the end")
         expect(picked([[3], [1, 2, 3]], grid: [1, 2, 3, 7]) == [3, 1, 2], "rows that join together keep the grid's order among themselves")
         expect(picked([[3], []], grid: [1, 2, 3]).isEmpty, "nothing chosen, nothing ordered")
+
+        // 水印 (PRD-8 on the Mac): a single photograph's watermarks are rows, directly under 胶片, the topmost first,
+        // above the mask layers; each its stage's word, its eye, its opacity when not 100; a gone mark said so.
+        do {
+            let a = UUID(), b = UUID(), gone = UUID()
+            var low = WatermarkPlacement(mark: a, dx: 0.1, dy: 0.1, size: 0.2)
+            var high = WatermarkPlacement(mark: b, anchor: .tl, dx: 0.2, dy: 0.2, size: 0.2, opacity: 0.6)
+            high.stage = .base
+            low.on = false
+            let lost = WatermarkPlacement(mark: gone, dx: 0.3, dy: 0.3, size: 0.2)
+            let names = WatermarkNames(names: [a: "签名", b: "Logo"])
+            var marks = [low, high, lost]
+            if on(15) { marks.reverse() }
+            let layers = LocalLayers(items: [LocalLayer(name: "主体 1", stage: .scene)])
+            var r = LayerRules.rows(.single, layers: layers, marks: marks, names: names, has: all)
+            expect(r.map(\.pick) == [.film, .watermark(lost.id), .watermark(high.id), .watermark(low.id), .mask(layers.items[0].id)],
+                   "a photograph: 胶片, its watermarks topmost first, then its mask layers (\(r.map(\.pick.key)))")
+            expect(r[2].name == "Logo" && r[2].content == .watermark(stage: .base, missing: false) && r[2].opacityText == "60 %"
+                   && r[2].eye == .on && r[3].eye == .off && r[3].opacity == nil,
+                   "a watermark row: its name, its stage, its opacity when not 100, its eye")
+            expect(r[1].content == .watermark(stage: .full, missing: true) && r[1].name == "Watermark missing",
+                   "a mark the library no longer has: its row says so")
+            expect(r.compactMap(\.watermarkNumber) == [1, 2, 3] && r[1].key == "watermark.1", "numbered from the top")
+            let held = on(16) ? LayerPick.watermark(UUID()) : LayerRules.held(.watermark(UUID()), in: .single, marks: marks)
+            expect(held == .film && LayerRules.held(.watermark(high.id), in: .single, marks: marks) == .watermark(high.id),
+                   "a watermark row whose mark has gone from the edit is 胶片; one there is held")
+            expect(LayerRules.page(.watermark(high.id), piece: .single, mode: .develop, has: all, marks: marks) == .watermark
+                   && LayerRules.page(.watermark(high.id), piece: .single, mode: .edit, has: all, marks: marks) == .watermark,
+                   "a watermark's page is its own in 冲洗 and 编辑")
+            expect(LayerRules.step(.watermark(high.id), by: 1, in: r) == .watermark(low.id)
+                   && LayerRules.step(.film, by: 1, in: r) == .watermark(lost.id), "↑ ↓ walk the watermark rows as any row")
+            expect(LayerRules.summary(.watermark(high.id), in: r) == "3 watermarks" + Fmt.dot + "1 masks" + Fmt.dot + "Logo"
+                   || LayerRules.summary(.watermark(high.id), in: r).hasSuffix("Logo"), "the folded head counts them and names the pick")
+            r = on(17) ? LayerRules.rows(.single, marks: marks, has: all) : LayerRules.rows(.pair(pair), marks: marks, has: all)
+            expect(r.allSatisfy { $0.pick.watermarkID == nil }, "a pair lists no watermark (W5)")
+            expect(!LayerPick.watermark(a).isPicture && LayerPick.watermark(a).watermarkID == a && LayerPick.watermark(a).key == "watermark",
+                   "a watermark row is no picture of its own")
+        }
 
         if !quiet { print("Layers panel: \(passed) passed, \(failed) failed") }
         return failed

@@ -148,7 +148,15 @@ enum ChangeDescriber {
             return new.dateBack.active ? L("Date back \(new.dateBack.style.label)") : L("Date back off")
         }
         if old.leak != new.leak {
-            return new.leak.kind == .off ? L("Light leak off") : L("Light Leak") + " " + new.leak.kind.label
+            let sameKind = old.leak.kind == new.leak.kind && old.leak.amount == new.leak.amount
+            // 边缘漏光 alone (API-SPEC §21.9): on, its strength, or off — the kind as it was.
+            if sameKind && old.leak.edge != new.leak.edge {
+                return new.leak.edgeOn ? L("Light Leak") + " " + L("Edge Burn", as: "a light leak") : L("Edge burn off")
+            }
+            guard let what = new.leak.summary else { return L("Light leak off") }
+            // 随机 alone (API-SPEC §21.8): the same kind and edge burn, another of their leaks.
+            if sameKind { return what + " · " + L("Shuffle", as: "a light leak") }
+            return what
         }
         if old.lens.filter != new.lens.filter || old.lens.strength != new.lens.strength {
             guard let f = new.lens.filter else { return L("Soft filter off") }
@@ -164,6 +172,7 @@ enum ChangeDescriber {
             let moved = (new.layers?.items ?? []).first { l in before[l.id].map { $0 != l } ?? false }
             return moved.map { $0.name.isEmpty ? L("Layers") : $0.name } ?? L("Layers")
         }
+        if baseMarks(old) != baseMarks(new) { return L("Watermark") }
         return ""
     }
 
@@ -177,6 +186,10 @@ enum ChangeDescriber {
         var deltas: SceneDeltas?
         var coverage: Double
     }
+
+    /// What of an edit's watermarks its develop is made from: its 底片 marks as the source has them
+    /// (`WatermarkRules.base`; a pair's or a double's edit is read as a photograph's here, which costs at most a develop).
+    static func baseMarks(_ e: FrameEdit) -> [WatermarkPlacement] { WatermarkRules.base(e, isComposite: false) }
 
     static func sceneLayers(_ e: FrameEdit) -> [SceneLayerKey] {
         (e.layers?.active(.scene) ?? []).prefix(LocalLayers.perStage).map {
@@ -194,7 +207,7 @@ enum ChangeDescriber {
         if FeatureFlags.filmEdge && old.filmEdge != new.filmEdge { layers.insert(.shoot) }
         if FeatureFlags.dateBack && old.dateBack != new.dateBack { layers.insert(.shoot) }
         // The advance and the scan: only a film edge shows them.
-        if old.frameSeed != new.frameSeed && (new.filmEdge.effective || new.leak.kind != .off) { layers.insert(.shoot) }
+        if old.frameSeed != new.frameSeed && (new.filmEdge.effective || new.leak.isOn) { layers.insert(.shoot) }
         // A leak is light on the film, the lens is in front of it (PRD-D): both develop again.
         if old.leak != new.leak || old.lens != new.lens { layers.insert(.shoot) }
         // Enable HDR on a slide: its develop is the stretched scan, with the frame's one grain (`HDRGain.sdrWire`).
@@ -203,6 +216,9 @@ enum ChangeDescriber {
         // A 场景 mask layer is light before the film (PRD-E, RFC-052 §6): it develops again, as Film Exposure does.
         // A 成片 layer is Edit's pass, no develop (its fields are not here).
         if sceneLayers(old) != sceneLayers(new) { layers.insert(.shoot) }
+        // 水印's 底片 marks are in the source the film is exposed from (RFC-067 §4.2): a develop, as a 场景 layer's. A
+        // 成片 mark is laid over the finished picture and develops nothing.
+        if baseMarks(old) != baseMarks(new) { layers.insert(.shoot) }
         return layers
     }
 }

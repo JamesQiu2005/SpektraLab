@@ -1,0 +1,459 @@
+{
+ "about": "The app's components for `tools/gate.py` (the owner's schema, 2026-11-14): a change is tested within its component (its in-app checks; the self-tests are chosen by what they compile, wherever they are), and `gate.py change --dependents` widens it to the components that depend on it; a change to shared code or to a contract runs every component's checks (cross-component); the whole suite runs nightly and at a release. A path (app-relative; `../../` is the repository's; a trailing / a folder, * a glob) is owned by the first entry that matches: contracts, shared, then the components in order. `gate.py self-test` holds that every source is owned, and that what each self-test compiles crosses only the `depends` declared here.",
+ "contracts": {
+  "why": "what two components agree on: a change here is cross-component",
+  "paths": [
+   "../../API-SPEC-*",
+   "../../CONTRACT-*",
+   "../../engine/include/",
+   "../../engine/src/core/params.*",
+   "../../engine/src/pipeline/engine.cpp",
+   "Sources/Engine/EngineWire.swift",
+   "Sources/Engine/SceneLayerWire.swift",
+   "Sources/Model/FilmParams.swift",
+   "Sources/Model/FrameEdit.swift",
+   "Sources/Services/LibraryPersistence.swift",
+   "Sources/Agent/AgentTools.swift",
+   "tools/persisted_names_baseline.tsv",
+   "tools/persisted_2.1.4/",
+   "tools/persisted_names.py",
+   "tools/persisted_check.swift"
+  ]
+ },
+ "shared": {
+  "why": "code every component builds on, and the frame's edit model (`FrameEdit`, a contract, is made of these): a change here is cross-component",
+  "paths": [
+   "Sources/Model/Format.swift",
+   "Sources/Model/Localization.swift",
+   "Sources/Model/FeatureFlags.swift",
+   "Sources/Model/Adjustments.swift",
+   "Sources/Model/CurveMath.swift",
+   "Sources/Model/Geometry.swift",
+   "Sources/Model/Stock.swift",
+   "Sources/Model/LocalLayers.swift",
+   "Sources/Model/LibraryFrame.swift",
+   "Sources/Model/Sources.swift",
+   "Sources/Model/SettingsClipboard.swift",
+   "Sources/Model/CanvasGamut.swift",
+   "Sources/Model/DevelopStatus.swift",
+   "Sources/Model/CameraCrop.swift",
+   "Sources/Model/CropGuides.swift",
+   "Sources/Engine/HostCut.swift",
+   "Sources/Diagnostics/",
+   "Sources/DesignSystem/",
+   "Sources/Services/AppSettings.swift",
+   "Resources/Localizable.xcstrings",
+   "tools/selftest_theme_shim.swift",
+   "tools/localization_check.py",
+   "tools/localization_exceptions.json",
+   "Sources/Model/FilmEdge.swift",
+   "Sources/Model/LensEdge.swift",
+   "Sources/Model/HalfFramePair.swift",
+   "Sources/Model/DoubleExposure.swift",
+   "Sources/Model/ExportRecipe.swift",
+   "Sources/Model/Watermark.swift",
+   "Sources/Engine/PictureMemory.swift"
+  ]
+ },
+ "components": [
+  {
+   "id": "engine",
+   "depends": [],
+   "paths": [
+    "../../engine/",
+    "tools/build_engine_mac.sh",
+    "tools/engine_smoke.sh",
+    "tools/engine_smoke.swift",
+    "tools/engine_replies/"
+   ],
+   "checks": [
+    "engine"
+   ]
+  },
+  {
+   "id": "lens",
+   "depends": [
+    "render"
+   ],
+   "paths": [
+    "Sources/Engine/Lens*",
+    "Sources/Engine/LCPReader.swift",
+    "Sources/Engine/RawBlack.swift",
+    "Sources/Services/LensDatabase.swift",
+    "Sources/Services/LensLibrary.swift",
+    "Sources/Mac/Lens/",
+    "Sources/Features/Develop/LensCorrectionPart.swift",
+    "tools/lens_check.sh"
+   ],
+   "checks": [
+    "lens"
+   ]
+  },
+  {
+   "id": "history",
+   "depends": [
+    "develop",
+    "layers"
+   ],
+   "paths": [
+    "Sources/Model/EditHistory.swift",
+    "Sources/Model/DevelopRevision.swift",
+    "Sources/Model/HistoryFields.swift",
+    "Sources/Model/HistoryLabel.swift",
+    "Sources/Services/EditHistoryLine.swift",
+    "Sources/Services/EditHistoryStore.swift",
+    "Sources/Services/SQLiteEditHistoryStore.swift",
+    "Sources/Mac/History/",
+    "tools/history_check.sh"
+   ],
+   "checks": [
+    "history"
+   ]
+  },
+  {
+   "id": "masks",
+   "depends": [
+    "develop",
+    "render",
+    "layers"
+   ],
+   "paths": [
+    "Sources/Features/Layers/Mask*",
+    "Sources/Mac/Layers/MacMask*",
+    "Sources/Mac/Layers/MacTransitionsCheck.swift",
+    "Sources/Mac/Layers/MacCombineMenu.swift",
+    "Sources/Engine/Mask*",
+    "Sources/Engine/SceneLayer*",
+    "Sources/Engine/SubjectFinder.swift",
+    "Sources/Services/FoundMaskKeeping.swift",
+    "Sources/Model/MaskFrame.swift",
+    "tools/masks_check.sh",
+    "tools/post_keys.swift",
+    "tools/post_pointer.swift",
+    "tools/capture_windows.swift",
+    "tools/flat_frame.py",
+    "tools/release_capture.sh",
+    "tools/subject_find.sh",
+    "tools/subject_find.swift",
+    "tools/scene_layers_drive.sh",
+    "tools/scene_layers_drive.swift"
+   ],
+   "checks": [
+    "masks"
+   ]
+  },
+  {
+   "id": "layers",
+   "about": "double exposures, half-frame pairs, the film edge: the 图层 panel's pieces",
+   "depends": [
+    "develop",
+    "render",
+    "masks",
+    "library",
+    "export"
+   ],
+   "paths": [
+    "Sources/Features/Double/",
+    "Sources/Features/Pair/",
+    "Sources/Features/FilmEdge/",
+    "Sources/FilmEdge/",
+    "Sources/Features/Layers/",
+    "Sources/Mac/Layers/MacLayersCheck.swift",
+    "Sources/Engine/Piece*",
+    "Sources/Engine/PrintLayers.swift",
+    "Sources/Engine/DoubleDevelop.swift",
+    "Sources/Engine/PairDevelop.swift",
+    "Sources/Services/DoubleGuideLight.swift",
+    "Sources/Services/DoubleKeeping.swift",
+    "Sources/Services/PairKeeping.swift",
+    "Sources/Services/LayerShelf.swift",
+    "Sources/Services/Watermark*",
+    "Sources/Engine/Watermark*",
+    "Sources/Mac/Settings/MacSettingsWatermarks.swift",
+    "Sources/Mac/Layers/MacWatermark*",
+    "tools/watermark_*",
+    "Sources/Mac/Library/MacDoubleRows.swift",
+    "Sources/Mac/Library/MacPairRows.swift",
+    "tools/layers_check.sh",
+    "tools/double_check.sh",
+    "tools/overscan_formats.json"
+   ],
+   "checks": [
+    "layers"
+   ]
+  },
+  {
+   "id": "export",
+   "depends": [
+    "render",
+    "develop",
+    "masks"
+   ],
+   "paths": [
+    "Sources/Engine/Export*",
+    "Sources/Engine/Layer2Export.swift",
+    "Sources/Features/Export/",
+    "Sources/Mac/Export/MacExport*",
+    "Sources/Services/ExportService.swift",
+    "Sources/Services/ExportRecipeStore.swift",
+    "Sources/Services/KeptFileAside.swift"
+   ],
+   "checks": []
+  },
+  {
+   "id": "lighttable",
+   "depends": [
+    "render",
+    "library"
+   ],
+   "paths": [
+    "Sources/LightTable/",
+    "Sources/Mac/LightTable/"
+   ],
+   "checks": []
+  },
+  {
+   "id": "library",
+   "depends": [
+    "render"
+   ],
+   "paths": [
+    "Sources/Mac/Library/",
+    "Sources/Mac/LibraryUI/",
+    "Sources/Mac/Import/",
+    "Sources/Mac/Migration/",
+    "Sources/Features/Library/",
+    "Sources/Features/Import/",
+    "Sources/Services/LibraryBrowser.swift",
+    "Sources/Services/LibraryOrdering.swift",
+    "Sources/Services/LibraryShelf.swift",
+    "Sources/Services/FrameCatalog.swift",
+    "Sources/Services/Gallery.swift",
+    "Sources/Services/FolderReach.swift",
+    "Sources/Services/DemoLibrary.swift",
+    "Sources/Services/StripSource.swift",
+    "Sources/Mac/CaptureOneSource.swift",
+    "tools/variant_check.sh",
+    "tools/variant_keep_old.sh",
+    "tools/variant_keep_old.swift",
+    "tools/variant_c1_fixture.py",
+    "tools/import_c1_check.sh"
+   ],
+   "checks": [
+    "variant",
+    "import_c1"
+   ]
+  },
+  {
+   "id": "develop",
+   "about": "the develop page: its canvas, Edit (Layer 2), the HDR view, the crop, the session",
+   "depends": [
+    "render",
+    "lens",
+    "masks"
+   ],
+   "paths": [
+    "Sources/Features/Develop/",
+    "Sources/Features/Frame/",
+    "Sources/Engine/Layer2*",
+    "Sources/Engine/HDR*",
+    "Sources/Engine/FinishedCut.swift",
+    "Sources/Engine/SceneLatitude.swift",
+    "Sources/Engine/ScenePlacement.swift",
+    "Sources/Engine/NeutralPick.swift",
+    "Sources/Services/OpenFrameSession.swift",
+    "Sources/Services/StockPreview*",
+    "Sources/Services/PresetStore.swift",
+    "Sources/Services/LookTransactions.swift",
+    "Sources/Mac/Layers/MacFinishedLayersCheck.swift",
+    "Sources/Mac/Render/MacEditRefreshCheck.swift",
+    "Sources/Mac/Export/MacHDRChoiceCheck.swift",
+    "Sources/Mac/MacColourWheel.swift",
+    "Sources/Mac/MacWheelRow.swift",
+    "Sources/Mac/MacScrollZoom.swift",
+    "Sources/Mac/MacEditCommands.swift",
+    "Sources/Mac/MacStockGridCheck.swift",
+    "Sources/Mac/MacStockGridHandCheck.swift",
+    "Sources/Mac/MacHIDPost.swift",
+    "tools/edit_refresh_check.sh",
+    "tools/hdr_choice_check.sh",
+    "tools/finished_layers_check.sh"
+   ],
+   "checks": [
+    "edit_refresh",
+    "hdr_choice",
+    "finished_layers"
+   ]
+  },
+  {
+   "id": "render",
+   "about": "the app's side of the engine: the open, the decode, the scheduler, the thumbnails, the cached renders",
+   "depends": [
+    "engine"
+   ],
+   "paths": [
+    "Sources/Engine/",
+    "Sources/Scheduler/",
+    "Sources/Services/ThumbnailStore.swift",
+    "Sources/Services/FrameView.swift",
+    "Sources/Services/Originals.swift",
+    "Sources/Services/WorkingCopies.swift",
+    "Sources/Services/MemoryRelease.swift",
+    "Sources/Services/StorageTidy.swift",
+    "Sources/Mac/Render/",
+    "Sources/Services/LibraryPreviews.swift"
+   ],
+   "checks": [
+    "edit_refresh",
+    "hdr_choice"
+   ]
+  },
+  {
+   "id": "agent",
+   "depends": [
+    "develop",
+    "library"
+   ],
+   "paths": [
+    "Sources/Agent/"
+   ],
+   "checks": []
+  },
+  {
+   "id": "shell",
+   "about": "the app around the pages: the window, its menus and keys, settings, updates, supporters",
+   "depends": [
+    "develop",
+    "library",
+    "lighttable",
+    "masks",
+    "layers",
+    "export",
+    "history",
+    "lens",
+    "render",
+    "agent"
+   ],
+   "paths": [
+    "Sources/App/",
+    "Sources/Mac/",
+    "Sources/Features/Settings/",
+    "Sources/Services/",
+    "Sources/Model/",
+    "Resources/",
+    "SampleSources/",
+    "gen_project.py",
+    "tools/check_app.sh"
+   ],
+   "checks": [
+    "edit_refresh",
+    "hdr_choice"
+   ]
+  }
+ ],
+ "checks": {
+  "masks": {
+   "run": "bash tools/masks_check.sh --function",
+   "full": "bash tools/masks_check.sh --untimed",
+   "selftest": "bash tools/masks_check.sh --self-test",
+   "timing": "bash tools/masks_check.sh --timing",
+   "quiet": 1800,
+   "parts": {
+    "about": "`gate.py change` passes `--skip` for each part the change reaches none of (2026-11-15): the finding's cases are ~6 of --function's minutes and the flat frame's the overlay's geometry alone. A contract, shared code or the gate's own files run every part; `full` and the nightly run every part.",
+    "find": [
+     "Sources/Engine/SubjectFinder.swift",
+     "Sources/Features/Layers/MaskFinding.swift",
+     "Sources/Services/FoundMaskKeeping.swift",
+     "Sources/Mac/Layers/MacMaskFindCheck.swift",
+     "Sources/Mac/Layers/MacCombineMenu.swift",
+     "tools/subject_find.sh",
+     "tools/subject_find.swift"
+    ],
+    "flat": [
+     "Sources/Engine/MaskOverlay.swift",
+     "Sources/Engine/MaskLive.swift",
+     "Sources/Engine/MaskBaker.swift",
+     "Sources/Model/MaskFrame.swift",
+     "Sources/Mac/Layers/MacMaskFlatCheck.swift",
+     "tools/flat_frame.py"
+    ]
+   }
+  },
+  "layers": {
+   "run": "bash tools/layers_check.sh \"$raw1\" \"$raw2\"",
+   "full": "bash tools/layers_check.sh \"$raw1\" \"$raw2\""
+  },
+  "finished_layers": {
+   "run": "bash tools/finished_layers_check.sh \"$raw1\"",
+   "full": "bash tools/finished_layers_check.sh \"$raw1\""
+  },
+  "lens": {
+   "run": "bash tools/lens_check.sh",
+   "full": "bash tools/lens_check.sh"
+  },
+  "history": {
+   "run": "bash tools/history_check.sh",
+   "full": "bash tools/history_check.sh"
+  },
+  "variant": {
+   "run": "bash tools/variant_check.sh",
+   "full": "bash tools/variant_check.sh"
+  },
+  "import_c1": {
+   "run": "bash tools/import_c1_check.sh",
+   "full": "bash tools/import_c1_check.sh"
+  },
+  "hdr_choice": {
+   "run": "bash tools/hdr_choice_check.sh",
+   "full": "bash tools/hdr_choice_check.sh"
+  },
+  "engine": {
+   "run": "bash tools/gate/engine_check.sh",
+   "full": "bash tools/gate/engine_check.sh"
+  },
+  "edit_refresh": {
+   "run": "bash tools/edit_refresh_check.sh",
+   "full": "bash tools/edit_refresh_check.sh",
+   "selftest": "bash tools/edit_refresh_check.sh --self-test",
+   "quiet": 180
+  }
+ },
+ "untested": {
+  "why": "tools a person runs and reads, which gate nothing on their own: generators, log readers, captures, and measurements (memory, a quit while rendering)",
+  "paths": [
+   "tools/gen_catalog.py",
+   "tools/gen_icons.py",
+   "tools/logs_",
+   "tools/localization_add.py",
+   "tools/app_name_check.py",
+   "tools/installs_in_tree.py",
+   "tools/keys_in_range.py",
+   "tools/mac_shortcuts_check.py",
+   "tools/mac_shortcuts_selftest.swift",
+   "tools/same_snapshots.sh",
+   "tools/snapshot.sh",
+   "tools/tour.sh",
+   "tools/hdr_conformance.sh",
+   "tools/hdr_conformance.swift",
+   "tools/hdr_histogram_preview.sh",
+   "tools/hdr_histogram_preview.swift",
+   "tools/imgdiff.swift",
+   "tools/exactdiff.swift",
+   "tools/film_geometry_dump.swift",
+   "tools/film_edge_parity.py",
+   "tools/memory_check.sh",
+   "tools/exit_render_check.sh",
+   "tools/exit_render_check.swift",
+   "tools/stock_previews_check.sh",
+   "tools/stock_grid_check.sh",
+   "tools/post_scroll.swift",
+   "tools/build_engine_mac.sh",
+   "tools/persisted_fixture_writer.swift",
+   "tools/release_capture_seed.swift",
+   "tools/raw_open_probe.swift",
+   "tools/measure.swift",
+   "tools/montage.swift",
+   "tools/svg2png.swift"
+  ]
+ }
+}

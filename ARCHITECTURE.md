@@ -2,7 +2,7 @@
 
 How SpektraLab 2 is put together: a Mac Catalyst app with the SpektraLab engine, a C++/Metal render
 engine, linked into it, and a library helper, `spklib-host`, running beside it. Written for someone
-about to change the pipeline, the app or the release. Current as of **2.4.0, 2026-11-14**.
+about to change the pipeline, the app or the release. Current as of **2.4.1, 2026-11-16**.
 
 The SpektraLab engine is a C++/Metal implementation derived from spektrafilm by Andrea Volpato
 (GPL-3.0-or-later). The engine's sections (§1–§4, §6, §8) carry over from 1.x except where they
@@ -240,7 +240,7 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
 - **The engine is built for Catalyst by `build_engine_mac.sh`**, from the same sources and with
   the same safe-math kernels as `engine/build.sh` (§8.4), because a Catalyst app cannot link a
   plain macOS object. It writes `build/engine-macosx/`, which the project links and copies.
-- **Versions** live in `gen_project.py`: the default is the current release (2.4.0); a release
+- **Versions** live in `gen_project.py`: the default is the current release (2.4.1); a release
   passes `--version`, `--build <yyyyMMddHHmm>` and `--bundle-id com.spektralab.mac`, and the
   generated project is committed with it. A build without `--version` shows the default in
   Settings › General › About.
@@ -447,8 +447,9 @@ RFC-018. One working space, exactly one conversion out of it per destination.
 - **The Digital Intermediate** (2.2.1): with `digital_intermediate` on, the engine writes Cineon log
   (ProPhoto primaries) in the paper's place. `CineonView` reads it through 1.x's DI view
   (`Resources/DIView-Cineon-to-ProPhoto.cube`, 65³, trilinear in float32) in `SpkEngine`, before
-  delivery, so everything downstream sees the working space. The Paper strip's last card chooses it
-  and keeps the paper underneath (`StockPreviewCard.digitalIntermediate`).
+  delivery, so everything downstream sees the working space. The Paper strip's second card, beside No
+  Paper (its last card until 2026-11-16), chooses it and keeps the paper underneath
+  (`StockPreviewCard.digitalIntermediate`).
 - **Canvas Colour Space** (2.2.1, Develop's "···" menu, `CanvasGamut`): the page's Display P3 picture
   shown as an sRGB or Adobe RGB file holds it: the engine's own transform from Display P3 into that
   space, run by the output transform's kernel (`GamutProof`), at the size the page draws. ProPhoto RGB

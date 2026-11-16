@@ -64,7 +64,7 @@ enum MacMetric {
     static let row: CGFloat = 24
     static let indent: CGFloat = 14
     static let tabBar: CGFloat = 30
-    static let bottomBar: CGFloat = 30
+    static let bottomBar: CGFloat = 24   // 30 until 2026-11-16: the library column's foot, level with the info strip (22)
     static let gridHeader: CGFloat = 32
     /// The floating browser panel's header: the window bar's 44 less the panel's 8 pt inset from it, so
     /// its controls stand on the bar's rhythm.
@@ -214,11 +214,16 @@ final class MacLibraryBrowser {
     /// a drag ends.
     static let browserWidthKey = "mac.browserWidth"
     @ObservationIgnored private let defaults: UserDefaults
+    /// Where this browser's width is kept: the library's, or a page's own (the import page's, 2.4.1 E3).
+    @ObservationIgnored private let widthKey: String
 
-    /// `defaults`: the app's own; a check hands in a suite of its own.
-    init(defaults: UserDefaults = .standard) {
+    /// `defaults`: the app's own; a check hands in a suite of its own. `widthKey`: a page that keeps a width of
+    /// its own; until it has one it starts at the library's.
+    init(defaults: UserDefaults = .standard, widthKey: String = MacLibraryBrowser.browserWidthKey) {
         self.defaults = defaults
-        let browser = defaults.double(forKey: Self.browserWidthKey)
+        self.widthKey = widthKey
+        let own = defaults.double(forKey: widthKey)
+        let browser = own > 0 ? own : defaults.double(forKey: Self.browserWidthKey)
         browserWidth = browser > 0 ? CGFloat(browser).clamped(to: MacMetric.browserRange) : MacMetric.browserWidth
     }
 
@@ -230,7 +235,7 @@ final class MacLibraryBrowser {
     /// A drag of the browser's wall ended: what it left is kept. The column's width is `PaneDividers`' and is
     /// written by its own drags (`PaneDividers.save`, called from either page's wall).
     func saveWidths() {
-        defaults.set(Double(browserWidth), forKey: Self.browserWidthKey)
+        defaults.set(Double(browserWidth), forKey: widthKey)
     }
 
     var navigator: MacNavigator = .library
@@ -266,11 +271,18 @@ final class MacLibraryBrowser {
     /// screen (`importPresented`), and a page closes only its own request (`closeImport`).
     var importRequest: MacImportRequest? {
         didSet {
+            if importRequest != nil, oldValue == nil { MacImportClock.requestOpened(importShown != nil ? "request (a page still up)" : "request") }
+            if importRequest == nil, oldValue != nil { MacImportClock.mark("request closed", ["cover": importShown.map(MacImportCover.state) ?? "none"]) }
             if importRequest != nil, importShown != nil, importShown != importRequest?.id { watchLeavingPage(after: .seconds(3)) }
             // Closed (Cancel, an import): the page must go by itself. The gate run of 2026-11-05 saw one
             // plain Cancel leave it presented, not dismissing, with nothing asked — round 1's "stuck" page,
             // which until then only a new Import or drop let go of.
-            if importRequest == nil, oldValue != nil, importShown != nil { watchLeavingPage(after: .milliseconds(1500)) }
+            if importRequest == nil, let old = oldValue, importShown != nil {
+                // One frame for SwiftUI's dismissal, then UIKit (`MacImportCover.closed`); the watchdog stays
+                // only as the last resort under that.
+                if importShown == old.id { MacImportCover.closed(old.id) }
+                watchLeavingPage(after: .milliseconds(1500))
+            }
         }
     }
     /// The request whose page is on screen, from its appearing to its disappearing (`MacImportFlow`):
@@ -292,7 +304,9 @@ final class MacLibraryBrowser {
             try? await Task.sleep(for: delay)
             guard importShown == leaving else { return }
             let stands = MacImportCover.stands(leaving)
-            Log.warn(.library, "mac import: a closed page had not gone", ["still_presented": stands, "after": "\(delay)"])
+            Log.warn(.library, "mac import: a closed page had not gone", ["still_presented": stands, "after": "\(delay)",
+                                                                           "cover": MacImportCover.state(leaving)])
+            MacImportClock.mark("watchdog", ["still_presented": stands])
             if stands {
                 MacImportCover.takeDown(leaving)
                 try? await Task.sleep(for: .seconds(1))
@@ -311,6 +325,48 @@ final class MacLibraryBrowser {
             if !newValue { importRequest = nil } else if importRequest == nil { importRequest = MacImportRequest() }
         }
     }
+    /// Import (the sidebar's button and its "+" menu, ⌘I): **Finder first, the page second** (2026-11-16, the
+    /// owner: "why entering the import page, without import and cancel still takes this long?"). The panel is
+    /// a sheet on the library's window, and the page is asked for only when it answers with picks, which the
+    /// page takes as it appears (`finderPicks`). Cancel in Finder then has no cover to take down. The page
+    /// asked Finder as it appeared, 5–80 ms into the cover's 530 ms presentation, so leaving cost that
+    /// presentation, the panel's start-up over it, and a 520 ms dismissal after (measured 2026-11-16,
+    /// `MacImportCheck` step 8), and now costs the panel alone. Library documents alone (a catalog, a session) are opened
+    /// here, with no page. One ask at a time: Import while the panel or a page is up does nothing.
+    func askImport(_ store: any MacLibraryData) {
+        guard importRequest == nil, !importFinding else { return }
+        importFinding = true
+        MacImportClock.start("import")
+        Task {
+            MacImportClock.mark("panel asked", ["from": "library"])
+            let answer = await MacOpenPanel.chooseSources()
+            importFinding = false
+            MacImportClock.mark("panel answered", ["picked": answer?.count ?? 0])
+            guard let urls = answer, !urls.isEmpty else { MacImportClock.mark("idle", ["by": "panel cancelled"]); return }
+            if urls.allSatisfy({ MacLibraryDocuments.kind(of: $0) != nil }), await Self.open(urls, store) {
+                MacImportClock.mark("idle", ["by": "documents opened"])
+                return
+            }
+            finderPicks = urls
+            importAsked = true
+        }
+    }
+    /// The Finder panel of `askImport` is up: another Import does nothing, a drop is refused (its answer
+    /// opens the page with its picks), the library's keys stand down.
+    private(set) var importFinding = false
+    /// What Finder answered, for the page asked for after it (taken as it appears, `MacImportPage`).
+    var finderPicks: [URL]?
+
+    /// Library documents picked in Finder, opened as the page would (`MacImportSession.receivePicks`): false
+    /// at the first that cannot be, so the page opens and says why.
+    private static func open(_ urls: [URL], _ store: any MacLibraryData) async -> Bool {
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do { _ = try await store.open(url) } catch { return false }
+        }
+        return true
+    }
     /// The page of request `id` is done (Cancel, an import, its first Finder panel cancelled): it closes
     /// only if it is still the one asked for, so a late answer from an old page never closes a new one.
     func closeImport(_ id: MacImportRequest.ID) {
@@ -326,7 +382,7 @@ final class MacLibraryBrowser {
     /// The move of the app library into a catalog is on screen (`MacLibraryMovePage`).
     var moveShown = false
     var sourcePickerShown = false
-    var modal: Bool { importAsked || exportAsked || moveShown || sourcePickerShown }
+    var modal: Bool { importAsked || importFinding || exportAsked || moveShown || sourcePickerShown }
     /// The navigator's own Filter field (Xcode's): narrows the rows of the tab shown.
     var rowFilter = ""
     /// Folded sections, closed tree rows and opened years, by id.

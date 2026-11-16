@@ -30,7 +30,7 @@ struct WindowToolbar<Controls: View, Mode: View, Actions: View>: View {
     @AppStorage(InterfaceScale.key) private var scaleChoice = InterfaceScale.standard.rawValue
 
     /// The bar's height, one in every mode.
-    static var height: CGFloat { MacMetric.pt(44) }
+    static var height: CGFloat { MacMetric.pt(35) }   // 44 until 2026-11-16: the owner asked for ~20 % less
     /// The window width (Mac points, at 100 %) from which the mode row stands in the window's centre
     /// (decided 2026-10-27). At a larger interface scale everything is larger, so the threshold is too.
     static var centreFrom: CGFloat { 1200 }

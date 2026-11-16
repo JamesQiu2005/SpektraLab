@@ -516,7 +516,10 @@ func shownChecks(_ c: inout Checker, _ r: Rules) {
 }
 
 func sizeChecks(_ c: inout Checker, _ r: Rules) {
-    // Every format, both views, both ways up: the film's width across a strip, the gate and its carrier filed.
+    // Every format, both views, both ways up: the film's width across a strip, the gate and its carrier filed. The cine
+    // gauges (API-SPEC §24) are laid out with the engine's table (tools/overscan_formats.json, the engine's own reply):
+    // along the film their canvas is the gauge's (the frame and its neighbours' slivers, or one advance), either view.
+    if let table = FileManager.default.contents(atPath: "tools/overscan_formats.json") { EngineGauges.publish(json: table) }
     for format in FilmEdgeFormat.allCases {
         for view in FilmEdgeView.allCases {
             for turned in [false, true] {
@@ -528,7 +531,13 @@ func sizeChecks(_ c: inout Checker, _ r: Rules) {
                 let down = g.vertical != (g.extraTurns % 2 == 1)   // the film runs down the canvas as shown
                 let acrossMM = down ? s.width : s.height, alongMM = down ? s.height : s.width
                 let name = "\(format.rawValue) \(view.rawValue)\(turned ? " turned" : "")"
-                if view == .strip {
+                if let cine = EngineGauges.cine(format) {
+                    let a = Double(cine.aspectLong), b = Double(cine.aspectShort)
+                    let canvasAlong = !cine.neighbours ? cine.advance
+                        : (format.acrossMM > format.alongMM ? format.filmWidthMM * b / a : format.filmWidthMM * a / b)
+                    c.near(alongMM, canvasAlong, 0.02, "\(name): the gauge's canvas along the film")
+                    c.near(acrossMM, view == .strip ? format.filmWidthMM : format.acrossMM + 2.2, 0.02, "\(name): across")
+                } else if view == .strip {
                     c.near(acrossMM, format.filmWidthMM, format.isPerforated ? 0.02 : 0.17, "\(name): the film's width across")
                     let margin = format.isPerforated ? (format.alongMM < 20 ? (0.40, 0.50) : (0.75, 0.95)) : (1.05, 2.35)
                     c.expect(alongMM >= format.alongMM + 2 * margin.0 - 0.02 && alongMM <= format.alongMM + 2 * margin.1 + 0.02,

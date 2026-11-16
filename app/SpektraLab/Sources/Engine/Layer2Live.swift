@@ -26,6 +26,17 @@
 //    never runs with a plane missing, and until it lands the page keeps the picture it last showed, as it does while
 //    any pass is out. A layer that cannot be baked is logged and draws nothing new.
 //
+//  - **水印's 成片 marks** (PRD-8, RFC-067 §4.3): the session hands them beside the layers (`show(marks:)`, the
+//    photograph's `WatermarkComposite.Laid`); each pass's picture then carries them, drawn into the pass's own buffer
+//    after Layer 2, through Edit's crop's map (`WatermarkComposite.onPage`), so the view's cut puts them where the
+//    export does. A frame whose layer is neutral but which carries marks runs the pass for them (a neutral pass is
+//    the develop, held to 16 bits). The histogram is the picture's **without** the 成片 marks: it
+//    counts the photograph, not the signature over it. **A 底片 mark is counted**: it is in the developed picture
+//    the pass reads (laid into the source before the film, `WatermarkBase.swift`), as a 场景 layer's light is, and
+//    nothing here could take it out — the histogram is of the photograph the film made, mark and all
+//    (`WatermarkRules.developsMarks`). While a watermark's row is picked the canvas draws them itself, and they come
+//    here as nil.
+//
 //  The snapshot harness draws a page still: `renderedNow` makes the picture on
 //  the spot, on the calling thread, for a page that must be complete when it
 //  is captured.
@@ -42,6 +53,8 @@ final class Layer2Live {
     /// The page's picture with the edit, at the size the canvas asked for. Nil
     /// until the first pass lands, and while the layer is neutral.
     private(set) var shown: CGImage?
+    /// The edit `shown` was made with (what `--edit-refresh-check` holds the canvas to).
+    @ObservationIgnored private(set) var shownAdjustments: Adjustments?
     /// The histogram of the picture as shown (`wantsHistogram`).
     private(set) var histogram: Layer2Histogram?
     /// The last pass, measured (the GPU's time, and from the ask to the picture).
@@ -71,9 +84,12 @@ final class Layer2Live {
     @ObservationIgnored private(set) var adjustments = Adjustments()
     /// The edit's 成片 layers, with the finished canvas's matrix: nil, today's pass.
     @ObservationIgnored private(set) var layers: FinishedLayers?
-    /// Whether the pass draws anything: the edit's controls, or a layer of it (`Layer2Local.acts`).
-    var isActive: Bool { Layer2Local.acts(adjustments, layers) }
+    /// The photograph's 成片 watermarks, drawn over each pass (`show(marks:)`): nil, none.
+    @ObservationIgnored private(set) var marks: WatermarkComposite.Laid?
+    /// Whether the pass draws anything: the edit's controls, a layer of it (`Layer2Local.acts`), or its watermarks.
+    var isActive: Bool { Layer2Local.acts(adjustments, layers) || marks != nil }
     @ObservationIgnored private var displayPixel: Int?
+    @ObservationIgnored private var displaySizes = Layer2DisplaySizes()
     @ObservationIgnored private var inFlight = false
     @ObservationIgnored private var again = false
     @ObservationIgnored private let work = Layer2Work()
@@ -129,7 +145,7 @@ final class Layer2Live {
         adjustments = next
         if !isActive {
             // Nothing to draw: the picture and the pass's copy of the page's picture go.
-            shown = nil
+            shown = nil; shownAdjustments = nil
             if was { work.dropDisplay() }
         }
         schedule()
@@ -142,25 +158,53 @@ final class Layer2Live {
         let was = isActive
         layers = next
         if !isActive {
-            shown = nil
+            shown = nil; shownAdjustments = nil
             if was { work.dropDisplay() }
         }
         schedule()
     }
 
-    /// The canvas draws at this long edge (nil: it does not draw the live picture).
+    /// The photograph's 成片 watermarks (`OpenFrameSession.shownMarks`): a move, a size or an opacity is another pass —
+    /// the mark's box drawn again over the layer, no develop.
+    func show(marks next: WatermarkComposite.Laid?) {
+        guard next != marks else { return }
+        let was = isActive
+        marks = next
+        if !isActive {
+            shown = nil; shownAdjustments = nil
+            if was { work.dropDisplay() }
+        }
+        schedule()
+    }
+
+    /// `holder` draws the live picture at this long edge (nil: it no longer draws it). Each picture that draws it holds
+    /// its own size, and the pass is made at the largest held (`Layer2DisplaySizes`, issue #123): one picture going
+    /// never stops the pass for another still on screen.
+    func display(_ holder: String, maxPixel: Int?) {
+        displaySizes.set(holder, maxPixel: maxPixel)
+        let now = displaySizes.maxPixel
+        guard now != displayPixel else { return }
+        displayPixel = now
+        schedule()
+    }
+
+    /// An in-app check's size, pinned: it wins over the pictures' until the check lets it go (nil), so a check that
+    /// waits for a pass at exactly this width gets one (`MacMasksCheck`, `MacFinishedLayersCheck`).
     func display(maxPixel: Int?) {
-        guard maxPixel != displayPixel else { return }
-        displayPixel = maxPixel
+        displaySizes.pin(maxPixel)
+        let now = displaySizes.maxPixel
+        guard now != displayPixel else { return }
+        displayPixel = now
         schedule()
     }
 
     /// The page has closed: everything the pass held goes.
     func close() {
-        shown = nil
+        shown = nil; shownAdjustments = nil
         histogram = nil
         picture = nil
         displayPixel = nil
+        displaySizes.removeAll()
         histogramHolders = []
         wantsHistogram = false
         still = nil
@@ -176,7 +220,7 @@ final class Layer2Live {
         if inFlight { again = true; return }
         inFlight = true
         let ask = Layer2Work.Ask(picture: picture!, displayPixel: displayPixel, adjustments: adjustments, layers: layers,
-                                 wantsImage: wantsImage, wantsHistogram: wantsHistogram)
+                                 wantsImage: wantsImage, wantsHistogram: wantsHistogram, marks: marks)
         work.run(ask) { [weak self] answer in
             Task { @MainActor in self?.landed(ask, answer) }
         }
@@ -190,7 +234,7 @@ final class Layer2Live {
         // Only what is still of the page's picture and its layer: a pass for an
         // edit since put back to zero is not drawn.
         if ask.picture == picture {
-            if let image = answer.image, isActive { shown = image }
+            if let image = answer.image, isActive { shown = image; shownAdjustments = ask.adjustments }
             if let h = answer.histogram, wantsHistogram { histogram = h }
         }
         if let t = answer.timing {
@@ -207,13 +251,14 @@ final class Layer2Live {
     /// and layer, so a page drawn twice is not made twice.
     func renderedNow(maxPixel: Int) -> CGImage? {
         guard let picture, isActive, let renderer = Layer2Renderer.shared else { return nil }
-        let key = "\(picture)|\(maxPixel)|\(adjustments.key)|\(layers?.key ?? "")"
+        let key = "\(picture)|\(maxPixel)|\(adjustments.key)|\(layers?.key ?? "")|\(marks?.key() ?? "")"
         if let still, still.key == key { return still.image }
         // No layer's plane, no picture: never the picture without its layer.
         guard let image = Layer2Work.image(of: picture, maxPixel: maxPixel),
               let source = try? renderer.source(image, maxPixel: maxPixel),
               let local = Result(catching: { try Layer2Work.local(layers, adjustments, renderer) }).succeeded,
-              let (made, _) = try? renderer.image(source, adjustments, local: local) else { return nil }
+              let (pass, _) = try? renderer.image(source, adjustments, local: local) else { return nil }
+        let made = WatermarkComposite.onPage(pass, laid: marks)
         still = (key, made)
         return made
     }
@@ -229,6 +274,8 @@ final class Layer2Work: @unchecked Sendable {
         var layers: FinishedLayers?
         var wantsImage: Bool
         var wantsHistogram: Bool
+        /// The 成片 watermarks over the pass's picture (not the histogram's).
+        var marks: WatermarkComposite.Laid? = nil
     }
     struct Answer: @unchecked Sendable {
         var image: CGImage?
@@ -257,7 +304,8 @@ final class Layer2Work: @unchecked Sendable {
                     if ask.wantsImage, let px = ask.displayPixel {
                         let source = try self.source(ask.picture, px, &display, renderer)
                         let (image, timing) = try renderer.image(source, ask.adjustments, local: local, pool: pool)
-                        answer.image = image
+                        // 水印 over the pass, in its own buffer (RFC-067 §4.3: after Layer 2), noted for its HDR.
+                        answer.image = WatermarkComposite.onPage(image, laid: ask.marks)
                         answer.timing = timing
                     }
                     if ask.wantsHistogram {

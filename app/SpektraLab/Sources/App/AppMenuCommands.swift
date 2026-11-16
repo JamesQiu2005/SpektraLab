@@ -16,7 +16,7 @@ struct AppMenuCommands: Commands {
             Button(L("Import")) {
                 guard model.router.cover == nil, model.router.sheets.isEmpty else { return }
                 guard !MacLibraryBrowser.shared.modal, MacShellPath.split(model.router.path).stacked.isEmpty else { return }
-                MacLibraryBrowser.shared.importAsked = true
+                MacLibraryBrowser.shared.askImport(MacLibraryUI.store(model))
             }
                 .keyboardShortcut(MacShortcut.importKey, modifiers: MacShortcut.importModifiers)
         }

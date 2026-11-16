@@ -1,6 +1,10 @@
 //  film_geometry_dump.swift — the app's film layout, written out to be held against the engine.
 //
-//      build/tools/film_geometry_dump <cases.json> <out dir> [StockCatalog.json]
+//      build/tools/film_geometry_dump <cases.json> <out dir> [StockCatalog.json] [formats.json]
+//
+//  `formats.json` is the engine's own format table (`spk_overscan_formats`, API-SPEC §24), as the parity
+//  harness read it off the engine it holds this against: the cine gauges are laid out with it, as the app lays
+//  them out with the one its engine publishes (`EngineGauges`), and with none they are not laid out at all.
 //
 //  Reads a list of cases (what the engine was told: format, view, gate, seeds,
 //  the frame's size, the stock, the edge's words — or none, and then they are
@@ -47,6 +51,8 @@ struct Case: Decodable {
     /// A light leak (`leak_kind`, PRD-D §3.3), and whether the film edge is off for it: the leak's wire is then
     /// the app's own (`FrameEdit.leakWire`), with the overscan seeds it sends by itself.
     var leak: String?
+    /// 边缘漏光 beside the leak's kind (`leak_edge`, API-SPEC §21.9): its strength; none by default.
+    var leak_edge: Double?
     var edge_off: Bool?
 
     struct DateCase: Decodable {
@@ -80,6 +86,10 @@ enum Dump {
         // (`overscan_falloff`, `overscan_perforation`) as it does against such an engine.
         EngineFeatures.publish(Set(EngineFeatures.Feature.allCases.map(\.rawValue)))
         if args.count >= 4 && catalog == nil { fail("no catalogue at \(args[3])") }
+        if args.count >= 5 {
+            guard let table = FileManager.default.contents(atPath: args[4]), EngineGauges.publish(json: table)
+            else { fail("no engine format table at \(args[4])") }
+        }
         for c in cases {
             guard let format = FilmEdgeFormat(rawValue: c.format) else { fail("\(c.id): unknown format \(c.format)") }
             var r = FilmEdgeRequest()
@@ -136,6 +146,7 @@ enum Dump {
             leakEdit.filmEdge.active = !(c.edge_off ?? false)
             leakEdit.frameSeed = r.frameSeed
             leakEdit.leak.kind = LeakKind(rawValue: c.leak ?? "off") ?? .off
+            leakEdit.leak.edge = c.leak_edge ?? 0
             let leakFields = leakEdit.leakWire(bodySeed: r.cameraSeed).map { (name: $0.name, value: $0.value, layer: ParamLayer.shoot) }
             for field in leakEdit.filmEdge.wire(edgeText: r.edgeText, frameSeed: r.frameSeed, fNumber: r.fNumber)
                 + back.wire(text: r.date?.text ?? "", filmEdge: leakEdit.filmEdge, dataText: r.date?.dataText ?? "") + leakFields {
@@ -173,6 +184,8 @@ enum Dump {
                 "gate": canvas(s0, t0) + canvas(s1, t0) + canvas(s1, t1) + canvas(s0, t1),
                 "gate_family": g.gateFamily.rawValue,
                 "film_w": g.filmW, "perf_phase": g.perfPhase, "scan_rot": g.scanRot,
+                // a cine gauge's neighbours (API-SPEC §24): the engine's geometry reports the same pair
+                "neighbours_mm": [g.neighbourPrev, g.neighbourNext],
                 "s_lo": g.sLo, "s_hi": g.sHi, "dx_length": g.dxCodes.isEmpty ? 0.0 : g.dxLength, "dx_turned": g.dxTurned,
                 "holes": g.holes.count,
                 "dx": g.dxNumber ?? -1,
@@ -223,6 +236,7 @@ enum Dump {
             ctx.fillPath()
         }
         fill(g.gateOpening, 64)
+        for nb in g.neighbourOpenings { fill(nb, 64) }      // a cine gauge's neighbours: the picture again
         fill(g.edgeOutline, 128)
         fill(g.dateOutline, 192)
         fill(g.holesPath, 255)

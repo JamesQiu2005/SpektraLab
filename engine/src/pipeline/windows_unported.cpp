@@ -24,6 +24,8 @@ bool Pipeline::set_overscan_frame(uint32_t, uint32_t, std::string& error) {
 // the clean textual merge left this undefined and the non-Apple engine did
 // not link. Overscan is refused here, so there is never a layout to report.
 std::string Pipeline::overscan_geometry_json() const { return "{\"valid\":false}"; }
+// API-SPEC §24: no film edge here, so no format to name.
+std::string Pipeline::overscan_formats_json() { return "{\"formats\":[]}"; }
 
 // API-SPEC §21.5-§21.6: the lens pass (`lens.cpp`) dispatches Metal kernels
 // only, so it is refused here rather than run on kernels Vulkan lacks.
@@ -41,7 +43,7 @@ bool Pipeline::lens_source(const Params& params, const Image& src, bool, Image& 
 }
 
 bool Pipeline::node_overscan(const Image& in, Image& out, std::string& error) {
-    if (params_.film_render.leak.kind != "off") {   // API-SPEC §21.1: the overscan node's
+    if (params_.film_render.leak.kind != "off" || params_.film_render.leak.edge > 0.0) {   // API-SPEC §21.1, §21.9: the overscan node's
         error = "light leaks are not implemented by the Windows Vulkan backend yet";
         return false;
     }
