@@ -41,9 +41,16 @@ on:
         required: false
         default: false
 
+# Pushes, pull requests and dispatches used to share one group, so a push that
+# lands while a release dispatch is running cancels the dispatch — the one run
+# that must never be cancelled. On 2026-11-12 it was: dispatch 43262998616 began
+# at 16:50:19, push 9ceca33 at 16:56:15, and every job including "Publish the
+# Windows pre-release" came back cancelled. The retry needed a second dispatch
+# and still failed in the publish job. Keep cancelling superseded push and
+# pull_request runs, where the waste is real, and leave the dispatch alone.
 concurrency:
-  group: desktop-${{ github.ref }}
-  cancel-in-progress: true
+  group: desktop-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
