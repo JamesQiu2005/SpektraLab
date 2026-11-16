@@ -24,11 +24,14 @@
 - spk_windows_feature_boundaries 实际渲染并检查 latitude、DI、contrast mask、片边、日期后背、漏光、柔光滤镜、镜头像差、scan HDR 和场景蒙版。
 - 真实 RAW 编辑闭环：Debug 与 Release 都通过 217 项检查，使用 Canon EOS 5D Mark III DNG 和无效 CRW；输出分别位于 build/verify-editing-final 与 build/verify-editing-release-212917。
 - 真实 RAW 库闭环：Debug 与 Release 都通过 147 项检查，使用同一对隔离输入；输出分别位于 build/verify-library-final 与 build/verify-library-release-212917。
+- Vulkan 与 public `spektrafilm` 0.3.4 的确定性核心全图对照通过：240×180、129,600 个 RGB 值，最大绝对差 8.629775545831997e-06，最大 1 个 uint16 count，0 个 count outlier；Vulkan 全图渲染与缓存重印逐位一致。证据在 build/parity-acceptance-20261115/parity-report.json。
+- 默认空间特效（halation、DIR couplers）对同一 public 参考不通过，最大绝对差 0.8277110063785368；两者分别单独关闭后仍不通过。不能据此判定 Metal 或 Vulkan 缺陷，因为 public 包不是生成 Mac oracle 的私有 fork。
 - 上一轮 Python 工具测试 47 项通过（2.671 秒）；本轮未重跑。此前 Release 可见窗口启动和净化 PATH 启动已验收，截图在 build/qt-m1/spektralab-printwindow.png。
+- 本轮 Python 工具测试 50 项通过（0.940 秒）。
 
 ## 下一步
 
-1. 建立 Vulkan 与 Metal/Python 的同输入、关闭随机项全图对照；新 Vulkan 特效目前只有功能测试，没有数值 parity 结论。
+1. 精确 Metal/私有 fork 参考仍不可用；public Python 的确定性核心已通过。默认 halation/DIR couplers 与 public 实现不同，需匹配私有参考后再判定。
 2. 增加原生 Windows CI，至少覆盖 Debug/Release 构建与 CTest。
 3. 验收显示器 ICC、广色域/HDR；当前界面仍是 8-bit SDR sRGB 显示路径。
 4. 做解码、上传、计算、回读和写盘的分段性能测量，再设性能目标。
@@ -42,7 +45,9 @@
 - build/verify-editing-release-212917/report.json
 - build/verify-library-count-debug-213238/library-workflow.json
 - build/verify-library-count-release-213238/library-workflow.json
+- build/parity-acceptance-20261115/parity-report.json
+- build/parity-default-20261115/parity-report.json
 
 ## 限制
 
-跨后端数值一致性、显示色彩管理、Windows CI、性能和真实胶片校准均未完成。HEIF 依赖 Windows HEIF 图像扩展；界面导出仍为 SDR。
+public Python 的确定性核心跨后端数值对照已通过；私有 fork/Metal、默认空间特效、显示色彩管理、Windows CI、性能和真实胶片校准仍未完成。HEIF 依赖 Windows HEIF 图像扩展；界面导出仍为 SDR。

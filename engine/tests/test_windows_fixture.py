@@ -48,11 +48,12 @@ class FixtureTests(unittest.TestCase):
         self.assertIsInstance(argv, list)
         self.assertEqual(argv[:3], [str(self.driver.resolve()), str(self.resources.resolve()),
                                    str((self.fixture / "input.f32").resolve())])
+        params = wf.read_json(self.fixture / "params.json")
         pixels = self.pixels()
         pixels.tofile(argv[6])
         report = {"format_version": 1, "success": True, "stage": "done", "error": "",
-                  "input": self.manifest["input"], "params_delta": wf.PARAMS,
-                  "open_reply": {"params": wf.PARAMS},
+                  "input": self.manifest["input"], "params_delta": params,
+                  "open_reply": {"params": params},
                   "capabilities": {"backend": {"render_core": "native-vulkan"}},
                   "output": {**self.manifest["output_contract"], "written": True,
                              "packed_row_stride_px": pixels.shape[1],
@@ -95,6 +96,15 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(wf.read_json(self.fixture / "params.json"), wf.PARAMS)
         with self.assertRaisesRegex(wf.FixtureError, "already exist"):
             wf.generate_fixture(self.fixture, 6)
+
+    def test_core_profile_disables_deterministic_spatial_effects(self):
+        core = self.root / "core fixture"
+        manifest = wf.generate_fixture(core, 6, profile="core")
+        self.assertEqual(manifest["params_profile"], "core")
+        self.assertEqual(wf.read_json(core / "params.json"), wf.CORE_PARAMS)
+        self.assertFalse(wf.CORE_PARAMS["halation_active"])
+        self.assertFalse(wf.CORE_PARAMS["dir_couplers_active"])
+        wf.validate_fixture(core)
 
     def test_corrupt_input_and_nonfinite_input_are_rejected(self):
         pixel_path = self.fixture / "input.f32"

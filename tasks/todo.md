@@ -23,7 +23,8 @@
 
 - [x] Debug CTest 18/18、Release CTest 18/18，0 跳过；RTX 3060 Laptop GPU。
 - [x] Windows 功能边界实际渲染：latitude、DI、contrast mask、片边、日期、漏光、柔光/像差、scan HDR、场景蒙版。
-- [ ] Metal/Python 同输入全图数值 parity。
+- [ ] Metal/私有 fork 同输入全图数值 parity；public Python 确定性核心已通过（最大绝对差 8.63e-06，0 个 count outlier）。
+- [ ] 默认 halation/DIR couplers 与匹配参考对齐；public 包对照失败。
 - [x] 错误输入、对象生命周期、无效编辑记录和导出覆盖保护检查。
 
 ## M3 用户闭环

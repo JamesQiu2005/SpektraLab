@@ -9,8 +9,10 @@ build paths.
 The port began at `unpublished-revision` and is integrated
 with the author's `Windows_Port` starting point, `unpublished-revision`.
 Capabilities that have not been explicitly ported remain unsupported. Passing the local
-tests does not establish whole-image equivalence with Metal or the external
-Python film-model reference.
+tests does not establish whole-image equivalence with Metal or the private
+Python fork. The deterministic core has a separate whole-image comparison
+against public `spektrafilm`; its scope and the remaining effect differences
+are recorded below.
 
 - [Native RAW and TIFF contracts](WINDOWS_NATIVE_RAW.md)
 - [Minimal Win32 viewer](WINDOWS_DESKTOP.md)
@@ -127,11 +129,61 @@ python engine/tools/windows_features.py `
     --output build/validation/features
 ```
 
-The recorded Python tool gate passed 47 tests. Test outputs must use fresh
+The recorded Python tool gate passed 50 tests. Test outputs must use fresh
 paths: the fixture and integration tools intentionally refuse overwrites.
 Generated manifests bind inputs, resolved parameters, binaries, resources and
 outputs by hash. Their reports explicitly distinguish local execution from
 external parity.
+
+### External Python reference
+
+`windows_fixture.py` has two profiles. `default` keeps the stock deterministic
+spatial effects. `core` also disables halation, DIR couplers, the diffusion
+filter and lens aberrations, leaving the arithmetic shared by both engines.
+Grain, glare and automatic exposure are off in both profiles.
+
+```powershell
+python engine/tools/windows_fixture.py generate `
+    --output-dir build/validation/core-fixture --size 180 --profile core
+python engine/tools/windows_fixture.py run `
+    --driver build/windows/engine/spk_render_fixture.exe `
+    --resources build/windows/engine/resources `
+    --fixture-dir build/validation/core-fixture `
+    --output-dir build/validation/core-run
+```
+
+On a Linux/WSL machine with public `spektrafilm` installed, render from that
+checkout (`/mnt/e/...` paths in WSL):
+
+```bash
+python engine/tools/windows_python_reference.py \
+    --fixture-dir build/validation/core-fixture \
+    --resources engine/resources \
+    --reference-dir /path/to/spektrafilm \
+    --output build/validation/core-reference.npy \
+    --metadata build/validation/core-reference.json
+```
+
+Then compare on Windows:
+
+```powershell
+python engine/tools/windows_fixture.py compare `
+    --fixture-dir build/validation/core-fixture `
+    --got build/validation/core-run/output.rgba16 `
+    --reference build/validation/core-reference.npy `
+    --reference-metadata build/validation/core-reference.json `
+    --report build/validation/core-parity.json
+```
+
+Measured on 2026-11-15 with public `spektrafilm` 0.3.4 at
+`3bb2c2d2801ff68b92019cf1dbcbb133d60832bc`: 129,600 RGB values, max absolute
+difference `8.629775545831997e-06`, max one uint16 count, zero count outliers.
+The engine repeated the full render and cached reprint bit-exactly. The
+`default` profile fails against that public package (max absolute difference
+`0.8277110063785368`); halation and DIR couplers each differ independently.
+The public package is not the private fork: public history lacks
+`spektrafilm.model.colour_baked` and `spektrafilm.service.schema`, so this
+does not establish equality with the macOS Metal oracle.
 
 For camera-input tests, supply your own supported RAW and follow
 [WINDOWS_NATIVE_RAW.md](WINDOWS_NATIVE_RAW.md). Private RAWs and full-size
@@ -153,7 +205,8 @@ and stripes. Its output is deliberately **not** the current pixel baseline.
 The corrected shader passes 144 exact boundary cases, 35 deterministic
 whole/stripe/reprint combinations and a full-size ARW stripe comparison.
 Material data and baked LUTs were unchanged. Stochastic stripe combinations
-and external whole-image parity still need broader validation.
+remain unmeasured; the deterministic core parity result and the default-effect
+limitation are recorded above.
 
 Recorded developer measurements on 2026-10-03 used a 4688×7028 (32.95 MP)
 decoded ARW and default effects, across three processes with one first full
@@ -180,5 +233,6 @@ elapsed time and staging capacity. It is disabled by default.
 The existing parity entry points accept `--resources`; ctypes-based entry
 points also accept `--library` (`--dylib` is an alias). Environment overrides
 are `SPEKTRALAB_ENGINE_LIBRARY` and `SPEKTRALAB_ENGINE_RESOURCES`. External
-Metal/Python film-model parity requires a matching reference checkout or
-independently produced outputs; the local gates do not provide that oracle.
+Public-Python core parity uses `windows_python_reference.py`; exact
+Metal/private-fork parity still requires a matching reference checkout or
+independently produced outputs.

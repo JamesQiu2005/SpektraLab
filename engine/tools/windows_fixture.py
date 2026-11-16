@@ -1,6 +1,8 @@
 """Generate fixed pixels, run the Windows DLL driver, and compare an external oracle.
 
 ``run`` establishes an execution result and always records parity as unverified.
+``generate`` has a ``default`` profile (stock deterministic spatial effects)
+and a ``core`` profile that disables them for cross-backend stage arithmetic.
 ``compare`` requires a separate reference artifact and its provenance metadata;
 the metadata declares its origin, rather than proving that origin independently.
 No image decoder, RAW file, Python reference installation, or engine is needed
@@ -27,6 +29,9 @@ PRODUCER = "spektralab_windows_fixture_driver"
 PARAMS = {**BASE, "film_stock": "kodak_portra_400", "print_stock": "kodak_portra_endura",
           "input_color_space": "ProPhoto RGB", "input_cctf_decoding": False,
           "output_color_space": "ProPhoto RGB", "output_cctf_encoding": True}
+CORE_PARAMS = {**PARAMS, "halation_active": False, "dir_couplers_active": False,
+               "diffusion_filter_active": False, "lens_aberrations_active": False}
+PROFILES = {"default": PARAMS, "core": CORE_PARAMS}
 INPUT_FORMAT = "float32_le_rgb"
 OUTPUT_FORMAT = "uint16_le_rgba"
 
@@ -82,8 +87,9 @@ def protect_output(path: Path, inputs: list[Path]) -> None:
             f"output path would overwrite an input or provenance file: {path}")
 
 
-def generate_fixture(output_dir: Path, size: int = 180) -> dict:
+def generate_fixture(output_dir: Path, size: int = 180, profile: str = "default") -> dict:
     require(type(size) is int and size > 0, "size must be a positive integer")
+    require(profile in PROFILES, f"unknown fixture profile: {profile}")
     output_dir = output_dir.resolve()
     paths = [output_dir / name for name in ("input.f32", "params.json", "manifest.json")]
     require(not any(path.exists() for path in paths), "fixture files already exist; use a new directory")
@@ -92,10 +98,11 @@ def generate_fixture(output_dir: Path, size: int = 180) -> dict:
             and bool(np.isfinite(frame).all()), "generator returned invalid RGB float32 pixels")
     output_dir.mkdir(parents=True, exist_ok=True)
     np.asarray(frame, dtype="<f4", order="C").tofile(paths[0])
-    write_json(paths[1], PARAMS)
+    params = PROFILES[profile]
+    write_json(paths[1], params)
     h, w = frame.shape[:2]
     manifest = {
-        "format_version": 1, "fixture": "synthetic_default",
+        "format_version": 1, "fixture": f"synthetic_{profile}", "params_profile": profile,
         "verification": "unverified",
         "generator": {"producer": "parity_render.load_frame", "seed": 7, "height": size,
                       "numpy_version": np.__version__,
@@ -141,7 +148,10 @@ def validate_fixture(fixture_dir: Path) -> tuple[dict, dict]:
     require(bool(np.isfinite(np.fromfile(pixel_path, dtype="<f4")).all()),
             "input contains NaN or infinity")
     actual_params = read_json(params_path)
-    require(actual_params == PARAMS, "this fixture tool supports only the explicit deterministic default case")
+    profile = manifest.get("params_profile", "default")
+    require(profile in PROFILES, f"unknown fixture profile: {profile}")
+    require(actual_params == PROFILES[profile],
+            f"fixture params do not match the explicit {profile} profile")
     return manifest, actual_params
 
 
@@ -355,6 +365,8 @@ def main(argv: list[str] | None = None) -> int:
     generate = commands.add_parser("generate", help="write deterministic already-decoded RGB float32 pixels")
     generate.add_argument("--output-dir", type=Path, required=True)
     generate.add_argument("--size", type=int, default=180, help="height in pixels; width is floor(height * 4/3)")
+    generate.add_argument("--profile", choices=sorted(PROFILES), default="default",
+                          help="default keeps deterministic spatial effects; core disables them")
     run = commands.add_parser("run", help="execute the DLL-backed driver; parity remains unverified")
     for name in ("driver", "resources", "fixture-dir", "output-dir"):
         run.add_argument(f"--{name}", type=Path, required=True)
@@ -364,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "generate":
-            result = generate_fixture(args.output_dir, args.size)
+            result = generate_fixture(args.output_dir, args.size, args.profile)
             print(f"generated {result['input']['width']}x{result['input']['height']} RGB float32; parity unverified")
             return 0
         if args.command == "run":
