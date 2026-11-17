@@ -13,7 +13,8 @@
 //    host/engine/ (the constants, the film and paper profiles, the .spv
 //    kernels), the licences, the uninstaller;
 //  - the app and the host, extracted to a scratch folder, are PE32+ x86-64.
-//  - the version in its name is package.json's.
+//  - the version in its name is package.json's, and so are the app's version
+//    resource's ProductName ("SpektraLab") and ProductVersion.
 // Nothing is executed but `file` and `7zz`.
 
 import { execFileSync } from 'node:child_process';
@@ -74,6 +75,17 @@ try {
     if (!existsSync(p)) { fail(`could not extract ${name}`); continue; }
     const k = run('file', ['-b', p]).trim();
     if (!k.startsWith(`PE32+ executable (${gui ? 'GUI' : 'console'}) x86-64`)) fail(`${name}: file says "${k}", not a PE32+ x86-64 ${gui ? 'GUI' : 'console'} program`);
+  }
+  // The app's version resource (VS_VERSIONINFO, UTF-16 strings): its ProductName and ProductVersion are package.json's.
+  const app = join(scratch, 'spektralab.exe');
+  if (existsSync(app)) {
+    const bytes = readFileSync(app);
+    const text = bytes.toString('utf16le') + '\n' + bytes.subarray(1).toString('utf16le');
+    const field = (key) => new RegExp(`${key}\\u0000+([^\\u0000]+)`).exec(text)?.[1];
+    const product = field('ProductName'), productVersion = field('ProductVersion');
+    if (product !== 'SpektraLab') fail(`spektralab.exe's ProductName is ${JSON.stringify(product)}, not "SpektraLab"`);
+    if (productVersion !== version) fail(`spektralab.exe's ProductVersion is ${JSON.stringify(productVersion)}, not package.json's ${version}`);
+    else console.log(`version resource: ${product} ${productVersion}`);
   }
 } finally { rmSync(scratch, { recursive: true, force: true }); }
 

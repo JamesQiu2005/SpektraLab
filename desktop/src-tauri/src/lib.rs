@@ -17,7 +17,10 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+// Only the single-instance hand-off (Windows and Linux) emits from here.
+#[cfg(any(target_os = "linux", windows))]
+use tauri::Emitter;
 
 use host::HostManager;
 
@@ -289,13 +292,13 @@ fn file_args(argv: &[String]) -> Vec<String> {
 }
 
 pub fn run() {
-    let mut builder = tauri::Builder::default();
+    let builder = tauri::Builder::default();
 
     // Single instance first, as the plugin requires: a second launch (a file
     // opened from the file manager) hands its paths to the running window.
     #[cfg(any(target_os = "linux", windows))]
-    {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+    let builder = {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let paths = file_args(&argv);
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
@@ -304,8 +307,8 @@ pub fn run() {
             if !paths.is_empty() {
                 let _ = app.emit("open-paths", paths);
             }
-        }));
-    }
+        }))
+    };
 
     builder
         .plugin(tauri_plugin_dialog::init())
