@@ -1,0 +1,3 @@
+/target/
+# A standalone library crate in phase 1; the app's workspace owns the lock file.
+/Cargo.lock
