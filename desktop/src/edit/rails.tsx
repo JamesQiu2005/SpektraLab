@@ -318,7 +318,7 @@ export function DevelopTools({ navigator }: { navigator: 'well' | 'line' | 'hidd
   const gate = useSession((s) => s.gate);
   return (
     <>
-      {navigator !== 'hidden' && <div className="v2-rail-fixed navigator"><Navigator fold={navigator} /></div>}
+      {navigator !== 'hidden' && <div className="v2-rail-fixed nav"><Navigator fold={navigator} /></div>}
       <div className="v2-rail-scroll" data-testid="develop-sections">
         <FilmPaper />
         <Format />

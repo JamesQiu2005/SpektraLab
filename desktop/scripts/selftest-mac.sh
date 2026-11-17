@@ -10,11 +10,12 @@
 # - the host: build/host-mac (scripts/build-host-mac.sh); the helper: $SPKLIB_SRC/build/spklib-host;
 # - isolation: HOME and CFFIXED_USER_HOME point into build/t5b/home, and the library store into
 #   build/t5b/store, so neither the person's app data nor their libraries are touched;
-# - fixtures: one RAW (A7m3/DSC03710.ARW) copied into a folder to link; a Capture One 16.8 catalog
+# - fixtures: two RAWs (A7m3/DSC03710.ARW, DSC03733.ARW) copied into a folder to link; a Capture One 16.8 catalog
 #   made from spklib's fixture schema, whose every file's bytes and times must be unchanged afterwards;
 # - the checks: exit 0 and `selftest-result.json` ok; `canvas.png` a PNG of a picture (size, not one
 #   colour); `status.json` says Developed and the job is done; the export a JPEG at the long edge asked;
-#   the Library saw the folder's frame and the catalog's two, read-only; no process left behind.
+#   the Library saw the folder's frames and the catalog's two, read-only; the second frame, pressed in the
+#   browser in Develop (PRD-W5), opened on the page and developed; no process left behind.
 # No screencapture, nothing that needs a privacy grant, no timing asserted (a timeout is a failure).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,7 +24,8 @@ repo="$(cd "$desktop/.." && pwd)"
 fail() { echo "FAIL T5b: $*" >&2; exit 1; }
 ok() { echo "ok   T5b: $*"; }
 [[ "$(uname -s)" == Darwin ]] || fail "this runs on macOS"
-[[ -n "${SPEKTRALAB_RAW_FIXTURES:-}" && -f "$SPEKTRALAB_RAW_FIXTURES/A7m3/DSC03710.ARW" ]] || fail "SPEKTRALAB_RAW_FIXTURES must hold A7m3/DSC03710.ARW"
+[[ -n "${SPEKTRALAB_RAW_FIXTURES:-}" && -f "$SPEKTRALAB_RAW_FIXTURES/A7m3/DSC03710.ARW" && -f "$SPEKTRALAB_RAW_FIXTURES/A7m3/DSC03733.ARW" ]] \
+  || fail "SPEKTRALAB_RAW_FIXTURES must hold A7m3/DSC03710.ARW and A7m3/DSC03733.ARW"
 [[ -n "${SPKLIB_SRC:-}" && -x "$SPKLIB_SRC/build/spklib-host" ]] || fail "SPKLIB_SRC must name the spklib clone with a Mac helper built (build/spklib-host)"
 schema="$SPKLIB_SRC/tests/fixtures/capture_one_16_8_schema.sql"
 [[ -f "$schema" ]] || fail "no Capture One schema at $schema"
@@ -34,6 +36,7 @@ rm -rf "$scratch"; mkdir -p "$scratch/home" "$scratch/out" "$scratch/store" "$sc
 raw="$scratch/fixtures/DSC03710.ARW"
 cp "$SPEKTRALAB_RAW_FIXTURES/A7m3/DSC03710.ARW" "$raw"
 cp "$raw" "$scratch/fixtures/Folder/DSC03710.ARW"
+cp "$SPEKTRALAB_RAW_FIXTURES/A7m3/DSC03733.ARW" "$scratch/fixtures/Folder/DSC03733.ARW"
 
 # The Capture One catalog: spklib's 16.8 schema and two images, the first the RAW.
 cp "$raw" "$scratch/fixtures/Photos/A.ARW"; printf 'arw-b' > "$scratch/fixtures/Photos/B.ARW"
@@ -145,7 +148,13 @@ while i + 9 < len(jb):
 if not size or max(size) != 1200: die(f"{f}: size {size}, not a 1200 long edge")
 print(f"ok   T5b: export {os.path.basename(f)} is a JPEG {size[1]}x{size[0]}, {len(jb)} bytes")
 l = json.load(open(f"{out}/library.json"))
-if l["folder"]["total"] < 1 or "DSC03710.ARW" not in l["folder"]["images"]: die(f"folder: {l['folder']}")
+if l["folder"]["total"] != 2 or "DSC03710.ARW" not in l["folder"]["images"] or "DSC03733.ARW" not in l["folder"]["images"]: die(f"folder: {l['folder']}")
+s2 = l.get("second") or die("library.json has no second frame")
+if s2["file"] != "DSC03733.ARW" or s2["mode"] != "develop" or not s2["selection"].endswith("DSC03733.ARW"): die(f"second frame: {s2}")
+if not s2["status"].startswith("Developed") or s2["job"]["kind"] != "canvasDevelop" or s2["job"]["state"] != "done": die(f"second frame not developed: {s2}")
+if not s2["browserFocus"] or s2["frameTitle"] != "DSC03733" or not s2["print"]: die(f"second frame: {s2}")
+print(f"ok   T5b: the second frame pressed in the browser in Develop: {s2['file']} open on the page, {s2['job']['kind']} {s2['job']['state']} ({s2['job']['jobId']}), "
+      f"status {s2['status']!r}, print {s2['print']['width']}x{s2['print']['height']}")
 c = l["captureOne"]
 if c["kind"] != "captureOneCatalog" or not c["readOnly"] or c["total"] != 2: die(f"Capture One: {c}")
 print(f"ok   T5b: Library on the real helper (spklib {l['state']['version']}, {l['state']['origin']}): a linked folder ({l['folder']['total']}), "

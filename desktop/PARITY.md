@@ -1,5 +1,69 @@
 # PARITY — the macOS app (`modern_UI/Spektrafilm`) → `desktop/`
 
+## SpektraLab 2 for Windows, phase 3 — the Mac's one window (PRD-W5), 2026-11-17
+
+PRD-W2 R2 drew the 2026-10-23 HIG's two rails; the Mac has shipped Capture One's one window since
+2026-10-26, and that is what this window is now. The drawings stay the source for how a piece looks;
+the Mac as built (`Sources/Mac/LibraryUI/`) is the source for where it stands. Built on the mock
+backends and against the real host and helper on this Mac (T5b); **unverified on Windows**. This
+section supersedes phase 1's rows below on the rails, the filmstrip, the Library | Edit workspaces,
+the Info rail and F7/F8/Ctrl+B/Ctrl+Shift+F.
+
+| Mac v2 (2.4.1) | here | status | why / notes |
+|---|---|---|---|
+| `MacModeSwitch`: one mode row, Library · Develop · Edit, in the left column's head in every mode; a mode that cannot be entered says why in place | `app/Shell.tsx` `ModeRow`, `app/modes.ts` | built | drawn as the HIG's workspace switch capsule, three ways; Develop/Edit stand down only with no picture to open, and a press says why under the row |
+| `MainWindowLayout`: the left column is the mode's tools | `app/AppWindow.tsx` `Column` | built | Library: the source well, rows, filters. Develop: the Latitude meter, the Navigator, then Film & Paper and Format **as the Windows rail's two sections** (the Mac's Film & Paper \| Format tab pair is not redrawn: the drawings' sections are the look). Edit: the meter, then Adjust, Darkroom, Crop, no second tab row. Every mode's tools stay mounted (their scroll is kept) |
+| `MacDevelopBrowser`, `MacLibraryBrowser`: the library's browser at the right in every mode — one grid, query, sort and selection; a row opens its picture in Develop/Edit; Export takes the chosen frames; ← → walk the rows | `library/Browser.tsx`, `library/browser.ts` | built | with no library open (a file from Explorer, a dropped folder) the browser is that folder's frames, as the filmstrip was; a library row the editor's roll does not hold brings the library's rows in first (Develop ↵'s path) |
+| `MacBrowserSplit`: the browser's width dragged 240–900 and kept | `app/Shell.tsx` `Wall`, settings `browserWidth` | built | the Mac's 430 by default; a drag cannot take the picture under 480 epx; double-click puts back 430 |
+| `MacSharedControls`: one shared bar — column toggle · viewer \| browser split · full grid · loupe · Crop · sort · direction | `app/Shell.tsx` `SharedBar`, at the picture bar's leading edge | built | the sort is spklib's `images.list` sort (Capture Date, Import Date, File Name, Rating, Date Added); Crop pressed in the Library opens the picture on Develop with the crop; the v1 engine has one crop, so "the mode's own crop" is that one in every mode |
+| `MacLibraryBrowser.fullGrid` | `ui.fullGrid`, G | built | pressed in Develop/Edit it goes to the Library with the grid taking the window |
+| no page transition; no filmstrip, no "‹ Library", no "1 of N" | the shell mounted once | built | the frame's name and the status line are the info strip under the picture |
+| full-window pages (the Light Table, the contact sheet) above the shell | `LibraryWorkspace.tsx` `FullWindowPage` | built | Esc or Done puts them away |
+| the Library's viewer (the chosen picture beside the browser) | `LibraryWorkspace.tsx` `Viewer` | built (simplified) | a library row's picture is still its stand-in tone (the helper serves no previews, phase 1's row); a folder frame shows its thumbnail; the old Info rail's facts are one line in the viewer's info strip |
+| narrow windows | `app/layout.ts` | built | the picture keeps 480 epx: the browser shrinks to 240, then folds; then the column folds; a folded pane comes over the picture (F7 the column, F8 the browser), one at a time |
+| keys and menus | `app/commands.ts`, `app/keys.ts` | built | View: Left Column (Ctrl+B, F7), Browser (F8, Ctrl+Alt+V), Grid (G), Light Table (Ctrl+Shift+L). Go: Library / Develop / Edit (Ctrl+Alt+1/2/3), ← → on the browser's rows. The filmstrip's Ctrl+Shift+F is gone |
+| the Mac's later additions with no v1 engine support (layers, the import page, double exposures …) | — | absent | PRD-W5 §5 |
+
+**The design pages drawn in the old layout** (T2's `SUPERSEDED` in `tests/e2e/design.spec.ts`). Position is
+asserted from PRD-W5 §2's rule table there, each row citing its rule; controls, glyphs, fills and fit still
+come from the SVGs (T2b, its passes in `tests/design/fidelity.ts`). Never silently passed:
+
+- PC-E1 — layout superseded by the Mac's one window (PRD-W5): two rails and a filmstrip drawn; Develop's tools are the column in Develop, Edit's the column in Edit (T2b claims them there, moved left by the drawn right rail's x), the right is the browser.
+- PC-E2 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E3 — layout superseded by the Mac's one window (PRD-W5): as PC-E1; the case opens the Edit mode to open the tiles.
+- PC-E4 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E6 — layout superseded by the Mac's one window (PRD-W5): as PC-E3, Edit's tools claimed below the meter.
+- PC-E7 — layout superseded by the Mac's one window (PRD-W5): as PC-E3.
+- PC-E8 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E9 — layout superseded by the Mac's one window (PRD-W5): as PC-E6; Crop is the shared bar's.
+- PC-E10 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E11 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E12 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E13 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-X1 — layout superseded by the Mac's one window (PRD-W5): as PC-E1; ··· keeps its menu.
+- PC-X2 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-X3 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-O1 — layout superseded by the Mac's one window (PRD-W5): the window under the dialog; the Export dialog itself is drawn whole and held to its drawn places.
+- PC-N1 — layout superseded by the Mac's one window (PRD-W5): the HIG's fold rule drawn (the left rail folds under 1180); the one window folds the browser first, then the column, so at 768 both are folded and nothing of the drawn rail is claimed.
+- PC-N2 — layout superseded by the Mac's one window (PRD-W5): as PC-N1; the column over the picture (F7) is claimed.
+- PC-N3 — layout superseded by the Mac's one window (PRD-W5): as PC-N1; at 1280 × 672 the column and the browser both stay.
+- PC-L0 — layout superseded by the Mac's one window (PRD-W5): the grid drawn in the middle and an Info rail at the right; the first-run card is the middle, the browser the right.
+- PC-L1 — layout superseded by the Mac's one window (PRD-W5): as PC-L0; the Info rail's rows are the viewer's info strip.
+- PC-L2 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-L3 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-L4 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-L6 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-T1 — layout superseded by the Mac's one window (PRD-W5): drawn in the Library's middle; a full-window page now, nothing of the drawing claimed (its sheet tools are not built: the library has no sheet layout).
+- PC-K1 — layout superseded by the Mac's one window (PRD-W5): as PC-T1.
+
+Not superseded: PC-G1, PC-G2, PC-G3 (Settings is a window drawn whole and stands as drawn).
+
+Phase 1b's T2b table below is history from here; `tests/design/fidelity.ts` is current. Changed by the
+re-base: entries for regions no longer claimed are gone (PC-L3's read-only capsule over the grid and the
+Info rail's lock; PC-O1's, PC-N1's and PC-N2's Adjust tiles; PC-T1's and PC-K1's sheet tools, still not
+built); PC-E10's split handle is found built (its pass is placed at the one window's picture middle);
+PC-N2 lists the filmstrip's chip (no filmstrip, PRD-W5 §2 rule 8).
+
 ## SpektraLab 2 for Windows, phase 2 — 2026-11-17
 
 Phase 2 wires what phase 1 drew against mocks to the real backends. **Built** below means: on the

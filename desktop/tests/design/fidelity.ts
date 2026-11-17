@@ -4,8 +4,57 @@
 // the page does not draw, and on one that is built after all.
 
 type Box = [number, number, number, number];
-/** The Edit pages drawn with the Edit rail scrolled (PC-E6, PC-E9): the tiles under the pinned meter are not claimed. */
-const RIGHT_BELOW_METER: Box[] = [[0, 0, 1215, 816], [1216, 204, 1536, 816]];
+
+/**
+ * A T2b pass (PRD-W5 R6): the regions of the drawing it claims, the mode the window is put in first, and
+ * where those regions stand now. The drawings place Develop's tools in the left rail and Edit's in the
+ * right; the one window puts both in the left column, one mode at a time, so Edit's are claimed in the
+ * Edit mode, moved left by the right rail's x. Inside a pass every item is still placed against its own
+ * label, so a section that moved as a whole is found where it went.
+ */
+export interface Pass { claims: Box[]; mode?: 'develop' | 'edit'; shift?: { x: number; y: number } }
+
+/** The picture (between the drawn walls, under the toolbar's band, over the filmstrip's): what lies over it. */
+const PICTURE: Box = [321, 80, 1215, 736];
+/** The left rail under the drawn workspace switch (y 84–112, the mode row now): Develop's tools; the Library's sidebar. */
+const LEFT: Box = [0, 116, 320, 816];
+/** The right rail (Edit's tools), and the same under its pinned meter for the pages drawn scrolled (PC-E6, PC-E9). */
+const RIGHT: Box = [1216, 80, 1536, 816];
+const RIGHT_BELOW_METER: Box = [1216, 204, 1536, 816];
+const TO_COLUMN = { x: -1216, y: 0 };
+/** The Develop column has the Latitude meter at its head (PRD-W5 §2 rule 2) where the drawing has the workspace switch:
+ * what the drawing puts under the switch stands 90 epx lower (an unlabelled piece, the Navigator's well, is found there). */
+const UNDER_METER = { x: 0, y: 90 };
+/** The Library's column has the mode row where the drawing has its title and the switch: everything under it is 40 higher. */
+const UNDER_MODE_ROW = { x: 0, y: -40 };
+
+/**
+ * Not claimed on a superseded page, because the one window has no such place (each is held by the SHELL
+ * rule table in design.spec.ts instead): the toolbar's band (its pieces stand around the shared bar now),
+ * the filmstrip's band (gone), the Library's grid (the browser) and Info rail (the viewer's strip), the
+ * drawn workspace switch (the mode row), and the snapped pages' and the sheets' columns (folded; full-window).
+ */
+export const PASSES: Record<string, Pass[]> = {
+  // Compare's handle stands at the middle of the shown frame: the one window's picture is 784 wide with the info
+  // strip under it, so its middle is (713, 428), not the drawn (752, 408) (the drawn split was already 16 left of the
+  // mock frame's middle).
+  'PC-E10': [{ claims: [PICTURE], shift: { x: -39, y: 20 } }, { mode: 'develop', claims: [LEFT], shift: UNDER_METER }, { mode: 'edit', claims: [RIGHT], shift: TO_COLUMN }],
+  ...Object.fromEntries(['PC-E1', 'PC-E2', 'PC-E3', 'PC-E4', 'PC-E7', 'PC-E8', 'PC-E11', 'PC-E12', 'PC-E13', 'PC-X1', 'PC-X2', 'PC-X3']
+    .map((id) => [id, [{ claims: [PICTURE] }, { mode: 'develop', claims: [LEFT], shift: UNDER_METER }, { mode: 'edit', claims: [RIGHT], shift: TO_COLUMN }]])),
+  ...Object.fromEntries(['PC-E6', 'PC-E9']
+    .map((id) => [id, [{ claims: [id === 'PC-E9' ? [321, 80, 1215, 816] : PICTURE] }, { mode: 'develop', claims: [LEFT], shift: UNDER_METER }, { mode: 'edit', claims: [RIGHT_BELOW_METER], shift: TO_COLUMN }]])),
+  // The Export dialog is drawn whole and stands where it is drawn; the window under it is not reachable.
+  'PC-O1': [{ claims: [[368, 128, 1168, 688]] }],
+  // Snapped: both panes fold, so nothing of the drawn rails stands on screen until F7; PC-N2 has it over the picture.
+  'PC-N1': [],
+  'PC-N2': [{ claims: [[0, 116, 320, 816]], shift: UNDER_METER }],
+  'PC-N3': [{ mode: 'develop', claims: [[0, 116, 320, 672]], shift: UNDER_METER }, { mode: 'edit', claims: [[960, 80, 1280, 672]], shift: { x: -960, y: 0 } }],
+  ...Object.fromEntries(['PC-L1', 'PC-L2', 'PC-L3', 'PC-L4', 'PC-L6'].map((id) => [id, [{ claims: [LEFT], shift: UNDER_MODE_ROW }]])),
+  'PC-L0': [{ claims: [LEFT], shift: UNDER_MODE_ROW }, { claims: [[321, 80, 1215, 816]] }],
+  // Full-window pages now: the sheet is not where the drawing puts it, and its tools are not built (PARITY.md).
+  'PC-T1': [],
+  'PC-K1': [],
+};
 
 export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string, string> }> = {
   'PC-E1': { notBuilt: {
@@ -43,7 +92,7 @@ export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string
     "control \"Vibrance\"": "R7: the v1 Layer 2 has no vibrance",
     "glyph \"Vibrance\"": "R7: as the Vibrance tile",
   } },
-  'PC-E6': { claims: RIGHT_BELOW_METER, notBuilt: {
+  'PC-E6': { notBuilt: {
     "control \"RGB\"": "the Decode tile's body is v1's Decode section inside the v2 tile; the drawing's RGB / Luma / Red capsules and the As Shot pill are not redrawn",
     "control \"Luma\"": "as RGB: v1's Decode body",
     "control \"Red\"": "as RGB: v1's Decode body",
@@ -65,7 +114,7 @@ export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string
     "control \"Vibrance\"": "R7: the v1 Layer 2 has no vibrance",
     "glyph \"Vibrance\"": "R7: as the Vibrance tile",
   } },
-  'PC-E9': { claims: RIGHT_BELOW_METER, notBuilt: {
+  'PC-E9': { notBuilt: {
     "glyph @544,139": "the crop frame's corner handles are v1's canvas overlay (painted in the picture), not separate graphics",
     "glyph @992,139": "as @544,139: the canvas overlay",
     "glyph @544,758": "as @544,139: the canvas overlay",
@@ -80,7 +129,6 @@ export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string
     "glyph \"Channels\"": "R7: as the Channels tile",
     "control \"Vibrance\"": "R7: the v1 Layer 2 has no vibrance",
     "glyph \"Vibrance\"": "R7: as the Vibrance tile",
-    "control @752,408": "built (a 26 epx white disc with ‹ ›) at the split, which sits at the middle of the shown frame; the mock frame is wider than the drawing's, so the split is 16 epx right of the drawn one",
   } },
   'PC-E11': { notBuilt: {
     "control \"HSL\"": "R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped",
@@ -141,29 +189,8 @@ export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string
     "control \"Vibrance\"": "R7: the v1 Layer 2 has no vibrance",
     "glyph \"Vibrance\"": "R7: as the Vibrance tile",
   } },
-  'PC-O1': { notBuilt: {
-    "control \"HSL\"": "R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped",
-    "glyph \"HSL\"": "R7: as the HSL tile",
-    "control \"Channels\"": "R7: the v1 Layer 2 has no channel mixer",
-    "glyph \"Channels\"": "R7: as the Channels tile",
-    "control \"Vibrance\"": "R7: the v1 Layer 2 has no vibrance",
-    "glyph \"Vibrance\"": "R7: as the Vibrance tile",
-  } },
-  'PC-N1': { notBuilt: {
-    "control \"HSL\"": "R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped",
-    "glyph \"HSL\"": "R7: as the HSL tile",
-    "control \"Channels\"": "R7: the v1 Layer 2 has no channel mixer",
-    "glyph \"Channels\"": "R7: as the Channels tile",
-    "control \"Vibrance\"": "R7: the v1 Layer 2 has no vibrance",
-    "glyph \"Vibrance\"": "R7: as the Vibrance tile",
-  } },
   'PC-N2': { notBuilt: {
-    "control \"HSL\"": "R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped",
-    "glyph \"HSL\"": "R7: as the HSL tile",
-    "control \"Channels\"": "R7: the v1 Layer 2 has no channel mixer",
-    "glyph \"Channels\"": "R7: as the Channels tile",
-    "control \"Vibrance\"": "R7: the v1 Layer 2 has no vibrance",
-    "glyph \"Vibrance\"": "R7: as the Vibrance tile",
+    "control \"All Photos  ·  214\"": "the filmstrip's chip: the one window has no filmstrip (PRD-W5 §2 rule 8); the browser's count says how many",
   } },
   'PC-N3': { notBuilt: {
     "control \"HSL\"": "R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped",
@@ -175,14 +202,12 @@ export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string
   } },
   'PC-L0': {},
   'PC-L3': { notBuilt: {
-    "control \"Ratings are set in Capture One\"": "the read-only notice stands in the grid's head (the soft InfoBar), not as the drawn capsule over the grid",
     "control \"Archive\"": "built 76 tall: the drawing's card is mid-read (Reading · 4,210 of 9,660); the mock reads at once",
     "glyph @107,442": "Capture One's project and group glyphs: the mock's catalog gives its collections no Capture One kind (spklib 0.4 reports albums and folders only)",
     "glyph @43,502": "as @107,442",
     "glyph @27,558": "as @107,442",
     "control \"Search\"": "FILTERS › Search is the plain text field, not the drawn 26 epx capsule with its glyph",
     "glyph @30,737": "as Search",
-    "glyph @1341,481": "the Capture One section's lock beside its head: the Info rail's heads carry no glyph",
     "glyph @60,193": "the Reading · 4,210 of 9,660 line's spinner: the mock helper reads a catalog at once, so there is no reading line",
     "glyph @42,322": "Recent Imports' dated children: the mock catalog has no import sessions under Recent Imports",
     "glyph @22,668": "a third folder, offline (Travel SSD): the mock Capture One catalog has two folders",
@@ -190,34 +215,9 @@ export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string
   'PC-L4': { notBuilt: {
     "glyph @111,250": "a session folder's glyph: the mock session's Capture / Selects / Output / Trash rows have the album glyph",
     "glyph @30,399": "FILTERS › Search's glyph: the plain text field",
-    "glyph @1341,481": "the Capture One section's lock beside its head: the Info rail's heads carry no glyph",
   } },
-  'PC-T1': { notBuilt: {
-    "control @851,784": "the sheet's tools (add a roll, zoom, fit, orientation, export the sheet) need the light table's layout from the library (spklib has no light-table layout API yet)",
-    "glyph @846,784": "as @851,784",
-    "control @897,784": "as @851,784",
-    "glyph @897,785": "as @851,784",
-    "control @943,784": "as @851,784",
-    "glyph @936,781": "as @851,784",
-    "control \"1:1\"": "built as v1's segment (1:1 | A4) at the foot's right, not as the drawn discs",
-    "control \"A4\"": "built as v1's segment (1:1 | A4) at the foot's right, not as the drawn discs",
-    "control @1081,784": "as @851,784",
-    "control @1127,784": "as @851,784",
-    "glyph @1123,781": "as @851,784",
-  } },
-  'PC-K1': { notBuilt: {
-    "control @851,784": "the contact sheet's tools (add, zoom, fit, orientation, export) need the sheet's layout from the library (spklib has none yet)",
-    "glyph @846,784": "as @851,784",
-    "control @897,784": "as @851,784",
-    "glyph @897,785": "as @851,784",
-    "control @943,784": "as @851,784",
-    "glyph @936,781": "as @851,784",
-    "control \"1:1\"": "not built for the contact sheet (no display size in a webview)",
-    "control \"Roll\"": "the sheet's roll picker: one roll (Roll 4) in the mock",
-    "control @1081,784": "as @851,784",
-    "control @1127,784": "as @851,784",
-    "glyph @1123,781": "as @851,784",
-  } },
+  // PC-T1, PC-K1: full-window pages since PRD-W5 (nothing claimed, see PASSES); their sheet tools (add a roll,
+  // zoom, fit, orientation, export the sheet) are still not built — the library has no sheet layout yet (PARITY.md).
   'PC-G1': { notBuilt: {
     "glyph @740,16": "Settings is a dialog inside the window in phase 1 (an owned top-level window waits for phase 2): Close only, no Minimise",
     "glyph @812,145": "Settings' rows hold v1's pill menus, whose ⌄ sits at the pill's end, not at the row's right edge",

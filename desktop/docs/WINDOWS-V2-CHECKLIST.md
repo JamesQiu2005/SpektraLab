@@ -19,14 +19,19 @@ Library (T5b); the installer's members, file types, versions and the helper's by
 - [ ] Maximise and restore with the caption button and with a double-click on the title bar; the corner
       radius goes square when maximised.
 - [ ] Snap layouts: hover the maximise button (Windows 11) and **Win+Z**; Win+←/→/↑/↓; drag to a screen
-      edge. Snapped narrow, the rails fold as `win_snapped*.svg` draws.
+      edge. Snapped narrow, the browser folds first, then the left column (PRD-W5; `app/layout.ts`), and F7 / F8
+      bring them over the picture.
 - [ ] Minimise, then restore from the taskbar.
-- [ ] F11 full screen and back; Ctrl+B and Ctrl+Shift+F.
+- [ ] F11 full screen and back; Ctrl+B (the left column), F8 (the browser), G (the full grid).
+- [ ] The one window (PRD-W5): the mode row switches Library · Develop · Edit with no page transition; a
+      browser row pressed in Develop opens that picture and develops it; the browser's dragged width is
+      the same after closing and reopening the app.
 
 ## DPI and displays
 
 - [ ] 100 %, 125 %, 150 % (and 175 % if the display allows) in Settings › Display › Scale: the title bar is
-      32 epx, the rails 320, the filmstrip 80; no clipped or "…" text, in English and 简体中文.
+      32 epx, the left column 320, the browser 430 (dragged and kept); no clipped or "…" text, in English and 简体中文,
+      in the Library, Develop and Edit modes.
 - [ ] Move the window between two monitors of different scale: it re-lays out without a blurred canvas.
 - [ ] A wide-gamut display: the canvas's colour (sRGB vs Display P3 path) looks right against an export.
 
@@ -34,12 +39,12 @@ Library (T5b); the installer's members, file types, versions and the helper's by
 
 - [ ] Alt shows the access keys; Alt+F / F10 opens File; arrow keys move in a menu; Esc closes it.
 - [ ] The keys `src/app/commands.ts` binds (board_keys.svg): Ctrl+Z / Ctrl+Y, Ctrl+E (Export…), Ctrl+, (Settings),
-      Ctrl+Shift+C / Ctrl+Shift+V (copy and paste settings), F7 / F8 / Ctrl+B / Ctrl+Shift+F, Ctrl+0 / Ctrl+1,
-      Y (compare), ←/→ between frames.
+      Ctrl+Shift+C / Ctrl+Shift+V (copy and paste settings), F7 / F8 / Ctrl+B / Ctrl+Alt+V / G, Ctrl+Alt+1/2/3
+      (Library, Develop, Edit), Ctrl+0 / Ctrl+1, Y (compare), ←/→ on the browser's rows (the picture follows).
 - [ ] Typing in a field (a recipe name, a number) keeps ←/→/Delete in the field (trap 32), and Ctrl+A
       selects the field's text, not the frames.
 - [ ] No WebView2 default shows through: no browser context menu, no Ctrl+P print dialog, no zoom on
-      Ctrl+wheel outside the canvas; Ctrl+F is the Library's search (not WebView2's find bar) and F5
+      Ctrl+wheel outside the canvas; Ctrl+F is the browser's search (not WebView2's find bar) and F5
       refreshes the Library (never reloads the page).
 - [ ] A machine without the WebView2 runtime (rare on Windows 11): the installer fetches it silently.
 

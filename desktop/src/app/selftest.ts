@@ -9,7 +9,10 @@
 // says Developed, write the canvas's own pixels as a PNG and the status line,
 // the page's job and the scheduler's snapshots as JSON, then one export through
 // the Export dialog (a recipe stored for this run, the dialog opened, its
-// Export button clicked) and wait for its file. Any failure ends the run with
+// Export button clicked) and wait for its file. Then the Library on the real
+// helper: a linked folder of two RAWs, and — in Develop, from the browser at
+// the window's right (PRD-W5) — a press on the other frame's row, which must
+// move the editing session to it and develop it. Any failure ends the run with
 // its reason; the Rust watchdog ends a run that never ends.
 
 import { invoke } from '@tauri-apps/api/core';
@@ -21,6 +24,7 @@ import { frameImages } from '../state/frames';
 import { openPaths, sessionStore, setPages } from '../state/session';
 import { DEFAULT_RECIPES_V2, type ExportRecipe } from '../export/recipes';
 import { addFolder, libraryStore, openLibrary } from '../library/store';
+import { uiStore } from './ui';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -100,6 +104,27 @@ export async function runSelfTestIfAsked(): Promise<void> {
       await addFolder(args.folder);
       const l = await until('the folder library', () => { const st = libraryStore.getState(); return st.phase === 'open' && st.total > 0 ? st : st.message ? (() => { throw new Error(`folder: ${st.message}`); })() : null; }, 60);
       library.folder = { kind: l.source?.kind, total: l.total, images: l.images.map((i) => i.file_name), path: l.source?.info.path };
+      // A second frame, opened from the browser in Develop: its row pressed, as a person would.
+      const other = l.images.find((i) => i.path !== raw && i.exists !== false);
+      if (!other) throw new Error(`the folder library has no second frame: ${l.images.map((i) => i.file_name).join(', ')}`);
+      if (uiStore.getState().workspace !== 'develop') (document.querySelector('[data-testid="mode-develop"]') as HTMLButtonElement | null)?.click();
+      const seenOther: JobSnapshotWire[] = [];
+      scheduler().onJob((j) => { if (j.frameId === other.path) seenOther.push(j); });
+      const row = await until('the second frame’s row in the browser', () => document.querySelector<HTMLElement>(`[data-testid="browser"] [data-uuid="${other.uuid}"]`), 30);
+      row.click();
+      await until(`${other.file_name} open on the page`, () => sessionStore.getState().selection === other.path, 60);
+      const second = await until('the scheduler to report the second frame developed', () => {
+        const st = sessionStore.getState();
+        const develop = seenOther.find((j) => j.kind === 'canvasDevelop' && j.state === 'done');
+        return develop && st.job && st.job.frameId === other.path && st.job.state === 'done' && frameImages.print
+          && /^Developed/.test(statusText()) ? develop : null;
+      }, 240);
+      library.second = {
+        file: other.file_name, path: other.path, mode: uiStore.getState().workspace, status: statusText(), job: second,
+        events: seenOther.map((j) => `${j.kind} ${j.state}`), selection: sessionStore.getState().selection,
+        browserFocus: libraryStore.getState().focus === other.uuid, frameTitle: document.querySelector('[data-testid="frame-title"]')?.textContent ?? '',
+        print: frameImages.print ? { width: frameImages.print.width, height: frameImages.print.height } : null,
+      };
     }
     if (args.captureOne) {
       await openLibrary(args.captureOne);

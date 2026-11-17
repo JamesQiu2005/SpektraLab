@@ -6,17 +6,74 @@ Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 ## Phase 3 — status (W2 phase 3; a restart picks up from here)
 
 Brief: the coordinator's phase 3 (2026-11-17) — part 1 PRD-W5 (the Mac's one window), part 2 the
-borrowed full view. Phase 2's notes follow below and still hold.
+borrowed full view. The section below says what was built and decided; phase 2's notes still hold.
 
-- **Part 2 done**: a `fullView` of the editing frame from the canvas's source borrows the editing
-  session (`HostEngine::place`, `MockEngine.place`), priced as opening nothing, carrying the session's
-  pending delta (`session.ts` `renderFull`). Red then green: `tests/host_engine.rs`,
-  `src/scheduler/mockEngine.test.ts`, `session-preview.test.ts`. Real host: `tests/real_host.rs` step
-  3/3b/3c and T5a step 3. Finding: the host keeps a negative per size (`negatives: 2`), the next
-  reprint prints in ~25 ms vs the develop's ~230 ms — it still reprints from the canvas's negative.
-- **Part 1**: not started.
-- Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests`,
-  `SPKLIB_SRC=<repo>/build/spklib`, `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
+- **Part 2 done** (eaf2babe): the borrowed full view, red then green, real host measured.
+- **Part 1**: the shell, browser, mode row, shared bar, keys (59fc95ab); v2-behaviour 19/19; the T2
+  re-base (SHELL rule table, SUPERSEDED, T2b passes) in progress; T5b's second frame written, not yet run;
+  README R7 note, PARITY phase-3 section, NOTES section written.
+- Next: design.spec green, T5b, the composed gate, review screenshots (`build/review-phase3/`).
+- Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests` (now also needs
+  `A7m3/DSC03733.ARW`), `SPKLIB_SRC=<repo>/build/spklib`,
+  `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
+
+## SpektraLab 2 for Windows, phase 3 (2026-11-17, W2): the Mac's one window, the borrowed full view
+
+**The window (PRD-W5).** The Mac's `MainWindowLayout`, with every piece's look kept from the Windows drawings:
+- `app/AppWindow.tsx` is the shell, mounted once: the title bar; the LEFT COLUMN (`Column`: the mode row in its
+  head, then the mode's tools — `LibraryColumn`; or the Latitude meter, then `DevelopTools` / `EditTools`);
+  the picture (`Toolbar` = the shared bar + the mode's half; `Picture` + `InfoStrip`, or `LibraryCentre`);
+  the BROWSER (`library/Browser.tsx`) in a slot that is mounted in every mode (hidden when folded), so its
+  scroll is kept. Every column page stays mounted too (`hidden`), for the same reason.
+- `app/modes.ts` is the mode row's logic (`chooseMode`, `modeUnavailable`); `app/Shell.tsx` its view
+  (`ModeRow`), the `SharedBar` and the `Wall`s. `ui.workspace` is `'library' | 'develop' | 'edit'`.
+- `library/browser.ts` is the browser's model: rows = the library's (`libraryStore.images`) or, with none
+  open, the folder's frames (`sessionStore.frames`); `pressRow` (in Develop/Edit a press opens the picture:
+  `click(path)` if it is in the editor's roll, else the browser's rows become the roll first, then
+  `select`), `stepRow` (← →), `exportPaths` (the chosen rows, or the open picture), `modePicture`.
+- Export takes the browser's chosen rows: `exportFromBrowser` sets the session's `picked` to them (those in
+  the roll) before the dialog opens; the dialog and the exporter are unchanged.
+
+**The fold rule (R4), as `app/layout.ts` computes it and `layout.test.ts` holds it.** The picture keeps at
+least 480 epx (`MIN_PICTURE`). With the column at 320 and the browser at its kept width (430 by default):
+the browser first gives up width down to 240; a window narrower than column + 240 + 480 + walls (1042 at
+the defaults) folds the browser; one narrower than column + 480 (801) folds the column as well (a snapped
+half of a 1536 screen, 768, folds both). A pane hidden by hand stays hidden at any width; a folded pane
+comes back over the picture (F7 the column, F8 the browser), one at a time; Esc or a press on the picture
+puts it away. The full grid (G) gives the browser everything right of the column. The picture bar's
+overflow follows the picture's width: under 640 the zoom and Original go into ···, under 520 Compare and
+Paste too. A drag of the browser's wall never takes the picture under 480.
+
+**Decisions.**
+- The Mac's Develop column is "the meter, then Film & Paper | Format" as a tab pair; here they stay the
+  Windows rail's two section heads, in that order (the drawings are the source for the look). The Navigator
+  stays, under the meter. Edit's tools follow the meter directly; the mode row is the column's only tab row.
+- A mode that cannot be entered (Develop/Edit with no picture anywhere) is dimmed (`aria-disabled`, not
+  `disabled`), so a press can say why under the row (`modeNote`); Esc clears it.
+- The mode row's "Develop" from the Library opens the browser's focus, else the open picture, else the
+  first row, and leaves the chosen rows chosen (`openPicture`, not `pressRow`).
+- The v1 engine has one crop, so the shared bar's Crop is that crop in every mode (pressed in the Library
+  it opens the picture on Develop with the crop on).
+- The sort is spklib's (`images.list` `sort`/`descending`), one order for every mode; the mock sorts too.
+- Settings: `browserWidth` (240–900, default 430) is new; `leftCollapsed` now means the column hidden and
+  `rightCollapsed` the split off (the browser hidden); `filmstripCollapsed` is no longer read.
+
+**T2 re-based (R6).** `tests/e2e/design.spec.ts`: position comes from the `SHELL` rule table (each row cites
+PRD-W5 §2); texts keep their drawn place only in the title bar and in windows/dialogs drawn whole
+(Settings, the Export dialog: `drawnPlaces`), elsewhere they must be on screen (in Develop or Edit). The
+superseded pages are `SUPERSEDED` there and in PARITY.md (a test holds the two together). T2b runs in
+passes (`tests/design/fidelity.ts` `PASSES`): the picture's overlays where they are; Develop's rail in the
+Develop mode; Edit's rail in the Edit mode moved left by the drawn right rail's x; Library pages their
+sidebar. The toolbar's and filmstrip's bands, the Info rail and the grid are not claimed (the SHELL table
+holds where things stand instead). `moved` names an unlabelled drawn item built elsewhere on purpose (the
+Navigator's well, under the meter), with the shift and the reason; like `notBuilt`, an unused entry fails.
+
+**The borrowed full view (part 2).** `HostEngine::place`: a `fullView` `render_view` of the editing frame
+from the editing source borrows the editing session (no open/close); MockEngine mirrors it; the page sends
+the edit the session lacks as its `setParams` and prices the job as opening nothing. Measured on the Mac
+host (real_host step 3b): the host keeps a negative per size on the session (`memory_report` `negatives: 2`
+after the full view) and the next print-side reprint prints in ~25 ms against the develop's ~230 ms — the
+canvas's negative survives the full view.
 
 ## SpektraLab 2 for Windows, phase 2 (2026-11-17, W2)
 

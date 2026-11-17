@@ -1,5 +1,19 @@
 # The SpektraLab HIG for Windows (2026-10-23)
 
+> **2026-11-17 — the window is the Mac's one window (PRD-W5).** Three days after this guideline was written the
+> owner changed the Mac to Capture One's one window, and the Mac has shipped it since (2.1.x … 2.4.1,
+> `Sources/Mac/LibraryUI/`). The Windows app follows the Mac as built: **the left column** carries one mode row
+> (Library · Develop · Edit) and that mode's tools — all edits on the left; **the picture** is in the middle, with
+> one shared bar at the leading edge of its bar and an info strip under it; **the right is the library's browser in
+> every mode**, its width dragged and kept (240–900 epx, the Mac's 430 by default). There is no filmstrip, no
+> "‹ Library", no "1 of N", and no page transition between modes; the light table and the contact sheet are
+> full-window pages above the window. This supersedes **§1.1's two rails and its filmstrip** (and the window rule's
+> folding in §1.3: the browser folds first, then the column) and **§3's "Develop and Edit, both on screen"**, and with
+> them the same words in "The rule above every other" and §10. The drawings are left as they are: they remain the
+> source for **how a piece looks** (glyphs, tiles, capsules, the slider row, colours, type, the title bar and menus);
+> the Mac as built is the source for **where it stands**. The pages drawn in the old layout are listed as
+> superseded in `desktop/PARITY.md` and in the design-conformance test (`tests/e2e/design.spec.ts`, `SUPERSEDED`).
+
 This is the house guideline for SpektraLab 2.0 on Windows, and the drawings made from it. It is written for the
 friends who build the Windows app. The pages are listed in [INDEX.md](INDEX.md).
 
