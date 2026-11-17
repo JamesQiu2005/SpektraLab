@@ -56,6 +56,8 @@ createRoot(document.getElementById('root')!).render(
 );
 
 void boot();
+// T5b: inert unless the app was started with --selftest (a debug or selftest build).
+void import('./app/selftest').then((m) => m.runSelfTestIfAsked());
 
 // For the layout harness and for debugging from the webview inspector.
 import { sessionStore } from './state/session';

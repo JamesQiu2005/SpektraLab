@@ -12,6 +12,8 @@ pub mod workspace;
 pub mod diagnostics;
 pub mod scheduler;
 pub mod library;
+#[cfg(any(debug_assertions, feature = "selftest"))]
+pub mod selftest;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -356,77 +358,10 @@ fn file_args(argv: &[String]) -> Vec<String> {
         .collect()
 }
 
-pub fn run() {
-    let builder = tauri::Builder::default();
-
-    // Single instance first, as the plugin requires: a second launch (a file
-    // opened from the file manager) hands its paths to the running window.
-    #[cfg(any(target_os = "linux", windows))]
-    let builder = {
-        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let paths = file_args(&argv);
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-            if !paths.is_empty() {
-                let _ = app.emit("open-paths", paths);
-            }
-        }))
-    };
-
-    builder
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
-        .setup(|app| {
-            let handle = app.handle().clone();
-            diagnostics::initialize(&handle)?;
-            let sidecar_dir = app.path().app_data_dir()?.join("Sidecars");
-            let host = HostManager::new(handle.clone());
-            let argv: Vec<String> = std::env::args().collect();
-            let workspace = workspace::Workspace::new(app.path().app_data_dir()?);
-            let logs = app.try_state::<diagnostics::Diagnostics>().map(|d| d.directory.clone()).unwrap_or(app.path().app_log_dir()?);
-            let host_dir = host::resolve_launch(&handle).ok().filter(|l| !l.mock).and_then(|l| l.program.parent().map(PathBuf::from));
-            app.manage::<Library>(Arc::new(library::LibraryState::resolve(host_dir.as_deref())));
-            let emitter = handle.clone();
-            app.manage(scheduler::SchedulerHub::new(
-                Arc::clone(&host),
-                Some(Arc::clone(&workspace)),
-                scheduler::SchedulerPaths { logs, data: app.path().app_data_dir()? },
-                move |snapshot| { let _ = emitter.emit(scheduler::JOB_EVENT, snapshot); },
-            ));
-            app.manage(AppState {
-                host: Arc::clone(&host),
-                sidecars: files::SidecarStore { dir: sidecar_dir },
-                launch_paths: Mutex::new(file_args(&argv)),
-                frames: Arc::new(frame_cache::FrameCache::new(
-                    app.path().app_cache_dir()?.join("Frames-v1"),
-                    app.path().app_data_dir()?.join("display-cache.json"),
-                )),
-                cache_fingerprint: Arc::new(Mutex::new(None)),
-                workspace,
-            });
-            log::info!("SpektraLab {} starting on {}", app.package_info().version, std::env::consts::OS);
-            let wiring = handle.clone();
-            tauri::async_runtime::spawn(async move {
-                host.start().await;
-                // Made inside the runtime once the host is up; a command made before then waits for it.
-                if let Err(e) = wiring.state::<Hub>().wired().await { log::warn!(target: "scheduler", "{e}"); }
-            });
-            Ok(())
-        })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                if window.label() == "main" {
-                    let host = Arc::clone(&window.state::<AppState>().host);
-                    tauri::async_runtime::block_on(async move { host.shutdown().await });
-                    window.state::<Library>().shutdown();
-                    diagnostics::clean_exit(window.app_handle());
-                }
-            }
-        })
-        .invoke_handler(tauri::generate_handler![
+/// The command table, once; the self-test's three commands only where the self-test is compiled.
+macro_rules! commands {
+    ($($extra:path),*) => {
+        tauri::generate_handler![
             host_request,
             host_request_upload,
             host_state,
@@ -480,7 +415,96 @@ pub fn run() {
             path_exists,
             ensure_dir,
             app_paths,
-        ])
+            $($extra),*
+        ]
+    };
+}
+#[cfg(any(debug_assertions, feature = "selftest"))]
+macro_rules! handlers {
+    () => { commands!(selftest::selftest_args, selftest::selftest_write, selftest::selftest_finish) };
+}
+#[cfg(not(any(debug_assertions, feature = "selftest")))]
+macro_rules! handlers {
+    () => { commands!() };
+}
+
+pub fn run() {
+    let builder = tauri::Builder::default();
+
+    // Single instance first, as the plugin requires: a second launch (a file
+    // opened from the file manager) hands its paths to the running window.
+    #[cfg(any(target_os = "linux", windows))]
+    let builder = {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            let paths = file_args(&argv);
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            if !paths.is_empty() {
+                let _ = app.emit("open-paths", paths);
+            }
+        }))
+    };
+
+    builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            diagnostics::initialize(&handle)?;
+            let sidecar_dir = app.path().app_data_dir()?.join("Sidecars");
+            let host = HostManager::new(handle.clone());
+            let argv: Vec<String> = std::env::args().collect();
+            let workspace = workspace::Workspace::new(app.path().app_data_dir()?);
+            let logs = app.try_state::<diagnostics::Diagnostics>().map(|d| d.directory.clone()).unwrap_or(app.path().app_log_dir()?);
+            let host_dir = host::resolve_launch(&handle).ok().filter(|l| !l.mock).and_then(|l| l.program.parent().map(PathBuf::from));
+            app.manage::<Library>(Arc::new(library::LibraryState::resolve(host_dir.as_deref())));
+            let emitter = handle.clone();
+            app.manage(scheduler::SchedulerHub::new(
+                Arc::clone(&host),
+                Some(Arc::clone(&workspace)),
+                scheduler::SchedulerPaths { logs, data: app.path().app_data_dir()? },
+                move |snapshot| { let _ = emitter.emit(scheduler::JOB_EVENT, snapshot); },
+            ));
+            app.manage(AppState {
+                host: Arc::clone(&host),
+                sidecars: files::SidecarStore { dir: sidecar_dir },
+                launch_paths: Mutex::new(file_args(&argv)),
+                frames: Arc::new(frame_cache::FrameCache::new(
+                    app.path().app_cache_dir()?.join("Frames-v1"),
+                    app.path().app_data_dir()?.join("display-cache.json"),
+                )),
+                cache_fingerprint: Arc::new(Mutex::new(None)),
+                workspace,
+            });
+            log::info!("SpektraLab {} starting on {}", app.package_info().version, std::env::consts::OS);
+            #[cfg(any(debug_assertions, feature = "selftest"))]
+            if let Some(t) = selftest::SelfTest::from_args(&argv) {
+                log::info!(target: "selftest", "self-test of {} into {}", t.raw.display(), t.out.display());
+                app.manage(t);
+                selftest::SelfTest::watchdog(handle.clone());
+            }
+            let wiring = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                host.start().await;
+                // Made inside the runtime once the host is up; a command made before then waits for it.
+                if let Err(e) = wiring.state::<Hub>().wired().await { log::warn!(target: "scheduler", "{e}"); }
+            });
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if window.label() == "main" {
+                    let host = Arc::clone(&window.state::<AppState>().host);
+                    tauri::async_runtime::block_on(async move { host.shutdown().await });
+                    window.state::<Library>().shutdown();
+                    diagnostics::clean_exit(window.app_handle());
+                }
+            }
+        })
+        .invoke_handler(handlers!())
         .run(tauri::generate_context!())
         .expect("error while running SpektraLab");
 }

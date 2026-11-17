@@ -21,6 +21,10 @@ name = "spektralab_lib"
 # also triggers MinGW's PE export-ordinal limit with newer Rust compilers.
 crate-type = ["rlib"]
 
+[features]
+# T5b's self-test mode (src/selftest.rs) in a release build; a debug build always has it. Never in a package.
+selftest = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
