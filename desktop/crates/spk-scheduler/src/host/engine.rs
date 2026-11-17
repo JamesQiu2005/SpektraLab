@@ -27,7 +27,7 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use tokio::task::JoinHandle;
 
-use super::{HostError, HostLink};
+use super::{HostError, HostLink, HostReply};
 use crate::cost_model::BandGeometry;
 use crate::device_policy::GpuMemory;
 use crate::engine::{Delivery, DevelopEngine, EngineError, ProgressFn, RenderResult};
@@ -196,6 +196,87 @@ impl HostEngine {
         self.sessions.lock().await.editing.as_ref().map(|e| e.frame.clone())
     }
 
+    /// Open the frame's editing session afresh (closing any other) and hand back the host's whole
+    /// `open` / `open_pair` reply. For the webview's own calls on a frame that are not jobs but need
+    /// its session (set_params, solve, scene_latitude, pick_neutral, render_source, redecode,
+    /// update_pair …): the session stays the engine's, the next canvas job of the frame from the same
+    /// source runs on it, and `call_editing` reaches it by the frame (PRD-W2 phase 2).
+    pub async fn open_editing(&self, frame: &FrameId, source: &SourceSpec) -> HostReply {
+        let mut sessions = self.sessions.lock().await;
+        if let Some(old) = sessions.editing.take() {
+            self.close(&old.session).await;
+        }
+        let (method, params) = Self::open_call(source);
+        let reply = self.link.request(method, params, Vec::new(), timeout_for(method, RenderTier::Live)).await;
+        if let Ok((header, _)) = &reply {
+            if let (true, Some(session)) = (header["ok"] == json!(true), header["result"]["session"].as_str()) {
+                sessions.editing = Some(Editing {
+                    frame: frame.clone(),
+                    session: session.to_string(),
+                    key: source.key(),
+                    source: source.clone(),
+                });
+            }
+        }
+        reply
+    }
+
+    /// One call on the frame's editing session, `session` being what `open_editing` returned. Under the
+    /// lock every job takes, so it never lands between a job's `set_params` and its render. A session
+    /// that is no longer the frame's editing one is answered `not_found` without asking the host. A
+    /// `redecode` or `update_pair` that succeeds moves the session's source with it, so the next canvas
+    /// job from the new decode or pair reuses the session instead of decoding again.
+    pub async fn call_editing(&self, frame: &FrameId, session: &str, method: &str, params: Value) -> HostReply {
+        let mut sessions = self.sessions.lock().await;
+        if !sessions.editing.as_ref().is_some_and(|e| &e.frame == frame && e.session == session) {
+            let message = format!("{} has no editing session {session}", frame.as_str());
+            return Ok((json!({"ok": false, "error": {"code": "not_found", "message": message}}), Vec::new()));
+        }
+        let mut p = match params {
+            Value::Object(m) => m,
+            _ => Map::new(),
+        };
+        p.insert("session".into(), json!(session));
+        let timeout = timeout_for(method, RenderTier::Live).max(Duration::from_secs(120));
+        let reply = self.link.request(method, Value::Object(p.clone()), Vec::new(), timeout).await;
+        match &reply {
+            Err(e) if link_died(e) => sessions.editing = None,
+            Ok((header, _)) if header["ok"] == json!(true) => {
+                if let Some(e) = sessions.editing.as_mut() {
+                    match method {
+                        "redecode" => e.source.decode = p.get("decode").cloned(),
+                        "update_pair" => e.source.pair = p.get("pair").cloned(),
+                        _ => {}
+                    }
+                    e.key = e.source.key();
+                }
+            }
+            Ok((header, _)) if header["error"]["code"] == json!("not_found") => sessions.editing = None,
+            _ => {}
+        }
+        reply
+    }
+
+    fn open_call(source: &SourceSpec) -> (&'static str, Value) {
+        match &source.pair {
+            Some(pair) => (
+                "open_pair",
+                json!({"path": source.path, "pair": pair, "params": source.params.clone().unwrap_or_else(|| json!({}))}),
+            ),
+            None => {
+                let mut p = Map::new();
+                p.insert("path".into(), json!(source.path));
+                if let Some(d) = &source.decode {
+                    p.insert("decode".into(), d.clone());
+                }
+                if let Some(params) = &source.params {
+                    p.insert("params".into(), params.clone());
+                }
+                ("open", Value::Object(p))
+            }
+        }
+    }
+
     async fn ask(&self, method: &str, params: Value, tier: RenderTier) -> Result<Answer, HostError> {
         let (header, payload) = self.link.request(method, params, Vec::new(), timeout_for(method, tier)).await?;
         if header["ok"] == json!(true) {
@@ -261,23 +342,7 @@ impl HostEngine {
         source: &SourceSpec,
         tier: RenderTier,
     ) -> Result<(String, PixelSize, f64, f64), EngineError> {
-        let (method, params) = match &source.pair {
-            Some(pair) => (
-                "open_pair",
-                json!({"path": source.path, "pair": pair, "params": source.params.clone().unwrap_or_else(|| json!({}))}),
-            ),
-            None => {
-                let mut p = Map::new();
-                p.insert("path".into(), json!(source.path));
-                if let Some(d) = &source.decode {
-                    p.insert("decode".into(), d.clone());
-                }
-                if let Some(params) = &source.params {
-                    p.insert("params".into(), params.clone());
-                }
-                ("open", Value::Object(p))
-            }
-        };
+        let (method, params) = Self::open_call(source);
         let (result, _) = self.must(sessions, method, params, tier).await?;
         let session = result["session"]
             .as_str()

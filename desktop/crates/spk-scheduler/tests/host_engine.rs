@@ -489,3 +489,39 @@ async fn superseded_edits_fold_into_the_newest() {
     assert!(link.methods().contains(&"cancel".to_string()));
     assert!(q.records().iter().any(|r| r.outcome == "cancelled: superseded"));
 }
+
+/// The webview's own calls on a frame (not jobs) reach the engine's editing session by the frame; the
+/// next canvas job reuses it; a redecode moves its source; a stale session is `not_found`.
+#[tokio::test(start_paused = true)]
+async fn the_webview_s_calls_run_on_the_editing_session() {
+    let (link, engine, q) = setup().await;
+    let f = FrameId::new("a");
+    let (opened, _) = engine.open_editing(&f, &source("/p/a.ARW")).await.unwrap();
+    let s1 = opened["result"]["session"].as_str().unwrap().to_string();
+    assert_eq!(engine.editing_frame().await, Some(f.clone()));
+    let (reply, _) =
+        engine.call_editing(&f, &s1, "set_params", json!({"delta": {"print_exposure": 1.1}})).await.unwrap();
+    assert_eq!(reply["ok"], true);
+    assert!(q.outcome(q.submit(canvas_job(JobKind::CanvasReprint, &f, "/p/a.ARW"))).await.is_finished());
+    // Another decode by `redecode`: the next canvas job from that decode reuses the session.
+    let wb = json!({"raw_mode": "headroom"});
+    let (reply, _) = engine.call_editing(&f, &s1, "redecode", json!({"decode": wb})).await.unwrap();
+    assert_eq!(reply["ok"], true);
+    let mut job = canvas_job(JobKind::CanvasDevelop, &f, "/p/a.ARW");
+    job.request =
+        Some(request("render_view", Some(SourceSpec { decode: Some(wb), ..source("/p/a.ARW") }), view("live")));
+    assert!(q.outcome(q.submit(job)).await.is_finished());
+    assert_eq!(link.methods(), ["open", "set_params", "render_view", "redecode", "render_view"]);
+    for (_, params) in link.calls().iter().skip(1) {
+        assert_eq!(params["session"], json!(s1), "every call ran on the one session");
+    }
+    // A session that is not the frame's editing one any more is not sent.
+    link.clear();
+    let (reply, _) = engine.call_editing(&FrameId::new("b"), &s1, "solve", json!({"target": "both"})).await.unwrap();
+    assert_eq!(reply["error"]["code"], "not_found");
+    engine.close_editing(None).await;
+    let (reply, _) = engine.call_editing(&f, &s1, "solve", json!({"target": "both"})).await.unwrap();
+    assert_eq!(reply["error"]["code"], "not_found");
+    assert_eq!(link.methods(), ["close"]);
+    assert_eq!(link.open_sessions(), 0);
+}
