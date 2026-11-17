@@ -12,12 +12,17 @@
 //    (spektralab-host.exe), WebView2Loader.dll, the host's resources under
 //    host/engine/ (the constants, the film and paper profiles, the .spv
 //    kernels), the licences, the uninstaller;
-//  - the app and the host, extracted to a scratch folder, are PE32+ x86-64.
+//  - the app, the host and the library helper (spklib-host.exe), extracted to a
+//    scratch folder, are PE32+ x86-64; the helper is byte for byte the vendored
+//    one (vendor/spklib/windows-x64/spklib-host.exe.sha256); the host carries the
+//    pinned LibRaw's version string (engine/setup-libraw.sh) and not the old pin's;
+//  - the licences: the host's (GPL, LibRaw's LGPL, COPYRIGHT and SOURCE) and spklib's MIT.
 //  - the version in its name is package.json's, and so are the app's version
 //    resource's ProductName ("SpektraLab") and ProductVersion.
 // Nothing is executed but `file` and `7zz`.
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
@@ -53,11 +58,13 @@ const has = (p) => members.includes(p);
 const count = (re) => members.filter((m) => re.test(m)).length;
 
 const required = [
-  'spektralab.exe', 'spektralab-host.exe', 'WebView2Loader.dll', 'uninstall.exe',
+  'spektralab.exe', 'spektralab-host.exe', 'spklib-host.exe', 'WebView2Loader.dll', 'uninstall.exe',
+  'host/licenses/LibRaw-LGPL-2.1.txt', 'host/licenses/LibRaw-COPYRIGHT.txt', 'host/licenses/LibRaw-SOURCE.txt',
+  'host/licenses/spklib-LICENSE.txt', 'host/licenses/spklib-VERSION.txt',
   'host/engine/spektrafilm_constants.bin', 'host/engine/print_luts.json', 'host/engine/io/sRGB.icc',
   'host/engine/profiles/kodak_portra_400.json', 'host/engine/profiles/kodak_portra_endura.json',
 ];
-// Phase 2 adds the library helper: SPEKTRALAB_INSTALLER_REQUIRE=spklib-host.exe (comma-separated members).
+// More members a caller requires (comma-separated).
 required.push(...(process.env.SPEKTRALAB_INSTALLER_REQUIRE ?? '').split(',').map((x) => x.trim()).filter(Boolean));
 for (const p of required) if (!has(p)) fail(`missing member ${p}`);
 const spv = count(/^host\/engine\/.+\.spv$/);
@@ -69,12 +76,30 @@ if (licences < 1) fail('no licence texts under host/licenses/');
 
 const scratch = mkdtempSync(join(process.env.CLAUDE_JOB_DIR ? join(process.env.CLAUDE_JOB_DIR, 'tmp') : tmpdir(), 'installer-'));
 try {
-  run('7zz', ['e', '-y', `-o${scratch}`, exe, 'spektralab.exe', 'spektralab-host.exe']);
-  for (const [name, gui] of [['spektralab.exe', true], ['spektralab-host.exe', false]]) {
+  run('7zz', ['e', '-y', `-o${scratch}`, exe, 'spektralab.exe', 'spektralab-host.exe', 'spklib-host.exe']);
+  for (const [name, gui] of [['spektralab.exe', true], ['spektralab-host.exe', false], ['spklib-host.exe', false]]) {
     const p = join(scratch, name);
     if (!existsSync(p)) { fail(`could not extract ${name}`); continue; }
     const k = run('file', ['-b', p]).trim();
     if (!k.startsWith(`PE32+ executable (${gui ? 'GUI' : 'console'}) x86-64`)) fail(`${name}: file says "${k}", not a PE32+ x86-64 ${gui ? 'GUI' : 'console'} program`);
+  }
+  // The helper is the vendored build, byte for byte.
+  const helper = join(scratch, 'spklib-host.exe');
+  if (existsSync(helper)) {
+    const want = readFileSync(join(desktop, '..', 'vendor', 'spklib', 'windows-x64', 'spklib-host.exe.sha256'), 'utf8').trim().split(/\s+/)[0];
+    const got = createHash('sha256').update(readFileSync(helper)).digest('hex');
+    if (got !== want) fail(`spklib-host.exe is ${got}, not the vendored ${want}`);
+    else console.log(`spklib-host.exe: ${got} (the vendored build)`);
+  }
+  // The host carries the pinned LibRaw (engine/setup-libraw.sh: "reports itself as <version>").
+  const host = join(scratch, 'spektralab-host.exe');
+  const pin = /reports itself as (\S+)/.exec(readFileSync(join(desktop, '..', 'engine', 'setup-libraw.sh'), 'utf8'))?.[1];
+  if (!pin) fail('engine/setup-libraw.sh does not say which LibRaw it pins');
+  else if (existsSync(host)) {
+    const bytes = readFileSync(host);
+    if (!bytes.includes(Buffer.from(pin))) fail(`spektralab-host.exe does not carry LibRaw ${pin}`);
+    else if (bytes.includes(Buffer.from('0.22.2-Release'))) fail('spektralab-host.exe still carries LibRaw 0.22.2');
+    else console.log(`spektralab-host.exe: LibRaw ${pin}`);
   }
   // The app's version resource (VS_VERSIONINFO, UTF-16 strings): its ProductName and ProductVersion are package.json's.
   const app = join(scratch, 'spektralab.exe');

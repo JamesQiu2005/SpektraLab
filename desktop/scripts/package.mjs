@@ -8,6 +8,16 @@
 //   spektralab-host[.exe] → src-tauri/binaries/spektralab-host-<triple>[.exe]
 //                            (Tauri `bundle.externalBin`: installed beside the app)
 //   engine/, licenses/    → src-tauri/host-staging/ → `<resources>/host/…`
+//   Windows, phase 2: vendor/spklib/windows-x64/spklib-host.exe (checked against
+//   its .sha256 here) → src-tauri/binaries/spklib-host-<triple>.exe, installed
+//   beside the app and the engine host; spklib's MIT licence (licenses/) and its
+//   VERSION go to host/licenses/ beside the host's (GPL, CC BY-SA, LibRaw's LGPL
+//   and notices, which engine/stage-host.sh stages).
+//
+// Cross-building Windows on macOS/Linux builds the host from this tree first
+// (engine/build-windows-cross.sh: the pinned LibRaw, the host's `trim`) unless
+// --host-dir / SPEKTRALAB_HOST_DIR names one already staged. The script reuses its
+// build directory, so a second package is incremental.
 // and pass that as an extra config (`tauri.bundle.json`), so the base config
 // builds and `cargo check`s without a staged host.
 //
@@ -87,6 +97,7 @@ const TARGETS = {
 };
 
 const t = TARGETS[which];
+const hostGiven = !!hostDirArg;
 if (!t) die('usage: node scripts/package.mjs linux | windows [--host-dir <staged host dir>]');
 if (hostDirArg) t.hostDir = resolve(hostDirArg);
 
@@ -143,9 +154,26 @@ function stage() {
   mkdirSync(bin, { recursive: true });
   const ext = t.exe.endsWith('.exe') ? '.exe' : '';
   cpSync(exe, join(bin, `spektralab-host-${t.triple}${ext}`));
+  const externalBin = ['binaries/spektralab-host'];
+  if (which === 'windows') {
+    // The library helper (PRD-W2 R11, phase 2): the vendored, reproducible build, byte for byte.
+    const vendor = join(repo, 'vendor', 'spklib', 'windows-x64');
+    const helper = join(vendor, 'spklib-host.exe');
+    if (!existsSync(helper)) die(`no library helper at ${helper}`);
+    const want = readFileSync(join(vendor, 'spklib-host.exe.sha256'), 'utf8').trim().split(/\s+/)[0];
+    const got = createHash('sha256').update(readFileSync(helper)).digest('hex');
+    if (got !== want) die(`${helper} is ${got}, not the vendored ${want} (spklib-host.exe.sha256)`);
+    cpSync(helper, join(bin, `spklib-host-${t.triple}.exe`));
+    externalBin.push('binaries/spklib-host');
+    console.log(`package: spklib-host.exe ${got} (matches spklib-host.exe.sha256)`);
+  }
   cpSync(join(t.hostDir, 'engine'), join(staging, 'engine'), { recursive: true });
   if (existsSync(join(t.hostDir, 'licenses'))) cpSync(join(t.hostDir, 'licenses'), join(staging, 'licenses'), { recursive: true });
   else mkdirSync(join(staging, 'licenses'), { recursive: true });
+  if (which === 'windows') {
+    cpSync(join(desktop, 'licenses', 'spklib-LICENSE.txt'), join(staging, 'licenses', 'spklib-LICENSE.txt'));
+    cpSync(join(repo, 'vendor', 'spklib', 'windows-x64', 'VERSION'), join(staging, 'licenses', 'spklib-VERSION.txt'));
+  }
   // The user command needs no separately installed Node/npm. The same native
   // app provides the locked sidecar service used by the GUI and by the CLI.
   // A Windows installer built elsewhere carries Windows' node.exe, not this machine's node.
@@ -156,7 +184,7 @@ function stage() {
   }
   execFileSync(process.execPath, agentArgs, { stdio: 'inherit', windowsHide: true, env });
   const resources = { 'host-staging/engine': 'host/engine', 'host-staging/licenses': 'host/licenses', 'host-staging/agents': 'agents' };
-  const conf = { bundle: { externalBin: ['binaries/spektralab-host'], resources } };
+  const conf = { bundle: { externalBin, resources } };
   const confPath = join(tauriDir, 'tauri.bundle.json');
   writeFileSync(confPath, JSON.stringify(conf, null, 2));
   return confPath;
@@ -203,7 +231,14 @@ function collect() {
   console.log('package: wrote\n  ' + found.join('\n  '));
 }
 
-if (which === 'windows' && !onWindows) prepareWindowsCross();
+if (which === 'windows' && !onWindows) {
+  prepareWindowsCross();
+  if (!hostGiven) {
+    // The host this installer carries is built from this tree, not whatever was staged before.
+    console.log('package: building the host (engine/build-windows-cross.sh)');
+    execFileSync(join(repo, 'engine', 'build-windows-cross.sh'), [], { stdio: 'inherit', env });
+  }
+}
 const conf = stage();
 if (which === 'linux') env.NO_STRIP = env.NO_STRIP ?? 'true'; // linuxdeploy's strip cannot read newer ELF notes
 // On Windows `npx` is npx.cmd, which needs a shell; the shell then needs a
