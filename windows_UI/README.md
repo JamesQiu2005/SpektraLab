@@ -11,11 +11,12 @@ trash; variants and 135 half-frame pairs; independent per-photo film/paper,
 decode, exposure, grain, halation, glare, film format and filter settings; a
 navigator and selected-photo strip; free/ratio cropping; and TIFF16, PNG8/16,
 JPEG8 and HEIF8 export with JPEG quality, optional downsize, export recipes and
-sRGB, Display P3, Adobe RGB and ProPhoto RGB output. Batch export processes
-selected photos serially, supports cancellation between files, and skips
-existing files. Single export refuses overwrites. Select-all and synchronization
-copy supported settings to selected photos, preserving their own crops by
-default.
+sRGB, Display P3, Adobe RGB and ProPhoto RGB output; HEIF8 is sRGB only and
+needs the Windows HEIF Image Extension (WIC reports its absence as an error).
+Batch export processes selected photos serially, supports cancellation between
+files, and skips existing files. Single export refuses overwrites. Select-all
+and synchronization copy supported settings to selected photos, preserving their
+own crops by default.
 
 The engine controls also expose Cineon Digital Intermediate, scene latitude,
 virtual contrast masks, local scene layers, scan HDR, film edge/date back/light
