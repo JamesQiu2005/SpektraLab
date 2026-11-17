@@ -2,9 +2,11 @@
 
 [English](README.md) · **简体中文** · [spektralab.app](https://spektralab.app)
 
-Mac 上的胶片暗房。打开一张 RAW，选好胶片和相纸，得到一张按物理过程建模的照片：光线穿过胶片与相纸各自的染料层，颗粒、光晕、DIR 成色剂、放大机滤色一样不少，全分辨率渲染约一秒。
+Mac 与 Windows 上的胶片暗房。打开一张 RAW，选好胶片和相纸，得到一张按物理过程建模的照片：光线穿过胶片与相纸各自的染料层，颗粒、光晕、DIR 成色剂、放大机滤色一样不少，全分辨率渲染约一秒。
 
 **SpektraLab 引擎是基于 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)（GPL-3.0-or-later）派生而来的 C++/Metal 实现。**（The SpektraLab engine is a C++/Metal implementation derived from spektrafilm by Andrea Volpato (GPL-3.0-or-later).）胶片模拟、28 款实测胶片与相纸配置、印放与扫描模型都来自 spektrafilm；SpektraLab 是这套引擎在 Metal 上的实现，以及围绕它构建的 Mac 应用。
+
+**Windows 版**把同一套引擎放在原生 Qt Quick 界面与 Vulkan 后端之后（`windows_UI/`）：RAW 导入与图库、版本与半格对、每张照片各自的胶片、相纸、解码与效果设置、裁切，以及 TIFF16、PNG、JPEG、HEIF 导出；运行时不需要 Python、Node 或浏览器。构建方法与已覆盖范围见 [Windows 说明](windows_UI/README.md)。
 
 ![SpektraLab 2 冲洗页面：一头马鹿，Kodak Portra 400 胶片，Kodak Portra Endura 相纸](screenshots/Screenshot_v2.png)
 
@@ -25,7 +27,7 @@ Mac 上的胶片暗房。打开一张 RAW，选好胶片和相纸，得到一张
 |---|---|
 | ![前后对比](screenshots/natural_halation.png) | ![1:1 颗粒](screenshots/physically_accurate_grain.png) |
 
-## 构建
+## 在 macOS 上构建
 
 需要 Apple 芯片、macOS 15 或更高版本，以及带 Metal 工具链的 **Xcode 27 或更高版本**（Xcode 26 无法完成部分代码的类型检查；从 Xcode 26 起 Metal 编译器是单独的组件：`xcodebuild -downloadComponent MetalToolchain`）。应用是一个 Mac Catalyst 应用。
 
@@ -45,6 +47,18 @@ open build/DerivedData/Build/Products/Debug-maccatalyst/SpektraLab.app
 
 图库助手 `spklib-host` 以预编译、带校验和的二进制形式放在本仓库（`vendor/spklib/macos/`），构建时会复制进应用。若也要从源码构建它，见 [`API-SPEC-library-helper.md`](API-SPEC-library-helper.md) §7。
 
+## 在 Windows 上构建
+
+Windows 10 或 11 x64，显卡驱动提供 Vulkan。界面使用官方 Qt 6.11.3 MinGW SDK 及其 MinGW-w64 13.1 编译器，不要与更早的 GCC 15 构建混用。
+
+```powershell
+./windows_UI/setup-qt.ps1 -DependencyDirectory ../deps      # 固定版本的 Qt，逐文件校验 SHA256
+./windows_UI/setup-glslang.ps1 -DependencyDirectory ../deps  # glslang 与 Vulkan 头文件
+./windows_UI/build.ps1 -SourceDirectory . -BuildDirectory ./build/qt -RunTests
+```
+
+引导脚本只需要 PowerShell 与 Windows 自带的 `tar`。`build/qt/app/` 是自包含的：DLL、QML 插件与声明文件要整套保留。`-RunTests` 运行引擎的 19 项 Windows 测试；这些测试只用 CPU，因为托管 CI 没有 Vulkan 驱动。引擎自身、LibRaw 与 glslang 的 CMake 构建见 `engine/WINDOWS.md`。片边（含五种 cine 画幅）、日期背、漏光、Cineon DI、场景宽容度、局部对比蒙版与场景层都跑在 Vulkan 后端上。
+
 ## 测试
 
 ```bash
@@ -60,6 +74,7 @@ python3 tools/localization_check.py # 四种语言的全部文案
 | | |
 |---|---|
 | `app/SpektraLab/` | Mac 应用：Mac Catalyst 下的 SwiftUI、UIKit 与 Metal |
+| `windows_UI/` | Windows 应用：Qt Quick 与 C++，跑在 Vulkan 后端上 |
 | `engine/` | SpektraLab 引擎：C++20、Metal 着色器与 C ABI（`spk_*`） |
 | `engine/resources/` | 预烘焙常量、spektrafilm 的 28 款胶片与相纸配置、放大 LUT |
 | `engine/resources_product/` | SpektraLab 自己的黑白胶片与相纸配置，以及 CineStill 800T |
@@ -67,13 +82,15 @@ python3 tools/localization_check.py # 四种语言的全部文案
 | `ARCHITECTURE.md` | 引擎的整体结构 |
 | `AGENTS.md` | 约定，以及真正耗过时间的坑 |
 
-## Windows 与 Linux
+## Windows 后端
 
-本仓库还包含独立于 Mac 应用贡献的 C++/Vulkan 引擎后端、原生 LibRaw 解码、RGB16 TIFF 导出和 Windows 桌面界面。构建方法见 [Windows 说明](engine/WINDOWS.md)，已验证功能及限制见 [功能覆盖表](engine/WINDOWS_FEATURE_COVERAGE.md)。[Qt Quick 前端](windows_UI/README.md) 把胶片与相纸编辑布局带到 Windows，同时保留[最小 Win32 窗口](engine/WINDOWS_DESKTOP.md)。上文介绍的 Mac 应用还有它们尚未具备的界面与显示功能。
+Vulkan 后端、原生 LibRaw 解码与 RGB16 TIFF 导出都在 `engine/`，与 Metal 着色器由同一套 CMake 构建；构建方法见 [Windows 说明](engine/WINDOWS.md)，已验证功能及限制见 [功能覆盖表](engine/WINDOWS_FEATURE_COVERAGE.md)。[Qt Quick 前端](windows_UI/README.md) 之外还保留[最小 Win32 窗口](engine/WINDOWS_DESKTOP.md)。
+
+Windows 版目前是预览：预览为 8 位 SDR（宽色域与 HDR 显示尚未验证），内置 LibRaw 拒绝 Nikon HE/HE*，直方图、分屏对比与透视几何仍未做。上文介绍的 Mac 应用有它尚未具备的界面与显示功能。
 
 ## 支持 SpektraLab
 
-SpektraLab Mac 版免费、开源，并将一直如此。如果它在你的创作中有了一席之地，而你愿意支持它接下来的发展，欢迎考虑 App Store 上的 SpektraLab iPhone 与 iPad 版。优惠码 **25OFF** 可享 75 折。
+SpektraLab 在 Mac 与 Windows 上都免费、开源，并将一直如此。如果它在你的创作中有了一席之地，而你愿意支持它接下来的发展，欢迎考虑 App Store 上的 SpektraLab iPhone 与 iPad 版。优惠码 **25OFF** 可享 75 折。
 
 ## 致谢与许可
 

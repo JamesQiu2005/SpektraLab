@@ -2,14 +2,20 @@
 
 **English** · [简体中文](README.zh-CN.md) · [spektralab.app](https://spektralab.app)
 
-A film-emulation darkroom for the Mac. Open a RAW, pick a film and a paper, and get a physically
-modelled print: light traced through the film's dye layers and the paper's, with grain, halation,
-DIR couplers and the enlarger's filter pack, at full resolution in about a second.
+A film-emulation darkroom for the Mac and Windows. Open a RAW, pick a film and a paper, and get a
+physically modelled print: light traced through the film's dye layers and the paper's, with grain,
+halation, DIR couplers and the enlarger's filter pack, at full resolution in about a second.
 
 **The SpektraLab engine is a C++/Metal implementation derived from
 [spektrafilm](https://github.com/andreavolpato/spektrafilm) by Andrea Volpato (GPL-3.0-or-later).**
 The film simulation, its 28 measured film and paper profiles and the print and scan model are
-spektrafilm's; SpektraLab is the engine's implementation on Metal and the Mac app built around it.
+spektrafilm's; SpektraLab is the engine's implementation on Metal and Vulkan, and the apps built
+around it.
+
+**On Windows** the same engine runs behind a native Qt Quick frontend on a Vulkan backend
+(`windows_UI/`): RAW import and catalogues, variants and half-frame pairs, per-photo film, paper,
+decode and effect settings, crop, and TIFF16, PNG, JPEG and HEIF export, with no Python, Node or
+browser at run time. [Build it and see what it covers](windows_UI/README.md).
 
 ![SpektraLab 2's Develop page: an elk on Kodak Portra 400, printed on Kodak Portra Endura](screenshots/Screenshot_v2.png)
 
@@ -46,7 +52,7 @@ spektrafilm's; SpektraLab is the engine's implementation on Metal and the Mac ap
 |---|---|
 | ![Before and after](screenshots/natural_halation.png) | ![Grain at 1:1](screenshots/physically_accurate_grain.png) |
 
-## Build
+## Build on macOS
 
 macOS 15 or later on Apple silicon, and **Xcode 27 or later** with its Metal toolchain. Xcode 26
 cannot type-check parts of the app. Since Xcode 26 the Metal compiler is a separate component:
@@ -75,6 +81,23 @@ The library helper `spklib-host` is in this repository as a prebuilt, checksumme
 (`vendor/spklib/macos/`), and the build copies it into the app. To build it from source too, see
 [`API-SPEC-library-helper.md`](API-SPEC-library-helper.md) §7.
 
+## Build on Windows
+
+Windows 10 or 11 x64 with a Vulkan driver from the installed GPU. The frontend uses the official
+Qt 6.11.3 MinGW SDK and its MinGW-w64 13.1 compiler; do not mix it with an earlier GCC 15 build.
+
+```powershell
+./windows_UI/setup-qt.ps1 -DependencyDirectory ../deps      # pinned Qt, SHA256 per file
+./windows_UI/setup-glslang.ps1 -DependencyDirectory ../deps  # glslang and the Vulkan headers
+./windows_UI/build.ps1 -SourceDirectory . -BuildDirectory ./build/qt -RunTests
+```
+
+The bootstrap needs only PowerShell and Windows' own `tar`. `build/qt/app/` is self-contained: keep
+its DLLs, QML plugins and notices together. `-RunTests` runs the engine's 19 Windows tests; they are
+CPU-only, because hosted CI has no Vulkan driver. `engine/WINDOWS.md` covers the engine's own CMake
+build, LibRaw and glslang. Film edge (the five cine gauges included), date back, light leak,
+Cineon DI, scene latitude, contrast masks and scene layers all run on the Vulkan backend.
+
 ## Test
 
 ```bash
@@ -92,6 +115,7 @@ reference and need a checkout of spektrafilm on `PYTHONPATH`;
 | | |
 |---|---|
 | `app/SpektraLab/` | the Mac app: SwiftUI, UIKit and Metal under Mac Catalyst |
+| `windows_UI/` | the Windows app: Qt Quick and C++ over the Vulkan backend |
 | `engine/` | the SpektraLab engine: C++20, its Metal kernels and its C ABI (`spk_*`) |
 | `engine/resources/` | baked constants, spektrafilm's 28 film and paper profiles, print LUTs |
 | `engine/resources_product/` | SpektraLab's own black-and-white films and paper, and CineStill 800T |
@@ -99,21 +123,23 @@ reference and need a checkout of spektrafilm on `PYTHONPATH`;
 | `ARCHITECTURE.md` | how the engine fits together |
 | `AGENTS.md` | conventions and the traps that cost real time |
 
-## Windows and Linux
+## Windows backend
 
-This repository also contains a C++/Vulkan backend for the engine, native LibRaw decoding, RGB16
-TIFF export and Windows desktop viewers, contributed separately from the Mac app. See the
-[Windows build guide](engine/WINDOWS.md) and [feature coverage](engine/WINDOWS_FEATURE_COVERAGE.md)
-for the tested scope. The [Qt Quick frontend](windows_UI/README.md) brings the film/print editor
-layout to Windows; the [minimal Win32 viewer](engine/WINDOWS_DESKTOP.md) is also retained. The Mac
-app described above has interface and display features they do not. Future development will have a
-Tauri-based frontend.
+The Vulkan backend, native LibRaw decoding and RGB16 TIFF export are in `engine/`, built by the same
+CMake as the Metal kernels; the [Windows build guide](engine/WINDOWS.md) and [feature
+coverage](engine/WINDOWS_FEATURE_COVERAGE.md) give the tested scope. A [minimal Win32
+viewer](engine/WINDOWS_DESKTOP.md) is retained beside the Qt frontend.
+
+The Windows app is a preview: its preview is 8-bit SDR (no HDR or wide-gamut display validation
+yet), Nikon HE/HE* is rejected by the bundled LibRaw, and the histogram, split comparison and
+perspective geometry are still open. The Mac app described above has the interface and display
+features it does not.
 
 ## Support SpektraLab
 
-SpektraLab for the Mac is free and open source, and it will stay that way. If it has earned a place
-in your work and you'd like to support where it goes next, please consider SpektraLab for iPhone and
-iPad on the App Store. Code **25OFF** takes 25% off.
+SpektraLab is free and open source on both platforms, and it will stay that way. If it has earned a
+place in your work and you'd like to support where it goes next, please consider SpektraLab for
+iPhone and iPad on the App Store. Code **25OFF** takes 25% off.
 
 ## Credits and licence
 
