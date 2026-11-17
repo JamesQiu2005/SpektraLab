@@ -66,15 +66,32 @@ final class GamutProof {
         guard let gamut, gamut.proofs else { return image }
         #if SPK_ENGINE
         guard ready.contains(gamut) else { ask(gamut); return image }
-        if let hit = kept.first(where: { $0.source === image && $0.gamut == gamut }) { return hit.made }
+        if let hit = kept.first(where: { $0.source === image && $0.gamut == gamut }) { return carryingMarks(hit.made, of: image) }
         guard let setup = setups[gamut], let made = try? make(image, setup: setup, gamut: gamut) else { return image }
         kept.insert((image, gamut, made), at: 0)
         if kept.count > Self.keepCount { kept.removeLast(kept.count - Self.keepCount) }
-        return made
+        return carryingMarks(made, of: image)
         #else
         return image
         #endif
     }
+
+    /// 水印 (the review of stage 1): a proofed picture is a new picture, and the page's HDR finds the marks a picture carries
+    /// by the picture itself (`WatermarkComposite.noted`, `HDRRendition.heldUnderMarks`) — unnoted, a white 成片 mark on a
+    /// canvas proofed to sRGB or Adobe RGB was lifted by the HDR gain under it. The proof is the same pixels' colour at
+    /// the same size, so the marks are where they were: the note is carried over.
+    private func carryingMarks(_ made: CGImage, of image: CGImage) -> CGImage {
+        #if DEBUG
+        guard Self.carriesMarks else { return made }
+        #endif
+        if made !== image, let n = WatermarkComposite.noted(image) { WatermarkComposite.note(made, marks: n.marks, placing: n.placing) }
+        return made
+    }
+
+    #if DEBUG
+    /// A check's switch (`MacWatermarkCheck`): off, the proof does as it did before the review — red before green.
+    static var carriesMarks = true
+    #endif
 
     func proofed(_ image: UIImage, _ gamut: CanvasGamut?) -> UIImage {
         guard let gamut, gamut.proofs, let cg = image.cgImage else { return image }

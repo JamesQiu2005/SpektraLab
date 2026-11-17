@@ -36,17 +36,32 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     case sprocket135 = "135_sprocket"
     case f6x12 = "120_6x12"
     case f6x17 = "120_6x17"
+    /// **电影, the motion-picture camera negatives** (API-SPEC §24, 2026-11-15),
+    /// as a lab's overscan scan shows them, after every still format in the engine's order: **Super 8** (one hole a
+    /// frame on the picture's right, neighbours' slivers), **16mm** (single-perf Super 16, one hole a frame at the
+    /// frame line on the picture's left, neighbours' slivers, after the owner's scan),
+    /// **35mm 电影** (4-perf, Bell & Howell holes), and 65 mm camera film, which the page calls **70mm**: 标准 70mm
+    /// (5-perf) and **15 孔** (15-perf, the film running across). Nothing is printed on any of them -- no name, no
+    /// numbers, no DX, no stripes, no date -- and the View is Strip. Every number of their film (holes, rows,
+    /// whether the canvas shows the neighbours) is the engine's own table (`EngineGauges`), read from the engine;
+    /// offered only once it has been. An older build reads the saved word back as 135.
+    case super8 = "8_super"
+    case cine16 = "16_super"
+    case cine35 = "35_4perf"
+    case cine65 = "65_5perf"
+    case cine65x15 = "65_15perf"
 
     var id: String { rawValue }
 
     enum Group: String, CaseIterable, Sendable {
-        case film135 = "35 mm", film120 = "120", panoramic = "Panoramic"
+        case film135 = "35 mm", film120 = "120", panoramic = "Panoramic", cine = "Cine"
     }
 
-    /// **片幅 the format cards' filter** (PRD-D §3.1): 全部 · 135 · 120 · 宽幅, each a `Group` but All. Kept in the
-    /// app's defaults (`DevelopPanelPrefs.filmEdgeFilter`), All until chosen.
+    /// **片幅 the format cards' filter** (PRD-D §3.1): 全部 · 135 · 120 · 宽幅 · 电影, each a `Group` but All. Kept in
+    /// the app's defaults (`DevelopPanelPrefs.filmEdgeFilter`), All until chosen. 电影 only where a cine card is
+    /// offered (`offeredFilters`).
     enum Filter: String, CaseIterable, Identifiable, Sendable {
-        case all = "all", film135 = "135", film120 = "120", panoramic = "wide"
+        case all = "all", film135 = "135", film120 = "120", panoramic = "wide", cine = "cine"
         var id: String { rawValue }
         var group: Group? {
             switch self {
@@ -54,6 +69,7 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
             case .film135: .film135
             case .film120: .film120
             case .panoramic: .panoramic
+            case .cine: .cine
             }
         }
         var label: String {
@@ -62,7 +78,12 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
             case .film135: "135"
             case .film120: "120"
             case .panoramic: L("Wide", as: "formats")
+            case .cine: L("Cine")
             }
+        }
+        /// The segments the filter shows: 电影 only where a cine card is offered (an engine that has them).
+        static func offered(_ formats: [FilmEdgeFormat] = FilmEdgeFormat.offered) -> [Filter] {
+            allCases.filter { $0 != .cine || formats.contains(where: \.isCine) }
         }
         /// The cards it shows, in the engine's order, of the formats `offered`. With a format chosen
         /// that it hides, the row still names it (`FilmStepPanel`): nothing chosen is ever unseen.
@@ -75,7 +96,9 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     /// The formats a card is drawn for: every one but those the engine does not know (135 Full Width before
     /// API-SPEC §21). A frame that already has one keeps it (the row names it).
     static var offered: [FilmEdgeFormat] {
-        allCases.filter { $0 != .sprocket135 || EngineFeatures.offers(.fullWidth135) }
+        allCases.filter {
+            ($0 != .sprocket135 || EngineFeatures.offers(.fullWidth135)) && (!$0.isCine || EngineGauges.cine($0) != nil)
+        }
     }
 
     var group: Group {
@@ -83,8 +106,12 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .f135, .half: .film135
         case .f645, .f6x6, .f6x7, .f6x8, .f6x9: .film120
         case .xpan, .sprocket135, .f6x12, .f6x17: .panoramic
+        case .super8, .cine16, .cine35, .cine65, .cine65x15: .cine
         }
     }
+
+    /// A motion-picture gauge (the 电影 group): its holes are its own, nothing is printed on it.
+    var isCine: Bool { group == .cine }
 
     /// The card's name (`gen_overscan.FMT`).
     var label: String {
@@ -100,13 +127,26 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .sprocket135: L("135 Full Width")
         case .f6x12: "6×12"
         case .f6x17: "6×17"
+        // Format names, not translated (as "Super 8" is in 尺寸); the 15-perf card says it under its name.
+        case .super8: "Super 8"
+        case .cine16: "16mm"
+        case .cine35: "35mm"
+        case .cine65, .cine65x15: "70mm"
         }
     }
 
     /// A card's two lines: its name and the gate's shape — and for 135 Full Width, whose name does not fit a
-    /// 72 pt card, "135" over "Full Width" (its shape is in its help and its line).
+    /// 72 pt card, "135" over "Full Width" (its shape is in its help and its line); the cine cards: 35mm and
+    /// 标准 70mm over "电影", 70mm over "15 孔".
     var cardTitle: String { self == .sprocket135 ? "135" : label }
-    var cardDetail: String { self == .sprocket135 ? L("Full Width") : aspectText }
+    var cardDetail: String {
+        switch self {
+        case .sprocket135: L("Full Width")
+        case .cine35, .cine65: L("Cine")
+        case .cine65x15: L("15-perf")
+        default: aspectText
+        }
+    }
 
     /// The card's second line: the gate's shape.
     var aspectText: String {
@@ -122,19 +162,39 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .sprocket135: "2:1"
         case .f6x12: "2:1"
         case .f6x17: "3:1"
+        case .super8: "1.44"
+        case .cine16: "1.65"
+        case .cine35: "4:3"
+        case .cine65: "2.29"
+        case .cine65x15: "1.34"
         }
     }
 
     /// The engine's own table (`kFormats`, `overscan.cpp`): the film's width,
     /// the gate across the film and along it, in millimetres. 135's gate is a
     /// camera's, measured on seven strips (36.25 × 24.3), not ISO's 36 × 24.
-    var filmWidthMM: Double { isPerforated ? 35.0 : 61.0 }
+    /// The cine gauges' rows (API-SPEC §24, with their sources there): Super 8 SMPTE 149, 16 mm SMPTE 109 and
+    /// 201M (Super 16's type W image, 7.50 along inside its 7.42 +0.15 as the owner's scan measures), 35 mm's full
+    /// aperture, 65 mm's camera apertures. `film_edge_parity.py` holds these against the engine's.
+    var filmWidthMM: Double {
+        switch self {
+        case .super8: 7.976
+        case .cine16: 15.95
+        case .cine35: 35.0
+        case .cine65, .cine65x15: 64.97              // 65 mm camera film, the card's "70mm"
+        default: isPerforated ? 35.0 : 61.0
+        }
+    }
     var acrossMM: Double {
         switch self {
         case .f135: 24.3
         case .half, .xpan: 24.0
         // Wider than the 35 mm film: the film's own edges bound the picture (`kFormats`).
         case .sprocket135: 36.0
+        case .super8: 5.79
+        case .cine16: 12.35
+        case .cine35: 24.89
+        case .cine65, .cine65x15: 52.63
         default: 56.0
         }
     }
@@ -151,8 +211,15 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .sprocket135: 72.0
         case .f6x12: 112.0
         case .f6x17: 168.0
+        case .super8: 4.01
+        case .cine16: 7.50
+        case .cine35: 18.67
+        case .cine65: 23.01
+        case .cine65x15: 70.41
         }
     }
+    /// **A 135 still layout** (the engine's `perforated`): 135's holes, its edge print, DX, Fujifilm's stripes. False
+    /// on the cine gauges, whose holes are their own (`hasHoles`) and which print nothing.
     var isPerforated: Bool { self == .f135 || self == .half || self == .xpan || self == .sprocket135 }
     /// A 120 format: the only ones a leak's 120 window (`spot`) and the cine film's keyholes (`ks65`) are on.
     var is120: Bool { gauge == "120" }
@@ -169,11 +236,22 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     /// picture runs over the whole 35 mm, so the strip -- the film's whole width -- is the picture and its film
     /// edge, and a filed carrier's sliver of rebate round the gate has no rebate to show; the engine's filed canvas
     /// would be the gate and 1.1 mm past it, wider than the film itself.
-    var fixedView: FilmEdgeView? { self == .sprocket135 ? .strip : nil }
+    /// **Every cine gauge is a strip** too (片条 only, 锉边 greyed): its picture is within a
+    /// millimetre of its holes, so a filed carrier would show the strip.
+    var fixedView: FilmEdgeView? { self == .sprocket135 || isCine ? .strip : nil }
 
     /// What the holes start as when this format is picked: 135 Full Width's reference strip is a darkroom print
-    /// (black holes); every other format keeps the frame's own.
-    var startingHoles: FilmEdgeHoles? { self == .sprocket135 ? .black : nil }
+    /// (black holes); a cine gauge's start white, the scan's light; every other format keeps
+    /// the frame's own.
+    var startingHoles: FilmEdgeHoles? {
+        if self == .sprocket135 { return .black }
+        return isCine ? .white : nil
+    }
+    /// Whether the film has holes on this format with `perforation`: every 135 format and every cine one, and 120
+    /// with the keyholes.
+    func hasHoles(perforation: FilmEdgePerforation) -> Bool {
+        isPerforated || isCine || (is120 && perforation == .ks65)
+    }
     /// The gate families its real cameras have, for `gate = auto`, in the
     /// engine's order (the camera seed picks one).
     var families: [FilmEdgeGate] {
@@ -181,13 +259,23 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
         case .f645: [.eared, .rounded]
         case .f6x6: [.kicked, .square]
         case .f6x8: [.shouldered]
+        case .super8: [.rounded]
         default: [.square]
         }
     }
 
     /// The film this format runs on, as a stock's `gauges` names it: half
-    /// frame and XPan are cameras for 135 film.
-    var gauge: String { isPerforated ? "135" : "120" }
+    /// frame and XPan are cameras for 135 film; the cine gauges' films are
+    /// Super 8, 16 mm, 35 mm motion-picture film and 65 mm.
+    var gauge: String {
+        switch self {
+        case .super8: "S8"
+        case .cine16: "16"
+        case .cine35: "35"
+        case .cine65, .cine65x15: "65"
+        default: isPerforated ? "135" : "120"
+        }
+    }
 
     /// The gate as the picture sees it at a turn: the film runs across at an
     /// even turn and down at an odd one, so the gate's width is its size
@@ -233,6 +321,84 @@ enum FilmEdgeFormat: String, CaseIterable, Identifiable, Codable, Sendable {
     }
     var drawsAnyDate: Bool { DateBackFace.allCases.contains(where: draws) }
 
+    /// **Why the edge print's rows mean nothing on this format**, for the page to say beside them: a cine film
+    /// prints no name and no numbers; nil where the rows are live.
+    var edgePrintReason: String? { isCine ? L("No edge text is printed on cine film.") : nil }
+
+    /// Where the holes lie, for the turn's line on a film with no name on it: a one-row gauge's
+    /// row is on its film's t-low edge (Super 8: on top at turn 0, on the right at 1 -- "the picture's right on a film
+    /// running down it") or its t-high edge (16 mm: below at 0, on the left at 1, as on the owner's scan); the
+    /// engine's table says which (`EngineGauges`). Two rows: top and bottom with the film across, left and right
+    /// with it down.
+    func holesSay(turn: Int) -> String {
+        let q = ((turn % 4) + 4) % 4
+        let rows = EngineGauges.cine(self)?.rows ?? 0
+        if rows == 0 { return q % 2 == 0 ? L("perforations top and bottom") : L("perforations left and right") }
+        let says = [L("perforations on top"), L("perforations on the right"), L("perforations below"),
+                    L("perforations on the left")]
+        return says[(q + (rows == 2 ? 2 : 0)) % 4]
+    }
+}
+
+/// **A cine gauge's film, as the engine's own table gives it** (API-SPEC §24: `spk_overscan_formats`, the engine's
+/// `kCine` row): its holes, their rows, the advance, the canvas's named aspect, the camera's scale and tolerances,
+/// and **whether the canvas shows the neighbours** -- the engine's rule, which the app never keeps a copy of
+/// (it reads it; a hard-coded copy would drift). `FilmLayout` lays a cine film out with these numbers only.
+struct CineGauge: Equatable, Sendable {
+    var pitch, holeAlong, holeAcross, holeEdge, holeR: Double
+    /// 0 KS (a rounded rectangle), 1 Bell & Howell (a disc cut flat along).
+    var shape: Int
+    /// 0 a row on each edge, 1 the t-low edge only, 2 the t-high edge only.
+    var rows: Int
+    /// Perforations a frame: the advance.
+    var perfs: Int
+    var aspectLong, aspectShort: Int
+    var guided, mech, tTol, reg, advErr, rMin, rMax, jit: Double
+    /// The canvas shows the frames before and after (the same picture again); false: one frame's advance.
+    var neighbours: Bool
+    /// The hole centred on the frame line, not on the frame.
+    var atLine: Bool
+    /// The camera's scale at a gauge smaller than 35 mm (the engine's `cine_small`).
+    var small: Double { min(1, 2 * mech) }
+    /// One frame's advance along the film.
+    var advance: Double { Double(perfs) * pitch }
+}
+
+/// The engine's film-edge format table, read once from the engine (`SpkEngine`) and published here; until then no
+/// cine gauge is offered and none is laid out (the develop still draws it: the engine is the film). A self-test
+/// publishes the engine's own reply it was handed.
+enum EngineGauges {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var table: [String: CineGauge] = [:]
+
+    /// The reply of `spk_overscan_formats`, as it came. False when it does not parse (nothing is published).
+    @discardableResult
+    static func publish(json: Data) -> Bool {
+        guard let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let formats = root["formats"] as? [[String: Any]] else { return false }
+        var out: [String: CineGauge] = [:]
+        for f in formats {
+            guard let name = f["name"] as? String, let c = f["cine"] as? [String: Any] else { continue }
+            func d(_ k: String) -> Double { (c[k] as? NSNumber)?.doubleValue ?? 0 }
+            func i(_ k: String) -> Int { (c[k] as? NSNumber)?.intValue ?? 0 }
+            let aspect = (c["aspect"] as? [NSNumber])?.map(\.intValue) ?? [1, 1]
+            out[name] = CineGauge(pitch: d("pitch_mm"), holeAlong: d("hole_along_mm"), holeAcross: d("hole_across_mm"),
+                                  holeEdge: d("hole_edge_mm"), holeR: d("hole_r_mm"), shape: i("shape"), rows: i("rows"),
+                                  perfs: i("perfs"), aspectLong: aspect.first ?? 1, aspectShort: aspect.last ?? 1,
+                                  guided: d("guided_mm"), mech: d("mech"), tTol: d("t_tol_mm"), reg: d("reg_mm"),
+                                  advErr: d("adv_err_mm"), rMin: d("r_min_mm"), rMax: d("r_max_mm"), jit: d("jit"),
+                                  neighbours: (c["neighbours"] as? Bool) ?? false, atLine: (c["at_line"] as? Bool) ?? false)
+        }
+        lock.lock(); defer { lock.unlock() }
+        table = out
+        return true
+    }
+
+    /// The gauge's row, or nil: not a cine gauge, or no engine table read yet.
+    static func cine(_ format: FilmEdgeFormat) -> CineGauge? {
+        lock.lock(); defer { lock.unlock() }
+        return table[format.rawValue]
+    }
 }
 
 /// `overscan_mode`: the whole film width, or a filed-out carrier's sliver of rebate.
@@ -286,7 +452,7 @@ enum FilmEdgePerforation: String, CaseIterable, Codable, Identifiable, Sendable 
     /// What the wire carries on `format`: the kept choice on 120, `none` elsewhere (the engine refuses `ks65` there).
     func on(_ format: FilmEdgeFormat) -> FilmEdgePerforation { format.is120 ? self : .none }
 
-    /// **65mm**, the cine 120's name in the app, zh and en alike (the owner, 2026-11-11, PRD-D §6 q1: never the IMAX
+    /// **65mm**, the cine 120's name in the app, zh and en alike (the owner, 2026-11-11, PRD-D §6 q1: never the 15-perf
     /// mark). The one place to change it: 格式's size card on a Vision3 stock and the Film step's line.
     static var filmName: String { FilmFrame.cine65Name }
 }
@@ -384,6 +550,7 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
     /// holes 135 Full Width's strip has, and on coming onto 120 the keyholes a Vision3 stock opens with (between
     /// two 120 formats the choice is kept; off 120 it goes, the engine refusing it there).
     mutating func take(format new: FilmEdgeFormat, stockID: String) {
+        // (a cine gauge: its holes start white, no keyholes -- the engine refuses them off 120)
         let was120 = format.is120
         format = new
         if let h = new.startingHoles { holes = h }
@@ -425,6 +592,18 @@ struct FilmEdgeSettings: Codable, Equatable, Sendable {
         let px = max(format.alongMM, format.acrossMM) / max(w, h)             // mm per pixel
         let vertical = format.runsDown(frame: picture)
         let alongPx = vertical ? h : w
+        // A cine gauge (API-SPEC §24): the film's width by the frame and its neighbours' slivers at the gauge's named
+        // aspect, or one frame's advance -- the engine's own table says which (`EngineGauges`); a strip always.
+        if let cine = EngineGauges.cine(format) {
+            let gateAlong = alongPx * px
+            let a = Double(cine.aspectLong), b = Double(cine.aspectShort)
+            let canvasAlong = !cine.neighbours ? cine.advance
+                : (format.acrossMM > format.alongMM ? format.filmWidthMM * b / a : format.filmWidthMM * a / b)
+            let margin = max(0, 0.5 * (canvasAlong - gateAlong))
+            let along = Int(alongPx) + 2 * Int((margin / px).rounded(.up))
+            let across = max(Int((format.filmWidthMM / px).rounded(.up)), vertical ? picture.width : picture.height)
+            return vertical ? PixelSize(width: across, height: along) : PixelSize(width: along, height: across)
+        }
         let marginMM: Double, acrossMM: Double
         switch view {
         case .strip:

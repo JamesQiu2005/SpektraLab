@@ -214,7 +214,7 @@ func jumpChecks(_ c: inout Checker, _ r: Rules) {
             p.tap(target)
             c.expect(p.journey.step == target, "\(entry) → \(target): at \(p.journey.step)")
             c.expect(p.draft.filmEdge.active, "\(entry) → \(target): the film edge is not on")
-            c.expect(p.draft.filmEdge.cameraSeed == 42, "\(entry) → \(target): body \(p.draft.filmEdge.cameraSeed), not the phone's 42")
+            c.expect(p.draft.filmEdge.cameraSeed == 42, "\(entry) → \(target): body \(p.draft.filmEdge.cameraSeed), not the host's 42")
             c.expect(p.draft.filmEdge.framing == g1, "\(entry) → \(target): the cut is not the guide's")
             c.expect(p.writes == 1, "\(entry) → \(target): written \(p.writes) times")
         }
@@ -359,7 +359,8 @@ func holesRowChecks(_ c: inout Checker, _ r: Rules) {
         e.format = format
         for p in FilmEdgePerforation.allCases {
             e.perforation = p
-            let want: FilmEdgeOptions.HolesRow = format.isPerforated ? .colour : .perforations(showsColour: p == .ks65)
+            let want: FilmEdgeOptions.HolesRow = format.isPerforated || format.isCine ? .colour
+                : .perforations(showsColour: p == .ks65)
             c.expect(r.holesRow(e) == want, "\(format.label), keyholes \(p.rawValue): the holes row is \(r.holesRow(e)), not \(want)")
         }
     }
@@ -376,11 +377,12 @@ func optionChecks(_ c: inout Checker, _ r: Rules) {
     for format in FilmEdgeFormat.allCases {
         var e = FilmEdgeSettings()
         e.format = format
-        c.expect(FilmEdgeOptions.holes(e) == (format == .f135 || format == .half || format == .xpan || format == .sprocket135),
+        c.expect(FilmEdgeOptions.holes(e) == (format == .f135 || format == .half || format == .xpan || format == .sprocket135
+                                              || format.isCine),
                  "holes on \(format.label) are " + (FilmEdgeOptions.holes(e) ? "open" : "greyed"))
         // 120 with the keyholes has holes to see through (PRD-D §3.2); 135's own are the format's.
         e.perforation = .ks65
-        c.expect(FilmEdgeOptions.holes(e) == (format.isPerforated || format.is120),
+        c.expect(FilmEdgeOptions.holes(e) == (format.isPerforated || format.is120 || format.isCine),
                  "holes on \(format.label) with the keyholes are " + (FilmEdgeOptions.holes(e) ? "open" : "greyed"))
     }
 
@@ -409,7 +411,9 @@ func optionChecks(_ c: inout Checker, _ r: Rules) {
     // 645 printed data in its margin only; 6×7 and the panoramic formats nothing at all.
     edge.format = .f645
     c.expect(r.face(.data, back, edge) && !r.face(.lcd, back, edge) && !r.face(.dots, back, edge), "645's faces")
-    for format in [FilmEdgeFormat.f6x6, .f6x7, .f6x8, .f6x9, .xpan, .f6x12, .f6x17] {
+    // (and no cine camera printed a date, API-SPEC §24)
+    for format in [FilmEdgeFormat.f6x6, .f6x7, .f6x8, .f6x9, .xpan, .f6x12, .f6x17, .super8, .cine16, .cine35, .cine65,
+                   .cine65x15] {
         edge.format = format
         c.expect(FilmEdgeOptions.printsNothing(back, edge), "\(format.label) prints a date")
         for f in DateBackFace.allCases { c.expect(!r.face(f, back, edge), "\(f.label) is open on \(format.label)") }
@@ -417,9 +421,91 @@ func optionChecks(_ c: inout Checker, _ r: Rules) {
     }
 }
 
+// MARK: - 电影, the cine gauges (API-SPEC §24, 2026-11-15)
+
+/// The 片幅 filter's 电影 chip and its five cards, and the rule the port must never keep a copy of: whether a gauge
+/// shows its neighbours is the engine's table's (`EngineGauges`, read from `spk_overscan_formats`). The table here is
+/// the engine's own reply, kept in `tools/overscan_formats.json` (`tools/film_edge_parity.py` holds it to the live
+/// engine's, so it cannot drift unseen).
+func cineChecks(_ c: inout Checker) {
+    let cine: [FilmEdgeFormat] = [.super8, .cine16, .cine35, .cine65, .cine65x15]
+    // No engine table read: no 电影 chip, no card, no layout (the develop still draws it: the engine is the film).
+    EngineGauges.publish(json: Data(#"{"formats":[]}"#.utf8))
+    c.expect(!FilmEdgeFormat.offered.contains(where: \.isCine) && !FilmEdgeFormat.Filter.offered().contains(.cine),
+             "no 电影 without an engine that has the cine gauges")
+    var q = FilmEdgeRequest(); q.format = .cine16; q.frame = PixelSize(width: 3705, height: 2250)
+    c.expect(FilmLayout.layout(q) == nil, "no cine layout without the engine's table")
+    guard let table = FileManager.default.contents(atPath: "tools/overscan_formats.json"), EngineGauges.publish(json: table)
+    else { c.expect(false, "the engine's table (tools/overscan_formats.json) reads"); return }
+    c.expect(FilmEdgeFormat.Filter.offered() == [.all, .film135, .film120, .panoramic, .cine],
+             "片幅: All · 135 · 120 · Wide · Cine, \(FilmEdgeFormat.Filter.offered().map(\.rawValue))")
+    c.expect(FilmEdgeFormat.Filter.cine.formats() == cine, "电影's cards: Super 8 · 16mm · 35mm · 70mm · 70mm 15-perf")
+    c.expect(cine.map(\.cardTitle) == ["Super 8", "16mm", "35mm", "70mm", "70mm"]
+             && cine.map(\.cardDetail) == ["1.44", "1.65", L("Cine"), L("Cine"), L("15-perf")],
+             "the cards' names and captions, \(cine.map(\.cardDetail))")
+    c.expect(FilmEdgeFormat.Filter.film135.formats().allSatisfy { !$0.isCine }
+             && FilmEdgeFormat.Filter.all.formats() == FilmEdgeFormat.offered && FilmEdgeFormat.offered.filter(\.isCine) == cine,
+             "the other chips show no cine card; All shows every format")
+    // Every film has every cine gauge (the owner's decision, 2026-11-12): none is greyed for the stock.
+    for id in ["kodak_portra_400", "fujifilm_c200", "kodak_vision3_250d", "kodak_tri_x_400", "kodak_ultramax_400"] {
+        let s = Stock(id: id, name: id, shortName: id, kind: "colour negative", stage: "filming",
+                      use: id.contains("vision3") ? "cine" : "still")
+        c.expect(cine.allSatisfy { s.isMade(in: $0, keyholes: true) }, "\(id) is made in every cine gauge")
+    }
+    // A card picked: on, white holes, no keyholes, a strip; nothing printed, no date.
+    for f in cine {
+        var e = FilmEdgeSettings(); e.format = .f6x7; e.perforation = .ks65; e.holes = .black; e.mode = .filed
+        e.take(format: f, stockID: "kodak_vision3_250d")
+        e.active = true
+        c.expect(e.holes == .white && e.perforation == .none && e.view == .strip && !FilmEdgeOptions.view(e),
+                 "\(f.label) starts with white holes, no keyholes, as a strip")
+        c.expect(FilmEdgeOptions.frameNumberReason(e, stockID: "kodak_portra_400") == f.edgePrintReason && f.edgePrintReason != nil,
+                 "\(f.label): the frame number says no edge text is printed")
+        c.expect(!f.drawsAnyDate, "\(f.label) prints no date")
+        let wire = Dictionary(e.wire(edgeText: "", frameSeed: 1, fNumber: 0).map { ($0.name, "\($0.value)") }, uniquingKeysWith: { a, _ in a })
+        c.expect(wire["overscan_format"]?.contains(f.rawValue) == true && wire["overscan_mode"]?.contains("strip") == true,
+                 "\(f.label) is sent as \(f.rawValue), strip")
+    }
+    // The neighbours are the engine's table's, never the port's: Super 8 and 16 mm show them, the others do not, and
+    // a table that says otherwise is followed.
+    func laid(_ f: FilmEdgeFormat) -> FilmGeometry? {
+        var r = FilmEdgeRequest(); r.format = f; r.cameraSeed = 19; r.frameSeed = 5
+        let long = 3600, short = Int((3600 * min(f.alongMM, f.acrossMM) / max(f.alongMM, f.acrossMM)).rounded())
+        r.frame = PixelSize(width: long, height: short)   // a landscape picture: Super 8 … 70mm down, 15-perf across
+        return FilmLayout.layout(r)
+    }
+    for f in cine {
+        let g = laid(f)
+        let shows = (g?.neighbourPrev ?? 0) > 0 && (g?.neighbourNext ?? 0) > 0
+        c.expect(g != nil && shows == (f == .super8 || f == .cine16) && shows == (EngineGauges.cine(f)?.neighbours ?? false),
+                 "\(f.label): neighbours " + (shows ? "shown" : "none") + ", as the engine's table says")
+        let rows = Set((g?.holes ?? []).map { $0.minY < (g?.filmW ?? 0) / 2 ? 1 : 2 })
+        let want: Set<Int> = f == .super8 ? [1] : f == .cine16 ? [2] : [1, 2]
+        c.expect(rows == want, "\(f.label): holes on rows \(rows.sorted()), the table's \(want.sorted())")
+    }
+    if let g16 = laid(.cine16) {
+        let along = Double(g16.vertical ? g16.canvas.height : g16.canvas.width) * g16.px
+        c.expect(abs(along - 15.95 * 9 / 16) < 3 * g16.px, "16mm's canvas is 16:9 of the film: \(along) mm along")
+        c.expect(g16.holes.count >= 2 && abs((g16.holes[1].midX - g16.holes[0].midX) - 7.605) < 1e-9,
+                 "16mm: one hole a frame, 7.605 mm apart")
+    }
+    var flipped = String(decoding: table, as: UTF8.self)
+    flipped = flipped.replacingOccurrences(of: "\"neighbours\": true", with: "\"neighbours\": false")
+    EngineGauges.publish(json: Data(flipped.utf8))
+    if let g = laid(.super8) {
+        let along = Double(g.vertical ? g.canvas.height : g.canvas.width) * g.px
+        c.expect(g.neighbourPrev == 0 && g.neighbourNext == 0 && abs(along - 4.234) < 3 * g.px,
+                 "a table that gives Super 8 no neighbours is followed: one advance, none drawn (\(along) mm)")
+    }
+    EngineGauges.publish(json: table)
+}
+
 @main
 enum Main {
     static func main() {
+        // The engine's format table (API-SPEC §24), as the app reads it from its engine: every check below lays the
+        // cine gauges out with it (`cineChecks` also takes it away, and puts it back).
+        if let table = FileManager.default.contents(atPath: "tools/overscan_formats.json") { EngineGauges.publish(json: table) }
         func run(_ rules: Rules, quiet: Bool) -> Checker {
             var c = Checker(quiet: quiet)
             stepChecks(&c, rules)
@@ -428,6 +514,7 @@ enum Main {
             optionChecks(&c, rules)
             holesRowChecks(&c, rules)
             viewChecks(&c, rules)
+            cineChecks(&c)
             return c
         }
         if CommandLine.arguments.contains("--self-test") {

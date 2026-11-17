@@ -128,7 +128,7 @@ struct MacLibrarySidebar: View {
             }
             Spacer(minLength: 0)
             // Import (a Finder panel, then the import page) and Export (the chosen pictures), 2026-10-24.
-            barButton(L("Import"), "square.and.arrow.down", id: "mac.library.import") { browser.importAsked = true }
+            barButton(L("Import"), "square.and.arrow.down", id: "mac.library.import") { browser.askImport(store) }
             barButton(L("Export"), "square.and.arrow.up", id: "mac.library.export") { browser.exportAsked = true }
                 .disabled(browser.selection.isEmpty)
         }
@@ -534,7 +534,7 @@ struct MacLibrarySidebar: View {
             Menu {
                 Button(action: openSource) { Label(L("Open Catalog or Folder…"), systemImage: "camera.aperture") }
                 // The Mac's import flow (a Finder panel, then the import page, `MacImportFlow`), not the window's sheet.
-                Button { browser.importAsked = true } label: { Label(L("Import…"), systemImage: "square.and.arrow.down") }
+                Button { browser.askImport(store) } label: { Label(L("Import…"), systemImage: "square.and.arrow.down") }
                 Button { run { await MacCatalogActions.newCatalog(store) } } label: { Label(L("New Catalog…"), systemImage: "plus.rectangle.on.folder") }
                 catalogCommands
                 if let s = store.selectedSource {
@@ -546,30 +546,30 @@ struct MacLibrarySidebar: View {
                 Button(action: plusSources) { Label(L("Sources"), systemImage: "externaldrive") }
                 Button(action: plusSettings) { Label(L("Settings"), systemImage: "gearshape") }
             } label: {
-                Image(systemName: "plus").font(MacMetric.font(13, .medium)).foregroundStyle(Theme.secondaryText)
-                    .frame(width: MacMetric.pt(22), height: MacMetric.pt(22)).contentShape(Rectangle())
+                Image(systemName: "plus").font(MacMetric.font(11, .medium)).foregroundStyle(Theme.secondaryText)
+                    .frame(width: MacMetric.pt(22), height: MacMetric.pt(20)).contentShape(Rectangle())
             }
             .menuIndicator(.hidden)
             .accessibilityLabel(L("Add"))
             HStack(spacing: MacMetric.pt(4)) {
-                Image(systemName: "line.3.horizontal.decrease").font(MacMetric.font(11)).foregroundStyle(Theme.dim)
+                Image(systemName: "line.3.horizontal.decrease").font(MacMetric.font(9)).foregroundStyle(Theme.dim)
                 TextField(L("Filter"), text: $browser.rowFilter)
-                    .font(MacMetric.font(12)).textFieldStyle(.plain)
+                    .font(MacMetric.font(10)).textFieldStyle(.plain)
                     .focused($filtering)
                     .onSubmit { filtering = false }         // Return: the text is kept, the field lets go
                     .onKeyPress(.escape) { filtering = false; return .handled }   // Esc: the same
                     .onChange(of: MacKeyFocus.shared.pulse) { _, _ in filtering = false }   // a click outside
                 if !browser.rowFilter.isEmpty {
                     Button { browser.rowFilter = "" } label: {
-                        Image(systemName: "xmark.circle.fill").font(MacMetric.font(11)).foregroundStyle(Theme.dim)
+                        Image(systemName: "xmark.circle.fill").font(MacMetric.font(9)).foregroundStyle(Theme.dim)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(L("Clear"))
                 }
             }
             .padding(.horizontal, MacMetric.pt(7))
-            .frame(height: MacMetric.pt(22))
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: MacMetric.pt(11), style: .continuous))
+            .frame(height: MacMetric.pt(20))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: MacMetric.pt(10), style: .continuous))
         }
         .padding(.horizontal, MacMetric.pt(8))
         .frame(height: MacMetric.pt(MacMetric.bottomBar))
@@ -675,7 +675,7 @@ private struct InfoLine: View {
     let value: String
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: MacMetric.pt(8)) {
-            Text(label).font(MacMetric.font(11)).foregroundStyle(Theme.dim)
+            Text(label).font(MacMetric.font(9)).foregroundStyle(Theme.dim)
                 .multilineTextAlignment(.trailing)
                 .frame(width: MacMetric.pt(84), alignment: .trailing)
             Text(value).font(MacMetric.font(12)).foregroundStyle(Theme.text)

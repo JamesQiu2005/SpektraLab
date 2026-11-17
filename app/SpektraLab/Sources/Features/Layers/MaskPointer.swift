@@ -207,6 +207,29 @@ final class MaskPointerView: UIView {
     }
 }
 
+/// Whether a view takes a pointer's press, decided at the press's own point (round 4, 2026-11-16). On the Mac a press
+/// of the mouse or the trackpad is hit-tested over an area, not a point: UIKit asks the view under it about the press's
+/// point and then about rings of points 5, 10 and 15 of its points around it (seen in the log of the watermark stage's
+/// `point(inside:)`, one press: the centre and the inner ring yes, the two outer rings no), and SwiftUI gives the press
+/// to whatever covers the area best. A small target in a UIKit view over SwiftUI content — the watermark's 9-point turn
+/// dot over the canvas, a 9-point grip over a strip of cards — loses its own press to what is around it. Here every
+/// probe of a press answers as its centre did, within `reach`, so the press's own point decides.
+struct PressPoint {
+    private var press: (time: TimeInterval, at: CGPoint, takes: Bool)?
+    var reach: CGFloat = 24
+
+    mutating func inside(_ p: CGPoint, with event: UIEvent?, takes: (CGPoint) -> Bool) -> Bool {
+        guard let event, event.type == .touches else { return takes(p) }
+        if let press, press.time == event.timestamp {
+            // The centre decides both ways: a press whose centre missed is not claimed by a ring that grazes a target.
+            return press.takes && (hypot(p.x - press.at.x, p.y - press.at.y) <= reach || takes(p))
+        }
+        let t = takes(p)
+        press = (event.timestamp, p, t)
+        return t
+    }
+}
+
 /// A press and its drag, recognised at the press (no distance to travel first) and holding every sample the drag's
 /// events carry (`coalescedTouches`), oldest first.
 final class MaskPress: UIGestureRecognizer {

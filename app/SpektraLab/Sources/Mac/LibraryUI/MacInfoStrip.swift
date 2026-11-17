@@ -52,7 +52,7 @@ struct MacInfoStrip: View {
         .fixedSize()
     }
 
-    static var height: CGFloat { MacMetric.pt(28) }
+    static var height: CGFloat { MacMetric.pt(22) }   // 28 until 2026-11-16 (~20 % less, text 12 -> 10)
     #if DEBUG
     /// What the strip was handed and what of it fit, as last drawn (`--masks-check`'s 仅显示蒙版).
     @MainActor static var drawn: (asked: String?, shown: String?, width: CGFloat)?
@@ -60,7 +60,7 @@ struct MacInfoStrip: View {
 
     private var pad: CGFloat { MacMetric.pt(10) }
     private var gap: CGFloat { MacMetric.pt(14) }
-    private static let size: CGFloat = 12
+    private static let size: CGFloat = 10
 
     var body: some View {
         GeometryReader { geo in

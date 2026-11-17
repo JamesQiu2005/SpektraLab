@@ -21,7 +21,7 @@ files=("$src/Scheduler/CostModel.swift" "$src/Scheduler/DevelopEngine.swift" "$s
   "$src/Scheduler/MemoryBudget.swift" "$src/Scheduler/MemoryProbe.swift" "$src/Scheduler/Planner.swift" "$src/Scheduler/PrefetchPolicy.swift"
   "$src/Scheduler/RenderQueue.swift" "$src/Scheduler/SchedulerTypes.swift" "$src/Scheduler/SimulatedEngine.swift" "$src/Scheduler/SpkEngine.swift"
   "$src/Model/Format.swift" "$src/Model/Localization.swift" "$src/Model/FeatureFlags.swift" "$src/Model/FilmParams.swift" "$src/Model/FrameEdit.swift"
-  "$src/Model/LocalLayers.swift" "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift"
+  "$src/Model/LocalLayers.swift" "$src/Model/Watermark.swift" "$src/Model/Adjustments.swift" "$src/Model/CurveMath.swift" "$src/Model/Geometry.swift" "$src/Model/FilmEdge.swift"
   "$src/Model/LensEdge.swift" "$src/Model/Stock.swift" "$src/Model/ExportRecipe.swift" "$src/Model/MaskFrame.swift"
   "$src/Engine/HDRSessionCurve.swift" "$src/Engine/HDRGain.swift" "$src/Engine/HDRGrainGain.swift" "$src/Engine/HDRMath.swift" "$src/Engine/HDRGainMap.swift"
   "$src/Engine/HDRRendition.swift" "$src/Engine/HDRLook.swift" "$src/Engine/CineonView.swift" "$src/Engine/HostCut.swift"

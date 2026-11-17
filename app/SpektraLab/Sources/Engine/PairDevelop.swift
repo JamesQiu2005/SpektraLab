@@ -223,6 +223,8 @@ extension FrameEdit {
         look.filmEdge.format = .half
         look.filmEdge.framing = nil
         look.filmEdge.turn = 0
+        // No watermark on a pair in this version (W5, `WatermarkRules.placements`): its look holds none.
+        look.watermarks = []
         return look
     }
 

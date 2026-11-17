@@ -64,6 +64,43 @@ extension Color { init(hexString: String) { self = .gray } }
         FrameEdit.hdrByDefault = false
         expect(!never.hdr && on.hdr, "the default off: the frame that chose on stays on")
 
+        // MARK: EDR remembered as HDR is (the owner, 2026-11-16): `FilmParams.edrChoice`, nil following the default
+        FilmParams.edrByDefault = false
+        let plainEDR = json(never)
+        expect(plainEDR.contains("\"extendedDynamicRange\":false") && !plainEDR.contains("edrOff"),
+               "an edit that never chose EDR writes extendedDynamicRange false and no edrOff, as before the default")
+        expect(decoded(plainEDR).params.edrChoice == nil, "and reads back as never chosen")
+        FilmParams.edrByDefault = true
+        expect(never.params.extendedDynamicRange && never.params.effectiveExtendedDynamicRange,
+               "a frame that never chose follows Enable EDR by Default (on), on the wire too")
+        expect(json(never) == plainEDR, "and is the same JSON, byte for byte, whatever the default")
+        var edrChosenOn = FrameEdit(); edrChosenOn.params.extendedDynamicRange = true
+        var edrChosenOff = FrameEdit(); edrChosenOff.params.extendedDynamicRange = false
+        let oldOn = plainEDR.replacingOccurrences(of: "\"extendedDynamicRange\":false", with: "\"extendedDynamicRange\":true")
+        expect(json(edrChosenOn) == oldOn && decoded(oldOn).params.edrChoice == true,
+               "chosen on is the JSON a 2.4.0 edit with EDR on was, and an old edit with it on reads as chosen on")
+        expect(json(edrChosenOff).contains("\"edrOff\":true") && decoded(json(edrChosenOff)).params.edrChoice == false
+               && !decoded(json(edrChosenOff)).params.extendedDynamicRange,
+               "off, once chosen, writes edrOff and holds against a default that is on")
+        expect(edrChosenOn != never && edrChosenOff != never && edrChosenOn.params != edrChosenOff.params,
+               "a choice is a change of the edit")
+        var edrBack = edrChosenOff; edrBack.params.edrChoice = nil
+        expect(json(edrBack) == plainEDR, "a choice taken back to nil (an undo) is the never-chosen JSON again")
+        // Never both on: a frame whose own HDR is on does not follow EDR's default, through a decode and a params handed in.
+        var ownHDR = FrameEdit(); ownHDR.hdr = true
+        expect(!ownHDR.params.extendedDynamicRange && !decoded(json(ownHDR)).params.extendedDynamicRange,
+               "a frame whose own HDR is on does not follow EDR's default, read back too")
+        var handed = ownHDR; handed.params = FilmParams()
+        expect(!handed.params.extendedDynamicRange, "nor with its params handed in whole")
+        var edrOwn = ownHDR; edrOwn.params.extendedDynamicRange = true
+        expect(edrOwn.params.effectiveExtendedDynamicRange, "its own EDR on is on (and its HDR stands down, as before)")
+        ownHDR.hdrChoice = nil
+        expect(ownHDR.params.extendedDynamicRange, "its HDR back to never chosen, it follows EDR's default again")
+        FilmParams.edrByDefault = false
+        expect(!never.params.extendedDynamicRange && edrChosenOn.params.extendedDynamicRange,
+               "the default off: the frame that chose on stays on")
+        expect(FilmParams().edrChoice == nil, "a new film's params have not chosen")
+
         // MARK: a print's picture is not the switch's (D3), a slide's is
         func edit(film: String, paper: String? = nil, hdr: Bool?) -> FrameEdit {
             var e = FrameEdit()
@@ -162,6 +199,12 @@ extension Color { init(hexString: String) { self = .gray } }
         let followed = SettingsClip(groups: [.hdr], settings: never, sourceName: "x").applied(to: off, picture: PixelSize(width: 3, height: 2))
         expect(followed.hdrChoice == true, "a source that follows the default pastes what it shows")
         FrameEdit.hdrByDefault = false
+        // EDR in the same group, by the same rule: the source's as it shows it, the target's never-chosen alone otherwise.
+        let pastedEDR = SettingsClip(groups: [.hdr], settings: edrChosenOn, sourceName: "x").applied(to: target, picture: PixelSize(width: 3, height: 2))
+        expect(pastedEDR.params.edrChoice == true, "pasting the HDR group carries the source's EDR choice")
+        let edrOthers = SettingsClip(groups: [.filmAndPaper, .filmExposure, .light], settings: edrChosenOn, sourceName: "x")
+            .applied(to: target, picture: PixelSize(width: 3, height: 2))
+        expect(edrOthers.params.edrChoice == nil, "pasting anything else leaves the target's never-chosen EDR alone")
 
         // MARK: the engine's answer
         let replyURL = here.appendingPathComponent("tools/engine_replies/hdr_curve_reply.json")

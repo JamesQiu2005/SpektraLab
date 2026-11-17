@@ -419,8 +419,20 @@ extension DevelopWorkspace {
         return session.chromeMaskLayer
     }
 
+    /// The watermark whose page the column is, in either mode (PRD-8 on the Mac): nil with any other row picked.
+    private var watermarkPage: WatermarkPlacement? {
+        guard case .watermark = session.layerPick else { return nil }
+        return session.pickedMark
+    }
+
+    /// The picked watermark wears its handles on the canvas: the arrows and ⌫ are its (`watermarkKeys`), not the
+    /// photographs' and the rows'.
+    private var watermarkKeysOn: Bool { watermarkPage != nil && session.watermarkSelected && columnShown }
+
     @ViewBuilder private func columnPanel(width: CGFloat, room: CGFloat) -> some View {
-        if let layer = maskPage {
+        if let mark = watermarkPage {
+            WatermarkPage(session: session, placement: mark)
+        } else if let layer = maskPage {
             MaskPage(session: session, layer: layer)
         } else if session.layerPick.isPicture {
             // A pair's frame or a double's exposure picked: its own page in Develop; in Edit nothing of its own,
@@ -439,18 +451,13 @@ extension DevelopWorkspace {
                 }
             }
         } else if navigation.surface == .develop, navigation.step == .filmAndPaper, let stockStrip {
-            // The film's pill over its cards in rows, then the paper's; one row each, as the host,
-            // where the column is too short for two. Decode under them: a part taller than the room
-            // left (the curve) scrolls, and the strips keep their rows whichever part is shown.
-            // a folded strip gives its rows to the other.
-            let prefs = DevelopPanelPrefs.shared
-            let rows = [3, 2].first(where: {
-                StockPreviewPanel.height(rows: $0, compact: compact, filmFolded: prefs.filmRowCollapsed,
-                                         paperFolded: prefs.paperRowCollapsed, decodeFolded: prefs.decodeCollapsed) <= room
-            }) ?? 1
+            // The desktop's Film & Paper (the owner, 2026-11-16): the film's grid and the paper's, each as tall as
+            // its grip was dragged and scrolling its own cards up and down, then Decode (`StockPreviewPanel(room:)`,
+            // `StripSplit`). The column scrolls the panel as one, as before: a strip nobody dragged fits the room,
+            // so at rest both strips and Decode's shortest part are on screen where the room holds them.
             ScrollView(.vertical) {
-                StockPreviewPanel(session: session, strip: stockStrip, compact: compact, crop: nil, rows: rows,
-                                  decode: decodeSection, status: nil, foldable: true)
+                StockPreviewPanel(session: session, strip: stockStrip, compact: compact, crop: nil,
+                                  decode: decodeSection, status: nil, foldable: true, room: room, width: width)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
             .scrollIndicators(.hidden)
@@ -490,16 +497,19 @@ extension DevelopWorkspace {
             // the browser's rows are the page's neighbours, so ← and →
             // walk what the browser shows — the pictures the library has never opened included, made a
             // frame as a click on the row makes one.
-            HiddenKeyEquivalent(title: L("Previous photo"), key: .leftArrow, enabled: macPhotoKeysFree && browserNeighbour(-1) != nil) {
+            HiddenKeyEquivalent(title: L("Previous photo"), key: .leftArrow,
+                                enabled: macPhotoKeysFree && browserNeighbour(-1) != nil && !watermarkKeysOn) {
                 if let row = browserNeighbour(-1) { MacDevelopOpening.open(row, store: MacLibraryUI.store(model)) { switchFrame(to: $0) } }
             }
-            HiddenKeyEquivalent(title: L("Next photo"), key: .rightArrow, enabled: macPhotoKeysFree && browserNeighbour(1) != nil) {
+            HiddenKeyEquivalent(title: L("Next photo"), key: .rightArrow,
+                                enabled: macPhotoKeysFree && browserNeighbour(1) != nil && !watermarkKeysOn) {
                 if let row = browserNeighbour(1) { MacDevelopOpening.open(row, store: MacLibraryUI.store(model)) { switchFrame(to: $0) } }
             }
             // ↑ ↓ walk the 图层 panel's rows, and stop at its ends (LAYERS-SPEC §7): with the column put away
             // there is no panel to walk, and a single frame has one row.
-            let layerKeys = macPhotoKeysFree && columnShown
-                && (!session.layerPiece.isSingle || (LayerRules.takesMasks(session.layerPiece) && !(session.maskLayers?.items.isEmpty ?? true)))
+            let layerKeys = macPhotoKeysFree && columnShown && !watermarkKeysOn
+                && (!session.layerPiece.isSingle || (LayerRules.takesMasks(session.layerPiece) && !(session.maskLayers?.items.isEmpty ?? true))
+                    || !session.edit.watermarks.isEmpty)
             HiddenKeyEquivalent(title: L("Previous Layer"), key: .upArrow, enabled: layerKeys) { stepLayer(-1) }
             HiddenKeyEquivalent(title: L("Next Layer"), key: .downArrow, enabled: layerKeys) { stepLayer(1) }
             // ⌫ removes the picked mask layer (MASKS-SPEC §8). Held against the Curve panel's Delete Point: that one is
@@ -507,10 +517,12 @@ extension DevelopWorkspace {
             // page is, and this one only while a mask layer is picked; no field is being edited (`macPhotoKeysFree`
             // reads `typing`, which a row being renamed sets).
             // ⌫ also removes the chosen part first (MASKS-SPEC §8): with one chosen, that part; with none, the layer.
-            HiddenKeyEquivalent(title: maskTools.chosenPart != nil ? L("Remove") : L("Delete Layer"), key: .delete,
-                                enabled: macPhotoKeysFree && columnShown && maskPage != nil) {
-                maskTools.delete(session)
+            HiddenKeyEquivalent(title: watermarkPage != nil ? L("Delete Watermark") : maskTools.chosenPart != nil ? L("Remove") : L("Delete Layer"),
+                                key: .delete, enabled: macPhotoKeysFree && columnShown && (maskPage != nil || watermarkPage != nil)) {
+                // ⌫ with a watermark's row picked takes that watermark (one step; Undo brings it back).
+                if let mark = watermarkPage { session.removeWatermark(mark.id) } else { maskTools.delete(session) }
             }
+            watermarkKeys
             if FeatureFlags.maskLayers, LayerRules.takesMasks(session.layerPiece) { maskKeys }
         }
         if LayersStage.shared.arranging(frame.id) != nil {
@@ -519,6 +531,25 @@ extension DevelopWorkspace {
     }
 
     private var maskTools: MaskTools { .shared }
+
+    /// A picked watermark's keys while its handles are on the canvas (Keynote's): the arrows nudge it a point of the
+    /// canvas, ⇧ ten. Each press one step. Registered through the window's own plain keys (`MacKeyRegistration`; trap
+    /// 32: a field being edited keeps its arrows, `macPhotoKeysFree` reads `typing`), and only while the photographs'
+    /// ← → and the rows' ↑ ↓ stand down (`watermarkKeysOn`), so no key has two owners.
+    @ViewBuilder private var watermarkKeys: some View {
+        let on = macPhotoKeysFree && watermarkKeysOn
+        ForEach([(KeyEquivalent.leftArrow, -1.0, 0.0, "Move Left"), (.rightArrow, 1, 0, "Move Right"), (.upArrow, 0, -1, "Move Up"),
+                 (.downArrow, 0, 1, "Move Down")], id: \.3) { key, dx, dy, title in
+            HiddenKeyEquivalent(title: L(shown: title), key: key, enabled: on) { nudgeMark(dx, dy) }
+            HiddenKeyEquivalent(title: L(shown: title), key: key, modifiers: .shift, enabled: on) { nudgeMark(dx * 10, dy * 10) }
+        }
+    }
+
+    /// The picked watermark moved by (`dx`, `dy`) points of the canvas, kept on it, measured from its nearest corner.
+    private func nudgeMark(_ dx: Double, _ dy: Double) {
+        guard let p = session.pickedMark else { return }
+        session.nudgeWatermark(p.id, points: CGSize(width: dx, height: dy))
+    }
 
     /// The mask tools' plain keys (MASKS-SPEC §8; `MaskKey`, whose specs `mac_shortcuts_selftest` holds): enabled under
     /// `macPhotoKeysFree`'s conditions; `[` `]` `⇧[` `⇧]` only while 画笔 or 橡皮 is lit, `M` `⌥M` only with a mask layer

@@ -199,6 +199,28 @@
         }
       }
     },
+    "%@ checked" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 枚をチェック"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已勾选 %@ 个"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已勾選 %@ 個"
+          }
+        }
+      }
+    },
     "%@ could not be developed now: they keep their earlier preview." : {
       "localizations" : {
         "ja" : {
@@ -283,6 +305,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 個檔案"
+          }
+        }
+      }
+    },
+    "%@ files were not added." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 個のファイルは追加されませんでした。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 个文件没有添加。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 個檔案沒有加入。"
           }
         }
       }
@@ -1079,6 +1123,28 @@
         }
       }
     },
+    "%@ photos use it.\nDeleting it removes the watermark from them." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 枚の写真が使用中です。\n削除するとそれらの透かしは消えます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 张照片使用了它。\n删除后这些照片上的水印会消失。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 張照片使用了它。\n刪除後這些照片上的浮水印會消失。"
+          }
+        }
+      }
+    },
     "%@ pictures are in the catalog." : {
       "localizations" : {
         "ja" : {
@@ -1163,6 +1229,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "找到 %@ 張照片"
+          }
+        }
+      }
+    },
+    "%@ pictures stay in Capture One" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 枚の写真は Capture One に残ります"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 张照片保留在 Capture One 中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 張照片保留在 Capture One 中"
           }
         }
       }
@@ -1453,6 +1541,50 @@
         }
       }
     },
+    "%@ watermarks" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 個の透かし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 个水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 個浮水印"
+          }
+        }
+      }
+    },
+    "%@ watermarks {on a photo}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 個の透かし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 个水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 個浮水印"
+          }
+        }
+      }
+    },
     "%@ · Blacks" : {
       "localizations" : {
         "ja" : {
@@ -1563,6 +1695,28 @@
         }
       }
     },
+    "%@ · Fill" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 塗り"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 填充"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 填色"
+          }
+        }
+      }
+    },
     "%@ · Grain %.1f · Halation %.1f · Glare %.1f" : {
       "localizations" : {
         "ja" : {
@@ -1651,6 +1805,28 @@
         }
       }
     },
+    "%@ · Move" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 移動"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 移动"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 移動"
+          }
+        }
+      }
+    },
     "%@ · Opacity" : {
       "localizations" : {
         "ja" : {
@@ -1669,6 +1845,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ · 不透明度"
+          }
+        }
+      }
+    },
+    "%@ · Rotation" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 回転"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 旋转"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 旋轉"
           }
         }
       }
@@ -1713,6 +1911,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ · 陰影"
+          }
+        }
+      }
+    },
+    "%@ · Size" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · サイズ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 尺寸"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 尺寸"
           }
         }
       }
@@ -1845,6 +2065,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ · 顯示"
+          }
+        }
+      }
+    },
+    "%@ · Watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 透かし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · 浮水印"
           }
         }
       }
@@ -2267,6 +2509,50 @@
         }
       }
     },
+    ", cine" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "、映画用"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "，电影"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "，電影"
+          }
+        }
+      }
+    },
+    ", favourite" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "、お気に入り"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "，已收藏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "，已加入喜好項目"
+          }
+        }
+      }
+    },
     ", no larger than the original" : {
       "localizations" : {
         "ja" : {
@@ -2531,6 +2817,28 @@
         }
       }
     },
+    "1 photo uses it.\nDeleting it removes the watermark from it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 枚の写真が使用中です。\n削除するとその透かしは消えます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 张照片使用了它。\n删除后这张照片上的水印会消失。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 張照片使用了它。\n刪除後這張照片上的浮水印會消失。"
+          }
+        }
+      }
+    },
     "1 preview is developing." : {
       "localizations" : {
         "ja" : {
@@ -2593,6 +2901,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 步"
+          }
+        }
+      }
+    },
+    "1 watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 個の透かし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 个水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 個浮水印"
           }
         }
       }
@@ -2703,6 +3033,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "135 全寬"
+          }
+        }
+      }
+    },
+    "15-perf" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 穴"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 孔"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 孔"
           }
         }
       }
@@ -3011,6 +3363,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "半格組與多重曝光不能再合成"
+          }
+        }
+      }
+    },
+    "A photo holds at most 4 watermarks." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1枚の写真に透かしは4つまでです。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一张照片最多 4 枚水印。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一張照片最多 4 個浮水印。"
           }
         }
       }
@@ -3367,6 +3741,28 @@
         }
       }
     },
+    "Add %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を追加"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加入%@"
+          }
+        }
+      }
+    },
     "Add .lcp File…" : {
       "localizations" : {
         "ja" : {
@@ -3495,6 +3891,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新增配方"
+          }
+        }
+      }
+    },
+    "Add Watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしを追加"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加入浮水印"
           }
         }
       }
@@ -3737,6 +4155,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已加入。"
+          }
+        }
+      }
+    },
+    "Add…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加入⋯"
           }
         }
       }
@@ -4247,6 +4687,28 @@
         }
       }
     },
+    "Another colour…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ほかの色…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他颜色…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他顏色…"
+          }
+        }
+      }
+    },
     "Another frame" : {
       "localizations" : {
         "ja" : {
@@ -4309,6 +4771,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "套用底片模擬"
+          }
+        }
+      }
+    },
+    "Apply Film Emulation is off: Base works as Full image." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「フィルムを再現」がオフ：ベースは仕上がりと同じです。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用胶片模拟已关：底片与成片相同，水印落在成片上。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "套用底片模擬已關：底圖與成片相同，浮水印落在成片上。"
           }
         }
       }
@@ -4797,6 +5281,72 @@
         }
       }
     },
+    "Base" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ベース"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底圖"
+          }
+        }
+      }
+    },
+    "Base stays on the picture, inside the film edge. To put the watermark on the film edge, choose Full image." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ベースの透かしは画面の中、フィルムの縁の内側にとどまります。縁に置くには「仕上がり」を選んでください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底片水印只在画面内，不进入片边。要把水印放在片边上，请选择成片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底圖浮水印只在畫面內，不進入片邊。要把浮水印放在片邊上，請選擇成片。"
+          }
+        }
+      }
+    },
+    "Base: under the film; grain, halation and colour go over it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ベース：現像前に入れ、粒状感・ハレーション・色が重なります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底片：在冲洗之前放进画面，颗粒、光晕与色彩都经过它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底圖：在沖洗之前放進畫面，顆粒、光暈與色彩都經過它。"
+          }
+        }
+      }
+    },
     "Before" : {
       "localizations" : {
         "ja" : {
@@ -5105,6 +5655,50 @@
         }
       }
     },
+    "Bottom left {a watermark's corner}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左下"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左下角"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左下角"
+          }
+        }
+      }
+    },
+    "Bottom right {a watermark's corner}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右下"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右下角"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右下角"
+          }
+        }
+      }
+    },
     "Bottom {an exposure}" : {
       "localizations" : {
         "ja" : {
@@ -5167,6 +5761,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "亮度 "
+          }
+        }
+      }
+    },
+    "Bring Forward" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前面へ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前移一层"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前移一層"
           }
         }
       }
@@ -5299,6 +5915,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "相機"
+          }
+        }
+      }
+    },
+    "Camera's Own {a light leak}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カメラ既定"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相机默认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相機預設"
+          }
+        }
+      }
+    },
+    "Can't Add" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加できません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法添加"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法加入"
           }
         }
       }
@@ -5497,6 +6157,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Capture One 的目錄永遠不會被寫入：它的預覽保存在 SpektraLab 為它建立的圖庫中。"
+          }
+        }
+      }
+    },
+    "Capture One's catalog is read-only: these import into SpektraLab. Copy to SpektraLab Catalog… brings its own pictures in." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture One のカタログは読み取り専用です。これらは SpektraLab に読み込まれます。カタログ自体の写真は「SpektraLabカタログにコピー…」で取り込めます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture One 的目录是只读的：这些照片将导入 SpektraLab。要导入它自己的照片，请用“拷贝到 SpektraLab 目录…”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture One 的目錄是唯讀的：這些照片將匯入 SpektraLab。要匯入它自己的照片，請用「拷貝到 SpektraLab 目錄…」。"
+          }
+        }
+      }
+    },
+    "Capture One's session is read-only: these import into SpektraLab." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture One のセッションは読み取り専用です。これらは SpektraLab に読み込まれます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture One 的会话是只读的：这些照片将导入 SpektraLab。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture One 的工作階段是唯讀的：這些照片將匯入 SpektraLab。"
           }
         }
       }
@@ -5897,6 +6601,50 @@
         }
       }
     },
+    "Check for Import" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みにチェック"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "勾选以导入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "勾選以匯入"
+          }
+        }
+      }
+    },
+    "Check for Import (Space)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みにチェック（スペース）"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "勾选以导入（空格键）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "勾選以匯入（空白鍵）"
+          }
+        }
+      }
+    },
     "Check for Updates" : {
       "localizations" : {
         "ja" : {
@@ -5937,6 +6685,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自動檢查更新"
+          }
+        }
+      }
+    },
+    "Checked for Import" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みにチェック済み"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已勾选导入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已勾選匯入"
           }
         }
       }
@@ -8493,6 +9263,28 @@
         }
       }
     },
+    "Delete %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を削除"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刪除%@"
+          }
+        }
+      }
+    },
     "Delete %@ variants?" : {
       "localizations" : {
         "ja" : {
@@ -8647,6 +9439,28 @@
         }
       }
     },
+    "Delete Watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしを削除"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刪除浮水印"
+          }
+        }
+      }
+    },
     "Delete this library's previews?" : {
       "localizations" : {
         "ja" : {
@@ -8687,6 +9501,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "刪除 %3$@ 的第 %1$@ 個變體（共 %2$@ 個）？"
+          }
+        }
+      }
+    },
+    "Delete “%@”" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を削除"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除“%@”"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刪除「%@」"
+          }
+        }
+      }
+    },
+    "Delete…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "删除…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刪除⋯"
           }
         }
       }
@@ -9395,6 +10253,28 @@
         }
       }
     },
+    "Drag to resize" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ドラッグして高さを変更"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖动以调整高度"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖移以調整高度"
+          }
+        }
+      }
+    },
     "Drawing %@" : {
       "localizations" : {
         "ja" : {
@@ -9413,6 +10293,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在繪製 %@"
+          }
+        }
+      }
+    },
+    "Drop PNG files here, or choose Add…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに PNG ファイルをドロップするか、「追加…」を選んでください"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "把 PNG 文件拖到这里，或选择“添加…”"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "把 PNG 檔案拖到這裡，或選擇「加入⋯」"
           }
         }
       }
@@ -9901,6 +10803,28 @@
         }
       }
     },
+    "Edge Burn {a light leak}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エッジ焼け"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "边缘漏光"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "邊緣漏光"
+          }
+        }
+      }
+    },
     "Edge Print" : {
       "localizations" : {
         "ja" : {
@@ -9919,6 +10843,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "邊緣印字"
+          }
+        }
+      }
+    },
+    "Edge burn off" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エッジ焼けオフ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "边缘漏光关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "邊緣漏光關閉"
           }
         }
       }
@@ -10139,6 +11085,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "空"
+          }
+        }
+      }
+    },
+    "Enable EDR by Default" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EDRをデフォルトで有効にする"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认启用 EDR"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預設啟用 EDR"
           }
         }
       }
@@ -10847,6 +11815,94 @@
         }
       }
     },
+    "Fill colour" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "塗りの色"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填充颜色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填色"
+          }
+        }
+      }
+    },
+    "Fill colour %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "塗りの色 %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填充颜色 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填色 %@"
+          }
+        }
+      }
+    },
+    "Fill {a watermark's colour}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "塗り"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填充"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填色"
+          }
+        }
+      }
+    },
+    "Filled: the watermark’s shape in one colour, its own transparency kept." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "塗り：透かしの形を一色で塗り、透明度はそのまま残します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填充：水印的形状填为单一颜色，保留其原有透明度。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "填色：浮水印的形狀填為單一顏色，保留原有透明度。"
+          }
+        }
+      }
+    },
     "Film" : {
       "localizations" : {
         "ja" : {
@@ -11349,6 +12405,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "底片完整 · 放相僅色彩"
+          }
+        }
+      }
+    },
+    "Film list height" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フィルム一覧の高さ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "胶片列表高度"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "底片列表高度"
           }
         }
       }
@@ -12607,6 +13685,72 @@
         }
       }
     },
+    "Full image" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仕上がり"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成片"
+          }
+        }
+      }
+    },
+    "Full image covers the whole film: the watermark can sit on the film edge." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仕上がりはフィルム全体を覆います：透かしをフィルムの縁に置けます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成片覆盖整条胶片：水印可以放在片边上。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成片覆蓋整條底片：浮水印可以放在片邊上。"
+          }
+        }
+      }
+    },
+    "Full image: over the finished picture, untouched by the film." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仕上がり：完成した写真に重ね、フィルムを通しません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成片：盖在冲洗好的照片上，片边与日期之上，不经过胶片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成片：蓋在沖洗好的照片上，片邊與日期之上，不經過底片模擬。"
+          }
+        }
+      }
+    },
     "Full size" : {
       "localizations" : {
         "ja" : {
@@ -13443,6 +14587,28 @@
         }
       }
     },
+    "Hide Watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしを隠す"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隱藏浮水印"
+          }
+        }
+      }
+    },
     "Hide the browser" : {
       "localizations" : {
         "ja" : {
@@ -13923,6 +15089,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "輸入"
+          }
+        }
+      }
+    },
+    "Import %@ Checked" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チェックした %@ 枚を読み込む"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入勾选的 %@ 个"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匯入勾選的 %@ 個"
           }
         }
       }
@@ -16941,6 +18129,50 @@
         }
       }
     },
+    "Manage Watermarks…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしを管理…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理水印…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理浮水印⋯"
+          }
+        }
+      }
+    },
+    "Manage…" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理⋯"
+          }
+        }
+      }
+    },
     "Manufacturer Profile" : {
       "localizations" : {
         "ja" : {
@@ -17733,6 +18965,50 @@
         }
       }
     },
+    "Native {a watermark's own colours}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのまま"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原样"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原樣"
+          }
+        }
+      }
+    },
+    "Native: the PNG’s own colours." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのまま：PNG 本来の色です。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原样：PNG 自身的颜色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原樣：PNG 本身的顏色。"
+          }
+        }
+      }
+    },
     "Negative" : {
       "localizations" : {
         "ja" : {
@@ -18195,6 +19471,28 @@
         }
       }
     },
+    "No Paper" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "印画紙を使用しない"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不使用相纸"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不使用相紙"
+          }
+        }
+      }
+    },
     "No Profile Found" : {
       "localizations" : {
         "ja" : {
@@ -18323,6 +19621,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無日期"
+          }
+        }
+      }
+    },
+    "No edge text is printed on cine film." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "映画用フィルムには縁の印字がありません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "电影胶片不印片边字。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "電影底片不印片邊字。"
           }
         }
       }
@@ -18569,6 +19889,28 @@
         }
       }
     },
+    "No photo uses it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用中の写真はありません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有照片使用它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有照片使用它。"
+          }
+        }
+      }
+    },
     "No photograph is open" : {
       "localizations" : {
         "ja" : {
@@ -18741,6 +20083,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "這張照片裡沒有找到主體。"
+          }
+        }
+      }
+    },
+    "No watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしなし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無浮水印"
+          }
+        }
+      }
+    },
+    "No watermarks yet" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしはまだありません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "還沒有浮水印"
           }
         }
       }
@@ -19801,6 +21187,50 @@
         }
       }
     },
+    "Only a PNG with a transparent background." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透明な背景の PNG のみ対応しています。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只支持带透明背景的 PNG。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只支援帶透明背景的 PNG。"
+          }
+        }
+      }
+    },
+    "Only a PNG with a transparent background: a signature, a logo, a handwritten name. Place one on a photograph from the Layers panel’s ＋ › Watermark." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透明な背景の PNG のみ：サイン、ロゴ、手書きの名前。「レイヤー」パネルの ＋ › 透かし で写真に配置します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只支持带透明背景的 PNG：签名、标志、手写的名字。在“图层”面板的 ＋ › 水印 里放到照片上。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只支援帶透明背景的 PNG：簽名、標誌、手寫的名字。在「圖層」面板的 ＋ › 浮水印 放到照片上。"
+          }
+        }
+      }
+    },
     "Only pictures developed in SpektraLab go on the Light Table." : {
       "localizations" : {
         "ja" : {
@@ -20039,6 +21469,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在打開匯入的影像…"
+          }
+        }
+      }
+    },
+    "Opens Settings › Watermarks" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「設定 › 透かし」を開きます"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开“设置 › 水印”"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打開「設定 › 浮水印」"
           }
         }
       }
@@ -20439,6 +21891,28 @@
         }
       }
     },
+    "Over {a watermark laid over}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重ねる"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "叠加于"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "疊加於"
+          }
+        }
+      }
+    },
     "Pair" : {
       "localizations" : {
         "ja" : {
@@ -20545,6 +22019,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "相紙和放大機留給負片。"
+          }
+        }
+      }
+    },
+    "Paper list height" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "印画紙一覧の高さ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相纸列表高度"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "相紙列表高度"
           }
         }
       }
@@ -21073,6 +22569,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "從未單獨設定「啟用 HDR」的照片都跟隨此項；在任一照片上切換「啟用 HDR」也會同時改變此項，因此它們顯示你最後一次的選擇。在 HDR 螢幕上，它們的高光會超過白色，如底片所保留的那樣。"
+          }
+        }
+      }
+    },
+    "Pictures whose own Extended Dynamic Range was never set follow this, and switching EDR on a picture sets it too, so they show what you chose last. The print keeps its range past paper white. It is never on with Enable HDR by Default: turning one on turns the other off." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「拡張ダイナミックレンジ（EDR）」を個別に設定していない写真はこの設定に従います。写真でEDRを切り替えるとこの設定も変わるため、最後に選んだ状態で表示されます。プリントが紙の白より明るい階調を保ちます。「HDRをデフォルトで有効にする」と同時にはオンになりません。一方をオンにすると、もう一方はオフになります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从未单独设置“扩展动态范围（EDR）”的照片都跟随此项；在任一照片上切换 EDR 也会同时改变此项，因此它们显示你最后一次的选择。相纸白以上的范围保留在相片中。它不会与“默认启用 HDR”同时开启：开启其中一项，另一项随之关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "從未單獨設定「擴展動態範圍（EDR）」的照片都跟隨此項；在任一照片上切換 EDR 也會同時改變此項，因此它們顯示你最後一次的選擇。相紙白以上的範圍保留在相片中。它不會與「預設啟用 HDR」同時開啟：開啟其中一項，另一項隨之關閉。"
           }
         }
       }
@@ -23343,6 +24861,28 @@
         }
       }
     },
+    "Rename Watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしの名称変更"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重命名水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新命名浮水印"
+          }
+        }
+      }
+    },
     "Rename…" : {
       "localizations" : {
         "ja" : {
@@ -23647,6 +25187,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "向右旋轉"
+          }
+        }
+      }
+    },
+    "Rotation" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "回転"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "旋转"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "旋轉"
           }
         }
       }
@@ -24285,6 +25847,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消全選"
+          }
+        }
+      }
+    },
+    "Send Backward" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "背面へ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后移一层"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後移一層"
           }
         }
       }
@@ -25015,6 +26599,28 @@
         }
       }
     },
+    "Show Watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしを表示"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示浮水印"
+          }
+        }
+      }
+    },
     "Show in Files" : {
       "localizations" : {
         "ja" : {
@@ -25235,6 +26841,28 @@
         }
       }
     },
+    "Shuffle {a light leak}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ランダム"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "随机"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隨機"
+          }
+        }
+      }
+    },
     "Side Length" : {
       "localizations" : {
         "ja" : {
@@ -25319,6 +26947,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "尺寸"
+          }
+        }
+      }
+    },
+    "Size is a share of the picture’s short side. Drag the watermark on the picture, its corners to size it, the dot above it to turn it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイズは写真の短辺に対する割合です。写真上で透かしをドラッグして移動、四隅でサイズ変更、上の点で回転します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尺寸按照片短边的比例计算。在照片上拖动水印即可移动，拖动四角缩放，拖动上方的圆点旋转。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尺寸按照片短邊的比例計算。在照片上拖移浮水印即可移動，拖移四角縮放，拖移上方的圓點旋轉。"
           }
         }
       }
@@ -25653,6 +27303,28 @@
         }
       }
     },
+    "Space checks the picture shown; Import then takes the checked ones." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スペースキーで表示中の写真をチェックし、読み込みではチェックした写真を読み込みます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按空格键勾选当前显示的照片；导入时只导入勾选的照片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按空白鍵勾選目前顯示的照片；匯入時只匯入勾選的照片。"
+          }
+        }
+      }
+    },
     "Spacing" : {
       "localizations" : {
         "ja" : {
@@ -25957,6 +27629,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無取用權限，請「重新連接」。"
+          }
+        }
+      }
+    },
+    "SpektraLab never changes a Capture One catalog, so its pictures stay. Remove them in Capture One, or use Copy to SpektraLab Catalog… to manage them in SpektraLab." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab は Capture One のカタログを一切変更しないため、その写真は残ります。Capture One で削除するか、「SpektraLabカタログにコピー…」で SpektraLab に取り込んで管理してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab 从不改动 Capture One 的目录，所以其中的照片会保留。请在 Capture One 中移除它们，或用“拷贝到 SpektraLab 目录…”在 SpektraLab 中管理它们。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab 從不改動 Capture One 的目錄，所以其中的照片會保留。請在 Capture One 中移除它們，或用「拷貝到 SpektraLab 目錄…」在 SpektraLab 中管理它們。"
+          }
+        }
+      }
+    },
+    "SpektraLab never changes a Capture One session, so its pictures stay. Remove them in Capture One." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab は Capture One のセッションを一切変更しないため、その写真は残ります。Capture One で削除してください。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab 从不改动 Capture One 的会话，所以其中的照片会保留。请在 Capture One 中移除它们。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpektraLab 從不改動 Capture One 的工作階段，所以其中的照片會保留。請在 Capture One 中移除它們。"
           }
         }
       }
@@ -26661,6 +28377,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上下已交換"
+          }
+        }
+      }
+    },
+    "Swipe up or down to resize it. Its actions move and rotate it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下にスワイプで拡大・縮小。アクションで移動・回転できます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下轻扫可缩放；它的操作可移动和旋转它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下滑動可縮放；它的動作可移動和旋轉它。"
           }
         }
       }
@@ -28535,6 +30273,28 @@
         }
       }
     },
+    "The picture could not be read." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像を読み込めませんでした。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取这张图片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取這張圖片。"
+          }
+        }
+      }
+    },
     "The picture is still developing" : {
       "localizations" : {
         "ja" : {
@@ -28887,6 +30647,28 @@
         }
       }
     },
+    "The watermark could not be saved." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしを保存できませんでした。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法存储这个水印。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法儲存這個浮水印。"
+          }
+        }
+      }
+    },
     "Their edits, previews and edit histories are deleted and cannot be had back. The files stay." : {
       "localizations" : {
         "ja" : {
@@ -28927,6 +30709,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "它們的預覽正在沖洗。"
+          }
+        }
+      }
+    },
+    "There is no Undo." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この操作は取り消せません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此操作无法撤销。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此動作無法還原。"
           }
         }
       }
@@ -29191,6 +30995,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "這台 Mac：機型、macOS 版本、語言和地區設定、記憶體、低耗電模式和發熱狀態，以及 SpektraLab 的這個版本和它的設定。"
+          }
+        }
+      }
+    },
+    "This PNG is %@ MB. A watermark can be up to %@ MB." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この PNG は %@ MB です。透かしは %@ MB までです。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这张 PNG 有 %@ MB，水印最大 %@ MB。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這張 PNG 有 %@ MB，浮水印最大 %@ MB。"
+          }
+        }
+      }
+    },
+    "This PNG is %@ px on its long side. A watermark can be up to %@ px." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この PNG の長辺は %@ px です。透かしは %@ px までです。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这张 PNG 的长边是 %@ px，水印最大 %@ px。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這張 PNG 的長邊是 %@ px，浮水印最大 %@ px。"
           }
         }
       }
@@ -29657,6 +31505,28 @@
         }
       }
     },
+    "This image has no transparent area." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画像には透明な部分がありません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这张图没有透明部分。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這張圖沒有透明部分。"
+          }
+        }
+      }
+    },
     "This installation's number: %@" : {
       "localizations" : {
         "ja" : {
@@ -29943,6 +31813,28 @@
         }
       }
     },
+    "This picture stays in Capture One" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この写真は Capture One に残ります"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这张照片保留在 Capture One 中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這張照片保留在 Capture One 中"
+          }
+        }
+      }
+    },
     "This picture's history was written by a newer SpektraLab. It is kept as it is; Undo goes back over the edits made since it was opened." : {
       "localizations" : {
         "ja" : {
@@ -30071,6 +31963,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "這個變體正在輸出。輸出完成後再刪除。"
+          }
+        }
+      }
+    },
+    "This watermark’s PNG is no longer in Settings › Watermarks: nothing is drawn for it." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この透かしの PNG は「設定 › 透かし」にもうありません。何も描かれません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个水印的 PNG 已不在“设置 › 水印”中，照片上不会画出它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這個浮水印的 PNG 已不在「設定 › 浮水印」中，照片上不會畫出它。"
           }
         }
       }
@@ -30379,6 +32293,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上格"
+          }
+        }
+      }
+    },
+    "Top left {a watermark's corner}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左上"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左上角"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左上角"
+          }
+        }
+      }
+    },
+    "Top right {a watermark's corner}" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右上"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右上角"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右上角"
           }
         }
       }
@@ -30819,6 +32777,72 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "材料無法使用"
+          }
+        }
+      }
+    },
+    "Uncheck" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チェックを外す"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消勾选"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消勾選"
+          }
+        }
+      }
+    },
+    "Uncheck (Space)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チェックを外す（スペース）"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消勾选（空格键）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消勾選（空白鍵）"
+          }
+        }
+      }
+    },
+    "Uncheck All" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのチェックを外す"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部取消勾选"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部取消勾選"
           }
         }
       }
@@ -31545,6 +33569,160 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "漫光"
+          }
+        }
+      }
+    },
+    "Watermark" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮水印"
+          }
+        }
+      }
+    },
+    "Watermark %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かし %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水印 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮水印 %@"
+          }
+        }
+      }
+    },
+    "Watermark Order" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしの順序"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水印顺序"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮水印順序"
+          }
+        }
+      }
+    },
+    "Watermark deleted" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしは削除済み"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水印已删除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮水印已刪除"
+          }
+        }
+      }
+    },
+    "Watermark missing" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしは削除済み"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水印已删除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮水印已刪除"
+          }
+        }
+      }
+    },
+    "Watermarks" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮水印"
+          }
+        }
+      }
+    },
+    "Watermarks are for single photographs for now" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透かしは今のところ単独の写真のみです"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水印目前只用于单张照片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浮水印目前只用於單張照片"
           }
         }
       }
@@ -32403,6 +34581,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的照片。它們的檔名。拍攝地點。圖庫裡照片的拍攝時間。你的姓名。你的 Apple 帳號。"
+          }
+        }
+      }
+    },
+    "Your watermarks" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あなたの透かし"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的水印"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的浮水印"
           }
         }
       }
@@ -33639,6 +35839,138 @@
         }
       }
     },
+    "perforations below" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送り穴は下"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齿孔在下"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齒孔在下"
+          }
+        }
+      }
+    },
+    "perforations left and right" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送り穴は左右"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齿孔在左右"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齒孔在左右"
+          }
+        }
+      }
+    },
+    "perforations on the left" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送り穴は左"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齿孔在左"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齒孔在左"
+          }
+        }
+      }
+    },
+    "perforations on the right" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送り穴は右"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齿孔在右"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齒孔在右"
+          }
+        }
+      }
+    },
+    "perforations on top" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送り穴は上"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齿孔在上"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齒孔在上"
+          }
+        }
+      }
+    },
+    "perforations top and bottom" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "送り穴は上下"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齿孔在上下"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "齒孔在上下"
+          }
+        }
+      }
+    },
     "preview size" : {
       "localizations" : {
         "ja" : {
@@ -34053,6 +36385,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法匯出「%@」"
+          }
+        }
+      }
+    },
+    "“%@” is already in your watermarks." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はすでに透かしにあります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”已经在你的水印里。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」已在你的浮水印裡。"
           }
         }
       }

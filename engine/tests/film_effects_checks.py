@@ -5,6 +5,11 @@ the Pentax MZ-S data line between the perforations, 120 cut from 65 mm cine film
 X-Tra 400's edge stripes. Needs only `build.sh dylib`.
 
     python3 engine/tests/film_effects_checks.py [--dylib path] [--base-dylib path] [--before-retune-dylib path]
+                                                [--seed-base-dylib path] [--only-seed]
+
+`--seed-base-dylib` is an engine from before §21.8-§21.9 (main 058f0248): with `leak_seed` 0 every leak that
+could be made there (auto/band/wash on 135, auto/spot on 120, the film edge on and off) must be its, byte for
+byte. `--only-seed` runs only §21.8-§21.9's checks (the seed, the spot on every format, the edge burn).
 
 `--base-dylib` is an engine from before these effects (af5173b9,
 which has none of the fields): every existing render must be that engine's byte
@@ -29,7 +34,7 @@ BASE = {"film_stock": "kodak_portra_400", "print_stock": "kodak_supra_endura", "
         "glare_active": False, "auto_exposure": False}
 NEW_DEFAULTS = {"leak_kind": "off", "leak_amount": 1.0, "leak_rate": 1.0, "leak_front": -1.0,
                 "date_imprint_data_placement": "gap", "date_imprint_data_leader": "",
-                "overscan_perforation": "none", "overscan_falloff": 0.0}
+                "overscan_perforation": "none", "overscan_falloff": 0.0, "leak_seed": 0, "leak_edge": 0.0}
 
 failures = 0
 
@@ -306,9 +311,7 @@ def leaks(e):
     c = core[:, k].mean(0)
     check(c.min() > 0.9 * c.max(), "Portra 400: with a front share the core goes to white", str(np.round(c).astype(int)))
 
-    # spot is the 120 window's: refused elsewhere
-    ok, msg = refuses(e, dark, {"leak_kind": "spot"}, "spot")
-    check(ok, "leak_kind = spot is refused on a 135 format", msg)
+    # spot on 135 and the rest: §21.8, in `leak_seed_spot_edge` below (refused off 120 until 2026-11-15)
     img67 = flat(834, 672, 0.03)
     d, prof = leak_profile(e, img67, {"leak_kind": "spot", "overscan_format": "120_6x7", "overscan_camera_seed": 3})
     check(d.max() > 20, "leak_kind = spot draws on 120_6x7", f"max {d.max():.0f}")
@@ -423,6 +426,313 @@ def band_unchanged(e, before):
     same = sum(np.array_equal(render(e, i, x), render(before, i, x)) for i, x in cases)
     check(same == len(cases), "band: byte for byte the engine before the retune (film edge off and on, 135 and 120_6x7)",
           f"{same} of {len(cases)} renders")
+
+
+# --- 2c. the leak's own seed, a spot on every format, the edge burn (API-SPEC §21.8-§21.9, 2026-11-15) ----
+SPOT_FORMATS = (("135", (1200, 800), 36.25), ("135_half", (600, 800), 24.0), ("120_6x7", (834, 672), 69.5),
+                # API-SPEC §24 (2026-11-15): the cine gauges, a landscape picture each (the film running down it but
+                # on 15-perf); their spot at the camera's scale `leak_scale` (Super 8 0.5, 16 mm 0.7, 1 elsewhere)
+                ("8_super", (1160, 803), 5.79), ("16_super", (1200, 729), 12.35), ("35_4perf", (1200, 900), 24.89),
+                ("65_5perf", (1200, 525), 52.63), ("65_15perf", (1200, 897), 70.41))
+CINE_SMALL = {"8_super": 0.5, "16_super": 0.7, "35_4perf": 1.0, "65_5perf": 1.0, "65_15perf": 1.0}
+
+
+def spot_disc(e, img, fmt, cs, long_mm):
+    """A spot's half-level disc, film edge off: (equivalent radius in mm, centre (y, x) as fractions, max)."""
+    q = {"leak_kind": "spot", "overscan_format": fmt, "overscan_camera_seed": cs, "leak_front": 0.0,
+         "halation_active": False}
+    d, _ = leak_profile(e, img, q)
+    s = d.sum(-1)
+    m = s > 0.5 * s.max()
+    ys, xs = np.nonzero(m)
+    px = long_mm / max(img.shape[:2])
+    return float(np.sqrt(m.sum() / np.pi) * px), (ys.mean() / img.shape[0], xs.mean() / img.shape[1]), float(d.max())
+
+
+def leak_seed_spot_edge(e, base):
+    """§21.8: `spot` on every format (off 120 1.5-3.5 mm, 120's window unchanged) and `leak_seed` (0: today's leak
+    byte for byte; != 0: both leak streams the seed's, nothing else moved). §21.9: `edge`, the edge burn, on 135
+    and 120, at both long edges, falling inward, reaching into the picture only in places. `base`: main's engine
+    (058f0248) for the byte-for-byte checks."""
+    cams = (1, 2, 3, 4, 5, 6)
+    radii = {}
+    for fmt, (w, h), long_mm in SPOT_FORMATS:
+        img = flat(w, h, 0.03)
+        try:
+            got = [spot_disc(e, img, fmt, cs, long_mm) for cs in cams]
+        except spk.EngineError as err:
+            check(False, f"leak_kind = spot draws on {fmt}", str(err)[:110])
+            continue
+        radii[fmt] = [g[0] for g in got]
+        check(min(g[2] for g in got) > 20, f"leak_kind = spot draws on {fmt} (six cameras)",
+              f"max {min(g[2] for g in got):.0f}..{max(g[2] for g in got):.0f} codes")
+        if fmt.startswith("120") or fmt in CINE_SMALL:
+            continue
+        # across: with the film edge off the film runs level through both frames (across is the frame's
+        # height: 24 mm, the half frame's long edge); the centre is in the gate's middle 40 % plus the wobble
+        across = [g[1][0] for g in got]
+        check(all(0.22 <= c <= 0.78 for c in across), f"a {fmt} spot's centre is in the gate's middle, off the perforations",
+              f"across {np.round(across, 2).tolist()} of the gate")
+    if "135" in radii and "120_6x7" in radii:
+        r35, r120 = radii["135"], radii["120_6x7"]
+        check(all(a < b for a, b in zip(r35, r120)) and 1.0 <= min(r35) and max(r35) <= 5.0,
+              "a 135 spot is smaller than the same camera's 120 window (1.5-3.5 mm against 2-4.5)",
+              f"half-level radius 135 {np.round(r35, 2).tolist()} mm, 120 {np.round(r120, 2).tolist()} mm")
+    # a cine gauge's spot: the same camera's 135 one at the camera's scale (`small`; API-SPEC §24)
+    for fmt, small in CINE_SMALL.items():
+        if fmt not in radii or "135" not in radii:
+            continue
+        ratio = [a / b for a, b in zip(radii[fmt], radii["135"])]
+        check(all(abs(q - small) < 0.15 for q in ratio), f"a {fmt} spot is the 135 one at the camera's scale ({small})",
+              f"radius / 135's {np.round(ratio, 2).tolist()}")
+    q = {"overscan_active": True, "overscan_format": "135", "overscan_fog": 0.0, "overscan_leaks": 0.0,
+         "halation_active": False, "overscan_camera_seed": 3, "overscan_frame_seed": 1}
+    img = flat(1200, 800, 0.03)
+    on, geo = render(e, img, dict(q, leak_kind="spot", leak_front=0.0), geometry=True)
+    d = (v8(on) - v8(render(e, img, q))).sum(-1)
+    ys, xs = np.nonzero(d > 0.5 * d.max())
+    x0, y0, x1, y1 = gate_box(geo)
+    check(d.max() > 20 and x0 <= xs.mean() <= x1 and y0 <= ys.mean() <= y1,
+          "a spot with the film edge on is drawn inside the gate: 135",
+          f"max {d.max():.0f}, centre ({xs.mean():.0f}, {ys.mean():.0f}) px, gate x {x0:.0f}-{x1:.0f} y {y0:.0f}-{y1:.0f}")
+
+    # the seed
+    names = [f["name"] for f in e.params_schema().get("fields", [])]
+    # (then `leak_edge`, 2026-11-16, the last native field before preview_long_edge: `leak_edge_layer`)
+    check("leak_seed" in names and names.index("leak_seed") + 2 == names.index("preview_long_edge"),
+          "leak_seed is in the schema, followed by leak_edge and then preview_long_edge")
+    if "leak_seed" not in names:
+        return
+    dark = flat(1200, 800, 0.03)
+    for fmt, im in (("135", dark), ("120_6x7", flat(834, 672, 0.03))):
+        for kind in ("band", "wash", "spot", "auto", "edge"):
+            # the edge burn is `leak_edge` beside the kind since 2026-11-16 (API-SPEC §21.9)
+            q = {**({"leak_edge": 1.0} if kind == "edge" else {"leak_kind": kind}),
+                 "overscan_format": fmt, "overscan_camera_seed": 3, "overscan_frame_seed": 2,
+                 "halation_active": False}
+            plain = render(e, im, q)
+            check(np.array_equal(plain, render(e, im, dict(q, leak_seed=0))), f"leak_seed 0 = none sent: {kind} on {fmt}")
+            s7, s8 = render(e, im, dict(q, leak_seed=7)), render(e, im, dict(q, leak_seed=8))
+            d78 = np.abs(v8(s7) - v8(s8)).max()
+            d70 = np.abs(v8(s7) - v8(plain)).max()
+            check(np.array_equal(s7, render(e, im, dict(q, leak_seed=7))) and d78 > 10 and d70 > 10,
+                  f"two seeds give two leaks, each the same twice, neither the camera's: {kind} on {fmt}",
+                  f"seed 7 vs 8 max {d78:.0f}, seed 7 vs 0 max {d70:.0f} codes")
+            # the seed alone places it: another body and frame move it only by the nominal gate's own
+            # +-0.1-0.45 mm (film edge off), never to another place. The edge burn is measured from the film's
+            # edge, which that offset moves against the picture; its frame alone moves it by +-0.025 mm.
+            other = render(e, im, dict(q, leak_seed=7, overscan_frame_seed=5) if kind == "edge"
+                           else dict(q, leak_seed=7, overscan_camera_seed=11, overscan_frame_seed=5))
+            dd = np.abs(v8(s7) - v8(other)).max()
+            check(dd <= 8.0, f"under a seed, {'the frame does' if kind == 'edge' else 'the body and the frame do'} not move "
+                  f"the leak: {kind} on {fmt}", f"max {dd:.2f} codes")
+    edge = {"overscan_active": True, "overscan_format": "135", "overscan_fog": 1.0, "overscan_leaks": 2.0,
+            "overscan_edge_text": "PORTRA 400", "overscan_camera_seed": 4, "overscan_frame_seed": 9}
+    img = scene(1200, 800)
+    ref = render(e, img, edge)
+    check(np.array_equal(ref, render(e, img, dict(edge, leak_seed=7))), "leak_seed with the leak off is byte for byte none")
+    check(np.array_equal(ref, render(e, img, dict(edge, leak_edge=1.0, leak_rate=0.0, leak_seed=7))),
+          "a seeded edge burn that does not show is byte for byte none (film edge on)")
+    # `auto` never picks the edge burn: on 135 it is always the camera's band or wash
+    picks = []
+    for cs in range(1, 13):
+        q = {"leak_kind": "auto", "overscan_camera_seed": cs, "overscan_frame_seed": 1}
+        a = render(e, dark, q)
+        picks.append("band" if np.array_equal(a, render(e, dark, dict(q, leak_kind="band")))
+                     else "wash" if np.array_equal(a, render(e, dark, dict(q, leak_kind="wash"))) else "?")
+    check("?" not in picks, "auto never draws the edge burn (12 cameras: each the camera's band or wash)", " ".join(picks))
+
+    # the edge burn: both long edges, falling inward, film edge on, 135 and 120
+    for fmt, (w, h) in (("120_645", (830, 615)), ("135", (1200, 800))):
+        q = {"overscan_active": True, "overscan_format": fmt, "overscan_fog": 0.0, "overscan_leaks": 0.0,
+             "overscan_holes": "black", "halation_active": False, "overscan_frame_seed": 2}
+        img = flat(w, h, 0.03)
+        # to 2 mm on 120; on 135 to 1.25 mm: the hole rows (2.0-4.8 mm in) are a second source by design
+        # (§21.9), whose glow spreads back out towards the edge from ~1.3 mm (measured 2026-11-15)
+        reach = 2.0 if fmt.startswith("120") else 1.25
+        all_bins = []
+        for cs in (1, 2, 3, 4, 5, 6):
+            qc = dict(q, overscan_camera_seed=cs)
+            on, geo = render(e, img, dict(qc, leak_edge=1.0), geometry=True)
+            d = (v8(on) - v8(render(e, img, qc))).sum(-1)
+            mm = geo["mm_per_px"]
+            # across the film: rows on a level film, columns on one running down (645's 56 mm is the long edge);
+            # the 90th percentile along it: between the holes
+            prof = np.percentile(d, 90, axis=0 if geo["vertical"] else 1)
+            half = len(prof) // 2
+            top, bot = prof[:half], prof[half:][::-1]
+            check(top.max() > 60 and bot.max() > 15, f"{fmt} camera {cs}: the edge burn lights both long edges",
+                  f"strong {max(top.max(), bot.max()):.0f}, weak {min(top.max(), bot.max()):.0f} codes")
+            mids = []
+            for side in (top, bot):
+                k0 = int(np.argmax(side))
+                all_bins.append([side[k0 + int(i / mm):k0 + int((i + 0.25) / mm)].mean() for i in np.arange(0.0, reach, 0.25)])
+                mids.append(side[int(len(side) * 0.6):].mean())
+            check(max(mids) < 3.0, f"{fmt} camera {cs}: nothing in the frame's middle", f"{max(mids):.2f} codes")
+        bins = np.mean(all_bins, 0)
+        check(all(b <= a for a, b in zip(bins, bins[1:])),
+              f"{fmt}: on average (6 cameras, both edges) the burn falls from the edge inward, 0-{reach} mm in 0.25 mm bins",
+              " ".join(f"{b:.0f}" for b in bins))
+        # the burn on 135 lies on the hole rows too (between the holes), and with the film edge off it shows only
+        # where it reaches into the picture: near its long edges, never its middle
+        bare = {"overscan_format": fmt, "overscan_camera_seed": 1, "overscan_frame_seed": 2, "halation_active": False}
+        d = (v8(render(e, img, dict(bare, leak_edge=1.0))) - v8(render(e, img, bare))).sum(-1)
+        rows = d.mean(1)
+        n = len(rows) // 5
+        check(rows[2 * n:3 * n].max() < 2.0, f"{fmt}, film edge off: the edge burn leaves the picture's middle alone",
+              f"middle {rows[2 * n:3 * n].max():.2f}, edges {rows[:n].max():.1f} / {rows[-n:].max():.1f} codes")
+    q = {"overscan_active": True, "overscan_format": "135", "overscan_fog": 0.0, "overscan_leaks": 0.0,
+         "halation_active": False, "overscan_camera_seed": 1, "overscan_frame_seed": 2}
+    img = flat(1200, 800, 0.03)
+    on, geo = render(e, img, dict(q, leak_edge=1.0), geometry=True)
+    d = (v8(on) - v8(render(e, img, q))).sum(-1)
+    mm = geo["mm_per_px"]
+    k0 = int(np.argmax(np.percentile(d[: d.shape[0] // 2], 90, axis=1)))
+    rows = d[k0 + int(2.4 / mm):k0 + int(4.4 / mm)]
+    gap = np.percentile(rows, 90)
+    check(gap > 20, "135: the edge burn lies on the hole rows, between the holes (the holes' walls let it in)",
+          f"90th percentile 2.4-4.4 mm in: {gap:.0f} codes")
+    # 64-row strips are the whole frame's
+    lk = {"leak_edge": 1.0, "overscan_camera_seed": 5, "overscan_frame_seed": 4}
+    img = scene(900, 600)
+    check(np.array_equal(render(e, img, lk), render(e, img, dict(lk, striped=True, strip_rows=64))),
+          "an edge burn in 64-row strips is the whole frame's (film edge off)")
+    # amount: more light, deeper; 0 is none
+    q = dict(bare, overscan_format="135")
+    img = flat(1200, 800, 0.03)
+    off = v8(render(e, img, bare | {"overscan_format": "135"}))
+    sums = [np.clip(v8(render(e, img, dict(q, leak_edge=a))) - off, 0, None).sum() for a in (0.5, 1.0, 2.0, 4.0)]
+    check(all(b > a for a, b in zip(sums, sums[1:])), "the edge burn grows with leak_edge (0.5, 1, 2, 4)",
+          " ".join(f"{s / 1e6:.2f}M" for s in sums))
+    check(np.array_equal(render(e, img, dict(q, leak_edge=0.0)), render(e, img, bare | {"overscan_format": "135"})),
+          "an edge burn at leak_edge 0 is byte for byte none")
+
+    # API-SPEC §24 (2026-11-15): the edge burn on the cine gauges -- both long edges, nothing in the middle, film
+    # edge on and off; on a one-row gauge (Super 8, 16 mm) the hole light is the perforated edge's alone, and with
+    # the film edge off it takes the gauge's own rows, not 135's 2.00 / 2.80 mm (its leak_layout's `cine` rows)
+    for fmt, (w, h), _long in SPOT_FORMATS[3:]:
+        img = flat(w, h, 0.03)
+        q = {"overscan_active": True, "overscan_format": fmt, "overscan_fog": 0.0, "overscan_leaks": 0.0,
+             "overscan_holes": "black", "halation_active": False, "overscan_frame_seed": 2, "overscan_camera_seed": 3}
+        on, geo = render(e, img, dict(q, leak_edge=1.0), geometry=True)
+        d = (v8(on) - v8(render(e, img, q))).sum(-1)
+        prof = np.percentile(d, 90, axis=0 if geo["vertical"] else 1)
+        half = len(prof) // 2
+        top, bot = prof[:half], prof[half:][::-1]
+        mid = prof[int(0.4 * len(prof)):int(0.6 * len(prof))].max()
+        check(top.max() > 30 and bot.max() > 8 or bot.max() > 30 and top.max() > 8,
+              f"{fmt}: the edge burn lights both long edges",
+              f"{top.max():.0f} and {bot.max():.0f} codes; the film's middle {mid:.1f}")
+        check(mid < 3.0, f"{fmt}: the edge burn leaves the film's middle alone", f"{mid:.2f} codes")
+        bare = {"overscan_format": fmt, "overscan_camera_seed": 3, "overscan_frame_seed": 2, "halation_active": False}
+        d = (v8(render(e, img, dict(bare, leak_edge=1.0))) - v8(render(e, img, bare))).sum(-1)
+        rows = d.mean(1 if not geo["vertical"] else 0)
+        n = len(rows) // 5
+        check(rows[2 * n:3 * n].max() < 2.0 and d.max() > 5,
+              f"{fmt}, film edge off: the edge burn draws, and leaves the picture's middle alone",
+              f"middle {rows[2 * n:3 * n].max():.2f}, max {d.max():.0f} codes")
+
+    if base is None:
+        print("SKIP the comparison with main's engine (no --seed-base-dylib): auto/band/wash on 135, auto/spot on 120")
+        return
+    for fmt, kinds, im in (("135", ("auto", "band", "wash"), scene(1200, 800)), ("120_6x7", ("auto", "spot"), scene(834, 672)),
+                           ("135_half", ("auto",), scene(600, 800))):
+        for kind in kinds:
+            same = True
+            for cs in cams:
+                q = {"leak_kind": kind, "overscan_format": fmt, "overscan_camera_seed": cs, "overscan_frame_seed": cs + 1}
+                same &= np.array_equal(render(e, im, dict(q, leak_seed=0)), render(base, im, q))
+            check(same, f"byte for byte main's engine, six cameras, leak_seed 0: {kind} on {fmt}")
+    q = dict(edge, leak_kind="auto")
+    img = scene(1200, 800)
+    check(np.array_equal(render(e, img, dict(q, leak_seed=0)), render(base, img, q)),
+          "byte for byte main's engine: auto on 135 with the film edge on")
+
+
+def leak_edge_layer(e, base):
+    """§21.9 (2026-11-16): the edge burn as `leak_edge`, beside the leak's kind, each at its own strength.
+    `leak_kind = edge` is refused; `leak_edge` 0 is none; with a kind it adds its light at the long edges and leaves
+    the kind's alone elsewhere; a kind at amount 0 leaves the burn alone; the seed, the rate and 64-row strips hold
+    for both together. `base`: the engine of 2026-11-15 (integration head 71f2d0cf), whose `leak_kind = edge` at
+    amount a this engine's `off` + `leak_edge = a` must be byte for byte."""
+    fields = e.params_schema().get("fields", [])
+    names = [f["name"] for f in fields]
+    by = {f["name"]: f for f in fields}
+    le = by.get("leak_edge") or {}
+    check("leak_edge" in names and names.index("leak_edge") == names.index("leak_seed") + 1
+          and names.index("leak_edge") + 1 == names.index("preview_long_edge"),
+          "leak_edge is in the schema after leak_seed, the last native field before preview_long_edge")
+    if "leak_edge" not in names:
+        return
+    check(le.get("type") == "float" and le.get("layer") == "shoot" and not le.get("live") and le.get("default") == 0
+          and list(le.get("range") or []) == [0, 4], "leak_edge: float, SHOOT, not live, default 0, 0..4", str(le))
+    dark = flat(1200, 800, 0.03)
+    ok, why = refuses(e, dark, {"leak_kind": "edge"}, "leak_kind")
+    check(ok and "edge" not in why.split("one of")[-1], "leak_kind = edge is refused, with the field named and edge not offered", why)
+    # with a kind: both lit, each its own; a kind and the burn, film edge on (135, 645) and off (135)
+    cases = (("135 film edge on", dark, {"overscan_active": True, "overscan_format": "135", "overscan_fog": 0.0,
+                                         "overscan_leaks": 0.0, "overscan_holes": "black"}),
+             ("645 film edge on", flat(830, 615, 0.03), {"overscan_active": True, "overscan_format": "120_645",
+                                                          "overscan_fog": 0.0, "overscan_leaks": 0.0}),
+             ("135 film edge off", dark, {"overscan_format": "135"}))
+    for name, img, fe in cases:
+        for kind in ("band", "wash", "spot", "auto"):
+            for cs in (2, 5):
+                q = dict(fe, halation_active=False, overscan_camera_seed=cs, overscan_frame_seed=3)
+                none = v8(render(e, img, q))
+                k = render(e, img, dict(q, leak_kind=kind))
+                ed = render(e, img, dict(q, leak_edge=1.0))
+                ke = render(e, img, dict(q, leak_kind=kind, leak_edge=1.0))
+                tag = f"{kind} + edge burn, {name}, camera {cs}"
+                check(np.array_equal(k, render(e, img, dict(q, leak_kind=kind, leak_edge=0.0))),
+                      f"leak_edge 0 is none: {kind}, {name}, camera {cs}")
+                check(np.array_equal(ed, render(e, img, dict(q, leak_kind=kind, leak_amount=0.0, leak_edge=1.0))),
+                      f"a kind at leak_amount 0 leaves the edge burn alone, byte for byte: {tag}")
+                dk, de, dke = (np.clip(v8(x) - none, 0, None).sum(-1) for x in (k, ed, ke))
+                # where the burn is (its own > 8 codes): the two together at least the burn's, and more than the kind's
+                burn = de > 8.0
+                check(burn.sum() > 50 and dke[burn].mean() >= de[burn].mean() - 1.0 and dke[burn].mean() > dk[burn].mean() + 8.0,
+                      f"together the edge burn is drawn as alone: {tag}",
+                      f"{burn.sum()} px; burn {de[burn].mean():.0f}, both {dke[burn].mean():.0f}, kind {dk[burn].mean():.0f} codes")
+                # where the burn does not reach (alone it moves no channel, nor within 3 px: the canvas's last
+                # rows past the film, where the scan's carrier edge mixes it), the kind's light is the kind's alone
+                away = (grow(np.abs(v8(ed) - none).max(-1) > 0, 3) > 3) & (dk > 8.0)
+                diff = np.abs(v8(ke) - v8(k)).max(-1)[away]
+                check(away.sum() > 50 and diff.max() <= 1.0, f"away from the edges the kind is its own: {tag}",
+                      f"{away.sum()} px of the kind, max {diff.max() if away.sum() else 0:.2f} codes from the kind alone")
+    # each its own strength: the burn grows with leak_edge under a band; the band's middle does not move
+    q = {"overscan_active": True, "overscan_format": "135", "overscan_fog": 0.0, "overscan_leaks": 0.0,
+         "halation_active": False, "overscan_camera_seed": 2, "overscan_frame_seed": 3, "leak_kind": "band"}
+    band = v8(render(e, dark, q))
+    alone = np.clip(v8(render(e, dark, dict(q, leak_kind="off", leak_edge=4.0))) - v8(render(e, dark, dict(q, leak_kind="off"))), 0, None).sum(-1)
+    rim = alone > 8.0
+    sums = [np.clip(v8(render(e, dark, dict(q, leak_edge=a))) - band, 0, None).sum(-1)[rim].sum() for a in (0.5, 1.0, 2.0, 4.0)]
+    check(all(b > a for a, b in zip(sums, sums[1:])), "under a band the edge burn grows with leak_edge (0.5, 1, 2, 4)",
+          " ".join(f"{x / 1e3:.0f}k" for x in sums))
+    # the seed moves both; the rate hides both; 64-row strips are the whole frame
+    both = {"leak_kind": "band", "leak_edge": 1.5, "overscan_camera_seed": 4, "overscan_frame_seed": 6, "halation_active": False}
+    img = scene(900, 600)
+    a7, a8, a0 = (render(e, img, dict(both, leak_seed=s_)) for s_ in (7, 8, 0))
+    check(np.abs(v8(a7) - v8(a8)).max() > 10 and np.abs(v8(a7) - v8(a0)).max() > 10,
+          "leak_seed re-rolls the band and the edge burn together")
+    plain = render(e, img, {"overscan_camera_seed": 4, "overscan_frame_seed": 6, "halation_active": False})
+    check(np.array_equal(plain, render(e, img, dict(both, leak_rate=0.0))), "a band + edge burn that does not show is byte for byte none")
+    # (the striped executor does not take a film edge yet, RFC-032 §27: film edge off only)
+    check(np.array_equal(render(e, img, both), render(e, img, dict(both, striped=True, strip_rows=64))),
+          "a band + edge burn in 64-row strips is the whole frame's (film edge off)")
+    if base is None:
+        print("SKIP the comparison with the engine of 2026-11-15 (no --edge-base-dylib): leak_kind = edge there")
+        return
+    same, n = 0, 0
+    for fmt, im, fe in (("135", dark, {}), ("120_645", flat(830, 615, 0.03), {"overscan_active": True}),
+                        ("135", scene(1200, 800), {"overscan_active": True, "overscan_fog": 1.0, "overscan_leaks": 1.0})):
+        for cs in (1, 3, 7, 11, 21, 40):
+            for amt in (0.5, 1.0, 4.0):
+                q = dict(fe, overscan_format=fmt, overscan_camera_seed=cs, overscan_frame_seed=cs + 2)
+                n += 1
+                same += np.array_equal(render(e, im, dict(q, leak_edge=amt)), render(base, im, dict(q, leak_kind="edge", leak_amount=amt)))
+    check(same == n, "off + leak_edge a is byte for byte the 2026-11-15 engine's leak_kind = edge at amount a",
+          f"{same} of {n} (135 film edge off and on with fog and spool leaks, 645 on; six cameras, three amounts)")
 
 
 def leak_bw(dylib):
@@ -849,9 +1159,25 @@ def main():
     ap.add_argument("--base-dylib", type=Path)
     ap.add_argument("--before-retune-dylib", type=Path,
                     help="an engine from before the wash/spot retune (5c5b890d): the band must be its, byte for byte")
+    ap.add_argument("--seed-base-dylib", type=Path, help="an engine from before §21.8-§21.9 (main 058f0248)")
+    ap.add_argument("--only-seed", action="store_true", help="run only §21.8-§21.9's checks (seed, spot anywhere, edge)")
+    ap.add_argument("--edge-base-dylib", type=Path,
+                    help="an engine from 2026-11-15 with leak_kind = edge (integration head 71f2d0cf), for §21.9's 2026-11-16 move")
     a = ap.parse_args()
     e = spk.Engine(a.dylib)
     base = spk.Engine(a.base_dylib) if a.base_dylib else None
+    seed_base = spk.Engine(a.seed_base_dylib) if a.seed_base_dylib else None
+    edge_base = spk.Engine(a.edge_base_dylib) if a.edge_base_dylib else None
+    if a.only_seed:
+        try:
+            leak_seed_spot_edge(e, seed_base)
+            leak_edge_layer(e, edge_base)
+        finally:
+            for x in (e, base, seed_base, edge_base):
+                if x is not None:
+                    x.close()
+        print(f"{failures} failure(s)")
+        return 1 if failures else 0
     if base is None:
         print("SKIP the af5173b9 comparison (no --base-dylib); defaults are compared with none sent instead")
     try:
@@ -871,8 +1197,10 @@ def main():
         imprints(e)
         ks65(e)
         sprocket(e, base)
+        leak_seed_spot_edge(e, seed_base)
+        leak_edge_layer(e, edge_base)
     finally:
-        for x in (e, base):
+        for x in (e, base, seed_base, edge_base):
             if x is not None:
                 x.close()
     print(f"{failures} failure(s)")

@@ -13,6 +13,12 @@
 //  (`maskRefusal`). What a new layer is called, how many a stage holds and what each stage's page has are
 //  `MaskRules.swift`'s.
 //
+//  **A single photograph's watermarks are rows too** (PRD-8 on the Mac; the owner, 2026-11-15: "it is treated as a
+//  layer"): directly under 胶片, the topmost mark first (the model keeps them bottom first), above the mask layers; each
+//  says its stage in a word (成片 · 底片, as a mask row says its own), its opacity when not 100, and its eye a real
+//  switch; a mark the library no longer has says so. Single photographs only (`WatermarkRules`, W5): a pair's and a
+//  double's foot says why. A picked watermark row's page is its own in both modes (`LayerPage.watermark`).
+//
 //  **A double's sections are derived, not written twice.** `DoublePanelKind.of` (`DoubleRules.swift`) is the
 //  rule for five tabs; a picture's page on the Mac is one scroll, so `sections` asks that rule
 //  tab by tab and keeps what is the exposure's own. The self-test holds the two against each other.
@@ -38,24 +44,28 @@ enum LayerPick: Hashable, Sendable {
     case exposure(DoubleExposure.Position)
     /// A single photograph's mask layer, by its id (`LocalLayer.id`; MASKS-SPEC §11).
     case mask(UUID)
+    /// A single photograph's watermark, by its placement's id (`WatermarkPlacement.id`; PRD-8).
+    case watermark(UUID)
 
     /// A pair's frame or a double's exposure: a picture with a page of its own. A mask layer is not one.
     var isPicture: Bool {
         switch self {
         case .frame, .exposure: true
-        case .film, .mask: false
+        case .film, .mask, .watermark: false
         }
     }
 
     /// The mask layer it is, where it is one.
     var maskID: UUID? { if case .mask(let id) = self { id } else { nil } }
+    /// The watermark it is, where it is one.
+    var watermarkID: UUID? { if case .watermark(let id) = self { id } else { nil } }
 
     /// The pair's own word for it (`OpenFrameSession.pick`).
     var pairLayer: HalfFramePair.Layer? {
         switch self {
         case .film: .film
         case .frame(let side): HalfFramePair.Layer(side)
-        case .exposure, .mask: nil
+        case .exposure, .mask, .watermark: nil
         }
     }
 
@@ -64,7 +74,7 @@ enum LayerPick: Hashable, Sendable {
         switch self {
         case .film: .film
         case .exposure(let position): DoubleExposure.Layer(position)
-        case .frame, .mask: nil
+        case .frame, .mask, .watermark: nil
         }
     }
 
@@ -79,6 +89,7 @@ enum LayerPick: Hashable, Sendable {
         case .frame(let side): side.key
         case .exposure(let position): position == .top ? "top" : "bottom"
         case .mask: "mask"
+        case .watermark: "watermark"
         }
     }
 }
@@ -97,6 +108,8 @@ struct LayerRow: Equatable, Identifiable, Sendable {
         case empty
         /// A mask layer, and the stage it works on (its row's trailing word).
         case mask(stage: LayerStage)
+        /// A watermark: its stage (the row's trailing word), and whether the library still has its mark.
+        case watermark(stage: WatermarkStage, missing: Bool)
     }
 
     /// The eye of a double exposure's row (LAYERS-SPEC §6.5): there is no state with nothing shown.
@@ -127,10 +140,12 @@ struct LayerRow: Equatable, Identifiable, Sendable {
     var marked = false
     /// A mask row's place among the mask rows, 1 at the top: its identifier's `mask.<n>`.
     var maskNumber: Int? = nil
+    /// A watermark row's place among the watermark rows, 1 at the top: its identifier's `watermark.<n>`.
+    var watermarkNumber: Int? = nil
 
     var id: LayerPick { pick }
     /// The tail of its accessibility identifier: `layers.row.<key>`.
-    var key: String { maskNumber.map { "mask.\($0)" } ?? pick.key }
+    var key: String { maskNumber.map { "mask.\($0)" } ?? watermarkNumber.map { "watermark.\($0)" } ?? pick.key }
     /// "60 %": a mask row's opacity as it says it, only when not 100.
     var opacityText: String? { opacity.flatMap(MaskRules.opacityText) }
     /// A mask row's stage.
@@ -181,6 +196,9 @@ enum LayerPage: Equatable, Sendable {
     case standsDown
     /// A mask layer: its own page, the same in 冲洗 and 编辑 (MASKS-SPEC §5): the switch, 蒙版, 调整 for its stage.
     case mask(LayerStage)
+    /// A watermark: its own page, the same in 冲洗 and 编辑 (PRD-8 §4.2 on the Mac): the library's marks, 不透明度, 叠加于,
+    /// size and turn, 删除.
+    case watermark
 }
 
 enum LayerRules {
@@ -191,10 +209,12 @@ enum LayerRules {
     /// layers newest first (`maskRows`). `lensCorrection`: the edit's, for the geometry mark; nil marks nothing.
     /// `lensWord`: whose correction it is (`OpenFrameSession.lensWord`).
     static func rows(_ piece: LayerPiece, layers: LocalLayers? = nil, lensCorrection: Bool? = nil, lensWord: String = "",
-                     alone: DoubleExposure.Position? = nil, has: (UUID) -> Bool) -> [LayerRow] {
+                     alone: DoubleExposure.Position? = nil, marks: [WatermarkPlacement] = [], names: WatermarkNames = .unknown,
+                     has: (UUID) -> Bool) -> [LayerRow] {
         var out = [LayerRow(pick: .film, name: L("Film"), content: .film)]
         switch piece {
         case .single:
+            out += watermarkRows(marks, names: names)
             if takesMasks(piece) { out += maskRows(layers, lensCorrection: lensCorrection, lensWord: lensWord) }
         case .pair(let pair):
             for side in HalfFramePair.Side.allCases {
@@ -226,6 +246,18 @@ enum LayerRules {
         }
     }
 
+    /// A photograph's watermarks as rows: **the topmost directly under 胶片** (the model keeps them bottom first), each
+    /// with its library name (or that the mark is gone), its stage, its eye and its opacity where it is not 100.
+    static func watermarkRows(_ marks: [WatermarkPlacement], names: WatermarkNames = .unknown) -> [LayerRow] {
+        marks.reversed().enumerated().map { i, p in
+            let missing = !names.exists(p.mark)
+            let name = missing ? L("Watermark missing") : (names.name(p.mark).flatMap { $0.isEmpty ? nil : $0 } ?? L("Watermark"))
+            return LayerRow(pick: .watermark(p.id), name: name, content: .watermark(stage: p.stage, missing: missing),
+                            eye: p.on ? .on : .off, opacity: MaskRules.opacityText(p.opacity) == nil ? nil : p.opacity,
+                            watermarkNumber: i + 1)
+        }
+    }
+
     /// The geometry mark: the photograph's lens correction is no longer what the mask was made on, and there is a mask
     /// to have moved (MASKS-SPEC §6.5). Drawn by the stage after this one; the row carries it already.
     /// `lensWord` is whose correction the photograph's is (`LensCorrection.word`): a Sony mask made with it on before
@@ -251,10 +283,11 @@ enum LayerRules {
 
     /// The pick as the panel holds it: a row the piece does not have is 胶片 (another frame opened on the page, a
     /// mask layer removed or undone away).
-    static func held(_ pick: LayerPick, in piece: LayerPiece, layers: LocalLayers? = nil) -> LayerPick {
+    static func held(_ pick: LayerPick, in piece: LayerPiece, layers: LocalLayers? = nil, marks: [WatermarkPlacement] = []) -> LayerPick {
         switch (pick, piece) {
         case (.frame, .pair), (.exposure, .double), (.film, _): pick
         case (.mask(let id), .single): layers?[id] != nil ? pick : .film
+        case (.watermark(let id), .single): marks.contains { $0.id == id } ? pick : .film
         default: .film
         }
     }
@@ -272,7 +305,10 @@ enum LayerRules {
     static func summary(_ pick: LayerPick, in rows: [LayerRow]) -> String {
         let name = rows.first { $0.pick == pick }?.name ?? L("Film")
         let masks = rows.filter { $0.pick.maskID != nil }.count
-        return masks == 0 ? name : L("\(masks) masks") + Fmt.dot + name
+        let marks = rows.filter { $0.pick.watermarkID != nil }.count
+        let counted = (marks == 0 ? [] : [marks == 1 ? L("1 watermark") : L("\(marks) watermarks", as: "on a photo")])
+            + (masks == 0 ? [] : [L("\(masks) masks")])
+        return (counted + [name]).joined(separator: Fmt.dot)
     }
 
     // MARK: the eye (LAYERS-SPEC §6.5)
@@ -341,7 +377,7 @@ enum LayerRules {
         static let listCap: CGFloat = 150
     }
 
-    /// The rows' list: 30 a row, scrolling inside 150 past five rows.
+    /// The rows' list: 30 a row, scrolling inside 150 past five rows. `n`: the rows under 胶片 (mask layers and watermarks).
     static func listHeight(masks n: Int) -> CGFloat { min(Metric.row * CGFloat(n + 1), Metric.listCap) }
 
     /// The card's height without its foot note (which wraps, and is measured where it is drawn): 32 folded; a single
@@ -361,9 +397,10 @@ enum LayerRules {
 
     /// The column under the panel for `pick`. A mask layer's page is its own in both modes (MASKS-SPEC §5).
     static func page(_ pick: LayerPick, piece: LayerPiece, mode: LayerMode, has: (UUID) -> Bool,
-                     layers: LocalLayers? = nil) -> LayerPage {
-        let pick = held(pick, in: piece, layers: layers)
+                     layers: LocalLayers? = nil, marks: [WatermarkPlacement] = []) -> LayerPage {
+        let pick = held(pick, in: piece, layers: layers, marks: marks)
         if let id = pick.maskID, let layer = layers?[id] { return .mask(layer.stage) }
+        if pick.watermarkID != nil { return .watermark }
         guard pick.isPicture else { return .film }
         // Edit's tools are Layer 2, kept once for the piece: a picture has none of its own.
         if mode == .edit { return .standsDown }

@@ -561,7 +561,7 @@ bool Pipeline::build(const Params& params, std::string& error) {
     node_count_ += 1;                                                    // boost
     node_count_ += params_.camera.lens_blur_um > 0.0 ? 1 : 0;            // lens_blur
     node_count_ += (params_.film_render.overscan.active || params_.film_render.date_imprint.active ||
-                    params_.film_render.leak.kind != "off") ? 1 : 0;      // overscan (and a leak alone, §21.1)
+                    params_.film_render.leak.kind != "off" || params_.film_render.leak.edge > 0.0) ? 1 : 0;   // overscan (and a leak alone, §21.1; the edge burn, §21.9)
     node_count_ += params_.film_render.overscan.active ? 1 : 0;           // film_present
     node_count_ += params_.film_render.overscan.active ? 1 : 0;           // the scan's view of the holes
     node_count_ += params_.film_render.halation.active ? 1 : 0;          // halation
@@ -1184,6 +1184,33 @@ double Pipeline::lens_blur_sigma() const {
     // The pitch is live here, not frozen at build time -- which is the whole
     // of the divergence from the Python engine noted in the header.
     return pixel_size_um_ > 0.0 ? params_.camera.lens_blur_um / pixel_size_um_ : 0.0;
+}
+
+// API-SPEC §25: how far the picture's edge is softened past its gate's penumbra, in this render's pixels -- the
+// spread its light takes between the gate and the print, as the variances of the blurs it goes through: the camera's
+// lens blur, halation's scatter (its Gaussian core, and its exponential tail as the exponential's own variance, 2λ²;
+// green's, the channel the eye reads an edge by), the base's back-reflection (its first bounce, scaled as
+// `halation_blurs` scales it: RFC-034's square root of the amount), and the scanner's blur. Measured on a 135 and a
+// 645 edge (2026-11-16): the picture's light falls from 90 % to 10 % over 0.12-0.19 mm at every size, the geometric
+// penumbra being 0.02 mm of it; this sum is 66 µm sigma there. What EDR's weight is blurred by (`node_edr`).
+double Pipeline::edr_edge_sigma() const {
+    if (!(pixel_size_um_ > 0.0)) return 0.0;
+    const double lens = lens_blur_sigma(), scanner = scanner_blur_sigma();
+    double v = lens * lens + scanner * scanner;
+    const HalationParams& hal = params_.film_render.halation;
+    if (hal.active) {
+        const double px = pixel_size_um_;
+        if (hal.scatter_amount > 0.0) {
+            const double core = hal.scatter_core_um[1] * hal.scatter_spatial_scale / px;
+            const double tail = hal.scatter_tail_um[1] * hal.scatter_spatial_scale / px;
+            v += (1.0 - hal.scatter_tail_weight[1]) * core * core + hal.scatter_tail_weight[1] * 2.0 * tail * tail;
+        }
+        if (hal.halation_amount > 0.0) {
+            const double first = hal.halation_first_sigma_um[1] * std::sqrt(hal.halation_amount) * hal.halation_spatial_scale / px;
+            v += first * first;
+        }
+    }
+    return std::sqrt(v);
 }
 
 double Pipeline::scanner_blur_sigma() const {
@@ -2193,6 +2220,39 @@ bool Pipeline::node_edr(const Image& in, Image& out, std::string& error) {
     if (!baked_.edr_params || !baked_.edr_lut) { error = "EDR calibration is not available"; return false; }
     if (!alloc_like(in, out, error)) return false;
     const uint32_t n[1] = {uint32_t(in.pixels())};
+    // API-SPEC §25 (the owner, 2026-11-16): under a film edge EDR is the picture's only. The print's curve laid on
+    // the whole canvas crushed the rebate and ringed every clear hole ("bizarre dark spot around the white keyholes");
+    // the edge, the holes and the edge print now print as without EDR, the picture with it, mixed by where the
+    // picture's light is: the gate's coverage blurred as the picture's own edge was (`overscan.metal`, §6.8's three
+    // steps). Without a film edge the canvas is the picture: `spk_edr` as before, to the bit.
+    if (overscan_wanted()) {
+        if (!overscan_.valid || in.w != overscan_.canvas_w || in.h != overscan_.canvas_h) {
+            error = "overscan: the print does not match this pipeline's overscan layout";
+            return false;
+        }
+        std::vector<float> P;
+        overscan_params_block(P);
+        gpu::BufferRef pb = gpu_->upload(P.data(), P.size() * sizeof(float), error);
+        Image cov, w;
+        if (!pb || !alloc_like(in, cov, error)) return false;
+        if (!gpu_->dispatch("spk_overscan_picture_weight",
+                            {gpu::Arg::buf(pb), gpu::Arg::inline_bytes(n, 1), gpu::Arg::buf(cov.buf)},
+                            in.pixels(), error)) return false;
+        const double sigma_px = edr_edge_sigma();
+        if (sigma_px > 0.0) {
+            double sigma[3];
+            fill3(sigma, sigma_px);
+            if (!blur_.gaussian(cov, sigma, w, error)) return false;
+        } else {
+            w = cov;
+        }
+        cov = Image{};
+        return gpu_->dispatch("spk_edr_weighted",
+                              {gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.edr_params),
+                               gpu::Arg::buf(baked_.edr_lut), gpu::Arg::inline_bytes(n, 1),
+                               gpu::Arg::buf(w.buf), gpu::Arg::buf(pb), gpu::Arg::buf(out.buf)},
+                              in.pixels(), error);
+    }
     return gpu_->dispatch("spk_edr",
                           {gpu::Arg::buf(in.buf), gpu::Arg::buf(baked_.edr_params),
                            gpu::Arg::buf(baked_.edr_lut), gpu::Arg::inline_bytes(n, 1),

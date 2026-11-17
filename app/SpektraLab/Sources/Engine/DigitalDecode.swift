@@ -31,14 +31,7 @@ enum DigitalDecode {
         // Core Image's own where it has one, else the app's profile of the file, in linear light before Apple's tone
         // curve (`LensCorrection`).
         LensCorrection.prepare(filter, url: url, decode: decode, coreImageAlways: false, resolution: lens)
-        switch decode.whiteBalance {
-        case .asShot: break
-        case .custom:
-            filter.neutralTemperature = Float(decode.temperature)
-            filter.neutralTint = Float(decode.tint)
-        default:
-            if let kelvin = decode.whiteBalance.kelvin { filter.neutralTemperature = Float(kelvin) }
-        }
+        RawExposure.whiteBalance(filter, settings: decode)
         return filter.outputImage
     }
 

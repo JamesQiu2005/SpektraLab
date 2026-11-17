@@ -29,21 +29,27 @@ struct LightTableFullRef: Equatable, @unchecked Sendable {
     let longEdge: Int
     /// Names the picture exactly: a new render or a new layer is a new texture.
     let key: String
+    /// 水印's 成片 marks over the read (PRD-8): the table's film carries them as its tile does. Nil: none.
+    var marks: WatermarkComposite.Laid? = nil
     #if SPK_ENGINE
     /// The pass that reads it (`FullDetail.shared`), made once on the main actor before any ref is.
     let pass: FullDetail
     #endif
 
     #if SPK_ENGINE
-    init(url: URL, stamp: String, adjustments: Adjustments, bytes: Int64, longEdge: Int, pass: FullDetail) {
+    init(url: URL, stamp: String, adjustments: Adjustments, bytes: Int64, longEdge: Int, pass: FullDetail,
+         marks: WatermarkComposite.Laid? = nil) {
         self.url = url; self.stamp = stamp; self.adjustments = adjustments; self.bytes = bytes; self.longEdge = longEdge
         self.pass = pass
+        self.marks = marks
         let layer = (try? JSONEncoder().encode(adjustments)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        key = url.lastPathComponent + "|" + layer
+        key = url.lastPathComponent + "|" + layer + (marks.map { "|wm " + $0.key() } ?? "")
     }
     #endif
 
-    static func == (a: Self, b: Self) -> Bool { a.url == b.url && a.stamp == b.stamp && a.adjustments == b.adjustments }
+    static func == (a: Self, b: Self) -> Bool {
+        a.url == b.url && a.stamp == b.stamp && a.adjustments == b.adjustments && a.marks == b.marks
+    }
 }
 
 enum LightTableFullRead {
@@ -83,7 +89,10 @@ enum LightTableFullRead {
         }
         let url = ref.url, bytes = ref.bytes
         Task { @MainActor in onRead?(url, bytes) }
-        return ctx.makeImage()
+        // 水印 over the whole read, as the tile's copy carries them (the table draws it uncut, as its tile is).
+        guard let made = ctx.makeImage() else { return nil }
+        guard let marks = ref.marks else { return made }
+        return WatermarkComposite.copy(made, marks: marks.marks, placing: marks.placing(picture: CGSize(width: ow, height: oh))) ?? made
         #else
         return nil
         #endif

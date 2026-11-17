@@ -123,6 +123,8 @@ final class Layer2Export {
                                   provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else {
             throw EngineError.failed("the picture could not be made")
         }
+        // 水印 may draw into it where it lies (`WatermarkComposite`, an export's marks): the buffer is this image's alone.
+        PictureMemory.owns(image, bytes: out.contents())
         return image
     }
 

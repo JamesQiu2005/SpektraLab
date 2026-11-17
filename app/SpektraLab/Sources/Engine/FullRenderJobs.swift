@@ -56,6 +56,18 @@ enum FullRenderJobs {
     /// The jobs under way or queued, by their file's name.
     private(set) static var flights: [String: Flight] = [:]
 
+    /// Renders that failed, by their file's name (which is their stamp): the frame's, and what was said. A full render is
+    /// the same work every time it is asked of the same edit, so a failure is asked again only once the edit moves its
+    /// stamp — another name — or the frame's page opens again (`forgetFailures`). 2026-11-16: the page's zoom asked a
+    /// render the engine refuses 21 times in 8 minutes, a 68 MP decode each, and a prefetch would ask again as each ended.
+    private(set) static var failures: [String: (frame: UUID, message: String)] = [:]
+
+    /// Why this render failed when last asked, where it has and the edit has not moved since.
+    static func failure(_ made: Made) -> String? { failures[made.ask.url.lastPathComponent]?.message }
+
+    /// The frame's failed renders are asked again (its page opened).
+    static func forgetFailures(of frame: UUID) { failures = failures.filter { $0.value.frame != frame } }
+
     /// The full render a frame would have now — nil for a frame with no more to show than its preview
     /// (`FullView.hasMore`), a pair, an original that is not here, or no engine.
     static func made(_ frame: LibraryFrame, darkroom: EngineRouter?) -> Made? {
@@ -103,9 +115,11 @@ enum FullRenderJobs {
                        scheduler: RenderQueue, darkroom: EngineRouter) -> UUID? {
         let name = made.ask.url.lastPathComponent
         if let f = flights[name], f.ask == made.ask { return f.id }
-        guard !darkroom.isAway(frame) else { return nil }
+        guard failures[name] == nil, !darkroom.isAway(frame) else { return nil }
         let job = job(frame, made, kind: kind)
         guard darkroom.prepareFullView(job, frame: frame, plan: made.plan, source: made.source, isRAW: made.isRAW, ask: made.ask) else {
+            // Nothing to read, or a request the router turned away (`EngineRouter.hand`): the same next time.
+            if darkroom.isHere(frame) { failures[name] = (frame.id, "the full render could not be asked for") }
             return nil
         }
         let id = scheduler.submit(job)
@@ -116,6 +130,7 @@ enum FullRenderJobs {
             if flights[name]?.id == id { flights[name] = nil }
             var finished = false
             if case .finished = outcome { finished = true }
+            if case .failed(let message) = outcome { failures[name] = (frame.id, message) }
             NotificationCenter.default.post(name: .spkFullRenderEnded, object: nil,
                                             userInfo: ["frame": frame.id, "name": name, "made": finished])
         }

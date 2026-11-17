@@ -61,8 +61,7 @@ enum MacExportCheck {
 
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
         // The folder is a path: anything else after `--export-check` is not this check's.
-        guard let i = arguments.firstIndex(of: "--export-check"), i + 1 < arguments.count,
-              arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--export-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         var pictures: [URL] = []
         if let p = arguments.firstIndex(of: "--export-check-pictures") {

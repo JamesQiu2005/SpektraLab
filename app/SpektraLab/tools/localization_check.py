@@ -155,6 +155,7 @@ NOT_PAGES = {
     "Mac/Library/MacVariantCheck.swift": "a debug build's variants check (PRD-G): its step names go to its JSON report and the log",
     "Mac/Library/MacVariantActsCheck.swift": "a debug build's variants check, part 2 (PRD-G): its step names go to its JSON report and the log",
     "Mac/Export/MacHDRChoiceCheck.swift": "a debug build's check that Enable HDR is remembered (2.4.0): its step names go to its JSON report and the log",
+    "Mac/Render/MacEditRefreshCheck.swift": "a debug build's check that the canvas draws the edit as it stands (issue #123): its step names go to its JSON report and the log",
     "Mac/Settings/MacSettingsCoverage.swift": "a debug build's table of the Settings items and their sections: report text",
     "Mac/Library/CatalogSourcesStore.swift": "the Mac library's data: a collection's title is a key, shown through MacWords.title",
 }

@@ -1,7 +1,7 @@
 #version 450
 layout(local_size_x = 256) in;
 layout(set=0,binding=0,std430) readonly buffer Frame { float value[]; } frame_data;
-layout(set=0,binding=1,std430) readonly buffer ParamsData { float value[284]; } params;
+layout(set=0,binding=1,std430) readonly buffer ParamsData { float value[313]; } params;
 layout(set=0,binding=2,std430) readonly buffer Meta { uint value[]; } meta_data;
 layout(set=0,binding=3,std430) writeonly buffer Output { float value[]; } out_data;
 const uint P_CW = 0u;
@@ -95,7 +95,15 @@ const uint P_FALLOFF = 280u;
 const uint P_FALLOFF_F = 281u;
 const uint P_FALLOFF_N = 282u;
 const uint P_PERF_DT = 283u;
-const uint P_COUNT = 284u;
+// API-SPEC §24: the cine gauges; 0 on every other format, where each reader keeps today's arithmetic.
+const uint P_PERF_SHAPE = 304u;
+const uint P_PERF_ROWS = 305u;
+const uint P_PERF_RMIN = 306u;
+const uint P_PERF_RMAX = 307u;
+const uint P_PERF_JIT = 308u;
+const uint P_NB_PREV = 309u;
+const uint P_NB_NEXT = 310u;
+const uint P_COUNT = 313u;
 
 const uint kQStride = 10u;
 uint hash_u(uint x);
@@ -110,19 +118,33 @@ float perf_sdf(vec2 st, inout uint hole) {
     // cut where the other three sides were soft.)
     const float k = floor((st.x - ph - 0.5f * params.value[P_PERF_W]) / pitch + 0.5f);
     const bool top = st.y < 0.5f * W;
+    // API-SPEC §24: one row only -- the t-low edge (Super 8) or the t-high edge (16 mm): no hole on the other
+    const float rows = params.value[P_PERF_ROWS];
+    if ((rows > 0.5f && rows < 1.5f && !top) || (rows > 1.5f && top)) { hole = 0u; return 1.0e3f; }
     const uint seed = uint(params.value[P_PERF_SEED]);
+    // the punch's tolerances and the corner clamp: KS's, unless the film says otherwise
+    const float jit = params.value[P_PERF_JIT] > 0.0f ? params.value[P_PERF_JIT] : 1.0f;
+    const float rmin = params.value[P_PERF_RMIN] > 0.0f ? params.value[P_PERF_RMIN] : 0.3f;
+    const float rmax = params.value[P_PERF_RMAX] > 0.0f ? params.value[P_PERF_RMAX] : 0.6f;
     hole = hash_u(uint(int(k) * 2 + (top ? 0 : 1)) * 0x9E3779B9u ^ seed);
     const float j0 = hash_f(int(hole & 0xFFFFu), seed ^ 0x1u) - 0.5f, j1 = hash_f(int(hole & 0xFFFFu), seed ^ 0x2u) - 0.5f;
     const float j2 = hash_f(int(hole & 0xFFFFu), seed ^ 0x3u) - 0.5f, j3 = hash_f(int(hole & 0xFFFFu), seed ^ 0x4u) - 0.5f;
     const float j4 = hash_f(int(hole & 0xFFFFu), seed ^ 0x5u) - 0.5f;
-    const float wa = params.value[P_PERF_W] + 0.016f * j2, hc = params.value[P_PERF_H] + 0.016f * j3;
-    const float r = clamp(params.value[P_PERF_R] + 0.08f * j4, 0.3f, 0.6f);
-    const float sc = ph + k * pitch + 0.5f * params.value[P_PERF_W] + 0.020f * j0;
+    const float wa = params.value[P_PERF_W] + 0.016f * jit * j2, hc = params.value[P_PERF_H] + 0.016f * jit * j3;
+    const float r = clamp(params.value[P_PERF_R] + 0.08f * jit * j4, rmin, rmax);
+    const float sc = ph + k * pitch + 0.5f * params.value[P_PERF_W] + 0.020f * jit * j0;
     // (+ P_PERF_DT: ks65's slitter shifts both rows across; 0, exactly, elsewhere)
-    const float tc = (top ? params.value[P_PERF_EDGE] + 0.5f * params.value[P_PERF_H] : W - params.value[P_PERF_EDGE] - 0.5f * params.value[P_PERF_H]) + 0.024f * j1 +
+    const float tc = (top ? params.value[P_PERF_EDGE] + 0.5f * params.value[P_PERF_H] : W - params.value[P_PERF_EDGE] - 0.5f * params.value[P_PERF_H]) + 0.024f * jit * j1 +
                      params.value[P_PERF_DT];
-    const vec2 q = abs(vec2(st.x - sc, st.y - tc)) - vec2(0.5f * wa - r, 0.5f * hc - r);
-    float d = length(max(q, 0.0f)) + min(max(q.x, q.y), 0.0f) - r;
+    float d;
+    if (params.value[P_PERF_SHAPE] > 0.5f) {
+        // Bell & Howell (API-SPEC §24): a disc of the hole's width across, cut flat along to its height
+        const vec2 pd = vec2(st.x - sc, st.y - tc);
+        d = max(length(pd) - (0.5f * hc - r), abs(pd.x) - (0.5f * wa - r)) - r;
+    } else {
+        const vec2 q = abs(vec2(st.x - sc, st.y - tc)) - vec2(0.5f * wa - r, 0.5f * hc - r);
+        d = length(max(q, 0.0f)) + min(max(q.x, q.y), 0.0f) - r;
+    }
     // the punched edge: each hole's own roughness, 1-4 microns
     const float rough = 0.001f + 0.003f * hash_f(int(hole & 0xFFFFu), seed ^ 0x6u);
     d += rough * (value_noise(st.x / 0.05f, seed ^ 0x77u) + value_noise(st.y / 0.05f, seed ^ 0x99u) - 1.0f) * 2.0f;

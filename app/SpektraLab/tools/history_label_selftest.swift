@@ -64,7 +64,10 @@ import Foundation
         e.filmOff = .init(filmEdgeActive: true, dateBackActive: false)
         e.hdrChoice = true
         e.hdrPeakStops = 3
+        e.params.edrChoice = false      // the one state that writes `edrOff`
         e.leak.kind = .allCases.last!
+        e.leak.seed = 7
+        e.leak.edge = 1.5
         e.lens.filter = .allCases.first
         e.lens.character = .allCases.first
         e.adjustments.vibrance = 5
@@ -72,6 +75,8 @@ import Foundation
         func lensMoved(_ d: inout DecodeSettings) {
             d.lensProfile = .init(key: "Canon/Canon RF 45mm F1.2 STM", name: "Canon RF 45mm F1.2 STM")
             d.lensDistortion = 50; d.lensLightFalloff = 20; d.lensHideDistortedAreas = false
+            // 色调's own As Shot (2.4.1), written only where it is not the white balance's.
+            d.tintAsShotOverride = true
         }
         lensMoved(&e.decode)
         e.adjustments.hsl.red.saturation = 10
@@ -96,6 +101,9 @@ import Foundation
         fin.whitePoint = 6; fin.saturation = 7; fin.vibrance = 8; fin.temperature = 9; fin.tint = 10
         layer.finished = fin
         e.layers = LocalLayers(items: [layer])
+        // 水印 (PRD-8): one placement, every field set, its eye off so the Mac's `on` is written too.
+        e.watermarks = [WatermarkPlacement(mark: UUID(), stage: .full, anchor: .tr, dx: 0.1, dy: 0.12, size: 0.2, rotation: 0.3,
+                                           opacity: 0.8, on: false, fill: "#2F6FDE")]
         var p = HalfFramePair()
         p.origin = UUID()
         for side in HalfFramePair.Side.allCases {
@@ -126,7 +134,12 @@ import Foundation
     // MARK: 1a. the Swift shape against the JSON
 
     /// A stored property's key where its JSON key is not its name.
-    static let renamed = ["hdrChoice": "hdr", "hdrPeakStops": "hdrPeak", "lensBox": "lens"]
+    static let renamed = ["hdrChoice": "hdr", "hdrPeakStops": "hdrPeak", "lensBox": "lens", "tintAsShotOverride": "tintAsShot",
+                          "edrValue": "extendedDynamicRange", "edrChosenOff": "edrOff"]
+
+    /// A stored property never written: a copy of another field's state, which the walk sees there.
+    /// `FilmParams.yieldsToHDR` is `FrameEdit.hdrChoice == true`, kept beside the params for EDR's default (2026-11-16).
+    static let derived: Set<String> = ["yieldsToHDR"]
 
     static func json(_ r: DevelopRevision) -> Any {
         let enc = JSONEncoder()
@@ -169,6 +182,7 @@ import Foundation
                 guard let dict = object as? [String: Any] else { return }
                 for child in m.children {
                     guard let label = child.label else { continue }
+                    if derived.contains(label) { continue }
                     let key = renamed[label] ?? label
                     guard let j = dict[key] else { missing.append(path + "." + key + " (not written)"); continue }
                     walk(child.value, j, path + "." + key)
@@ -242,9 +256,10 @@ import Foundation
         "edit.filmEdge.holes": ["black", "clear"],
         "edit.dateBack.order": ["us", "europe", "iso"],
         "edit.dateBack.corner": ["bl", "tl", "tr"],
-        "edit.leak.kind": ["edge", "streak", "off"], "edit.lens.filter": ["glimmerglass", "black_pro_mist_2"], "edit.lens.character": ["petzval", "jupiter"],
+        "edit.leak.kind": ["band", "streak", "off"], "edit.lens.filter": ["glimmerglass", "black_pro_mist_2"], "edit.lens.character": ["petzval", "jupiter"],
         "double.exposures[].meterMethod": ["balanced", "highlights"],
         "edit.layers.items[].stage": ["finished", "enlarger"],
+        "edit.watermarks[].stage": ["base"], "edit.watermarks[].fill": ["#D0342C"], "edit.watermarks[].anchor": ["bl", "tl", "br"],
         "edit.layers.items[].parts[].join": ["add", "intersect"], "edit.layers.items[].parts[].kind": ["linear", "radial"],
         "edit.layers.items[].parts[].found.what": ["subject", "people"],
         // A stroke's packed points (base64): another valid packing.

@@ -1,0 +1,110 @@
+# The nightly gate: `tools/gate.py full` on the owner's Mac mini, unattended (the owner, 2026-11-14: "release plus
+# nightly unattended run (most ideally on my mac mini)").
+#
+# PAUSED since 2026-11-15 (`gh workflow disable Nightly`; the owner's call): the runner's 6 GB cap kills it (a Debug
+# build peaks 6.4 GB, raw_samples_check alone 10.9 GB) and its process lacks the privacy grants. `gate.py full` runs by
+# hand before a merge to main instead (docs/agents/BUILD-AND-TEST.md, "The nightly").
+#
+# build.yml asks whether a clean checkout builds; this asks whether everything still passes: every self-test, and
+# every in-app check whole (the 45 MP develop, the finding on Vision, the posted keys and pointer, both languages'
+# captures). Timing rows are not graded here (`gate.py timing`, on a quiet Mac, by hand): the runner holds a job to
+# four cores by stopping it, which no cost row survives.
+#
+# What it needs that no checkout has (AGENTS.md "Test gates"; docs/agents/BUILD-AND-TEST.md):
+# - the runner in the logged-in GUI session: the in-app checks launch the app and bring it to the front. The runner
+#   here is a LaunchAgent in gui/501, so it is, while that user is logged in;
+# - the RAW sets, linked into the checkout's root from the main checkout (`SPEKTRALAB_FIXTURES_ROOT`): the 45 MP set
+#   (research/natural_shadow/dataset) and the RAW decode set (RAW_decode_tests), both gitignored;
+# - the Python reference, for the engine's parity harnesses (`SPEKTRALAB_REFERENCE_ROOT`); without it the engine
+#   check exits 3, "incomplete", never a pass;
+# - the whole history (fetch-depth 0): checks compile old releases' coders from commits by hash;
+# - privacy grants for the runner's process (launchd starts /usr/bin/python3 ~/runner-control/supervisor.py): files on a
+#   removable volume, Automation of System Events, and posting events. Without the first, the app blocks on its first
+#   write to the work folder and is killed silent (measured 2026-11-15; BUILD-AND-TEST.md, "The nightly").
+#
+# A public repository must never be able to schedule work on a private self-hosted runner: the release copies this
+# tree into the public repository, so the job runs only in the private one.
+
+name: Nightly
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 18 * * *'      # 02:00 in Shanghai (UTC+8); GitHub runs a schedule from the default branch only
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  full:
+    # Never in the public repository (which receives this tree at each release) or in a fork: this owner's other one.
+    if: github.repository_owner == 'JamesQiu2005' && github.repository != 'JamesQiu2005/SpektraLab'
+    runs-on: [self-hosted, macOS, ARM64, spektralab-private]
+    timeout-minutes: 240
+    # Named, so that a step runs with -o pipefail: GitHub's unnamed default is `bash -e`, and `gate.py | tee` would pass.
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Repository variables, set on the private repository (a machine's paths are not written in the tree): the
+      # checkout that holds the RAW sets, and the Python reference. Without the first the job stops at its fixtures
+      # step, by name; without the second the engine check reports incomplete.
+      SPEKTRALAB_FIXTURES_ROOT: ${{ vars.SPEKTRALAB_FIXTURES_ROOT }}
+      SPEKTRALAB_REFERENCE_ROOT: ${{ vars.SPEKTRALAB_REFERENCE_ROOT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The Mac
+        run: |
+          sw_vers; xcodebuild -version; uptime
+          # The in-app checks need a window server to draw into and bring the app to the front.
+          [ "$(stat -f %Su /dev/console)" != root ] || { echo "::error::no user logged in at the console: the in-app checks cannot run"; exit 1; }
+
+      - name: Fixtures
+        run: |
+          f="$SPEKTRALAB_FIXTURES_ROOT"
+          for d in research/natural_shadow/dataset RAW_decode_tests; do
+            [ -d "$f/$d" ] || { echo "::error::no $d under $f (SPEKTRALAB_FIXTURES_ROOT)"; exit 1; }
+            mkdir -p "$(dirname "$d")"; rm -rf "$d"; ln -s "$f/$d" "$d"
+            echo "$d -> $f/$d ($(ls "$d" | wc -l | tr -d ' ') files)"
+          done
+          [ -d "$SPEKTRALAB_REFERENCE_ROOT/src" ] || echo "::warning::no Python reference at $SPEKTRALAB_REFERENCE_ROOT: the engine check will report incomplete"
+
+      - name: Engine for Mac Catalyst
+        run: app/SpektraLab/tools/build_engine_mac.sh
+
+      # The in-app checks run the Debug app at build/DerivedData (each script's --app default).
+      - name: App (Debug)
+        working-directory: app/SpektraLab
+        run: |
+          python3 gen_project.py
+          xcodebuild -project SpektraLab.xcodeproj -scheme SpektraLab -configuration Debug \
+            -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath build/DerivedData build -quiet
+
+      - name: gate.py full
+        working-directory: app/SpektraLab
+        run: python3 -u tools/gate.py full 2>&1 | tee "$RUNNER_TEMP/gate-full.log"
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/gate-full.log
+            app/SpektraLab/build/*-check/**/*.log
+            app/SpektraLab/build/*-check/*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # The runner's volume is 20 GB: a full-history checkout is ~2 GB and a run's build under 1 GB (measured 2026-11-15).
+      # The checkout itself is cleaned by the next run's checkout.
+      - name: Tidy
+        if: always()
+        run: rm -rf app/SpektraLab/build/DerivedData

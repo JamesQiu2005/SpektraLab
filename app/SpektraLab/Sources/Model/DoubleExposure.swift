@@ -354,7 +354,7 @@ struct DoubleExposure: Codable, Equatable, Sendable {
     static func meterKey(_ e: Exposure) -> String {
         let d = e.decode, g = e.cut
         // The lens's fields where they are not at rest ("" otherwise: the key is what it was).
-        return [e.frame.uuidString, d.whiteBalance.rawValue + d.exposureKey, String(d.temperature), String(d.tint),
+        return [e.frame.uuidString, d.whiteBalance.rawValue + d.tintModeWord + d.exposureKey, String(d.temperature), String(d.tint),
                 String(d.lensCorrection) + d.meterLensWord(fileName: nil), e.meterMethod,
                 "\(g.crop.x),\(g.crop.y),\(g.crop.width),\(g.crop.height),\(g.quarterTurns)"].joined(separator: "|")
     }
@@ -730,6 +730,8 @@ extension FrameEdit {
         var look = self
         look.geometry = .default
         look.filmEdge.framing = nil
+        // No watermark on a double in this version (W5, `WatermarkRules.placements`): its look holds none.
+        look.watermarks = []
         return look
     }
 }

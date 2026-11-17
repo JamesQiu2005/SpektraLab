@@ -39,7 +39,7 @@ import UIKit
 @MainActor
 enum MacLightTableCheck {
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
-        guard let i = arguments.firstIndex(of: "--lighttable-check"), i + 1 < arguments.count, arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--lighttable-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         var pictures: [URL] = []
         if let p = arguments.firstIndex(of: "--lighttable-check-pictures") {

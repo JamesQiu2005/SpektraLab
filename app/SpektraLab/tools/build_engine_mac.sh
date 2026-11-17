@@ -67,6 +67,8 @@ rsync -a --exclude '*.metallib' --exclude '*.metalar' "$eng/resources/" "$res/"
 if [[ -d "$eng/resources_product/profiles" ]]; then
   cp "$eng/resources_product/profiles/"*.json "$res/profiles/"
   cp "$eng/resources_product/NOTICE.md" "$res/PRODUCT_PROFILES_NOTICE.md"
+  # the product colour films' neutral packs, which the engine lays under spektrafilm's table
+  cp "$eng/resources_product/neutral_print_filters_colour.json" "$res/"
 fi
 cp "$root/license/SPEKTRAFILM_LICENSE.txt" "$res/LICENSE-PROFILES.txt"   # the CC BY-SA 4.0 notice of the profiles
 xcrun -sdk macosx metallib "${airs[@]}" -o "$res/spektralab.metallib"

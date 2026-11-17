@@ -116,17 +116,27 @@ struct MacSettingsDevelop: View {
             // crop means for the film's physical scale (`FrameEdit.wireFilmFormatMM`). Off by default.
             MacSettingsRow(label: L("Crop re-maps the frame"),
                            caption: L("Whether a crop changes the physical scale of grain and halation. Off — the default, and the physically true answer — a crop shows less of the same negative, so when it fills the picture its grain is enlarged with it. On, the cropped rectangle is the frame: the Film Format describes the crop, so however tight the crop, it has the grain and halation of a whole frame of that size. It applies as you crop, and switching it develops the open picture again. The film's size tops out at 300 mm, which a crop to about an eighth of a 135 frame's long edge reaches. Not under a film edge, where the crop places the picture in the gate."),
-                           last: !FeatureFlags.backgroundFinish && !hdr.showsHDR) {
+                           last: false) {
                 MacSettingsCheckbox(label: L("Crop re-maps the frame"), on: Binding(get: { settings.cropRemapsFrame },
                                                                                    set: { settings.cropRemapsFrame = $0; model.cropRemapsFrameChanged() }))
             }
             .macSettingsItem("Crop re-maps the frame")
+            // Settings › *Enable EDR by Default* (the owner, 2026-11-16): the print's Extended Dynamic Range, remembered as
+            // Enable HDR is — what frames that never chose follow, moved by the page's switch too. Shown on any screen: it is
+            // the print's, not the screen's. Never on with HDR's: turning one on turns the other off (`AppSettings`).
+            MacSettingsRow(label: L("Enable EDR by Default"),
+                           caption: L("Pictures whose own Extended Dynamic Range was never set follow this, and switching EDR on a picture sets it too, so they show what you chose last. The print keeps its range past paper white. It is never on with Enable HDR by Default: turning one on turns the other off."),
+                           last: false) {
+                MacSettingsCheckbox(label: L("Enable EDR by Default"), on: Binding(get: { settings.edrByDefault },
+                                                                                  set: { settings.edrByDefault = $0 }))
+            }
+            .macSettingsItem("Enable EDR by Default")
             // Settings › *Enable HDR by Default* (D5, 2026-11-06): Mac only, shown while a
             // screen of this Mac shows HDR (`HDRDisplays`), as every HDR control is. What frames that never chose follow.
             if hdr.showsHDR {
                 MacSettingsRow(label: L("Enable HDR by Default"),
                                caption: L("Pictures whose own Enable HDR was never set follow this, and switching Enable HDR on a picture sets it too, so they show what you chose last. On an HDR screen their highlights go past white, as the film held them."),
-                               last: !FeatureFlags.backgroundFinish) {
+                               last: false) {
                     MacSettingsCheckbox(label: L("Enable HDR by Default"), on: Binding(get: { settings.hdrByDefault },
                                                                                       set: { settings.hdrByDefault = $0 }))
                 }

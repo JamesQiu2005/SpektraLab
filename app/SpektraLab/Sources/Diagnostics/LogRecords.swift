@@ -291,7 +291,7 @@ extension Log {
             guard var hole = pair[side] else { continue }
             hole.meteredEV = nil
             hole.meteredFor = nil
-            if hole.decode.whiteBalance == .asShot { hole.decode.temperature = 0; hole.decode.tint = 0 }
+            hole.decode = hole.decode.withoutCameraNumbers()
             pair[side] = hole
         }
         return pair

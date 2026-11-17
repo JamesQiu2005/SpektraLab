@@ -575,7 +575,7 @@ struct HalfFramePair: Codable, Equatable, Sendable {
         let g = hole.geometry
         // The lens's fields where they are not at rest, and whose correction it is where the app corrects a frame by its
         // name (a Sony's: `DecodeSettings.meterLensWord`): "" for every other frame, whose key is what it was.
-        return [hole.frame?.uuidString ?? hole.path, d.whiteBalance.rawValue + d.exposureKey, String(d.temperature), String(d.tint),
+        return [hole.frame?.uuidString ?? hole.path, d.whiteBalance.rawValue + d.tintModeWord + d.exposureKey, String(d.temperature), String(d.tint),
                 String(d.lensCorrection) + d.meterLensWord(fileName: hole.path), method,
                 "\(g.crop.x),\(g.crop.y),\(g.crop.width),\(g.crop.height),\(g.quarterTurns)"].joined(separator: "|")
     }

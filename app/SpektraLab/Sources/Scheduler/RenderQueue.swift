@@ -131,6 +131,9 @@ final class RenderQueue {
     /// The job is priced with it — planned, and learned from, as a composed open — and runs as it was asked.
     /// Nil, or nil for a job, leaves the job as it is: every photograph's and every pair's price is what it was.
     @ObservationIgnored var composition: (@MainActor (RenderJob) -> RenderJob.Composition?)?
+    /// **What a job's 水印 底片 pass holds** (`RenderJob.watermarkBytes`, `WatermarkComposite.held`), asked once when it is
+    /// submitted (`EngineRouter.watermarkBytes(of:)`). Nil, or 0 for a job, leaves its price as it was.
+    @ObservationIgnored var marks: (@MainActor (RenderJob) -> UInt64)?
     /// How long a waiting queue goes before it looks again by itself. Signals
     /// re-plan at once; this is the fallback.
     @ObservationIgnored var replanInterval = 0.5
@@ -269,7 +272,8 @@ final class RenderQueue {
     func submit(_ asked: RenderJob) -> UUID {
         // The scheduler must know what an open holds before the job runs: a composed open is priced as one
         // (`CostModel.seed`, a double exposure's).
-        let job = asked.composition == nil ? (composition?(asked)).map { asked.composed($0) } ?? asked : asked
+        var job = asked.composition == nil ? (composition?(asked)).map { asked.composed($0) } ?? asked : asked
+        if job.watermarkBytes == 0, let bytes = marks?(job), bytes > 0 { job = job.marked(bytes) }
         if job.kind.isCanvas {
             // Latest wins: an older canvas job for this frame that has not
             // started is dropped, not finished.

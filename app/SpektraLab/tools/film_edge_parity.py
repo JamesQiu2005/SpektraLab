@@ -49,7 +49,7 @@ SRC = HERE / "Sources"
 TOOL = HERE / "build" / "tools" / "film_geometry_dump"
 PORT_SOURCES = [
     "Model/Format.swift", "Model/Localization.swift", "Model/FilmParams.swift", "Model/Geometry.swift", "Model/FeatureFlags.swift",
-    "Model/FilmEdge.swift", "Model/LensEdge.swift", "Model/FrameEdit.swift", "Model/LocalLayers.swift", "Model/Adjustments.swift", "Model/CurveMath.swift", "Model/Stock.swift",
+    "Model/FilmEdge.swift", "Model/LensEdge.swift", "Model/FrameEdit.swift", "Model/LocalLayers.swift", "Model/Watermark.swift", "Model/Adjustments.swift", "Model/CurveMath.swift", "Model/Stock.swift",
     # Theme.swift imports UIKit, which a plain macOS swiftc has not: the swatch parse is the shim's
     "../tools/selftest_theme_shim.swift",
     "FilmEdge/FilmEdgeStock.swift", "FilmEdge/FilmGeometry.swift", "FilmEdge/FilmLayout.swift",
@@ -73,9 +73,15 @@ SILVER_PRINT = {"print_stock": "ilford_multigrade_iv_rc", "c_filter_neutral": 0.
                 "y_filter_neutral": 68.0}
 
 
+# API-SPEC §24 (2026-11-15): the cine gauges -- (gate along, gate across), as GATES; their cases are their own block
+# in `cases()` (`cine_cases`), apart from the still formats' loops
+CINE_GATES = {"8_super": (4.01, 5.79), "16_super": (7.50, 12.35), "35_4perf": (18.67, 24.89), "65_5perf": (23.01, 52.63),
+              "65_15perf": (70.41, 52.63)}
+
+
 def frame_size(fmt: str, along_is_width: bool) -> tuple[int, int]:
     """A frame of the gate's shape, fine enough that a 0.2 mm stroke is several pixels."""
-    along, across = GATES[fmt]
+    along, across = GATES[fmt] if fmt in GATES else CINE_GATES[fmt]
     w_mm, h_mm = (along, across) if along_is_width else (across, along)
     long_px = max(1400, int(round(max(w_mm, h_mm) / 0.04)))
     k = long_px / max(w_mm, h_mm)
@@ -128,6 +134,15 @@ def cases() -> list[dict]:
         add(f"135_{stock}", "135", True, stock=stock, text=text)
         add(f"120_6x7_{stock}", "120_6x7", True, stock=stock, text=text)
     add("135_xpan_fujifilm_xtra_400", "135_xpan", True, stock="fujifilm_xtra_400", text="FUJI S-400")
+    # the product's colour negatives (resources_product, E-190), in the words the app sends (`EdgeWords`):
+    # Kodak's layout with the blocks after the name on 135 (`name_blocks`), their DX codes, 120's suffixes
+    for stock, t135, t120 in (("kodak_portra_160nc", "KODAK 160NC", "KODAK 160NC-2"),
+                              ("kodak_portra_160vc", "KODAK 160VC", "KODAK 160VC-2"),
+                              ("kodak_portra_400nc", "KODAK 400NC", "KODAK 400NC-3"),
+                              ("kodak_portra_400vc", "KODAK 400VC", "KODAK 400VC-3")):
+        add(f"135_{stock}", "135", True, stock=stock, text=t135)
+        add(f"120_6x7_{stock}", "120_6x7", True, stock=stock, text=t120)
+    add("135_no12_kodak_portra_160nc", "135", True, stock="kodak_portra_160nc", text="KODAK 160NC", frame_number=12)
     # Fujifilm's red and green factory stripes (the owner, 2026-11-11): every Fujifilm colour negative on every
     # 135-gauge format, never a positive, never 120 -- each format with X-TRA 400, Pro 400H and a slide
     for stock, text in (("fujifilm_xtra_400", "FUJI S-400"), ("fujifilm_pro_400h", "FUJI PRO400H"),
@@ -180,6 +195,10 @@ def cases() -> list[dict]:
         for cam, frm in ((19, 5), (7, 263), (123, 217)):
             add(f"leak_{kind}_c{cam}_f{frm}", "135", True, leak=kind, camera_seed=cam, frame_seed=frm)
     add("leak_spot_120_6x7", "120_6x7", True, leak="spot", camera_seed=31, frame_seed=9)
+    # 边缘漏光 beside the kind (API-SPEC §21.9, 2026-11-16): a band and the edge burn, each at its strength, on a 135
+    # film edge and off it; the edge burn alone on 645
+    add("leak_band_edge_c19_f5", "135", True, leak="band", leak_edge=1.5, camera_seed=19, frame_seed=5)
+    add("leak_edge_alone_645", "120_645", True, leak="off", leak_edge=1.0, camera_seed=7, frame_seed=3)
     # the black-and-white films, in the app's own words (`text=None`): every format the Film step
     # offers, the film down, the filed view, a number of the frame's own, another body and frame
     for stock in SILVER:
@@ -192,7 +211,26 @@ def cases() -> list[dict]:
         add(f"120_6x7_no3_{stock}", "120_6x7", True, stock=stock, text=None, frame_number=3)
         add(f"135_c7_f263_{stock}", "135", True, stock=stock, text=None, camera_seed=7, frame_seed=263)
         add(f"120_645_c7_f263_{stock}", "120_645", True, stock=stock, text=None, camera_seed=7, frame_seed=263)
+    out += cine_cases(add)
     return out
+
+
+def cine_cases(add) -> list[dict]:
+    """API-SPEC §24 (2026-11-15): the five cine gauges -- the film down a landscape picture and across a portrait one
+    (15-perf the other way about), several bodies and frames, black holes, a Fujifilm negative (no stripes, no print)
+    and a date asked for (none drawn). `add` appends to the main list; nothing is returned of its own."""
+    for fmt in CINE_GATES:
+        down = fmt != "65_15perf"            # the gate's long edge on the picture's long edge
+        add(f"{fmt}_landscape", fmt, not down)
+        add(f"{fmt}_portrait", fmt, down)
+        for cam, frm in ((1, 1), (7, 263), (123, 217)):
+            add(f"{fmt}_c{cam}_f{frm}", fmt, not down, camera_seed=cam, frame_seed=frm)
+        add(f"{fmt}_black_holes", fmt, not down, holes="black")
+        add(f"{fmt}_fujifilm_xtra_400", fmt, not down, stock="fujifilm_xtra_400", text="FUJI S-400")
+        add(f"{fmt}_vision3_250d", fmt, not down, stock="kodak_vision3_250d", text="EASTMAN 5207")
+        add(f"{fmt}_date_none", fmt, not down, date=dict(text="'26 11 15", style="lcd"))
+        add(f"{fmt}_gate_rounded", fmt, not down, gate="rounded")
+    return []
 
 
 def engine_params(c: dict, wire: dict) -> dict:
@@ -306,6 +344,11 @@ def compare(c: dict, port: dict, mask: np.ndarray | None, rgba: np.ndarray, geo:
     d = float(np.abs(eg - pg).max())
     out.append(("gate corners", d < 0.02, f"max {d:.4f} px"))
     out.append(("direction", bool(geo["vertical"]) == bool(port["vertical"]), f"vertical {geo['vertical']}"))
+    # API-SPEC §24: a cine gauge's neighbours, the engine's against the app's (which read the engine's table)
+    if "neighbours_mm" in geo or any(port.get("neighbours_mm", [0, 0])):
+        e_nb, p_nb = geo.get("neighbours_mm", [0, 0]), port.get("neighbours_mm", [0, 0])
+        d = max(abs(float(x) - float(y)) for x, y in zip(e_nb, p_nb))
+        out.append(("neighbours", d < 1e-4, f"engine {e_nb}  app {[round(v, 6) for v in p_nb]}"))
 
     # --- the pixels
     rgb = rgba[..., :3].astype(np.float64) / 65535.0
@@ -380,7 +423,9 @@ def compare(c: dict, port: dict, mask: np.ndarray | None, rgba: np.ndarray, geo:
                     + " ".join(f"{v:.0f}" for v in seen) + f"; app draws {port.get('stripes')}"))
 
     # 5. the edge print: ink against the rebate
-    zone = ~dilate(p_gate, 6) & ~dilate(p_hole, 2)            # off the gate's penumbra and the holes' cut
+    # off the gate's penumbra and the holes' cut: 2 px, or two of the scan's hole-edge sigma (17 um, overscan.metal's
+    # kHoleEdgeSigma) where a pixel is finer than that -- Super 8 and 16 mm at 0.003-0.007 mm a pixel (API-SPEC §24)
+    zone = ~dilate(p_gate, 6) & ~dilate(p_hole, max(2, int(np.ceil(0.034 / port["mm_per_px"]))))
     # 135 Full Width: the gate is wider than the film, so the factory's print lies on the picture -- measured
     # there against the picture's flat grey (no format has a falloff), off the holes and the date
     covered = port["gate_mm"][1] > port["film_w"]
@@ -589,7 +634,13 @@ def main() -> int:
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "cases.json").write_text(json.dumps(todo, indent=1))
     build_tool()
-    r = subprocess.run([str(TOOL), str(a.out / "cases.json"), str(a.out / "port"), str(HERE / "Resources" / "StockCatalog.json")],
+    # API-SPEC §24: the engine's own format table, which the app lays a cine gauge out with (`EngineGauges`)
+    dylib = a.engine / "build" / "libspektralab_engine.dylib"
+    with spk.Engine(dylib=dylib) as e0:
+        (a.out / "formats.json").write_text(json.dumps(e0.overscan_formats()) if hasattr(e0, "overscan_formats")
+                                            else '{"formats":[]}')
+    r = subprocess.run([str(TOOL), str(a.out / "cases.json"), str(a.out / "port"), str(HERE / "Resources" / "StockCatalog.json"),
+                        str(a.out / "formats.json")],
                        capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit("the app's layout failed:\n" + r.stderr)
@@ -597,7 +648,14 @@ def main() -> int:
     failures = 0
     missed = 0
     rows: list[str] = []
-    dylib = a.engine / "build" / "libspektralab_engine.dylib"
+    # API-SPEC §24: the model self-tests lay the cine gauges out with the engine's table as kept in
+    # tools/overscan_formats.json -- held here to the live engine's, so a changed `kCine` row cannot go unseen there
+    live = json.loads((a.out / "formats.json").read_text())
+    kept = json.loads((HERE / "tools" / "overscan_formats.json").read_text())
+    same_table = live == kept
+    failures += 0 if same_table else 1
+    rows.append(f"{'PASS' if same_table else 'FAIL'}  {'(the engine format table)':34s} {'kept copy':14s} "
+                + ("tools/overscan_formats.json is the engine's" if same_table else "tools/overscan_formats.json differs: rewrite it"))
     with tempfile.TemporaryDirectory() as tmp, spk.Engine(dylib=dylib, resources=resources(a.engine, tmp)) as e:
         for c in todo:
             cid = c["id"]

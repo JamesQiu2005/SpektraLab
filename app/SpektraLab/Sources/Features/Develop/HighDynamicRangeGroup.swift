@@ -61,7 +61,7 @@ struct HighDynamicRangeGroup: View {
             if !prefs.hdrCollapsed {
                 toggleRow(L("Extended Dynamic Range (EDR)"), note: edrReason ?? L("The print keeps its range past paper white"),
                           isOn: Binding(get: { params.extendedDynamicRange },
-                                        set: { on in session.change { $0.params.extendedDynamicRange = on } }),
+                                        set: { on in session.switchEDR(on) }),
                           id: "v5.develop.edr")
                     .rowEnabled(edrReason == nil)
                 toggleRow(L("Enable HDR"), note: hdrReason,

@@ -10,7 +10,7 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 src="$here/Sources"
 out="$here/build/masks-check"
 mkdir -p "$out"
-files=(Model/Format.swift Model/Localization.swift Model/FeatureFlags.swift Model/FilmParams.swift Model/FrameEdit.swift Model/LocalLayers.swift
+files=(Model/Format.swift Model/Localization.swift Model/FeatureFlags.swift Model/FilmParams.swift Model/FrameEdit.swift Model/LocalLayers.swift Model/Watermark.swift
        Model/Adjustments.swift Model/CurveMath.swift Model/Geometry.swift Model/FilmEdge.swift Model/LensEdge.swift
        Engine/RawExposure.swift Engine/RawProxy.swift Engine/RawProxyName.swift Engine/MaskBaker.swift Engine/MaskStore.swift Engine/SubjectFinder.swift
        Engine/LensProfile.swift Engine/LensProfileReader.swift Engine/LensCorrection.swift Engine/LensResolver.swift Engine/RawBlack.swift Engine/LCPReader.swift Services/LensDatabase.swift)

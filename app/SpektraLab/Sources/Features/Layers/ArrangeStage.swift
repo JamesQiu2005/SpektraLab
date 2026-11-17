@@ -24,7 +24,7 @@ import SwiftUI
 
     var placement: HalfFramePair.Placement? {
         switch pick {
-        case .film, .mask: nil
+        case .film, .mask, .watermark: nil
         case .frame(let side): session.pair?[side]?.placement
         case .exposure(let position): session.double?[position]?.placement.base
         }
@@ -38,7 +38,7 @@ import SwiftUI
     /// The picture as its own cut frames it, unturned, and the shape of what it lies under.
     private var ground: (source: CGSize, aspect: Double)? {
         switch pick {
-        case .film, .mask: return nil
+        case .film, .mask, .watermark: return nil
         case .frame(let side):
             guard let pair = session.pair, let hole = pair[side], let id = hole.frame, let photo = model.library.frame(id) else { return nil }
             let source = hole.geometry.outputSize(for: CGSize(width: photo.originalSize.width, height: photo.originalSize.height))
@@ -53,7 +53,7 @@ import SwiftUI
 
     func write(_ p: HalfFramePair.Placement) {
         switch pick {
-        case .film, .mask: break
+        case .film, .mask, .watermark: break
         case .frame(let side): model.changePair(frameID) { piece, _ in piece[side]?.placement = p.held }
         case .exposure(let position): model.changeDouble(frameID) { double, _ in double[position]?.placement.base = p.held }
         }

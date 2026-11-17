@@ -65,8 +65,11 @@ final class MacImportSession {
     }
 
     let store: any MacLibraryData
-    /// The page's selection, marquee and keys: its own, so the library's selection is left as it was.
-    let browser = MacLibraryBrowser()
+    /// The page's selection, marquee and keys: its own, so the library's selection is left as it was. Its width
+    /// beside the viewer is the import page's own, kept across launches (2.4.1 E3: culling wants a wider browser
+    /// than the library's); until the divider is first dragged here it is the library's.
+    let browser = MacLibraryBrowser(widthKey: MacImportSession.browserWidthKey)
+    static let browserWidthKey = "mac.import.browserWidth"
 
     // Import From
     private(set) var picked: [URL] = []
@@ -183,7 +186,10 @@ final class MacImportSession {
     func pick(_ urls: [URL]) {
         for url in scoped { url.stopAccessingSecurityScopedResource() }
         scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
+        let first = picked.isEmpty
         picked = urls
+        // The destination's files, not read while nothing was picked (`destinationChanged`).
+        if first, existing == nil, !loadingExisting { readExisting() }
         rescan()
     }
 
@@ -261,6 +267,8 @@ final class MacImportSession {
             tally = t
             scanning = false
             readingHeaders = false
+            // A rescan (Include Subfolders, picks added) keeps the checks of the pictures it found again.
+            if !checked.isEmpty { checked.formIntersection(Set(files.map { Self.rowID($0.url) })) }
             scannedIn = seconds(since: scanStarted)
         }
     }
@@ -304,11 +312,14 @@ final class MacImportSession {
         browser.selection.formIntersection(Set(rows.map(\.id)))
     }
 
+    /// A found file's row id in the grid (the selection's, the checks').
+    static func rowID(_ url: URL) -> MacImage.ID { .init(source: gridSource, image: url.path) }
+
     private func row(_ f: MacFoundFile) -> MacImage {
         let d = f.header
         let exposure = Self.exposureText(d)
         return MacImage(
-            id: .init(source: Self.gridSource, image: f.url.path), url: f.url, fileName: f.name, kind: f.kind,
+            id: Self.rowID(f.url), url: f.url, fileName: f.name, kind: f.kind,
             capturedLocal: d?.capturedLocal, captureDate: CatalogSourcesStore.wallClock(d?.capturedLocal), rating: 0, colorLabel: nil,
             cameraMake: d?.cameraMake, cameraModel: d?.cameraModel, lens: d?.lens, exposure: exposure,
             pixelSize: d?.width.flatMap { w in d?.height.map { PixelSize(width: w, height: $0) } },
@@ -326,31 +337,74 @@ final class MacImportSession {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// What the primary button imports: the chosen rows, or with none chosen every visible row; never an
-    /// excluded duplicate.
+    // MARK: - checked (2.4.1 E1: a user's issue, Lightroom's import check box)
+
+    /// The pictures checked for import, apart from the selection (a user, adopted by the owner, 2026-11-16: "Like
+    /// Lightroom: while previewing with the right arrow, a shortcut (Space) ticks the shown picture; Import imports
+    /// all the ticked ones"). A filter keeps a hidden picture's check, and a rescan the checks of the pictures it
+    /// finds again (`take(.done)` lets the others go).
+    private(set) var checked: Set<MacImage.ID> = []
+
+    /// The visible rows that are checked.
+    var checkedRows: [MacImage] { checked.isEmpty ? [] : rows.filter { checked.contains($0.id) } }
+
+    func isChecked(_ id: MacImage.ID) -> Bool { checked.contains(id) }
+
+    /// The check box of one cell, clicked.
+    func toggleCheck(_ id: MacImage.ID) {
+        if checked.contains(id) { checked.remove(id) } else { checked.insert(id) }
+    }
+
+    /// Space: the pictures chosen when several are, else the one shown (`MacLibraryBrowser.primary`). If any of
+    /// them is unchecked they are all checked, else all unchecked — one press never leaves them mixed.
+    func toggleCheckShown() {
+        let chosen = browser.selection.count > 1 ? rows.filter { browser.selection.contains($0.id) }.map(\.id)
+                                                 : browser.primary(rows).map { [$0.id] } ?? []
+        guard !chosen.isEmpty else { return }
+        if chosen.allSatisfy(checked.contains) { checked.subtract(chosen) } else { checked.formUnion(chosen) }
+    }
+
+    func uncheckAll() { checked = [] }
+
+    /// What the primary button imports. **Checks win**: with any visible picture checked, the checked ones,
+    /// whatever is selected; else the selection; else every visible row. Never an excluded duplicate.
     var toImport: [MacImage] {
+        let ticked = checkedRows
         let chosen = browser.selection
-        let base = chosen.isEmpty ? rows : rows.filter { chosen.contains($0.id) }
+        let base = !ticked.isEmpty ? ticked : chosen.isEmpty ? rows : rows.filter { chosen.contains($0.id) }
         return base.filter { !isExcluded($0.id) }
     }
 
-    /// "Import All (629)" with nothing chosen, "Import 12 Selected" with a selection.
+    /// "Import 12 Checked" with pictures checked, else "Import All (629)" with nothing chosen, "Import 12
+    /// Selected" with a selection.
     var importTitle: String {
         let n = toImport.count
+        if !checkedRows.isEmpty { return L("Import \(n.formatted()) Checked") }
         return browser.selection.isEmpty ? L("Import All (\(n.formatted()))") : L("Import \(n.formatted()) Selected")
     }
 
     // MARK: - Import To
 
-    /// The catalogs and sessions an import may go to: SpektraLab's and a Capture One catalog (into its
-    /// mirror, 2026-10-24), never the app library.
+    /// The catalogs and sessions an import may go to: SpektraLab's own, never a Capture One catalog or session
+    /// (2026-11-16, `MacSource.acceptsImports`; 2.4.0 offered a Capture One catalog, into its mirror), never the app library.
     var destinations: [MacSource] { store.sources.filter(\.acceptsImports) }
 
-    /// The selected source if it takes imports; else the most recently opened one; else a new catalog.
+    /// The selected source if it takes imports; else the most recently opened one; else a new catalog. With a
+    /// Capture One catalog or session shown, that is the last SpektraLab catalog or session opened (`captureOneNote`).
     static func defaultDestination(_ store: any MacLibraryData) -> Destination {
         if let s = store.selectedSource, s.acceptsImports { return .source(s.id) }
         let recent = store.sources.filter(\.acceptsImports).max { ($0.openedAt ?? $0.addedAt) < ($1.openedAt ?? $1.addedAt) }
         return recent.map { .source($0.id) } ?? .newCatalog
+    }
+
+    /// The page's one line while a Capture One catalog or session is shown (2026-11-16): it is never a destination,
+    /// so the import goes where `defaultDestination` put it; a catalog's own pictures come in by its copy.
+    var captureOneNote: String? {
+        switch store.selectedSource?.kind {
+        case .captureOneCatalog?: L("Capture One's catalog is read-only: these import into SpektraLab. Copy to SpektraLab Catalog… brings its own pictures in.")
+        case .captureOneSession?: L("Capture One's session is read-only: these import into SpektraLab.")
+        default: nil
+        }
     }
 
     var destinationSource: MacSource? {
@@ -374,7 +428,14 @@ final class MacImportSession {
         existing = nil
         // A chosen Copy to Folder is kept; otherwise the new destination's own default.
         if placement != .copyToFolder { placement = defaultPlacement }
+        readExisting()
+    }
+
+    /// The destination's files, for the duplicates: read once there is something to hold against them
+    /// (`pick`), so a page opened and cancelled reads no catalog (2026-11-16).
+    private func readExisting() {
         guard case .source(let id)? = destination else { loadingExisting = false; refreshRows(); return }
+        guard !picked.isEmpty else { loadingExisting = false; return }
         loadingExisting = true
         existingTask = Task { [weak self] in
             guard let self else { return }

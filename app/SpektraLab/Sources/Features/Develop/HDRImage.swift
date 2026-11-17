@@ -10,7 +10,8 @@
 //  - **What the export's file shows**: the same gain a pixel, the same weight Photos gives a map on a screen
 //    with this headroom. Toggling Enable HDR is seen on the canvas at once.
 //  - **Never a flash of SDR**: while the next rendition is made (a zoom step's decode, a slider's new layer)
-//    the last one stays; at most one is being made at a time for a view, and the latest picture wins.
+//    the last one stays; at most one is being made at a time for a view, and the latest picture wins: the last
+//    picture asked is the one left on screen (`HDRLatch`, issue #123). Where a pass fails, the SDR picture.
 //  - **The screen** (`HDRScreen`): its headroom, read again on brightness, Low Power, heat and every second while
 //    a rendition is on screen. Low Power Mode, serious heat and the system's HDR limit show SDR.
 //
@@ -209,82 +210,47 @@ final class HDRScreen {
 }
 
 /// A page picture's gain, made ready once a picture and a look, and its display passes (PRD-B): what `HDRImage` and
-/// `HDRPlacedImage` share.
-@MainActor @Observable
-final class HDRShowing {
-    private(set) var image: CGImage?
-    private(set) var look: HDRLook?
-    /// Where the shown rendition sits (a full-size part's rect); nil for a whole picture.
-    private(set) var place: CGRect?
-    @ObservationIgnored private var prepared: HDRRendition.Prepared?
-    @ObservationIgnored private var preparedFor: (ObjectIdentifier, HDRLook)?
-    @ObservationIgnored private var preparedPlace: CGRect?
-    @ObservationIgnored private var showing = false
-    @ObservationIgnored private var wanted: Double?
-    /// One prepare at a time; while one is out only the newest picture waits, and the one out is never thrown
-    /// away (2026-11-10). Before, each new picture — every part a zoom or a pan asked, every peak step — cancelled
-    /// the view's task, so the finished gain was dropped and a new one queued on `HDRRendition.gate`: during a
-    /// gesture nothing new ever reached the screen (a zoomed part "never shown before its HDR is made" stayed the
-    /// old one), and the queue grew. Now each one that finishes is shown, at its own place, and the next is the
-    /// newest asked: the canvas follows a gesture at the rate the GPU makes renditions (~25–100 ms).
-    @ObservationIgnored private var preparing = false
-    @ObservationIgnored private var next: (sdr: CGImage, look: HDRLook, place: CGRect?)?
-    @ObservationIgnored private var epoch = 0
+/// `HDRPlacedImage` share. The rules of which rendition is shown, and when the next is made, are `HDRLatch`'s
+/// (HDRLatch.swift, issue #123): the passes here are the app's.
+typealias HDRShowing = HDRLatch<CGImage, HDRLook, HDRRendition.Prepared, CGImage>
 
-    /// Ask for the rendition of `sdr` under `look` (at `place`), shown when made. Returns at once when another is
-    /// being made: that one's loop takes this one next.
-    func request(_ sdr: CGImage, look: HDRLook, place: CGRect? = nil) async {
-        if let p = preparedFor, p.0 == ObjectIdentifier(sdr), p.1 == look, p.1.tables == look.tables, prepared != nil {
-            if place != preparedPlace { preparedPlace = place }
-            await show(weight: look.weight(headroom: HDRScreen.shared.shown))
-            return
-        }
-        next = (sdr, look, place)
-        guard !preparing else { return }
-        preparing = true; defer { preparing = false }
-        while let job = next {
-            next = nil
-            let mine = epoch, started = Date()
-            let made: HDRRendition.Prepared
-            do {
-                made = try await Task.detached(priority: .userInitiated) { try HDRRendition.prepare(job.sdr, look: job.look) }.value
-            } catch {
-                Log.warn(.develop, "hdr picture failed", ["curve": job.look.curve.name, "error": Log.words(error)])
-                continue
-            }
-            guard mine == epoch else { continue }
-            prepared = made; preparedFor = (ObjectIdentifier(job.sdr), job.look); preparedPlace = job.place; self.look = job.look
-            HDRImage.say("hdr picture prepared", ["curve": job.look.curve.name, "px": [job.sdr.width, job.sdr.height],
-                                                   "ms": Int(Date().timeIntervalSince(started) * 1000), "parts": HDRRendition.lastTimes,
-                                                   "page_makes": HDRRendition.pageMakes, "waiting": next != nil])
-            await show(weight: job.look.weight(headroom: HDRScreen.shared.shown))
-        }
+extension HDRLatch where Source == CGImage, Look == HDRLook, Made == HDRRendition.Prepared, Shown == CGImage {
+    convenience init() {
+        self.init(passes: .init(
+            prepare: { sdr, look in
+                try await Task.detached(priority: .userInitiated) { try HDRRendition.prepare(sdr, look: look) }.value
+            },
+            display: { prepared, weight in
+                try await Task.detached(priority: .userInitiated) { try HDRRendition.show(prepared, weight: weight) }.value
+            },
+            sameLook: { $0 == $1 && $0.tables == $1.tables },
+            weight: { $0.weight(headroom: HDRScreen.shared.shown) },
+            note: { event in
+                switch event {
+                case let .prepared(sdr, look, ms, waiting):
+                    HDRImage.say("hdr picture prepared", ["curve": look.curve.name, "px": [sdr.width, sdr.height], "ms": ms,
+                                                           "parts": HDRRendition.lastTimes, "page_makes": HDRRendition.pageMakes,
+                                                           "waiting": waiting])
+                case let .prepareFailed(look, error):
+                    Log.warn(.develop, "hdr picture failed", ["curve": look.curve.name, "error": Log.words(error)])
+                case let .displayed(p, w, ms):
+                    HDRImage.say("hdr display pass", ["weight": (w * 1000).rounded() / 1000, "px": [p.width, p.height], "ms": ms,
+                                                      "headroom": HDRScreen.shared.shown, "content_headroom": pow(p.headroom, w)])
+                case let .displayFailed(p, w, error):
+                    Log.warn(.develop, "hdr display pass failed", ["weight": (w * 1000).rounded() / 1000, "px": [p.width, p.height],
+                                                                   "error": Log.words(error)])
+                }
+            }))
     }
+}
 
-    /// The display pass at `weight`; the latest asked wins, one at a time.
-    func show(weight: Double) async {
-        wanted = weight
-        guard !showing else { return }
-        showing = true; defer { showing = false }
-        while let w = wanted, let p = prepared {
-            wanted = nil
-            let at = preparedPlace
-            let started = Date()
-            let made = await Task.detached(priority: .userInitiated) { try? HDRRendition.show(p, weight: w) }.value
-            guard let made, prepared === p else { continue }
-            image = made
-            place = at
-            HDRImage.say("hdr display pass", ["weight": (w * 1000).rounded() / 1000, "px": [p.width, p.height],
-                                              "ms": Int(Date().timeIntervalSince(started) * 1000), "headroom": HDRScreen.shared.shown,
-                                              "content_headroom": pow(p.headroom, w)])
-        }
-    }
-
-    /// Let go of everything: the picture is SDR again.
-    func clear() {
-        epoch &+= 1
-        image = nil; look = nil; place = nil; prepared = nil; preparedFor = nil; preparedPlace = nil; wanted = nil; next = nil
-    }
+/// What a page picture's HDR task runs again for: a new picture, compared as the picture itself (`===`) and held by the
+/// key, never by its address, which a later picture of the same size is often given (issue #123); or a new look.
+struct HDRTaskKey: Equatable {
+    let image: CGImage
+    var look: HDRLook?
+    var tables: HDRGrainGain.Tables?
+    static func == (a: HDRTaskKey, b: HDRTaskKey) -> Bool { a.image === b.image && a.look == b.look && a.tables == b.tables }
 }
 
 /// A picture, in HDR where the page gives it a look and the screen has headroom (see the header).
@@ -305,19 +271,24 @@ struct HDRImage: View {
         screen.watch(on)
     }
 
-    private struct Key: Equatable { var image: ObjectIdentifier; var look: HDRLook?; var tables: HDRGrainGain.Tables? }
-
     var body: some View {
         let weight = look?.weight(headroom: screen.shown) ?? 0
+        let rendition = look.flatMap { look in
+            weight > 0.001 && HDRLook.keeps(showing.look, for: look) ? showing.image : nil
+        }
+        #if DEBUG
+        let _ = HDRImageProbe.drew(showing, given: image, renditionOf: rendition == nil ? nil : showing.shownSource,
+                                   hdr: rendition != nil, look: look != nil, weight: weight)
+        #endif
         Group {
-            if let look, weight > 0.001, let shown = showing.image, HDRLook.keeps(showing.look, for: look) {
-                fitted(Image(decorative: shown, scale: 1).resizable()).allowedDynamicRange(.high)
+            if let rendition {
+                fitted(Image(decorative: rendition, scale: 1).resizable()).allowedDynamicRange(.high)
             } else {
                 fitted(Image(decorative: image, scale: 1).resizable())
             }
         }
         // The heavy part, once a picture and a look: never for a screen or a headroom.
-        .task(id: Key(image: ObjectIdentifier(image), look: look, tables: look?.tables)) {
+        .task(id: HDRTaskKey(image: image, look: look, tables: look?.tables)) {
             guard let look else { showing.clear(); return }
             guard FeatureFlags.screenShowsHDR else { showing.clear(); return }
             #if DEBUG
@@ -334,9 +305,34 @@ struct HDRImage: View {
         }
         .onChange(of: look != nil, initial: true) { _, on in watch(on) }
         .onAppear { watch(look != nil) }
-        .onDisappear { watch(false) }
+        .onDisappear {
+            watch(false)
+            #if DEBUG
+            HDRImageProbe.gone(showing)
+            #endif
+        }
     }
 }
+
+#if DEBUG
+/// What each page picture drawn through `HDRImage` draws, as its body last said (`--edit-refresh-check`): the picture
+/// it was given, and the picture its rendition was made of where it draws one. Nothing outside a check reads it.
+@MainActor
+enum HDRImageProbe {
+    struct Drawn {
+        let given: CGImage
+        /// The source of the rendition drawn; nil where the SDR picture (`given`) is drawn.
+        let renditionOf: CGImage?
+        let hdr: Bool, look: Bool, weight: Double
+        let at: Date
+    }
+    static var drawn: [ObjectIdentifier: Drawn] = [:]
+    static func drew(_ showing: HDRShowing, given: CGImage, renditionOf: CGImage?, hdr: Bool, look: Bool, weight: Double) {
+        drawn[ObjectIdentifier(showing)] = Drawn(given: given, renditionOf: renditionOf, hdr: hdr, look: look, weight: weight, at: Date())
+    }
+    static func gone(_ showing: HDRShowing) { drawn[ObjectIdentifier(showing)] = nil }
+}
+#endif
 
 extension HDRImage {
     #if DEBUG
@@ -395,8 +391,6 @@ struct HDRPlacedImage: View {
     @State private var showing = HDRShowing()
     @State private var watching = false
 
-    private struct Key: Equatable { var image: ObjectIdentifier; var look: HDRLook?; var tables: HDRGrainGain.Tables? }
-
     private func watch(_ on: Bool) {
         guard on != watching else { return }
         watching = on
@@ -418,7 +412,7 @@ struct HDRPlacedImage: View {
                     .position(x: rect.midX * g.size.width, y: rect.midY * g.size.height)
             }
         }
-        .task(id: Key(image: ObjectIdentifier(image), look: look, tables: look?.tables)) {
+        .task(id: HDRTaskKey(image: image, look: look, tables: look?.tables)) {
             guard let look, FeatureFlags.screenShowsHDR else { showing.clear(); return }
             await showing.request(image, look: look, place: rect)
         }

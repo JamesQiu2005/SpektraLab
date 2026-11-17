@@ -269,6 +269,16 @@ const SchemaField kFields[] = {
     // SHOOT (a layer is exposure on the negative), not live, after
     // `overscan_falloff`. "" = none: the node is not dispatched.
     {"scene_layers",             "camera.scene_layers",                         S, SHOOT, false, 0, 0, false},
+    // API-SPEC §21.8 (2026-11-15): the leak's own seed. Native-only, SHOOT, not
+    // live, default 0 (the camera's and the frame's draws, byte for byte as
+    // before), after `scene_layers`. An engine that has it also makes
+    // `leak_kind = spot` on every format (and, 2026-11-15 to -16, knew `leak_kind = edge`, now `leak_edge`).
+    {"leak_seed",                "film_render.leak.seed",                       I, SHOOT, true, 0.0, 2147483647.0, false},
+    // API-SPEC §21.9 (2026-11-16): the edge burn's own strength, beside the
+    // leak's kind rather than one of them. Native-only, SHOOT, not live,
+    // default 0 (none: byte for byte as before), after `leak_seed`. It shares
+    // the leak's seed, rate, front share and jitter; `leak_amount` is the kind's.
+    {"leak_edge",                "film_render.leak.edge",                       F, SHOOT, true, 0.0, 4.0, false},
     // The app's *preview resolution*: the `live` tier's long edge, and so the
     // size every interactive edit renders at. PRINT layer, because it is a
     // decision about the canvas rather than about the film -- but it is one of
@@ -362,6 +372,7 @@ double* float_slot(Params& p, const std::string& path) {
     if (path == "film_render.leak.amount") return &p.film_render.leak.amount;
     if (path == "film_render.leak.rate") return &p.film_render.leak.rate;
     if (path == "film_render.leak.front") return &p.film_render.leak.front;
+    if (path == "film_render.leak.edge") return &p.film_render.leak.edge;
     if (path == "film_render.overscan.falloff") return &p.film_render.overscan.falloff;
     return nullptr;
 }
@@ -441,6 +452,7 @@ int* int_slot(Params& p, const std::string& path) {
     if (path == "film_render.overscan.frame_seed") return &p.film_render.overscan.frame_seed;
     if (path == "film_render.overscan.frame_number") return &p.film_render.overscan.frame_number;
     if (path == "settings.film_seed") return &p.settings.film_seed;
+    if (path == "film_render.leak.seed") return &p.film_render.leak.seed;
     return nullptr;
 }
 

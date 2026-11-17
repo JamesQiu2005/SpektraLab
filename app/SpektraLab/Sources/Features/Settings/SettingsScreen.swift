@@ -11,6 +11,8 @@ enum SettingsPage: Hashable {
     case appearance
     /// One recipe's page; nil makes a new one.
     case recipeEdit(ExportRecipe.ID?)
+    /// 水印's library (the Mac's Settings › Watermarks; the 图层 panel's 管理水印… asks for it).
+    case watermarks
 }
 
 /// Settings opened on one of its pages: the Library's `···` asks for Sources.

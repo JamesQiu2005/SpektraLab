@@ -75,7 +75,29 @@ final class AppSettings {
     /// switching Enable HDR on a photograph, which sets it too (2.4.0, `OpenFrameSession.switchHDR`: the last state the
     /// person chose). A frame that chose keeps its choice; a slide that follows it is developed again when it moves
     /// (its stretch, `HDRGain`).
-    var hdrByDefault = false { didSet { FrameEdit.hdrByDefault = hdrByDefault; save() } }
+    ///
+    /// **Exclusive with Enable EDR by Default** (the owner, 2026-11-16: HDR and EDR cannot both be on, so whichever was
+    /// switched on last is what is remembered): turning one on turns the other off, here and by the page's switches;
+    /// turning one off leaves the other as it was.
+    var hdrByDefault = false {
+        didSet {
+            FrameEdit.hdrByDefault = hdrByDefault
+            if hdrByDefault, edrByDefault { edrByDefault = false }
+            save()
+        }
+    }
+    /// **Enable EDR by Default** (Settings › Develop; the owner, 2026-11-16): every frame whose own Extended Dynamic Range
+    /// (the print's, `FilmParams.extendedDynamicRange`) was never set follows it (`FilmParams.edrByDefault`). Off until
+    /// turned on — here, or by switching EDR on a photograph (`OpenFrameSession.switchEDR`). Exclusive with
+    /// `hdrByDefault`, as that says. A frame that follows it is developed with it: moving it is another picture of every
+    /// such frame.
+    var edrByDefault = false {
+        didSet {
+            FilmParams.edrByDefault = edrByDefault
+            if edrByDefault, hdrByDefault { hdrByDefault = false }
+            save()
+        }
+    }
     /// Which of the gallery's three views the Library shows (`GalleryView`): 全部 unless another was
     /// chosen (the owner, 2026-10-21: the reference device opens on 全部, the pill switches, and is remembered).
     var galleryView = GalleryView.all { didSet { save() } }
@@ -135,6 +157,9 @@ final class AppSettings {
         // An initialiser's own assignment runs no `didSet`: what was kept is handed to the frames here, or a
         // relaunch would follow "off" until the box was touched again.
         FrameEdit.hdrByDefault = hdrByDefault
+        // Never both: a store that says so (written by hand) keeps HDR's, the older of the two.
+        edrByDefault = d.bool(forKey: "settings.edrByDefault") && !hdrByDefault
+        FilmParams.edrByDefault = edrByDefault
         galleryView = d.string(forKey: "settings.galleryView").flatMap(GalleryView.init(rawValue:)) ?? galleryView
         agentAccess = d.bool(forKey: "agent.access")
         spaceOriginal = d.string(forKey: "settings.spaceOriginal").flatMap(SpaceOriginal.init(rawValue:)) ?? spaceOriginal
@@ -173,6 +198,7 @@ final class AppSettings {
         d.set(canvasGamut.rawValue, forKey: "settings.canvasGamut")
         d.set(checksForUpdates, forKey: "settings.checksForUpdates")
         d.set(hdrByDefault, forKey: "settings.hdrByDefault")
+        d.set(edrByDefault, forKey: "settings.edrByDefault")
         d.set(galleryView.rawValue, forKey: "settings.galleryView")
         d.set(agentAccess, forKey: "agent.access")
         d.set(spaceOriginal.rawValue, forKey: "settings.spaceOriginal")

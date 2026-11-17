@@ -15,7 +15,14 @@
 //    develop's price never under-counts; the keyholes on 120 with no 120 edge print, and nothing else of the layout moved;
 //  - **what is kept**: a 2.3.2 edit opens with nothing new on and is written back without a new key (its 3.5 EV date
 //    read as 5.5), a new edit round-trips, Copy Settings and each section's reset carry and clear their own;
-//  - **孔间数据**: its line from EXIF, and the face's rules (a film edge on 135 or Half, alone, on the `data` style).
+//  - **孔间数据**: its line from EXIF, and the face's rules (a film edge on 135 or Half, alone, on the `data` style);
+//  - **漏光's own seed, 光斑 anywhere, 边缘漏光** (API-SPEC §21.8–§21.9, 2026-11-15): the
+//    seed kept only when not the camera's, sent only while non-zero and only to an engine with `leak_seed`, back to 0
+//    when it leaves, copied with the leak; a 2.4.0 leak re-encodes byte for byte; spot made on every format only by
+//    that engine;
+//  - **边缘漏光 beside the kind** (API-SPEC §21.9, 2026-11-16): its own strength, sent as `leak_edge` with any kind or
+//    alone (no `leak_kind` then), only while on and only to an engine with `leak_edge`, back to 0 when it leaves;
+//    written only when on; 2026-11-15's `kind: "edge"` read as off + the edge burn at its strength; copied, reset.
 
 import CoreGraphics
 import Foundation
@@ -41,6 +48,7 @@ struct Rules {
     var take: (inout FilmEdgeSettings, FilmEdgeFormat, String) -> Void = { $0.take(format: $1, stockID: $2) }
     var line: (PerforationLine) -> String = { $0.text }
     var decode: (Data) -> FrameEdit? = { try? JSONDecoder().decode(FrameEdit.self, from: $0) }
+    var encode: (FrameEdit) -> Data? = { try? JSONEncoder().encode($0) }
 
     static var broken: [Rules] {
         var a = Rules(name: "the filter shows every format whatever is chosen")
@@ -67,7 +75,51 @@ struct Rules {
         i.engineWire = { e in var w = wire(e); if e.filmEdge.effective, e.filmEdge.format == .sprocket135 { w["overscan_falloff"] = .double(1) }; return w }
         var j = Rules(name: "the falloff is left out, so the engine's default stands")
         j.engineWire = { e in var w = wire(e); w["overscan_falloff"] = nil; return w }
-        return [a, b, c, d, e, f, g, h, i, j]
+        var k = Rules(name: "leak_seed 0 is sent with every leak")
+        k.engineWire = { e in var w = wire(e); if w["leak_kind"] != nil, w["leak_seed"] == nil { w["leak_seed"] = .double(0) }; return w }
+        var l = Rules(name: "a leak's seed is sent to an engine without leak_seed")
+        l.engineWire = { e in var w = wire(e); if w["leak_kind"] != nil, e.leak.seed != 0 { w["leak_seed"] = .double(Double(e.leak.seed)) }; return w }
+        var m = Rules(name: "a spot off 120 is sent to an engine without leak_seed")
+        m.engineWire = { e in
+            var w = wire(e)
+            if e.leak.kind == .spot, w["leak_kind"] == nil, EngineFeatures.knows(.leaks) { w["leak_kind"] = .string("spot") }
+            return w
+        }
+        var n = Rules(name: "seed 0 is written into the edit")
+        n.encode = { e in
+            guard let d = try? JSONEncoder().encode(e) else { return nil }
+            let text = String(decoding: d, as: UTF8.self)
+            guard e.leak.seed == 0 else { return d }
+            return text.replacingOccurrences(of: "(\"leak\":\\{[^}]*)\\}", with: "$1,\"seed\":0}", options: .regularExpression).data(using: .utf8)
+        }
+        var o = Rules(name: "the edge burn is sent to an engine without leak_edge")
+        o.engineWire = { e in
+            var w = wire(e)
+            if e.leak.edgeOn, w["leak_edge"] == nil, EngineFeatures.knows(.leaks) { w["leak_edge"] = .double(e.leak.edge) }
+            return w
+        }
+        var p = Rules(name: "leak_edge 0 is sent with every leak")
+        p.engineWire = { e in var w = wire(e); if w["leak_rate"] != nil, w["leak_edge"] == nil { w["leak_edge"] = .double(0) }; return w }
+        var q = Rules(name: "the edge burn takes the kind's place on the wire")
+        q.engineWire = { e in var w = wire(e); if w["leak_edge"] != nil { w["leak_kind"] = nil; w["leak_amount"] = nil }; return w }
+        var r = Rules(name: "the edge burn alone sends leak_kind = edge, as 2026-11-15's builds did")
+        r.engineWire = { e in var w = wire(e); if w["leak_edge"] != nil, w["leak_kind"] == nil { w["leak_kind"] = .string("edge") }; return w }
+        var s = Rules(name: "the edge burn's strength is the kind's")
+        s.engineWire = { e in var w = wire(e); if w["leak_edge"] != nil, let a = w["leak_amount"] { w["leak_edge"] = a }; return w }
+        var t = Rules(name: "2026-11-15's kind edge is read as no leak")
+        t.decode = { data in
+            guard var e = try? JSONDecoder().decode(FrameEdit.self, from: data) else { return nil }
+            if String(decoding: data, as: UTF8.self).contains("\"kind\":\"edge\"") { e.leak.edge = 0 }
+            return e
+        }
+        var u = Rules(name: "edge 0 is written into the edit")
+        u.encode = { e in
+            guard let d = try? JSONEncoder().encode(e) else { return nil }
+            let text = String(decoding: d, as: UTF8.self)
+            guard e.leak.edge == 0, !e.leak.isAtRest else { return d }
+            return text.replacingOccurrences(of: "(\"leak\":\\{[^}]*)\\}", with: "$1,\"edge\":0}", options: .regularExpression).data(using: .utf8)
+        }
+        return [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u]
     }
 }
 
@@ -91,6 +143,10 @@ let newFields: Set<String> = [
 ]
 let mainEngine: Set<String> = []   // what `main`'s engine knows of §21: nothing
 let laneAEngine: Set<String> = newFields
+/// 2026-11-15's engine: §21 and `leak_seed` (§21.8).
+let seedEngine: Set<String> = newFields.union(["leak_seed"])
+/// 2.4.1's engine: and `leak_edge` (§21.9, 2026-11-16).
+let edgeEngine: Set<String> = seedEngine.union(["leak_edge"])
 
 func everythingOn() -> FrameEdit {
     var e = FrameEdit.default
@@ -143,7 +199,8 @@ func wireChecks(_ c: inout Checker, _ r: Rules) {
     for f in FilmEdgeFormat.allCases {
         for kept in FilmEdgeView.allCases {
             var e = plain; e.filmEdge.format = f; e.filmEdge.mode = kept
-            let want = f == .sprocket135 ? "strip" : kept.rawValue
+            // (and every cine gauge, API-SPEC §24: strip only)
+            let want = f == .sprocket135 || f.isCine ? "strip" : kept.rawValue
             c.expect(r.engineWire(e)["overscan_mode"] == .string(want), "\(f.rawValue) with \(kept.rawValue) kept sends \(want)")
         }
     }
@@ -227,6 +284,8 @@ func cardChecks(_ c: inout Checker, _ r: Rules, catalog: StockCatalog) {
     c.expect(r.filterFormats(.film135) == [.f135, .half], "135 is 135 and Half")
     c.expect(r.filterFormats(.film120) == [.f645, .f6x6, .f6x7, .f6x8, .f6x9], "120 is the five 120 backs")
     c.expect(r.filterFormats(.panoramic) == [.xpan, .sprocket135, .f6x12, .f6x17], "Wide is XPan, 135 Full Width, 6×12, 6×17")
+    c.expect(r.filterFormats(.cine) == [.super8, .cine16, .cine35, .cine65, .cine65x15],
+             "Cine is Super 8, 16mm, 35mm, 70mm and 70mm 15-perf (API-SPEC §24)")
     c.expect(Set(FilmEdgeFormat.Filter.allCases.flatMap { r.filterFormats($0) }) == Set(FilmEdgeFormat.allCases),
              "every format is under some filter")
     let s = FilmEdgeFormat.sprocket135
@@ -264,14 +323,34 @@ func cardChecks(_ c: inout Checker, _ r: Rules, catalog: StockCatalog) {
     var p = FilmParams.default
     p.take(size: FilmFrame.max65, photo: PixelSize(width: 3000, height: 2000))
     c.expect(abs(p.filmFormatMM - 84) < 1e-9, "65mm on a 3:2 picture is a 56 × 84 frame, as 120's")
-    var shown: [String] = FilmEdgeFormat.allCases.map(\.label)
+    // (the cine gauges' names, details and the 片幅 chips too, API-SPEC §24: the owner forbade the 15-perf card's
+    // trademark, and this check was widened for it, 2026-11-15)
+    var shown: [String] = FilmEdgeFormat.allCases.map(\.label) + FilmEdgeFormat.allCases.map(\.cardTitle)
+        + FilmEdgeFormat.allCases.map(\.cardDetail) + FilmEdgeFormat.allCases.map(\.aspectText)
+        + FilmEdgeFormat.Filter.allCases.map(\.label)
     shown += SoftFilter.allCases.map(\.label)
     shown += LensCharacter.allCases.map(\.label)
     shown += LeakKind.allCases.map(\.label)
     shown += [FilmFrame.max65.title, FilmEdgePerforation.filmName, DateBackFace.perfs.label]
     let marks = ["IMAX", "MAX 65", "Pro-Mist", "Glimmerglass", "Sprocket", "MZ-S"]
-    let found = shown.filter { name in marks.contains { name.contains($0) } }
+    let found = shown.filter { name in marks.contains { name.localizedCaseInsensitiveContains($0) } }
     c.expect(found.isEmpty, "no maker's mark is shown: \(found)")
+    // The 15-perf film's trademark, in any language the app speaks: not in the string catalog, nor in any sentence of
+    // the app's sources that reaches the screen (`L(...)`). Read from the tree (the self-test runs in app/SpektraLab).
+    let banned = try! NSRegularExpression(pattern: "\\bI\\s?MAX\\b", options: [.caseInsensitive])
+    func hits(_ text: String) -> Int { banned.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) }
+    let catalog = (try? String(contentsOfFile: "Resources/Localizable.xcstrings", encoding: .utf8)) ?? ""
+    c.expect(!catalog.isEmpty && hits(catalog) == 0, "the string catalog never says the 15-perf film's trademark")
+    var spoken = 0
+    if let walk = FileManager.default.enumerator(atPath: "Sources") {
+        for case let path as String in walk where path.hasSuffix(".swift") {
+            let text = (try? String(contentsOfFile: "Sources/" + path, encoding: .utf8)) ?? ""
+            for line in text.split(separator: "\n") where line.contains("L(\"") && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                spoken += hits(String(line))
+            }
+        }
+    }
+    c.expect(spoken == 0, "no sentence the app shows says it (\(spoken) found)")
 }
 
 // MARK: - the layout
@@ -402,7 +481,7 @@ func keptChecks(_ c: inout Checker, _ r: Rules) {
     // A new edit round-trips with everything.
     var n = everythingOn()
     n.filmEdge.format = .f6x7; n.filmEdge.perforation = .ks65
-    let nb = r.decode(try! JSONEncoder().encode(n))
+    let nb = r.encode(n).flatMap(r.decode)
     c.expect(nb == n, "an edit with a leak, a lens and keyholes round-trips")
     // An unknown word falls back.
     let odd = edit232.replacingOccurrences(of: "\"frameSeed\":3,", with: "\"frameSeed\":3,\"leak\":{\"kind\":\"rainbow\",\"amount\":2},\"lens\":{\"filter\":\"fog\",\"strength\":1},")
@@ -471,12 +550,193 @@ func perforationChecks(_ c: inout Checker, _ r: Rules) {
     c.expect(DateBackFace.offered.contains(.perfs) && DateBackFace.dateFaces == [.lcd, .dots, .data], "a card on lane A's; never a pair's")
 }
 
+// MARK: - 漏光's own seed, 光斑 anywhere, 边缘漏光 (API-SPEC §21.8–§21.9)
+
+/// The leak as 2.4.0 wrote it: the synthesized encoding of {kind, amount}.
+struct Leak240: Codable { var kind: LeakKind; var amount: Double }
+
+/// The edit's `leak` object as written, parsed.
+func leakObject(_ r: Rules, _ e: FrameEdit) -> NSDictionary? {
+    guard let d = r.encode(e), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+    return o["leak"] as? NSDictionary
+}
+
+func leakSeedChecks(_ c: inout Checker, _ r: Rules) {
+    EngineFeatures.publish(seedEngine)
+    var e = FrameEdit.default
+    e.leak.kind = .band
+    let camera = r.engineWire(e)
+    c.expect(camera["leak_seed"] == nil, "the camera's own leak (seed 0) sends no leak_seed")
+    e.leak.seed = 7
+    let seeded = r.engineWire(e)
+    c.expect(seeded["leak_seed"] == .double(7), "a seeded leak sends leak_seed: \(String(describing: seeded["leak_seed"]))")
+    c.expect(seeded.filter { $0.key != "leak_seed" } == camera, "the seed moves nothing else on the wire")
+    c.expect(leakObject(r, e) == ["kind": "band", "amount": 1, "seed": 7] as NSDictionary, "a seeded leak is written {kind, amount, seed}")
+    c.expect(r.encode(e).flatMap(r.decode)?.leak.seed == 7, "a seeded leak round-trips")
+    // A 2.4.0 edit's leak, without a seed, re-encodes byte for byte: under sorted keys (an encoder's own key order is
+    // not the order encoded) the leak's JSON is 2.4.0's synthesized {kind, amount}, and the whole edit read back writes
+    // the same bytes again.
+    let sorted = JSONEncoder(); sorted.outputFormatting = [.sortedKeys]
+    for kind in [LeakKind.band, .wash, .spot, .auto] {
+        for amount in [0.0, 1.0, 2.5, 4.0] {
+            var z = FrameEdit.default; z.leak.kind = kind; z.leak.amount = amount
+            let old = String(decoding: try! sorted.encode(Leak240(kind: kind, amount: amount)), as: UTF8.self)
+            let now = r.encode(z).flatMap(r.decode).flatMap { try? sorted.encode($0) }.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            c.expect(now.contains("\"leak\":" + old), "a 2.4.0 leak (\(kind.rawValue), \(amount)) is written as 2.4.0 wrote it: \(old)")
+            let back = r.decode(Data(now.utf8)).flatMap { try? sorted.encode($0) }.map { String(decoding: $0, as: UTF8.self) }
+            c.expect(back == now, "and reads back and writes again byte for byte")
+        }
+    }
+    var odd = e; odd.leak.seed = -5
+    c.expect(odd.leak.seed == 0, "a seed is held to 0…2³¹−1 (−5 → \(odd.leak.seed))")
+    odd.leak.seed = Int(Int32.max) + 9
+    c.expect(odd.leak.seed == Int(Int32.max), "and from above")
+    var zero = e; zero.leak.seed = 0
+    c.expect(leakObject(r, zero) == ["kind": "band", "amount": 1] as NSDictionary, "seed 0 is not written: the leak is 2.4.0's {kind, amount}")
+    let zjson = r.encode(zero).map { String(decoding: $0, as: UTF8.self) } ?? ""
+    let oddJSON = zjson.replacingOccurrences(of: "\"kind\":\"band\"", with: "\"kind\":\"band\",\"seed\":\"x\"")
+    c.expect(oddJSON != zjson && r.decode(Data(oddJSON.utf8))?.leak == zero.leak, "an unreadable seed falls back to the camera's")
+    // Leaving the wire, the session's seed goes back to 0 — only on an engine that knows it.
+    c.expect(FilmParams.sometimesSent["leak_seed"] == .double(0), "leak_seed goes back to 0 when it leaves the wire")
+    var applied: [String: ParamValue] = [:]
+    _ = FilmParams.step(from: &applied, to: seeded)
+    let back = FilmParams.step(from: &applied, to: camera)
+    c.expect(back["leak_seed"] == .double(0), "a seeded frame then the camera's: the engine is told 0")
+    EngineFeatures.publish(laneAEngine)
+    c.expect(r.engineWire(e)["leak_seed"] == nil && r.engineWire(e)["leak_kind"] == .string("band"),
+             "on an engine without leak_seed the leak is sent and its seed is kept in the edit, unsent")
+    var never: [String: ParamValue] = [:]
+    _ = FilmParams.step(from: &never, to: r.engineWire(e))
+    c.expect(FilmParams.step(from: &never, to: r.engineWire(FrameEdit.default))["leak_seed"] == nil,
+             "and no rest of it is sent to an engine never told it")
+    // 光斑 off 120: made by an engine with leak_seed, refused by one without.
+    var spot = FrameEdit.default; spot.leak.kind = .spot
+    c.expect(r.engineWire(spot)["leak_kind"] == nil, "on an engine without leak_seed a spot on 135 is not sent")
+    c.expect(LeakKind.spot.reason(on: .f135) != nil && LeakKind.spot.reason(on: .f6x9) == nil
+             && [LeakKind.off, .auto, .band, .wash].allSatisfy { $0.reason(on: .f135) == nil },
+             "there 光斑 is greyed off 120, saying why; the rest are open")
+    EngineFeatures.publish(seedEngine)
+    c.expect(r.engineWire(spot)["leak_kind"] == .string("spot"), "on an engine with leak_seed a spot on 135 is sent")
+    c.expect(LeakKind.allCases.allSatisfy { k in FilmEdgeFormat.allCases.allSatisfy { k.isMade(on: $0) && k.reason(on: $0) == nil } },
+             "on an engine with leak_seed every kind is made on every format, with no reason")
+    c.expect(LeakKind.allCases.map(\.rawValue) == ["off", "auto", "band", "wash", "spot"],
+             "the kinds and their wire words, in order (the edge burn is no kind since 2026-11-16)")
+    // 随机's draw: non-zero, never the one there.
+    var seen = Set<Int>()
+    var s = 0, fresh = true
+    for _ in 0..<200 { let n = LeakSettings.drawSeed(other: s); fresh = fresh && n != s && n > 0 && n <= Int(Int32.max); s = n; seen.insert(n) }
+    c.expect(fresh && seen.count > 190, "随机 draws a new non-zero seed each time (\(seen.count) of 200 distinct)")
+    // Copied with the leak (Format's group): the pasted leak looks the same; the target keeps its body and frame.
+    var target = FrameEdit.default; target.frameSeed = 77; target.filmEdge.cameraSeed = 12; target.leak.seed = 3
+    let pasted = SettingsClip(groups: [.format], settings: e, sourceName: "x").applied(to: target, picture: PixelSize(width: 3000, height: 2000))
+    c.expect(pasted.leak.seed == 7 && pasted.leak == e.leak && pasted.frameSeed == 77 && pasted.filmEdge.cameraSeed == 12,
+             "Format's group carries the leak's own seed; the target keeps its body and frame")
+    c.expect(e.resetting(.leak).leak.isAtRest, "the leak's ↺ takes its seed too")
+}
+
+// MARK: - 边缘漏光 beside the kind (API-SPEC §21.9, 2026-11-16)
+
+func leakEdgeChecks(_ c: inout Checker, _ r: Rules) {
+    EngineFeatures.publish(edgeEngine)
+    var e = FrameEdit.default
+    e.leak.kind = .band
+    let band = r.engineWire(e)
+    c.expect(band["leak_edge"] == nil, "a leak without the edge burn sends no leak_edge")
+    e.leak.edge = 1.5
+    let both = r.engineWire(e)
+    c.expect(both["leak_kind"] == .string("band") && both["leak_amount"] == .double(1) && both["leak_edge"] == .double(1.5),
+             "a band and the edge burn: both sent, each at its strength: \(both.filter { $0.key.hasPrefix("leak_") })")
+    c.expect(both.filter { $0.key != "leak_edge" } == band, "the edge burn moves nothing else on the wire")
+    e.leak.amount = 3
+    c.expect(r.engineWire(e)["leak_amount"] == .double(3) && r.engineWire(e)["leak_edge"] == .double(1.5),
+             "the band's strength moves the band's alone")
+    for kind in [LeakKind.auto, .wash, .spot] {
+        var k = e; k.leak.kind = kind
+        c.expect(r.engineWire(k)["leak_kind"] == .string(kind.rawValue) && r.engineWire(k)["leak_edge"] == .double(1.5),
+                 "\(kind.rawValue) and the edge burn are sent together")
+    }
+    // The edge burn alone: its strength, the rate, the front share and the seeds; no kind and no kind's strength.
+    var alone = FrameEdit.default; alone.leak.edge = 2; alone.frameSeed = 41
+    let aw = r.engineWire(alone)
+    c.expect(alone.leakIsDrawn && aw["leak_edge"] == .double(2) && aw["leak_kind"] == nil && aw["leak_amount"] == nil
+             && aw["leak_rate"] == .double(1) && aw["overscan_camera_seed"] == .double(7) && aw["overscan_frame_seed"] == .double(41),
+             "the edge burn alone sends leak_edge, the rate and the seeds, and no kind: \(aw.filter { $0.key.hasPrefix("leak_") })")
+    alone.leak.edge = 9
+    c.expect(r.engineWire(alone)["leak_edge"] == .double(4), "leak_edge is held to 0…4 on the wire")
+    alone.leak.edge = 2; alone.leak.seed = 9
+    c.expect(r.engineWire(alone)["leak_seed"] == .double(9), "随机's seed is the edge burn's too")
+    // Leaving the wire: back to 0, and the kind back to off.
+    c.expect(FilmParams.sometimesSent["leak_edge"] == .double(0), "leak_edge goes back to 0 when it leaves the wire")
+    var applied: [String: ParamValue] = [:]
+    _ = FilmParams.step(from: &applied, to: both)
+    c.expect(FilmParams.step(from: &applied, to: band)["leak_edge"] == .double(0), "the edge burn turned off: the engine is told 0")
+    var applied2: [String: ParamValue] = [:]
+    _ = FilmParams.step(from: &applied2, to: both)
+    let toAlone = FilmParams.step(from: &applied2, to: r.engineWire(alone))
+    c.expect(toAlone["leak_kind"] == .string("off"), "the kind turned off under the edge burn: the engine is told off")
+    // An engine without leak_edge: never told it, and the kind is sent as before.
+    EngineFeatures.publish(seedEngine)
+    c.expect(r.engineWire(e)["leak_edge"] == nil && r.engineWire(e)["leak_kind"] == .string("band"),
+             "on an engine without leak_edge the edge burn is kept in the edit, unsent, and the kind is sent")
+    c.expect(!r.engineWire(alone).keys.contains { $0.hasPrefix("leak_") } && !alone.leakIsDrawn && !EngineFeatures.knows(.leakEdge),
+             "and the edge burn alone sends nothing there")
+    var never: [String: ParamValue] = [:]
+    _ = FilmParams.step(from: &never, to: r.engineWire(e))
+    c.expect(FilmParams.step(from: &never, to: r.engineWire(FrameEdit.default))["leak_edge"] == nil,
+             "and no rest of it is sent to an engine never told it")
+    EngineFeatures.publish(edgeEngine)
+    // On disk: {kind, amount, edge} while on; at 0 not written (every older leak re-encodes byte for byte: leakSeedChecks).
+    c.expect(leakObject(r, e) == ["kind": "band", "amount": 3, "edge": 1.5] as NSDictionary, "a band + edge burn is written {kind, amount, edge}")
+    c.expect(r.encode(e).flatMap(r.decode)?.leak == e.leak, "and round-trips")
+    var offAgain = e; offAgain.leak.edge = 0
+    c.expect(leakObject(r, offAgain) == ["kind": "band", "amount": 3] as NSDictionary, "the edge burn off is not written")
+    c.expect(r.encode(FrameEdit.default).map { !String(decoding: $0, as: UTF8.self).contains("\"leak\"") } == true,
+             "an edit with no leak writes none")
+    var aloneOnDisk = FrameEdit.default; aloneOnDisk.leak.edge = 0.75
+    c.expect(leakObject(r, aloneOnDisk) == ["kind": "off", "amount": 1, "edge": 0.75] as NSDictionary, "the edge burn alone is written {off, 1, edge}")
+    // 2026-11-15's builds wrote the edge burn as a kind: read as off + the edge burn at its strength.
+    let base = r.encode(aloneOnDisk).map { String(decoding: $0, as: UTF8.self) } ?? ""
+    func read15(_ leak: String) -> LeakSettings? {
+        let text = base.replacingOccurrences(of: "\"leak\":\\{[^}]*\\}", with: "\"leak\":" + leak, options: .regularExpression)
+        return text == base ? nil : r.decode(Data(text.utf8))?.leak
+    }
+    let o15 = read15("{\"kind\":\"edge\",\"amount\":2.5}")
+    c.expect(o15?.kind == .off && o15?.edge == 2.5 && o15?.amount == 1 && o15?.seed == 0,
+             "2026-11-15's {kind: edge, amount: 2.5} reads as off + the edge burn at 2.5: \(String(describing: o15))")
+    let s15 = read15("{\"kind\":\"edge\",\"amount\":1,\"seed\":5}")
+    c.expect(s15?.kind == .off && s15?.edge == 1 && s15?.seed == 5, "and keeps its seed: \(String(describing: s15))")
+    if let o15 {
+        var w = FrameEdit.default; w.leak = o15
+        c.expect(leakObject(r, w) == ["kind": "off", "amount": 1, "edge": 2.5] as NSDictionary, "and is written back as today's")
+        c.expect(r.engineWire(w)["leak_edge"] == .double(2.5) && r.engineWire(w)["leak_kind"] == nil, "and sent as leak_edge")
+    }
+    c.expect(read15("{\"kind\":\"band\",\"amount\":1,\"edge\":\"x\"}")?.edge == 0 && read15("{\"kind\":\"band\",\"amount\":1,\"edge\":-2}")?.edge == 0,
+             "an unreadable or negative edge burn reads as off")
+    c.expect(read15("{\"kind\":\"streak\",\"amount\":1}")?.kind == .off, "an unknown kind still reads as off")
+    // The rest of the model: on, at rest, copied with Format's group, reset, said.
+    c.expect(alone.leak.isOn && !alone.leak.isAtRest && !LeakSettings().isOn && !LeakSettings().edgeOn, "the edge burn alone is a leak that is on")
+    var target = FrameEdit.default; target.frameSeed = 77
+    let pasted = SettingsClip(groups: [.format], settings: e, sourceName: "x").applied(to: target, picture: PixelSize(width: 3000, height: 2000))
+    c.expect(pasted.leak.edge == 1.5 && pasted.leak == e.leak, "Format's group carries the edge burn")
+    c.expect(e.resetting(.leak).leak.isAtRest, "the leak's ↺ takes the edge burn too")
+    c.expect(e.leak.summary?.contains(LeakKind.band.label) == true && e.leak.summary?.contains(L("Edge Burn", as: "a light leak")) == true
+             && aloneOnDisk.leak.summary == L("Light Leak") + " " + L("Edge Burn", as: "a light leak") && LeakSettings().summary == nil,
+             "the summary says the kind and the edge burn: \(e.leak.summary ?? "nil")")
+    c.expect(EngineFeatures.offers(.leakEdge), "the page offers the edge burn on an engine with leak_edge")
+    EngineFeatures.publish(seedEngine)
+    c.expect(!EngineFeatures.offers(.leakEdge) || EngineFeatures.showsAll, "and not on one without")
+    EngineFeatures.publish(edgeEngine)
+}
+
 @main
 enum Main {
     static func main() {
         guard let catalog = StockCatalog(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])) else {
             print("lens edge checks: no catalogue at \(CommandLine.arguments[1])"); exit(1)
         }
+        // The engine's format table (API-SPEC §24, tools/overscan_formats.json: the engine's own reply, held to the
+        // live engine by tools/film_edge_parity.py), as the app reads it: the cine gauges are offered and laid out.
+        if let table = FileManager.default.contents(atPath: "tools/overscan_formats.json") { EngineGauges.publish(json: table) }
         func run(_ rules: Rules, quiet: Bool) -> Checker {
             var c = Checker(quiet: quiet)
             wireChecks(&c, rules)
@@ -484,6 +744,8 @@ enum Main {
             layoutChecks(&c)
             keptChecks(&c, rules)
             perforationChecks(&c, rules)
+            leakSeedChecks(&c, rules)
+            leakEdgeChecks(&c, rules)
             return c
         }
         if CommandLine.arguments.contains("--self-test") {

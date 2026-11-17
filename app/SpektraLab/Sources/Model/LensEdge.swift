@@ -34,6 +34,13 @@ enum EngineFeatures {
         case keyholes = "overscan_perforation"
         /// `leak_*` (API-SPEC §21.1).
         case leaks = "leak_kind"
+        /// **漏光's 随机 and 光斑 on every format** (API-SPEC §21.8, 2026-11-15): `leak_seed`. One feature for the two:
+        /// the engine that has the field is the one that makes `leak_kind = spot` off 120, so an older engine keeps the
+        /// page it had (no 随机, 光斑 on 120 only).
+        case leakSeed = "leak_seed"
+        /// **边缘漏光 Edge Burn beside the kind** (API-SPEC §21.9, 2026-11-16): `leak_edge`, its own strength. An engine
+        /// without it has no edge burn (2026-11-15's `leak_kind = edge` was never released, and is refused now).
+        case leakEdge = "leak_edge"
         /// `diffusion_filter_*` on the camera (API-SPEC §21.5).
         case softFilter = "diffusion_filter_active"
         /// `lens_aberrations_active` and the twelve `lens_*` (API-SPEC §21.6).
@@ -91,8 +98,12 @@ enum LeakKind: String, CaseIterable, Codable, Identifiable, Sendable {
     case band = "band"
     /// 漫光: a graded flood along the film from one end (the back opened, the roll's ends).
     case wash = "wash"
-    /// 光斑: a round leak, 3–8 mm (the 120 red window): 120 formats only, the engine refuses it elsewhere.
+    /// 光斑: a round leak. On 120 the back's red window (2–4.5 mm); since API-SPEC §21.8 (2026-11-15) on every format
+    /// an engine with `leak_seed` has — a pinhole in the curtain or a cracked back, 1.5–3.5 mm. An older engine
+    /// refuses it off 120.
     case spot = "spot"
+    // 边缘漏光 Edge Burn is not a kind (API-SPEC §21.9, 2026-11-16): it is `LeakSettings.edge`, beside any of these.
+    // An edit of 2026-11-15's builds with `kind: "edge"` is read as `off` + that edge burn (`LeakSettings`).
     var id: String { rawValue }
 
     var label: String {
@@ -105,17 +116,55 @@ enum LeakKind: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
-    /// Whether a camera of this format can have it: a spot needs a 120 back's window.
-    func isMade(on camera: FilmEdgeFormat) -> Bool { self != .spot || camera.is120 }
+    /// Whether a camera of this format can have it: everywhere on an engine with `leak_seed` (one feature for the
+    /// spot anywhere and the seed); on an older one a spot needs a 120 back's window. The wire holds to it
+    /// (`leakKindIsDrawn`), so it reads `knows`, never a debug build's `showsAll`.
+    func isMade(on camera: FilmEdgeFormat) -> Bool {
+        self != .spot || camera.is120 || EngineFeatures.knows(.leakSeed)
+    }
+
+    /// Why its chip is greyed, for the heading to say; nil when it can be chosen.
+    func reason(on camera: FilmEdgeFormat) -> String? {
+        isMade(on: camera) ? nil : L("Spot needs a 120 film edge")
+    }
 }
 
-/// **漏光**, the frame's light leak (PRD-D §3.3): a kind and a strength. Where along the film, which edge and how
-/// wide are the camera's and the frame's seeds (`overscan_camera_seed`, `overscan_frame_seed`), as for the film edge.
+/// **漏光**, the frame's light leak (PRD-D §3.3): a kind and a strength, and beside them 边缘漏光 Edge Burn at its own
+/// strength (`edge`). Where along the film, which edge and how wide are the camera's and the frame's seeds
+/// (`overscan_camera_seed`, `overscan_frame_seed`), as for the film edge, so a leak stays where it is when the film
+/// edge goes on — unless 随机 gave the leak a seed of its own (`seed`, the kind's and the edge burn's both).
 struct LeakSettings: Codable, Equatable, Sendable {
-    enum CodingKeys: String, CodingKey { case kind = "kind", amount = "amount" }
+    enum CodingKeys: String, CodingKey { case kind = "kind", amount = "amount", seed = "seed", edge = "edge" }
     var kind = LeakKind.off
-    /// `leak_amount`: the peak's light, on the fog's scale — 1 reaches orange, 4 clips to white.
+    /// `leak_amount`: the kind's peak light, on the fog's scale — 1 reaches orange, 4 clips to white.
     var amount = 1.0
+    /// `leak_edge` (API-SPEC §21.9, 2026-11-16): **边缘漏光 Edge Burn**'s own strength, on `amount`'s scale; **0 is
+    /// off**. Beside the kind, not one of them: a band and the edge burn, each at its strength, or the burn alone
+    /// (kind off). Written to the edit only when on (so every older edit re-encodes byte for byte), sent only while
+    /// on and only to an engine with `leak_edge`; it shares the leak's seed, rate and the frame's ±1.5 EV.
+    var edge = 0.0
+    /// The edge burn's switch (`edgeOn`) and its slider: 0…4, and the strength it comes on at.
+    static let edgeRange = 0.0...4.0
+    static let edgeRest = 1.0
+    var edgeOn: Bool { edge > 0 }
+    /// Whether any of the leak is on: its kind, or the edge burn.
+    var isOn: Bool { kind != .off || edgeOn }
+    /// `leak_seed` (API-SPEC §21.8, 2026-11-15): **0 is the camera's own leak** — its body's and
+    /// its frame's draws, every edit before 2.4.1. Non-zero, 随机's draw: the leak's place, edge, width, tilt, shape,
+    /// strength jitter and wobble are the seed's alone. Written to the edit only when non-zero (so every older edit
+    /// re-encodes byte for byte), sent only while non-zero and only to an engine with it, copied with the leak. A
+    /// plain `Int` (no self-test pins the edit's size).
+    var seed: Int = 0 {
+        didSet { if !Self.seedRange.contains(seed) { seed = seed.clamped(to: Self.seedRange) } }
+    }
+    static let seedRange = 0...Int(Int32.max)
+
+    /// 随机's draw: a new non-zero seed, never the one there now.
+    static func drawSeed(other current: Int) -> Int {
+        var next = current
+        while next == current { next = Int.random(in: 1...seedRange.upperBound) }
+        return next
+    }
 
     static let amountRange = 0.0...4.0
     /// `leak_rate` for one picture edited alone: the frame always shows its camera's leak.
@@ -130,11 +179,38 @@ struct LeakSettings: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = LeakSettings()
-        kind = (try? c.decodeIfPresent(LeakKind.self, forKey: .kind)) ?? d.kind
+        let raw = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        kind = raw.flatMap(LeakKind.init(rawValue:)) ?? d.kind
         amount = (try? c.decodeIfPresent(Double.self, forKey: .amount)) ?? d.amount
+        seed = (try? c.decodeIfPresent(Int.self, forKey: .seed)) ?? d.seed
+        edge = max(0, (try? c.decodeIfPresent(Double.self, forKey: .edge)) ?? d.edge)
+        // 2026-11-15's builds (never released) made the edge burn a kind, `kind: "edge"`, at the leak's strength: it is
+        // the same picture as no kind and the edge burn at that strength (API-SPEC §21.9, byte for byte), so it is read
+        // as that; the kind's own strength goes back to its rest.
+        if raw == Self.edgeKind15 {
+            if c.contains(.edge) == false { edge = max(0, amount) }
+            amount = d.amount
+        }
+    }
+    /// `kind` as 2026-11-15's builds wrote the edge burn (read, never written).
+    static let edgeKind15 = "edge"
+    /// The keys and order the synthesized encoding had (kind, amount), `seed` only when it is not the camera's and
+    /// `edge` only when the edge burn is on.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(amount, forKey: .amount)
+        if seed != 0 { try c.encode(seed, forKey: .seed) }
+        if edge > 0 { try c.encode(edge, forKey: .edge) }
     }
 
     var isAtRest: Bool { self == LeakSettings() }
+
+    /// What a summary says of it: 漏光 and its kind, and 边缘漏光 beside it; nil while it is all off.
+    var summary: String? {
+        let parts = (kind != .off ? [kind.label] : []) + (edgeOn ? [L("Edge Burn", as: "a light leak")] : [])
+        return parts.isEmpty ? nil : L("Light Leak") + " " + parts.joined(separator: " + ")
+    }
 }
 
 // MARK: - 镜头 Lens
@@ -316,10 +392,16 @@ extension FrameEdit {
     /// back's is (`DateBackSettings.camera`), so the two agree on `overscan_format`.
     var leakCamera: FilmEdgeFormat { filmEdge.effective ? filmEdge.format : .f135 }
 
-    /// Whether the frame's leak is drawn: on, of a kind its camera can have, and an engine that has leaks.
-    var leakIsDrawn: Bool {
+    /// Whether the frame's leak kind is drawn: on, of a kind its camera can have, and an engine that has leaks.
+    var leakKindIsDrawn: Bool {
         leak.kind != .off && leak.kind.isMade(on: leakCamera) && EngineFeatures.knows(.leaks)
     }
+    /// Whether its edge burn is (API-SPEC §21.9): on, and an engine with `leak_edge`.
+    var leakEdgeIsDrawn: Bool {
+        leak.edgeOn && EngineFeatures.knows(.leaks) && EngineFeatures.knows(.leakEdge)
+    }
+    /// Whether any of the frame's leak is drawn.
+    var leakIsDrawn: Bool { leakKindIsDrawn || leakEdgeIsDrawn }
 
     /// `leak_*`, and — with the film edge off — the overscan seeds the leak reads (API-SPEC §21.1's
     /// seeds), from the same body and frame seed the film edge sends, so the leak does not move when the film
@@ -327,12 +409,27 @@ extension FrameEdit {
     /// for one picture and `rateBatch` for a batch export.
     func leakWire(bodySeed: Int, rate: Double = LeakSettings.rateAlone) -> [(name: String, value: ParamValue)] {
         guard leakIsDrawn else { return [] }
-        var out: [(name: String, value: ParamValue)] = [
-            ("leak_kind", .string(leak.kind.rawValue)),
-            ("leak_amount", .double(leak.amount.clamped(to: LeakSettings.amountRange))),
+        var out: [(name: String, value: ParamValue)] = []
+        // The kind and its strength only while it is drawn: with the edge burn alone `leak_kind` stays at its rest,
+        // off (`FilmParams.sometimesSent`), and the kind's strength is not the engine's business.
+        if leakKindIsDrawn {
+            out += [("leak_kind", .string(leak.kind.rawValue)),
+                    ("leak_amount", .double(leak.amount.clamped(to: LeakSettings.amountRange)))]
+        }
+        out += [
             ("leak_rate", .double(rate.clamped(to: 0...1))),
             ("leak_front", .double(LeakSettings.front)),
         ]
+        // API-SPEC §21.9 (2026-11-16): the edge burn's own strength, only while on and only to an engine with it;
+        // leaving the wire, it goes back to 0 (`FilmParams.sometimesSent`).
+        if leakEdgeIsDrawn {
+            out.append(("leak_edge", .double(leak.edge.clamped(to: LeakSettings.edgeRange))))
+        }
+        // API-SPEC §21.8: 随机's seed, only while it is not the camera's and only to an engine with it; leaving the
+        // wire, it goes back to 0 (`FilmParams.sometimesSent`).
+        if leak.seed != 0 && EngineFeatures.knows(.leakSeed) {
+            out.append(("leak_seed", .double(Double(leak.seed))))
+        }
         if !filmEdge.effective {
             let body = filmEdge.cameraSeed == 0 ? bodySeed : filmEdge.cameraSeed
             out += [

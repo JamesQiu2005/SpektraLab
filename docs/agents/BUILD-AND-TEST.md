@@ -9,7 +9,7 @@ black and white. Where it says "trap N", see `TRAPS.md` beside it.
 for SpektraLab 2 as written. "The 1.x app" below describes `modern_UI/Spektrafilm`, whose sources
 are no longer in the tree: its `Tools/`, `Session`, `SpektrafilmTests` and canvas log are history,
 kept because the traps cite them. The Mac app's build is in `AGENTS.md`, "Build and test"; its
-self-tests are `app/SpektraLab/tools/*_selftest*`.
+self-tests are `app/SpektraLab/tools/*_selftest*`, and its gates "The Mac app's gates" below.
 
 ## Environment
 
@@ -120,6 +120,97 @@ than an empty one when it does not run:
 SPEKTRALAB_ENGINE_RESOURCES=/path/to/SpektraLab.app/Contents/Resources/EngineResources \
     PYTHONPATH="$REF/src" "$REF/.venv/bin/python" engine/tests/parity_lut.py
 ```
+
+### The Mac app's gates (`tools/gate.py`, 2026-11-15)
+
+`app/SpektraLab/tools/gate.py` chooses and runs the tests by **component** (the owner's schema, 2026-11-14): within a
+component for most changes; across components only where shared code or a contract changed; everything before a merge to
+`main` and at a release. `tools/gate_components.json` is the table: its contracts (the engine wire, `FrameEdit`, `FilmParams`, the
+persisted formats, the agent table), its shared code (`Model/` core, `DesignSystem`, `Diagnostics`, `HostCut`,
+`AppSettings`), and 12 components, each with its paths, its in-app checks and the components it depends on.
+`tools/selftests.json` lists the 55 self-tests (`tools/selftest.sh` runs them all through `gate.py selftest`).
+
+```bash
+cd app/SpektraLab
+python3 tools/gate.py change [--changed REF] [--plan] [--dependents]   # before a commit (REF defaults to main)
+python3 tools/gate.py full     # before a merge to main, by hand on the Mac mini (the nightly is paused)
+python3 tools/gate.py release  # at a GitHub release: full, every check's --self-test, then the timing rows
+python3 tools/gate.py timing   # the cost and transition rows alone; graded only at load ≤ cores/4
+python3 tools/gate.py self-test   # the gate's own rules; run after editing either table
+python3 tools/gate.py sweep    # the empty defaults suites past self-test runs left in ~/Library/Preferences
+```
+
+- **`change`** runs the self-tests whose compile list reaches a changed file (what each one actually compiled, recorded
+  by the `tools/gate/swiftc` shim, not a second list kept by hand), and the in-app checks of the components that own the
+  changed files. A change to a contract or shared code runs every component's checks; `--dependents` also runs the
+  components that depend on the touched ones (nearly all of them, which is why it is not the default). A changed file
+  nothing owns and no self-test reads **falls up to the whole suite**, and says so. `--plan` prints what would run and
+  why, and runs nothing.
+- **A check's parts.** A check with `parts` in the table has each part left out (`--skip`) when the change reaches none
+  of its paths: `masks_check.sh --function` skips the finding (`SubjectFinder`, `MaskFinding`, `FoundMaskKeeping`,
+  the case itself) and the flat frame (the overlay's geometry: `MaskOverlay`, `MaskLive`, `MaskBaker`, `MaskFrame`). The
+  report says `SKIPPED <part>`; a contract, shared code or the gate's own files skip nothing, and `full` runs every part.
+  Measured on the Mac mini (2026-11-15, load ~2): the whole check **1,094 s**, `--function` **714–755 s**,
+  `--function --skip find,flat` **453 s**; the `panel` and `find-join` mutants are caught in function mode (240 s). The
+  45 MP develop and Vision on it are most of what is left, so the plan's 5 minutes is not met by the split alone.
+- **Builds are cached** by the compiler's version, the arguments and the contents of every input
+  (`build/gate-cache/`), built `-Onone` (`tools/gate/keep-O.txt` keeps `-O` where a run asserts time or decodes RAWs:
+  `lens_profile_selftest` at `-Onone` ran 47 min), eight at once. Measured on the Mac mini (M6, 2026-11-15, load 3–9):
+  `selftest.sh` cold **116 s** and warm **56 s** (54 of 55 builds from the cache), against **965 s** on `main`'s
+  serial script.
+- **Timing is its own gate.** The cost and transition rows run in `gate.py timing` and the release only: `--function`
+  and `full` (`masks_check.sh --untimed`) leave them out, so another session's load cannot turn a function gate red.
+  `timing` refuses to grade above load cores/4 and says so (exit 3, never a pass).
+- **Exit 3 is "incomplete", never a pass**: `tools/gate/engine_check.sh` without the Python reference
+  (`SPEKTRALAB_REFERENCE_ROOT`) reports it, and the summary says the tier is incomplete.
+- **A silent check is killed** with its process group (the app, its watcher and the watcher's `tail -F`): 600 s by
+  default, a check's own `quiet` in the table. Every check script makes `--out` absolute, and the app refuses a relative
+  folder aloud (`MacCheckFolder`).
+- **Read the summary line.** It prints the scope, what ran and why, and the time; a commit records it (trap 26: a short
+  run where a long one was due is a skip, and is seen).
+
+**What a run needs that no checkout has.** The fixtures are gitignored and found from the main checkout: the 45 MP set
+`research/natural_shadow/dataset` (the masks, layers and finished-layers checks) and `RAW_decode_tests`
+(`lens_profile_selftest`, `raw_samples_check`, `lens_check`), both skipped and said without them; and the Python
+reference for `engine_check.sh` (`SPEKTRALAB_REFERENCE_ROOT`). The in-app checks run the Debug app at
+`build/DerivedData` (build it first: a stale build tests stale code), in a logged-in GUI session.
+
+**Before a merge to `main`: `gate.py full` by hand** on the Mac mini, in its main checkout or a worktree with the RAW sets
+reachable (above), after building the engine and the Debug app, in a logged-in session; record its summary line in the
+merge's message. This replaces the nightly while it is paused (the owner, 2026-11-15): merges are rare and made by hand,
+so the whole suite runs before a change lands rather than the morning after.
+
+**The nightly: paused** (`gh workflow disable Nightly`, 2026-11-15; `gh workflow enable Nightly` brings it back). Its one
+run (43715853541) was killed in the Debug build by the runner's 6 GB cap and left the runner unable to restart (below).
+Bring it back only with both fixed, or as a plain launchd job on the Mac mini outside the runner's supervisor. As written,
+`.github/workflows/nightly.yml` runs `gate.py full` on the private repository's
+self-hosted runner at 02:00 Shanghai time, never in the public repository or a fork (its `if:`: the release copies
+this tree into the public one, which must never schedule work on a private runner). It links the RAW sets
+in from `SPEKTRALAB_FIXTURES_ROOT` (a repository variable: the Mac mini's main checkout), builds the engine and the Debug app, and
+uploads the gate's log and the checks' logs.
+
+**What the runner needs before the nightly can pass** (found 2026-11-15 by running a check from a LaunchAgent with the
+runner's own properties, through `~/runner-control/supervisor.py`'s `monitor()`; no workflow was run). A process started
+by launchd answers to macOS's privacy rules as itself, not as a Terminal that was granted them:
+- **Files on a removable volume.** The app blocked in `open()` writing its `report.json` to the worktree on
+  an external volume (a `sample` of the main thread), waiting on a consent prompt nobody answered, and the check's
+  silence watchdog killed it (exit 143): `edit_refresh_check` 137 s instead of 13. The runner's work folder
+  is on an external volume too. The same with `SessionCreate` off and with the limits lifted.
+- **Automation of System Events** (`front()`): from the agent, `osascript` timed out (-1712), a prompt again.
+- **Posting events** (`post_keys`, `post_pointer`): `CGPreflightPostEventAccess` is false there (and in a Claude Code
+  shell, where the keys landed in 3 of 4 runs all the same: one run's twelve were lost, a flake the case does not yet
+  tell from a fault).
+- **The supervisor's limits**: a job's whole tree is held to 4 cores by SIGSTOP and killed past 6 GB of RSS. **The RAM
+  cap cannot hold the nightly**, measured on the 16 GB Mac mini: a clean Debug build peaks 6.43 GB at `-jobs 4` (the run
+  was killed at 6.01 GB with xcodebuild's default of one job a core), 4.21 GB at `-jobs 2`, 3.39 GB at `-jobs 1`; a cold
+  `selftest.sh` 9.1-9.6 GB at 8 or 4 at once; `raw_samples_check` alone 10.85 GB and `lens_profile_selftest` alone
+  6.10 GB. The in-app checks are smaller (2.9 GB the whole masks check, the app counted as the check's child; 0.5 GB
+  edit_refresh). The 4-core hold is why the nightly grades no timing row.
+- **The supervisor is Xcode's Python** (`com.apple.python3`, what `/usr/bin/python3` hands off to), so a privacy grant to
+  `/usr/bin/python3` (Full Disk Access since 2026-10-10) does not reach it. After the run's kill, every restart failed
+  `runsvc.sh: Operation not permitted` on the external volume, probably because the simulation above raised that
+  identity's removable-volume prompt and it was refused. The fix is at the screen: Full Disk Access for Xcode's
+  `Python.app`. **Never run a privacy experiment as the runner's own identity**: a refused prompt is the runner's.
 
 ### The 1.x app (history)
 

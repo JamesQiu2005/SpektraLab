@@ -200,6 +200,20 @@ enum SceneLayerWire {
         return Ask(layers: made, source: source, frameToSource: f2s, stamp: stamp(made, frameToSource: f2s), family: family, found: found)
     }
 
+    /// **A request that names a set carries it** (RFC-052 §6.4 on the host): whether a job whose wire's `scene_layers` is
+    /// `named` (nil or "": none) and whose request carries `ask` is one the engine can render as its wire says. Through
+    /// the engine the two are one stamp: a wire naming a set the session is never handed is refused by the engine
+    /// (`scene_layers_mismatch`), and a set handed under a wire that names none is never applied. Through Apple's decode
+    /// (`throughEngine` false, `EngineHost.digital`) the host applies the ask itself, cut by the frame's whole geometry
+    /// where the wire's stamp was named through the host's cut, so only "a stamp, and an ask" is held.
+    /// 2026-11-16: every full render (the page's zoom, the Light Table, a prefetch) named the set and carried none
+    /// (`EngineRouter.prepareFullView`): "Full size unavailable" on any frame with a 场景 layer.
+    static func carries(named: String?, ask: Ask?, throughEngine: Bool) -> Bool {
+        let name = named ?? ""
+        guard throughEngine else { return name.isEmpty == (ask == nil) }
+        return name == (ask?.stamp ?? "")
+    }
+
     /// The set's name: a hash of the planes' keys, the gains and coverages as the node's floats (their bits), and the
     /// matrix as the node's floats. "sl1." and 32 hex digits.
     static func stamp(_ layers: [Layer], frameToSource: MaskMatrix) -> String {

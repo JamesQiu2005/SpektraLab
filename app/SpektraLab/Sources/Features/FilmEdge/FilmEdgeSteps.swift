@@ -28,8 +28,12 @@ struct FilmStepPanel: View {
     /// the cards wrap into rows across the panel, each as drawn (72 × 92, 9 apart), and everything
     /// under them moves down by the rows added.
     private static let cardGap: CGFloat = 9
-    /// 片幅's filter over the cards (PRD-D §3.1): All · 135 · 120 · Wide, kept in the app's defaults.
-    private var filter: FilmEdgeFormat.Filter { DevelopPanelPrefs.shared.filmEdgeFilter }
+    /// 片幅's filter over the cards (PRD-D §3.1): All · 135 · 120 · Wide · Cine, kept in the app's defaults. A kept
+    /// Cine on an engine with no cine gauge shows All: the segment it names is not offered.
+    private var filter: FilmEdgeFormat.Filter {
+        let kept = DevelopPanelPrefs.shared.filmEdgeFilter
+        return FilmEdgeFormat.Filter.offered().contains(kept) ? kept : .all
+    }
     /// The cards shown: the filter's, of the formats this engine has.
     private var shown: [FilmEdgeFormat] { filter.formats() }
     /// The chosen format, when the filter hides its card: the line under the filter names it.
@@ -52,7 +56,7 @@ struct FilmStepPanel: View {
             } else {
                 DrawnText(stock?.madeInText ?? "", 12, .medium, Theme.dim).trailingInset(16).baseline(30)
             }
-            SegmentedSwitch(options: FilmEdgeFormat.Filter.allCases,
+            SegmentedSwitch(options: FilmEdgeFormat.Filter.offered(),
                             selection: Binding(get: { filter }, set: { f in
                                 withAnimation(.easeOut(duration: 0.18)) { DevelopPanelPrefs.shared.filmEdgeFilter = f }
                             }),

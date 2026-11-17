@@ -109,9 +109,102 @@ def hole_edges(rgba, px):
     return np.array(widths), np.array(rims)
 
 
+# API-SPEC §25 (2026-11-16): EDR is the picture's alone under a film edge. Each format with its gate's shape, a frame
+# far past the print's shoulder above and under its toe below, a dimmer quarter at the left (so EDR moves the picture
+# both ways). (format, extra, gate long x short mm)
+EDR_FORMATS = (
+    ("135", {"overscan_format": "135", "overscan_edge_text": "KODAK PORTRA 400"}, (36.25, 24.3)),
+    ("120 ks65", {"overscan_format": "120_6x7", "overscan_perforation": "ks65", "overscan_edge_text": "KODAK PORTRA 400"}, (69.5, 56.0)),
+    ("645", {"overscan_format": "120_645", "overscan_edge_text": "KODAK PORTRA 400"}, (56.0, 41.5)),
+    ("Super 8", {"overscan_format": "8_super"}, (5.79, 4.01)),
+    ("16 mm", {"overscan_format": "16_super"}, (12.35, 7.50)),
+)
+
+
+def edr_frame(long_mm, short_mm, w=1200):
+    h = int(round(w * short_mm / long_mm))
+    img = np.zeros((h, w, 3), np.float32)
+    img[: h // 2] = (9.0, 8.5, 8.0)
+    img[h // 2:] = 0.004
+    img[:, : w // 3] *= 0.25
+    return img
+
+
+def edr_checks(e, base, check):
+    for name, extra, (lg, sh) in EDR_FORMATS:
+        img = edr_frame(lg, sh)
+        p = {"overscan_active": True, "overscan_holes": "white"}; p.update(extra)
+        p0 = dict(p, extended_dynamic_range=False)
+        p1 = dict(p, extended_dynamic_range=True)
+        off = render(e, img, p0, "full")
+        s = e.open(img, dict(BASE, **p1))
+        try:
+            on, _ = s.render("full")
+            g = s.overscan_geometry()                               # (answered once the layout is made)
+        finally:
+            s.close()
+        H, W = on.shape[:2]
+        q = g["gates"][0]                                           # the picture's gate, normalised (s, t pairs)
+        x0, x1 = min(q[0::2]) * W, max(q[0::2]) * W
+        y0, y1 = min(q[1::2]) * H, max(q[1::2]) * H
+        mm = g["mm_per_px"]
+        margin = int(np.ceil(1.0 / mm))                             # 15 sigma of the weight's 66 µm: its tail is gone
+        yy, xx = np.mgrid[0:H, 0:W]
+        outside = (xx < x0 - margin) | (xx > x1 + margin) | (yy < y0 - margin) | (yy > y1 + margin)
+        # A cine gauge's neighbours above and below are pictures too: its film edge is beside the gate.
+        if name in ("Super 8", "16 mm"):
+            outside = ((xx < x0 - margin) | (xx > x1 + margin)) & (yy > y0 + margin) & (yy < y1 - margin)
+        same = (on[outside] == off[outside]).all(-1)
+        check(f"EDR under a film edge, {name}: the film edge and its holes print as without EDR",
+              bool(same.all()) and outside.sum() > 1000, f"{int((~same).sum())} of {int(outside.sum())} px differ")
+        inner = (xx > x0 + margin) & (xx < x1 - margin) & (yy > y0 + margin) & (yy < y1 - margin)
+        moved = (on[inner] != off[inner]).any(-1).mean()
+        check(f"EDR under a film edge, {name}: the picture is EDR's", moved > 0.9, f"{moved * 100:.1f}% of the picture moved")
+        if base is not None:
+            # No ring, no seam: every pixel is its print without EDR and the whole canvas's EDR print (the engine
+            # before's) mixed by one weight in [0, 1] -- it lies between the two -- and that weight, read where the two
+            # prints differ enough to read it, rises one way from the film edge into the picture across each side
+            # of the gate, in the bright half and the dark.
+            full = render(base, img, p1, "full").astype(np.int64)
+            o, n_ = off.astype(np.int64), on.astype(np.int64)
+            lo_, hi_ = np.minimum(o, full) - 1, np.maximum(o, full) + 1
+            between = ((n_ >= lo_) & (n_ <= hi_)).all(-1)
+            check(f"EDR under a film edge, {name}: every pixel between its print without EDR and its EDR print",
+                  bool(between.all()), f"{int((~between).sum())} px outside")
+            span = full[..., 1] - o[..., 1]
+            k = np.where(np.abs(span) > 200, (n_[..., 1] - o[..., 1]) / np.where(span == 0, 1, span), np.nan)
+            bad, seen = [], 0
+            reach = int(np.ceil(0.5 / mm))
+            cine = name in ("Super 8", "16 mm")
+            lines = ([("row", int(y0 + f * (y1 - y0))) for f in (0.25, 0.75)] if cine else
+                     [("col", int(x0 + f * (x1 - x0))) for f in np.linspace(0.05, 0.95, 10)])
+            for kind, at in lines:
+                for edge in ((int(x0), int(x1)) if cine else (int(y0), int(y1))):
+                    lo, hi = max(edge - reach, 0), min(edge + reach, W if cine else H)
+                    seg = k[at, lo:hi] if cine else k[lo:hi, at]
+                    if edge == (int(x1) if cine else int(y1)): seg = seg[::-1]
+                    seg = seg[~np.isnan(seg)]
+                    if len(seg) < 4: continue
+                    seen += 1
+                    if np.any(np.diff(seg) < -0.02): bad.append((kind, at, edge))
+            check(f"EDR under a film edge, {name}: the mix rises one way from the film edge into the picture (no ring)",
+                  not bad and seen > 0, f"{bad} of {seen} read")
+        if base is not None:
+            b_off = render(base, img, p0, "full")
+            check(f"EDR under a film edge, {name}: EDR off is the engine before's, to the bit", np.array_equal(off, b_off))
+    img = edr_frame(36.25, 24.3)
+    on = render(e, img, {"extended_dynamic_range": True}, "full")
+    if base is not None:
+        check("EDR without a film edge is the engine before's, to the bit",
+              np.array_equal(on, render(base, img, {"extended_dynamic_range": True}, "full")))
+    else:
+        print("SKIP the byte comparison with the engine before (no --base-dylib)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dylib", type=Path)
+    ap.add_argument("--base-dylib", type=Path, help="the engine before API-SPEC §25, for EDR's byte identity")
     a = ap.parse_args()
     failures = 0
 
@@ -121,6 +214,7 @@ def main():
         print(f"{'PASS' if ok else 'FAIL'} {name}{(' -- ' + detail) if detail else ''}")
 
     with spk.Engine(dylib=a.dylib) as e:
+        edr_checks(e, spk.Engine(dylib=a.base_dylib) if a.base_dylib else None, check)
         img = frame(1200, 800)
         off = render(e, img, {"overscan_active": False})
         check("off keeps the frame's size", off.shape[:2] == (800, 1200), str(off.shape))

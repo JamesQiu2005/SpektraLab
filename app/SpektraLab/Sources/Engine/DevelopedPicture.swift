@@ -75,10 +75,13 @@ enum DevelopStamp {
     /// picture. A piece that is one print has none, and its stamp is what it
     /// was. `lens` is the app's own lens correction of a RAW (`LensCorrection.word`): "" for every frame
     /// Core Image corrects or nobody does, so their stamps are what they were; a word for a Sony frame with Lens
-    /// Correction on, whose develops before 2.4.0 nobody corrected under the same "lens".
+    /// Correction on, whose develops before 2.4.0 nobody corrected under the same "lens". `base` is 水印's 底片 marks
+    /// (`WatermarkComposite.Base.word`: each placement and its file's hash): laid into the source, not on the wire, and
+    /// part of the picture — "" for every edit without one, so their stamps are what they were
+    /// (`tools/watermark_base_selftest.swift` holds them to 2.4.0's).
     static func of(wire: [String: ParamValue], cut: Geometry? = nil, turns: Int = 0, decode: DecodeSettings, isRAW: Bool,
                    longEdge: Int, engine: String, piece: String? = nil, origin: String? = nil,
-                   prints: [String] = [], lens: String = "") -> String {
+                   prints: [String] = [], lens: String = "", base: String = "") -> String {
         var hash = SHA256()
         func add(_ s: String) { hash.update(data: Data(s.utf8)); hash.update(data: Data([0])) }
         add(engine)
@@ -89,10 +92,15 @@ enum DevelopStamp {
         if let piece { add(piece) }
         if let origin { add("from " + origin) }
         for own in prints { add(own) }
+        if !base.isEmpty { add("watermark base " + base) }
         // The decode's settings change a RAW's pixels and nothing else's.
         if isRAW {
             add(decode.whiteBalance.rawValue)
-            if decode.whiteBalance != .asShot { add("\(decode.temperature)|\(decode.tint)") }
+            // 色调's own mode (2.4.1) only where it is set: a decode whose two axes agree is stamped as it was.
+            if let tintOwn = decode.tintAsShotOverride {
+                if !decode.temperatureAsShot { add("\(decode.temperature)") }
+                add(tintOwn ? "tint=as-shot" : "tint=\(decode.tint)")
+            } else if decode.whiteBalance != .asShot { add("\(decode.temperature)|\(decode.tint)") }
             add(decode.lensCorrection ? "lens" : "")
             if !lens.isEmpty { add(lens) }
             if !decode.exposureKey.isEmpty { add(decode.exposureKey) }

@@ -310,6 +310,11 @@ enum HDRRendition {
         }
     }
 
+    /// 水印: for a page picture that carries marks, what holds its log2 gain to none under them (× (1 − α)) before its
+    /// display passes — so a white mark is SDR white on the canvas, as in the file (`WatermarkComposite.planeHold`, set
+    /// by the app). Nil, or nil for a picture: the plane as made.
+    nonisolated(unsafe) static var heldUnderMarks: ((CGImage) -> ((UnsafeMutablePointer<Float>, Int, Int) -> Void)?)?
+
     /// `image`'s gain under `look`, kept for its display passes.
     static func prepare(_ image: CGImage, look: HDRLook, device: MTLDevice? = MTLCreateSystemDefaultDevice()) throws -> Prepared {
         gate.lock(); defer { gate.unlock() }
@@ -326,6 +331,7 @@ enum HDRRendition {
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         try run(image, tables: look.tables, sigma: pageSigma(image, look),
                 into: .plane(UnsafeMutableRawBufferPointer(start: plane.contents(), count: w * h * 4)), device: device)
+        heldUnderMarks?(image)?(plane.contents().assumingMemoryBound(to: Float.self), w, h)
         pageMakes &+= 1
         return Prepared(width: w, height: h, headroom: look.curve.headroom, src: src, plane: plane)
     }

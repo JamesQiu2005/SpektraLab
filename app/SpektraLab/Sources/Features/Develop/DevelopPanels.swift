@@ -77,15 +77,16 @@ struct FilmPanel: View {
         let ev = hole?.exposureEV ?? p.exposureCompensationEV
         DrawnBand(height: includesPaper && !StockCatalog.shared.isSlide(p.filmStock) ? 310 : PanelY.height) {
             CardRow(items: StockCatalog.shared.films, selectedID: p.filmStock, height: FilmCard.height, onPick: pick,
-                    opensOn: cardsOpenOn) {
+                    opensOn: cardsOpenOn, stock: \.id) {
                 FilmCard(stock: $0)
             }
             .top(PanelY.Film.cards - CardRowMetric.framePadding)
             if includesPaper && !StockCatalog.shared.isSlide(p.filmStock) {
                 let catalog = StockCatalog.shared
                 CardRow(items: catalog.papers.filter { catalog.canPrint(film: p.filmStock, on: $0.id) },
-                        selectedID: p.printStock, height: PaperCard.height,
-                        onPick: { paper in session.change { $0.params.print(on: paper.id) } }) { paper in
+                        // A negative scanned (No Paper) is printed on none: no paper card is the chosen one.
+                        selectedID: catalog.isScanned(p) ? nil : p.printStock, height: PaperCard.height,
+                        onPick: { paper in session.change { $0.params.print(on: paper.id) } }, stock: \.id) { paper in
                     PaperCard(stock: paper, ownDot: catalog.isRecommendedPairing(film: p.filmStock, paper: paper.id)
                               ? catalog.stock(p.filmStock)?.color : nil)
                 }
@@ -725,7 +726,7 @@ struct PrintPanel: View {
             // shows it. Under a slide every paper waits, and the row says so.
             CardRow(items: catalog.papers, selectedID: scanned ? nil : p.printStock, height: PaperCard.height,
                     onPick: { paper in session.change { $0.params.print(on: paper.id) } },
-                    waits: { !slide && !catalog.canPrint(film: p.filmStock, on: $0.id) }, opensOn: cardsOpenOn) { paper in
+                    waits: { !slide && !catalog.canPrint(film: p.filmStock, on: $0.id) }, opensOn: cardsOpenOn, stock: \.id) { paper in
                 PaperCard(stock: paper, ownDot: !scanned && film?.targetPrint == paper.id ? film?.color : nil,
                           waits: slide ? nil : catalog.whyNotPrinted(film: p.filmStock, on: paper.id))
             }
@@ -971,24 +972,23 @@ struct ScenePanel: View {
                 // Back to As Shot: the camera's own. Embedded, the section's ↺ is it.
                 if !embedded {
                     RoundButton(diameter: 2 * PanelY.Scene.resetRadius, label: L("As Shot"), action: {
-                        change { d in
-                            d.whiteBalance = .asShot
-                            if let cam = camera { (d.temperature, d.tint) = cam }
-                        }
+                        change { d in d.setAsShot(camera: camera) }
                         lifted()
                     }) { Icon(.reset, size: 18) }
-                    .rowEnabled(reaches && d.whiteBalance != .asShot)
+                    .rowEnabled(reaches && !d.isAsShot)
                     .trailingInset(33 - PanelY.Scene.resetRadius)
                     .centreY(PanelY.Scene.reset)
                 }
                 rulerRow(L("Temperature"), "\(Int(d.temperature.rounded())) K",
-                         sub: d.whiteBalance == .asShot ? L("As Shot") : nil,
+                         sub: d.temperatureAsShot ? L("As Shot") : nil,
                          value: whiteBalance(\.temperature), range: 2000...10000, step: 125, majorEvery: 4,
                          spacing: 7.5, snap: 50, tint: { Color.lerp(Self.temperatureScale.0, Self.temperatureScale.1, $0) },
                          onEditingChanged: editing)
                     .rowEnabled(reaches)
                     .baseline(PanelY.Scene.first - lift)
+                // 色调's own As Shot (2.4.1), said as 色温's is.
                 rulerRow(L("Tint"), Fmt.signed(d.tint, decimals: 0),
+                         sub: d.tintAsShot ? L("As Shot") : nil,
                          value: whiteBalance(\.tint), range: -150...150, step: 5, majorEvery: 4, spacing: 7.5,
                          snap: 1, tint: { Color.lerp(Self.tintScale.0, Self.tintScale.1, $0) },
                          onEditingChanged: editing)
@@ -1011,7 +1011,7 @@ struct ScenePanel: View {
         }
         // The camera's own numbers for a pair's frame, kept from when the panel first shows it under As Shot.
         .task(id: subject?.id) {
-            guard pair != nil, let subject, subject.edit.decode.whiteBalance == .asShot, pairCamera[subject.id] == nil else { return }
+            guard pair != nil, let subject, subject.edit.decode.isAsShot, pairCamera[subject.id] == nil else { return }
             pairCamera[subject.id] = (subject.edit.decode.temperature, subject.edit.decode.tint)
         }
     }
@@ -1039,10 +1039,11 @@ struct ScenePanel: View {
         if pair != nil, let side { model.keepDecode(of: side, in: session.frameID) }
     }
 
-    /// Moving temperature or tint leaves As Shot for the numbers on the scale.
+    /// Moving temperature or tint leaves As Shot for the numbers on the scale — that axis's alone (2.4.1): the
+    /// other keeps its camera's own.
     private func whiteBalance(_ path: WritableKeyPath<DecodeSettings, Double>) -> Binding<Double> {
         Binding(get: { decode[keyPath: path] },
-                set: { v in change { d in d[keyPath: path] = v; d.whiteBalance = .custom } })
+                set: { v in change { d in if path == \DecodeSettings.tint { d.setTint(v) } else { d.setTemperature(v) } } })
     }
 }
 

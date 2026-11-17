@@ -40,7 +40,7 @@ import UIKit
 @MainActor
 enum MacHistoryCheck {
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
-        guard let i = arguments.firstIndex(of: "--history-check"), i + 1 < arguments.count, arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--history-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         let exits = arguments.contains("--history-check-exit")
         let relaunch = arguments.firstIndex(of: "--history-check-relaunch").flatMap { j in
@@ -110,15 +110,17 @@ enum MacHistoryCheck {
         var steps: [[String: Any]] = []
         var failures: [String] = []
         var checks = 0
+        /// The lines' prefix: another check's own where it shares this report (`MacEditRefreshCheck`).
+        var prefix = "history-check"
         func note(_ name: String, _ facts: [String: Any] = [:]) {
             var s = facts
             s["step"] = name
             steps.append(s)
-            print("history-check: \(name) \(facts)")
+            print("\(prefix): \(name) \(facts)")
         }
         func check(_ ok: Bool, _ what: String) {
             checks += 1
-            if !ok { failures.append(what); print("history-check: FAIL \(what)") } else { print("history-check: ok \(what)") }
+            if !ok { failures.append(what); print("\(prefix): FAIL \(what)") } else { print("\(prefix): ok \(what)") }
         }
     }
 

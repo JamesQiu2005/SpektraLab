@@ -26,25 +26,43 @@ import Foundation
 enum FinishedCut {
     enum Failure: Error, Equatable { case notMade(String) }
 
+    /// The rectangle of the picture a plain cut is (no straighten, turn or
+    /// flip): the cut's own pixels, which `image(_:by:)` hands over without a
+    /// copy. Nil for a cut that is drawn. (水印's 成片 marks go into this
+    /// rectangle before it is cut: `WatermarkComposite.finished`.)
+    static func plainCut(of image: CGImage, by g: Geometry) -> CGRect? {
+        guard !g.isIdentity, g.angle == 0, ((g.quarterTurns % 4) + 4) % 4 == 0, !g.flipH, !g.flipV else { return nil }
+        let size = CGSize(width: image.width, height: image.height)
+        let out = g.outputSize(for: size)
+        let ow = Int(out.width), oh = Int(out.height)
+        let toSource = g.outputToSourceTransform(imageSize: size)
+        // The cut's top-left on the picture, held inside it.
+        let x = min(max(Int(toSource.tx.rounded()), 0), max(image.width - ow, 0))
+        let y = min(max(Int(toSource.ty.rounded()), 0), max(image.height - oh, 0))
+        guard ow <= image.width, oh <= image.height else { return nil }
+        return CGRect(x: x, y: y, width: ow, height: oh)
+    }
+
     /// `image` through `g` — the cut is `g.outputSize(for:)` of the picture's
-    /// own size, exactly.
-    static func image(_ image: CGImage, by g: Geometry) throws -> CGImage {
+    /// own size, exactly. `drawing`: where the cut is drawn, called with that
+    /// drawing (Core Graphics' own CTM) and its size once the picture is in it
+    /// and before it is made a picture — 水印's 成片 marks, over the cut
+    /// (`WatermarkComposite.finished`). Given one, a plain cut is drawn too.
+    static func image(_ image: CGImage, by g: Geometry, drawing: ((CGContext, CGSize) -> Void)? = nil) throws -> CGImage {
         let size = CGSize(width: image.width, height: image.height)
         guard !g.isIdentity else { return image }
         let out = g.outputSize(for: size)
         let ow = Int(out.width), oh = Int(out.height)
         let toSource = g.outputToSourceTransform(imageSize: size)
-        if g.angle == 0, ((g.quarterTurns % 4) + 4) % 4 == 0, !g.flipH, !g.flipV {
-            // The cut's top-left on the picture, held inside it.
-            let x = min(max(Int(toSource.tx.rounded()), 0), max(image.width - ow, 0))
-            let y = min(max(Int(toSource.ty.rounded()), 0), max(image.height - oh, 0))
-            if let cut = image.cropping(to: CGRect(x: x, y: y, width: ow, height: oh)), cut.width == ow, cut.height == oh {
+        if drawing == nil, let rect = plainCut(of: image, by: g) {
+            if let cut = image.cropping(to: rect), cut.width == ow, cut.height == oh {
                 return cut
             }
         }
         guard let ctx = context(like: image, width: ow, height: oh) else {
             throw Failure.notMade("no room to cut the picture (\(ow) x \(oh))")
         }
+        ctx.saveGState()
         ctx.interpolationQuality = g.angle == 0 ? .none : .high
         // Output pixels with a top-left origin, as the map has them.
         ctx.translateBy(x: 0, y: CGFloat(oh))
@@ -60,6 +78,8 @@ enum FinishedCut {
         ctx.translateBy(x: 0, y: size.height)
         ctx.scaleBy(x: 1, y: -1)
         ctx.draw(image, in: CGRect(origin: .zero, size: size))
+        ctx.restoreGState()
+        drawing?(ctx, CGSize(width: ow, height: oh))
         guard let made = ctx.makeImage() else { throw Failure.notMade("the cut picture could not be made") }
         return made
     }

@@ -20,8 +20,9 @@
 //  4. **Asked again while the last page is going** (the cover's reversed dismissal, measured on 2.1.3):
 //     `cycles` times, Cancel then a drop or an Import 0–450 ms later — each gets a *new* page with the
 //     new picks, and each Cancel takes it off the screen.
-//  5. **Two drops before the page is up** join; **a drop while the page asks Finder** is refused and its
-//     temporary copies removed; the panel cancelled closes the page.
+//  5. **Two drops before the page is up** join; **a drop while Import asks Finder** is refused and its
+//     temporary copies removed; the panel cancelled leaves nothing on screen (the check answers the panel,
+//     `MacOpenPanel.debugAnswer`: Finder comes first, from the library, 2026-11-16).
 //  6. **The owner's flow**: *New Catalog…* (the save panel answered), the catalog made and open and
 //     empty; Import, its Finder panel cancelled; then a drop — the page opens with *Import To* that
 //     catalog and *Add to Catalog*. And the same with the import page itself cancelled.
@@ -148,11 +149,13 @@ enum MacImportDropCheck {
     }
 
     /// The AppKit open panel the page shows (a sheet on the window), when it is up.
-    private static func openPanel() -> NSObject? {
+    /// `visible: false`: one begun but not (yet) on screen too — a sheet of an app in the background may
+    /// never be drawn, and its panel answers Cancel by itself a minute later (measured 2026-11-16).
+    static func openPanel(visible: Bool = true) -> NSObject? {
         guard let cls = NSClassFromString("NSApplication") as? NSObject.Type,
               let app = cls.perform(NSSelectorFromString("sharedApplication"))?.takeUnretainedValue() as? NSObject,
               let windows = app.value(forKey: "windows") as? [NSObject] else { return nil }
-        return windows.first { NSStringFromClass(type(of: $0)).contains("OpenPanel") && ($0.value(forKey: "visible") as? Bool) == true }
+        return windows.first { NSStringFromClass(type(of: $0)).contains("OpenPanel") && (!visible || ($0.value(forKey: "visible") as? Bool) == true) }
     }
 
     private static func waitFor(_ seconds: Double, _ ok: () -> Bool) async -> Bool {
@@ -407,20 +410,26 @@ enum MacImportDropCheck {
             await cancel(s)
             await clear()
 
-            library.importAsked = true          // Import: the page asks Finder as it opens
-            let panelUp = await waitFor(8) { openPanel() != nil && MacImportDrop.open?.finderUp == true }
-            r.check(panelUp, "Import shows the Finder panel")
+            // Import asks Finder first, from the library (2026-11-16); the check answers the panel
+            // (`MacOpenPanel.debugAnswer`: Cancel, after a while), as a background app cannot press it.
+            MacOpenPanel.debugAnswer = .some(nil)
+            MacOpenPanel.debugAnswerAfter = .milliseconds(800)
+            library.askImport(store)
+            let panelUp = await waitFor(2) { library.importFinding }
+            r.check(panelUp, "Import asks Finder")
             if panelUp {
-                r.check(!MacImportDrop.accepts(router), "a drop is refused while the page asks Finder")
+                r.check(!MacImportDrop.accepts(router), "a drop is refused while Import asks Finder")
                 let temp = tempCopy(of: loose)
                 MacImportDrop.receive(.init(urls: [temp], copies: true), router: router)
                 r.check(library.droppedPicks == nil, "and is not kept for later")
                 r.check(!fm.fileExists(atPath: temp.path), "its temporary copy is removed")
-                openPanel()?.perform(NSSelectorFromString("cancel:"), with: nil)
+                _ = await waitFor(3) { !library.importFinding }
                 let off = await gone()
                 r.record("5 drop under the Finder panel", ["gone_ms": off, "covers": covers()])
-                r.check(off >= 0, "the panel cancelled with nothing picked closes the page (\(covers()))")
+                r.check(off >= 0 && covers().isEmpty, "the panel cancelled with nothing picked leaves nothing on screen (\(covers()))")
             }
+            MacOpenPanel.debugAnswer = nil
+            MacOpenPanel.debugAnswerAfter = .zero
             await clear()
         }
 
@@ -436,11 +445,13 @@ enum MacImportDropCheck {
             r.check(why == nil && made != nil && store.selectedSourceID == made?.id, "New Catalog… makes the catalog and opens it")
             r.check(store.images.isEmpty, "empty")
 
-            library.importAsked = true
-            let panelUp = await waitFor(8) { openPanel() != nil }
-            r.check(panelUp, "Import shows the Finder panel")
-            openPanel()?.perform(NSSelectorFromString("cancel:"), with: nil)
-            r.check(await gone() >= 0, "its Finder panel cancelled closes the import page (\(covers()))")
+            MacOpenPanel.debugAnswer = .some(nil)
+            MacOpenPanel.debugAnswerAfter = .milliseconds(300)
+            library.askImport(store)
+            r.check(await waitFor(2) { library.importFinding }, "Import asks Finder")
+            _ = await waitFor(3) { !library.importFinding }
+            MacOpenPanel.debugAnswerAfter = .zero
+            r.check(await gone() >= 0 && covers().isEmpty, "its Finder panel cancelled leaves nothing on screen (\(covers()))")
 
             r.check(drop([folder], router: router), "then the window takes a drop")
             let s = await pageUp()

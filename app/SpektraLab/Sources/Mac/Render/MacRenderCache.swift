@@ -287,7 +287,8 @@ final class MacRenderCache {
         guard let pass, let model, let m = FullRenderJobs.made(f, darkroom: model.darkroom), let reader = FullRenderJobs.reader(m) else { return nil }
         let finished = reader.header.finished
         return LightTableFullRef(url: m.ask.url, stamp: m.ask.stamp, adjustments: f.edit.adjustments,
-                                 bytes: Int64(reader.header.fileBytes), longEdge: max(finished.width, finished.height), pass: pass)
+                                 bytes: Int64(reader.header.fileBytes), longEdge: max(finished.width, finished.height), pass: pass,
+                                 marks: WatermarkComposite.Laid(f.edit, isComposite: f.isComposite))
     }
 
     /// Films on the table with nothing kept as large as they are shown: one job each, the first time.

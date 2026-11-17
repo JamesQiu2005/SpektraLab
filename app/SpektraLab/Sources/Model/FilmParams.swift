@@ -601,7 +601,7 @@ struct FilmParams: Codable, Equatable, Sendable {
             antihalationRemoved = "antihalationRemoved"
         case printBrightnessStops = "printBrightnessStops", yFilterShift = "yFilterShift",
             mFilterShift = "mFilterShift", glareActive = "glareActive", scanFilm = "scanFilm"
-        case extendedDynamicRange = "extendedDynamicRange", preflashExposure = "preflashExposure",
+        case edrValue = "extendedDynamicRange", edrChosenOff = "edrOff", preflashExposure = "preflashExposure",
             contrastMask = "contrastMask", sceneLatitude = "sceneLatitude", effects = "effects",
             printEffects = "printEffects"
         case digitalIntermediate = "digitalIntermediate"
@@ -700,7 +700,37 @@ struct FilmParams: Codable, Equatable, Sendable {
     /// This is a print-layer choice, so it reprints the cached negative. The
     /// preference is retained when `scanFilm` is selected, but is made
     /// ineffective on the direct film-scan path.
-    var extendedDynamicRange: Bool = false
+    ///
+    /// **Remembered like Enable HDR** (the owner, 2026-11-16: "EDR on / off status is also remembered for all
+    /// pictures … an enable EDR by default switch in settings as well"): a frame that never chose follows Settings'
+    /// Enable EDR by Default (`edrByDefault`, `AppSettings.edrByDefault`); the page's switch sets the frame's choice
+    /// and moves that default (`OpenFrameSession.switchEDR`). **Compare by `edrChoice`, never by this** — the setter
+    /// writes the choice, as `FrameEdit.hdr`'s does.
+    ///
+    /// **HDR and EDR are never both on** (the owner, 2026-11-16): the two defaults are exclusive (`AppSettings`), and a
+    /// frame whose own Enable HDR is on (`FrameEdit.hdrChoice`) and that never chose EDR does not follow EDR's default
+    /// (`yieldsToHDR`): its own choice is not undone by one made on another photograph. A frame that chose EDR on keeps
+    /// it, and its HDR stands down as it always did ("Off while EDR is on").
+    var extendedDynamicRange: Bool {
+        get { edrChoice ?? (Self.edrByDefault && !yieldsToHDR) }
+        set { edrChoice = newValue }
+    }
+    /// The frame's own Enable HDR is on (kept by `FrameEdit`, which owns that choice; never coded, never on the wire).
+    var yieldsToHDR = false
+    /// The frame's own choice; nil follows the default. Kept in the JSON as it always was, so an edit that never chose
+    /// (`extendedDynamicRange: false`) and one that chose on (`true`) are byte for byte what they were, and a 2.4.0 build
+    /// reads them as it did: only a frame that chose off writes a second key (`edrOff: true`), since `false` alone is
+    /// the never-chosen state. An edit from before the default existed reads `true` as chosen on and `false` as never
+    /// chosen (2.4.0's off was the only default there was).
+    var edrChoice: Bool? {
+        get { edrValue ? true : (edrChosenOff == true ? false : nil) }
+        set { edrValue = newValue == true; edrChosenOff = newValue == false ? true : nil }
+    }
+    private var edrValue = false
+    private var edrChosenOff: Bool? = nil
+    /// Settings' Enable EDR by Default (`AppSettings.edrByDefault` sets it at launch and on a change). Off until turned
+    /// on, there or by the page's switch.
+    nonisolated(unsafe) static var edrByDefault = false
 
     /// The backend only applies EDR to an actual print profile. Keep the
     /// user's preference in the sidecar while making the wire value false for
@@ -801,7 +831,7 @@ struct FilmParams: Codable, Equatable, Sendable {
         glareActive = true
         scanFilm = false
         digitalIntermediate = false
-        extendedDynamicRange = false
+        edrChoice = nil
         preflashExposure = 0
         contrastMask = ContrastMaskSettings()
         sceneLatitude = SceneLatitudeSettings()
@@ -836,7 +866,8 @@ struct FilmParams: Codable, Equatable, Sendable {
         glareActive = try c.decode(Bool.self, forKey: .glareActive)
         scanFilm = try c.decode(Bool.self, forKey: .scanFilm)
         digitalIntermediate = try c.decodeIfPresent(Bool.self, forKey: .digitalIntermediate) ?? false
-        extendedDynamicRange = try c.decodeIfPresent(Bool.self, forKey: .extendedDynamicRange) ?? false
+        edrValue = try c.decodeIfPresent(Bool.self, forKey: .edrValue) ?? false
+        edrChosenOff = try c.decodeIfPresent(Bool.self, forKey: .edrChosenOff)
         preflashExposure = try c.decodeIfPresent(Double.self, forKey: .preflashExposure) ?? 0
         contrastMask = try c.decodeIfPresent(ContrastMaskSettings.self, forKey: .contrastMask)
             ?? ContrastMaskSettings()
@@ -996,6 +1027,10 @@ struct FilmParams: Codable, Equatable, Sendable {
                                                        "lens_aberrations_active": .bool(false), "overscan_falloff": .double(0),
                                                        "overscan_perforation": .string("none"),
                                                        "date_imprint_data_placement": .string("gap"),
+                                                       // API-SPEC §21.8: 随机's seed, sent only while non-zero.
+                                                       "leak_seed": .double(0),
+                                                       // API-SPEC §21.9 (2026-11-16): the edge burn, sent only while on.
+                                                       "leak_edge": .double(0),
                                                        // PRD-E (RFC-052 §6.4): sent only while a 场景 layer acts; its
                                                        // rest takes the set away from an open session.
                                                        "scene_layers": .string("")]

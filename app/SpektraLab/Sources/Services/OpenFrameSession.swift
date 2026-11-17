@@ -89,9 +89,35 @@ final class OpenFrameSession {
     /// The edit the page's picture was developed from (`landed`): its framing is the one the picture has, which an
     /// edit that moved the crop, the turns or the film edge is ahead of until its develop lands.
     @ObservationIgnored private var pictureOf: FrameEdit?
+    /// The 底片 marks the page's picture was developed with (`pictureOf`'s), observed through the picture itself: the
+    /// canvas's overlay draws a 底片 mark only while the picture is not of it (`WatermarkCanvasStage`).
+    var developedBaseMarks: [WatermarkPlacement] {
+        _ = developed
+        return pictureOf.map { WatermarkRules.base($0, isComposite: false) } ?? []
+    }
 
     /// `e`'s 成片 layers for the picture the page shows: its layers and Edit's switch, through the framing that picture
     /// was developed with — so a mask never lands on an older picture by a newer crop's matrix (RFC-052 §7).
+    /// What Edit's pass lays on the page's picture for `e`: its 成片 layers, and its 成片 watermarks over them
+    /// (`WatermarkComposite.Laid`; none while the canvas draws them live, `watermarkOverlayLive`).
+    private func showFinished(_ e: FrameEdit) {
+        layer2.show(layers: shownLayers(e))
+        layer2.show(marks: shownMarks(e))
+    }
+
+    /// The photograph's 成片 watermarks as the page's pass lays them (`WatermarkRules.finished`): nil on a pair or a
+    /// double, and while a watermark's row is picked — the canvas's overlay draws them then, at the pointer's rate.
+    private func shownMarks(_ e: FrameEdit) -> WatermarkComposite.Laid? {
+        guard let frame, !watermarkOverlayLive else { return nil }
+        return WatermarkComposite.Laid(e, isComposite: frame.isComposite)
+    }
+
+    /// Whether the canvas draws the watermarks itself (a watermark's row picked): the page's picture is then laid
+    /// without them, so they are not drawn twice.
+    var watermarkOverlayLive = false {
+        didSet { if watermarkOverlayLive != oldValue { layer2.show(marks: shownMarks(edit)) } }
+    }
+
     private func shownLayers(_ e: FrameEdit) -> FinishedLayers? {
         guard let frame else { return nil }
         var on = pictureOf ?? e
@@ -275,6 +301,7 @@ final class OpenFrameSession {
         lensResolution = kept.flatMap { Self.lensNow($0, edit: current) }
         layer2.show(adjustments: current.adjustments)
         layer2.show(picture: Layer2Live.picture(for: kept, developed: nil, edit: current))
+        layer2.show(marks: kept.flatMap { WatermarkComposite.Laid(current, isComposite: $0.isComposite) })
         // Its 成片 layers follow once the app hands the resolver (`finishedLayers`, set just after this).
         let placement = current.params.sceneLatitude
         // Pull-backs that were never solved — dragged in a build with no engine,
@@ -418,7 +445,7 @@ final class OpenFrameSession {
             visit = Visit(began: now, edit: edit, settled: edit, pair: pair, settledPair: pair, clock: SurfaceClock(on: surface, at: now))
             // A page taken up again: the layer is drawn on what the page shows until its develop lands.
             layer2.show(adjustments: edit.adjustments)
-            layer2.show(layers: shownLayers(edit))
+            showFinished(edit)
             layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: edit))
         }
         holders += 1
@@ -561,17 +588,18 @@ final class OpenFrameSession {
 
     /// The camera's own white balance was read at the decode: the page's edit
     /// takes it too, without asking for a develop — the picture is already of it.
+    /// Each axis the edit has As Shot (2.4.1: 色调 has its own), the other left as it is.
     func readAsShot(_ temperature: Double, _ tint: Double) {
-        guard edit.decode.whiteBalance == .asShot else { return }
-        edit.decode.temperature = temperature
-        edit.decode.tint = tint
-        rendered.decode.temperature = temperature
-        rendered.decode.tint = tint
+        guard edit.decode.readsCamera else { return }
+        let (warm, shift) = (edit.decode.temperatureAsShot, edit.decode.tintAsShot)
+        func read(_ d: inout DecodeSettings) {
+            if warm { d.temperature = temperature }
+            if shift { d.tint = tint }
+        }
+        read(&edit.decode)
+        read(&rendered.decode)
         // Read, not set by a hand: no change of the visit's.
-        visit?.edit.decode.temperature = temperature
-        visit?.edit.decode.tint = tint
-        visit?.settled.decode.temperature = temperature
-        visit?.settled.decode.tint = tint
+        if visit != nil { read(&visit!.edit.decode); read(&visit!.settled.decode) }
     }
 
     /// Decode provenance is readback, not a hand edit or a new render.
@@ -660,7 +688,7 @@ final class OpenFrameSession {
         } else {
             pictureOf = nil
         }
-        layer2.show(layers: shownLayers(moving.map { var e = edit; e.adjustments = $0; return e } ?? edit))
+        showFinished(moving.map { var e = edit; e.adjustments = $0; return e } ?? edit)
         layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: edit))
     }
 
@@ -730,7 +758,18 @@ final class OpenFrameSession {
     /// switched.
     func switchHDR(_ on: Bool) {
         change { $0.hdr = on }
+        // On, it is what is remembered, and EDR's default goes off (`AppSettings.hdrByDefault`: never both).
         if settings.hdrByDefault != on { settings.hdrByDefault = on }
+    }
+
+    /// **Extended Dynamic Range switched** on this photograph (the print's, `HighDynamicRangeGroup`'s row, the driver's
+    /// `edr.on`/`edr.off`): as `switchHDR` — the photograph's own choice, one undo step, **and Settings' Enable EDR by
+    /// Default** (the owner, 2026-11-16: "EDR on / off status is also remembered for all pictures"). HDR and EDR are never
+    /// both remembered: switched on, EDR's is the default and HDR's goes off (`AppSettings.edrByDefault`); switched off,
+    /// only EDR's own default goes off.
+    func switchEDR(_ on: Bool) {
+        change { $0.params.extendedDynamicRange = on }
+        if settings.edrByDefault != on { settings.edrByDefault = on }
     }
 
     private func changeWithoutHistory(_ mutate: (inout FrameEdit) -> Void) {
@@ -745,10 +784,7 @@ final class OpenFrameSession {
     func acceptKeptEdit(_ wanted: FrameEdit) {
         var comparable = edit
         comparable.solvedEV = wanted.solvedEV
-        if comparable.decode.whiteBalance == .asShot, wanted.decode.whiteBalance == .asShot {
-            comparable.decode.temperature = wanted.decode.temperature
-            comparable.decode.tint = wanted.decode.tint
-        }
+        comparable.decode.keepCamera(of: wanted.decode)
         if comparable == wanted { commit(wanted, pieceMoved: false) }
         else { change { $0 = wanted } }
     }
@@ -1017,6 +1053,8 @@ final class OpenFrameSession {
         // A mask layer that changes nothing the 场景 stage's wire sees (a 成片 layer, a name, a part switched off and on
         // again) is made after it, as Edit's layer is; a 场景 layer's change is the film's (`ChangeDescriber.layers`).
         if ChangeDescriber.sceneLayers(edit) == ChangeDescriber.sceneLayers(next) { same.layers = next.layers }
+        // A 成片 watermark is laid over the full render's detail when it is shown (`FullDetail`); a 底片 one is in it.
+        if ChangeDescriber.baseMarks(edit) == ChangeDescriber.baseMarks(next) { same.watermarks = next.watermarks }
         // Enable HDR: a print's is the same full render (D3) — but a slide's develop is its stretched scan.
         // The stored choice, not `hdr`.
         if HDRGain.sdrWire(for: next) == HDRGain.sdrWire(for: edit) { same.hdrChoice = next.hdrChoice }
@@ -1038,7 +1076,7 @@ final class OpenFrameSession {
         if hdrTurnedOn { askCurve() }
         // Layer 2 follows the edit at once: it is the GPU's pass, not a render.
         layer2.show(adjustments: next.adjustments)
-        layer2.show(layers: shownLayers(next))
+        showFinished(next)
         layer2.show(picture: Layer2Live.picture(for: frame, developed: developed, edit: next))
         // The Latitude card follows the placement, not the develop: a solve is
         // not a render.
@@ -1257,7 +1295,7 @@ final class OpenFrameSession {
         // Edit switched off under a finger takes its layers with it (`FinishedLayers.of`).
         if next.enabled != edit.adjustments.enabled {
             var e = edit; e.adjustments = next
-            layer2.show(layers: shownLayers(e))
+            showFinished(e)
         }
     }
 
@@ -1382,7 +1420,32 @@ final class OpenFrameSession {
     /// A single photograph's picked mask layer (gap G2): the page's state, kept across 冲洗 and 编辑 as a pair's
     /// pick is; nil is 胶片. A pick whose layer has gone (removed, undone away) reads as 胶片 (`LayerRules.held`), and
     /// comes back with it.
-    var maskPick: UUID?
+    var maskPick: UUID? {
+        // One row is picked: a mask layer picked is no watermark picked.
+        didSet { if maskPick != nil, watermarkPick != nil { watermarkPick = nil } }
+    }
+    /// A single photograph's picked watermark (PRD-8 on the Mac: a layer of 图层): the page's state, as `maskPick` is;
+    /// nil is no watermark row. While one is picked the canvas draws the marks itself (`watermarkOverlayLive`).
+    var watermarkPick: UUID? {
+        didSet {
+            guard watermarkPick != oldValue else { return }
+            // A gesture the canvas never saw end (its view went with the row, or the pointer was taken from it) ends here:
+            // its marks are the edit's, its one Undo step closed, the picture developed of them.
+            if movingMarks != nil { endedWatermark() }
+            if watermarkPick != nil, maskPick != nil { maskPick = nil }
+            watermarkSelected = watermarkPick != nil
+            watermarkOverlayLive = watermarkPick != nil
+        }
+    }
+    /// Whether the picked watermark wears its handles on the canvas: a click off it puts them away, the row stays
+    /// picked (and ↑ ↓ ← → walk the rows and the photographs again); a click on it, or its row, brings them back.
+    var watermarkSelected = false
+    /// The marks under a gesture on the canvas, not yet the edit's (`WatermarkActs`). Observed: the overlay reads it.
+    var movingMarks: [WatermarkPlacement]?
+    /// The finished canvas as the page last laid it out (its points): the shape a new mark is centred on.
+    @ObservationIgnored var watermarkCanvas: CGSize = .zero
+    /// Where the 底片 canvas lies on the 成片 one, as the canvas last showed them (`WatermarkCanvases`); nil until shown.
+    @ObservationIgnored var watermarkCanvases: WatermarkCanvases?
     /// The layer whose stage was switched with adjustments that were not zero (drawing 11): the line under the switch
     /// with 撤销. Gone with the next change of the edit or the next pick.
     var stageNotice: UUID?
@@ -1576,7 +1639,7 @@ final class OpenFrameSession {
         // Only what changes the 场景 stage's wire waits for a develop; a 成片 layer, its opacity included, is the pass's.
         var shown = edit
         shown.layers = next.kept
-        layer2.show(layers: shownLayers(shown))
+        showFinished(shown)
         guard layer.stage == .scene else { return }
         // Written only when it changes: an observed property notifies on every write, and the page's status line
         // reads the scheduler — a write per pointer move re-made the whole Develop page each move (2.4.0 A1: the main
@@ -1619,9 +1682,28 @@ final class OpenFrameSession {
 
     // MARK: asking for the render
 
+    /// What the page's picture is developed of: the edit — and **under a gesture on the marks, the edit without its 底片
+    /// marks** (the owner's hand test of 2.4.1, 2026-11-16: "when dragging it, the old location of watermark is still
+    /// shown on canvas"). A 底片 mark is in the developed picture, so a picture of the edit carries it at its old place
+    /// while the overlay draws it at the pointer's; under the gesture the page develops the frame without them (from its
+    /// kept clean decode: no decode) and the overlay draws every 底片 mark live (`WatermarkCanvasStage.drawsLive`), until
+    /// the lift develops them where they went. One develop at the gesture's first move; a click that moves nothing asks
+    /// for none.
+    var developTarget: FrameEdit {
+        guard movingMarks != nil, let frame, !frame.isComposite else { return edit }
+        return WatermarkRules.underGesture(edit, isComposite: false)
+    }
+
+    /// Whether the page's picture is being developed without the 底片 marks the edit has (`developTarget`): the zoom's
+    /// full render, which carries them, is not laid over it meanwhile.
+    var cleanUnderGesture: Bool { developTarget != edit }
+
+    /// A gesture on the marks moved them: under it, the picture without the 底片 marks is asked for (`developTarget`).
+    func requestUnderGesture() { request() }
+
     private func request() {
         guard let frame else { return }
-        let target = edit
+        let target = developTarget
         let layers = owed(to: target)
         guard !layers.isEmpty else { return }
         // Already on its way.
@@ -1693,7 +1775,8 @@ final class OpenFrameSession {
         // engine asks for them on its own queue. A frame with nothing to develop
         // from (a demo picture, an original that is away) is not submitted.
         if let darkroom, !darkroom.prepare(job, frame: frame, edit: target, purpose: .canvas,
-                                           longEdge: frame.previewDevelopLongEdge(target)) { return }
+                                           longEdge: frame.previewDevelopLongEdge(target),
+                                           keepsBaseSource: target != edit) { return }
         let id = scheduler.submit(job)
         let piece = frame.pair, double = frame.double?.developed
         asked = (id, target, piece, double)
@@ -1960,10 +2043,7 @@ private extension FrameEdit {
         var e = self
         e.params.sceneLatitude = params.sceneLatitude.withoutPlacement
         e.placementNeedsFit = false
-        if e.decode.whiteBalance == .asShot {
-            e.decode.temperature = 0
-            e.decode.tint = 0
-        }
+        e.decode = e.decode.withoutCameraNumbers()
         return e
     }
 }

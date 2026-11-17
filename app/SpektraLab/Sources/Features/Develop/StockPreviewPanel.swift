@@ -26,46 +26,40 @@ struct StockPreviewPanel: View {
     /// the host's two pills share a line. The column's rows are tight: no gap between them, the cards' row with 8 pt
     /// under it, Apply Film Emulation a 32 pt row with a small switch.
     var foldable = false
+    /// The desktop's column (the owner, 2026-11-16; `StockPreviewGrid.swift`, `StockGridPanel.swift`): the height the
+    /// column shows of this panel at once, and the column's width. With them the two strips are **grids that
+    /// scroll up and down**, each as tall as it was dragged (`StripSplit`); the column still scrolls the panel as
+    /// one, Decode under the strips. Nil: the rows, as before.
+    var room: CGFloat? = nil
+    var width: CGFloat = 0
+    private var heights: StockGridHeights { .shared }
     private var prefs: DevelopPanelPrefs { .shared }
     private var filmFolded: Bool { foldable && prefs.filmRowCollapsed }
     private var paperFolded: Bool { foldable && prefs.paperRowCollapsed }
     @State private var visible: Set<String> = []
-    /// The shelf each strip is narrowed to (`StockShelf`); All when the page opens.
-    @State private var filmShelf = StockShelf.all
-    @State private var paperShelf = StockShelf.all
+    /// The shelf each strip is narrowed to (`StockShelf`) by kind; All when the page opens. Favourites is the row's
+    /// own and stays once chosen (`StockShelfMemory`), so the shelf a row shows is `filmShelf` / `paperShelf`.
+    @State private var filmKind = StockShelf.all
+    @State private var paperKind = StockShelf.all
+    private var memory: StockShelfMemory { .shared }
+    private var filmShelf: StockShelf { memory.shelf(.film, otherwise: filmKind) }
+    private var paperShelf: StockShelf { memory.shelf(.paper, otherwise: paperKind) }
     /// This page's claim on what the strip shows (`StripClients`).
     @State private var client = UUID()
 
     private var filmCards: [StockPreviewCard] { filmShelf.cards(strip.filmCards) }
     /// Every paper, those that cannot print the film greyed (`StockPreviewRules.paperShelf`);
     /// live are `strip.paperCards` that also print a film on the film row's shelf.
-    private var paperCards: [StockPreviewCard] {
-        paperShelf.cards(StockPreviewRules.paperShelf(under: session.edit.params.filmStock))
+    private var paperCards: [StockPreviewCard] { paperShelf.cards(allPaperCards) }
+    /// The row before its shelf: what the pill's menu is dimmed by, whatever shelf is chosen.
+    private var allPaperCards: [StockPreviewCard] {
+        StockPreviewRules.paperShelf(under: session.edit.params.filmStock)
     }
     private func serves(_ card: StockPreviewCard) -> Bool {
         card.strip == .film || StockPreviewRules.paperServes(card.stock, filmShelf: filmShelf)
     }
     private var cards: [StockPreviewCard] { (filmCards + paperCards).filter { strip.isLive($0) && serves($0) } }
-    /// No paper is chosen under a slide: it is scanned.
     private var chosenPaper: String { StockPreviewRules.chosenPaper(session.edit.params) }
-    /// The panel's height with `rows` rows to each strip, laid as the column lays them, Decode
-    /// showing its shortest part (Exposure): a taller part scrolls, rather than the strips losing a
-    /// row under the pointer each time a chip is chosen.
-    /// A folded strip (`foldable`) is its pill's line alone.
-    /// `decodeFolded`: a wide window's Decode folded to its title line (`DecodeSection.foldedHeight`) gives its
-    /// rows to the strips, as a folded strip gives its to the other. The 2026-11-06 review: the 126 pt of an
-    /// unfolded Decode were held for it folded too, so at 1427 × 977 the HDR row's 54 pt took both strips from two
-    /// rows to one, with ~280 pt left empty under it.
-    /// The foldable column's (the only one that asks): two headers, the open strips' rows with their 8 pt, Decode
-    /// (`DecodeSection.stackedHeight` open) and Apply Film Emulation's row, no gaps between them.
-    static func height(rows: Int, compact: Bool, filmFolded: Bool = false, paperFolded: Bool = false,
-                       decodeFolded: Bool = false) -> CGFloat {
-        let header = ColumnSectionHeader<EmptyView>.height
-        let row = StockPreviewRow.height(compact: compact, rows: rows) + Self.stripGap
-        let decode = decodeFolded ? DecodeSection.foldedHeight : DecodeSection.stackedHeight
-        return 2 * header + (filmFolded ? 0 : row) + (paperFolded ? 0 : row) + decode + Self.switchHeight
-    }
-
     /// Under a foldable strip's cards, before the next header.
     static let stripGap: CGFloat = 8
     /// Apply Film Emulation's row in the foldable column: its hairline and its 32 pt line.
@@ -76,21 +70,9 @@ struct StockPreviewPanel: View {
     private var appliesFilm: Bool { session.edit.appliesFilm }
 
     var body: some View {
-        VStack(spacing: foldable ? 0 : (compact ? 6 : 10)) {
-            // A foldable strip greys its pill and cards itself: its fold still works with the film off.
-            Group { strips }.rowEnabled(appliesFilm || foldable)
-            if let decode {
-                decode
-            } else {
-                EditSlider(title: L("Film Exposure"), value: session.binding(\.params.exposureCompensationEV),
-                           range: -8...8, text: { Fmt.signed($0) + " EV" }, detentAtRest: true, editing: session.editing(.shoot))
-                    .padding(.horizontal, 16)
-                    .rowEnabled(appliesFilm)
-            }
-            if session.pair == nil { filmSwitch }
-            if let status { StatusFoot(status: status) }
+        Group {
+            if room != nil, foldable { gridColumn } else { rowsColumn }
         }
-        .padding(.top, foldable ? 0 : 8)
         .onChange(of: session.edit, initial: true) { _, edit in strip.edit = edit }
         .onChange(of: visible) { _, _ in show() }
         .onChange(of: strip.paperCards) { _, _ in show() }
@@ -98,6 +80,8 @@ struct StockPreviewPanel: View {
         .onChange(of: session.edit.params.filmStock) { _, _ in show() }
         .onChange(of: appliesFilm) { _, _ in show() }
         .onChange(of: paperShelf) { _, _ in show() }
+        // A star put on or taken off changes what the Favourites shelf holds.
+        .onChange(of: StockPersonal.shared.revision) { _, _ in show() }
         // A folded strip's cards are not on screen: they are not asked for.
         .onChange(of: filmFolded) { _, folded in if folded { visible.subtract(filmCards.map(\.slot)) } }
         .onChange(of: paperFolded) { _, folded in if folded { visible.subtract(paperCards.map(\.slot)) } }
@@ -110,10 +94,105 @@ struct StockPreviewPanel: View {
         // last frame's strip was let go with its session (`StockStrip.leave`). The shelves back to All, as a page made
         // for the frame opened; the rows' sideways places are kept (the same cards, in the same order).
         .onChange(of: ObjectIdentifier(strip)) { _, _ in
-            filmShelf = .all; paperShelf = .all
+            filmKind = .all; paperKind = .all
             strip.edit = session.edit
             show()
         }
+    }
+
+    /// The rows: each strip a row of cards that scrolls sideways, Decode and the switch under them.
+    private var rowsColumn: some View {
+        VStack(spacing: foldable ? 0 : (compact ? 6 : 10)) {
+            // A foldable strip greys its pill and cards itself: its fold still works with the film off.
+            Group { strips }.rowEnabled(appliesFilm || foldable)
+            rest
+        }
+        .padding(.top, foldable ? 0 : 8)
+    }
+
+    /// Under the strips: Decode (or the slider alone), Apply Film Emulation, the status line.
+    @ViewBuilder private var rest: some View {
+        if let decode {
+            decode
+        } else {
+            EditSlider(title: L("Film Exposure"), value: session.binding(\.params.exposureCompensationEV),
+                       range: -8...8, text: { Fmt.signed($0) + " EV" }, detentAtRest: true, editing: session.editing(.shoot))
+                .padding(.horizontal, 16)
+                .rowEnabled(appliesFilm)
+        }
+        if session.pair == nil { filmSwitch }
+        if let status { StatusFoot(status: status) }
+    }
+
+    // MARK: the desktop's grids
+
+    /// What the two heights are decided in (`StripSplit`): the room the column shows, the two headers and the open
+    /// strips' grips, each strip from a maker's header over one row to its cards, and what is left on screen under
+    /// strips nobody dragged — Decode's header and its shortest part (its header alone when folded), the switch.
+    private var gridRoom: StripSplit.Room {
+        let w = Double(width)
+        func section(_ cards: [StockPreviewCard], folded: Bool, dragged: Double?, standard: Double) -> StripSplit.Section {
+            let groups = StockPreviewRules.groups(cards).map { (headed: !$0.brand.isEmpty, count: $0.cards.count) }
+            return .init(open: !folded, min: StockGridRule.minHeight(width: w),
+                         content: StockGridRule.contentHeight(groups: groups, width: w), dragged: dragged, standard: standard)
+        }
+        let header = ColumnSectionHeader<EmptyView>.height
+        let grips = (filmFolded ? 0 : StripSplitGrip.height) + (paperFolded ? 0 : StripSplitGrip.height)
+        let decodeLeast: CGFloat = decode == nil ? 60 : prefs.decodeCollapsed ? DecodeSection.foldedHeight : DecodeSection.stackedHeight
+        let foot = (session.pair == nil ? Self.switchHeight : 0) + (status == nil ? 0 : StatusFoot.height)
+        return StripSplit.Room(room: Double(room ?? 0), chrome: Double(2 * header + grips), lead: Double(header + StripSplitGrip.height),
+                               restMin: Double(decodeLeast + foot),
+                               film: section(filmCards, folded: filmFolded, dragged: heights.film, standard: StockGridRule.defaultFilm(width: w)),
+                               paper: section(paperCards, folded: paperFolded, dragged: heights.paper, standard: StockGridRule.defaultPaper(width: w)))
+    }
+
+    private var gridColumn: some View {
+        let layout = gridRoom
+        let split = StripSplit.resolve(layout)
+        return VStack(spacing: 0) {
+            ColumnSectionHeader(title: L("Film"), folded: filmFolded, id: "film",
+                                toggleFold: { prefs.filmRowCollapsed.toggle() }) {
+                filmPill(small: true).rowEnabled(appliesFilm)
+                if let crop { cropButton(crop).rowEnabled(appliesFilm) }
+            }
+            if !filmFolded {
+                filmGrid.frame(height: split.film).rowEnabled(appliesFilm)
+                grip(.film, layout, shown: split.film)
+            }
+            ColumnSectionHeader(title: L("Paper"), folded: paperFolded, id: "paper",
+                                toggleFold: { prefs.paperRowCollapsed.toggle() }) {
+                paperPill(small: true).rowEnabled(appliesFilm)
+            }
+            if !paperFolded {
+                paperGrid.frame(height: split.paper).rowEnabled(appliesFilm)
+                grip(.paper, layout, shown: split.paper)
+            }
+            rest
+        }
+    }
+
+    // A new shelf is a new grid: it starts at its chosen card, or at its first.
+    private var filmGrid: some View {
+        StockGrid(session: session, strip: strip, cards: filmCards, selected: session.edit.params.filmStock,
+                  width: width, name: "film", visible: $visible, active: appliesFilm).id(filmShelf)
+    }
+    private var paperGrid: some View {
+        StockGrid(session: session, strip: strip, cards: paperCards, selected: chosenPaper,
+                  width: width, name: "paper", visible: $visible, serves: serves, active: appliesFilm).id(paperShelf)
+    }
+
+    /// A strip's grip, under its cards: it sizes the strip above it and nothing else (`StripSplit.drag`). Each step
+    /// tells the height when the press began and the pointer's travel since, in the page's points (round 4: read in the
+    /// window, `StripSplitGrip`). What a drag leaves is kept when it ends.
+    private func grip(_ which: StripSplit.Grip, _ layout: StripSplit.Room, shown: Double) -> some View {
+        StripSplitGrip(label: which == .film ? L("Film list height") : L("Paper list height"), value: shown,
+                       began: {},
+                       moved: { start, travel in
+                           let height = StripSplit.drag(which, in: layout, from: start, travel: travel)
+                           heights.drag(film: which == .film ? height : nil, paper: which == .paper ? height : nil)
+                       },
+                       ended: { heights.save() })
+            .accessibilityIdentifier("v5.develop.grip." + (which == .film ? "film" : "paper"))
     }
 
     /// The owner, 2026-10-21: "a on / off switch under film exposure called 'apply film emulation'".
@@ -190,10 +269,10 @@ struct StockPreviewPanel: View {
     private var filmPill: some View { filmPill(small: false) }
     private var paperPill: some View { paperPill(small: false) }
     private func filmPill(small: Bool) -> some View {
-        StockShelfPill(title: L("Film"), shelves: StockShelf.film, shelf: $filmShelf, all: strip.filmCards, small: small)
+        StockShelfPill(title: L("Film"), shelves: StockShelf.film, shelf: memory.binding(.film, kind: $filmKind), all: strip.filmCards, small: small)
     }
     private func paperPill(small: Bool) -> some View {
-        StockShelfPill(title: L("Paper"), shelves: StockShelf.paper, shelf: $paperShelf, all: paperCards, small: small)
+        StockShelfPill(title: L("Paper"), shelves: StockShelf.paper, shelf: memory.binding(.paper, kind: $paperKind), all: allPaperCards, small: small)
     }
     // A new shelf is a new row: it starts at its chosen card, or at its first.
     private var filmRow: some View {
@@ -264,6 +343,7 @@ struct EnlargerPaperRow: View {
             .onChange(of: visible) { _, _ in show() }
             .onChange(of: strip.paperCards) { _, _ in show() }
             .onChange(of: shelf) { _, _ in show() }
+            .onChange(of: StockPersonal.shared.revision) { _, _ in show() }
             .onAppear { show() }
             .onDisappear { StripClients.release(strip, by: client) }
             // Another frame on the kept page (2.4.0 A2b): its strip, given the edit and asked for the cards on screen.
@@ -314,6 +394,17 @@ extension StockStrip {
 /// shelf it is on, a chevron, and the shelves in a menu. A shelf with no
 /// card under this film is there and dimmed (a black-and-white film's
 /// papers are silver alone). Develop's two strips and the Enlarger's papers wear it.
+extension StockShelfMemory {
+    /// The pill's shelf: Favourites from the memory, a kind from the page's own state. Choosing a kind ends
+    /// Favourites; choosing Favourites leaves the kind alone (All, once it is left).
+    func binding(_ row: Row, kind: Binding<StockShelf>) -> Binding<StockShelf> {
+        Binding(get: { self.shelf(row, otherwise: kind.wrappedValue) }, set: { chosen in
+            self.choose(chosen, on: row)
+            kind.wrappedValue = chosen == .favourites ? .all : chosen
+        })
+    }
+}
+
 struct StockShelfPill: View {
     let title: String
     let shelves: [StockShelf]
@@ -330,7 +421,7 @@ struct StockShelfPill: View {
                 Button { shelf = s } label: {
                     if s == shelf { Label(s.title, systemImage: "checkmark") } else { Text(s.title) }
                 }
-                .disabled(s.cards(all).isEmpty)
+                .disabled(!s.holdsStock(in: all))
             }
         } label: {
             if small {
@@ -355,6 +446,11 @@ struct StockShelfPill: View {
         .buttonStyle(PressStyle())
         .accessibilityLabel(title)
         .accessibilityValue(shelf.title)
+        // The last favourite taken off while on its shelf: this row goes back to All. Only Favourites can come to hold
+        // nothing under the user's hand; `initial`, as a kept one can open so, and not before the strip has its cards.
+        .onChange(of: shelf.holdsStock(in: all), initial: true) { _, holds in
+            if !holds, shelf == .favourites, !all.isEmpty { shelf = .all }
+        }
     }
 }
 
@@ -405,45 +501,16 @@ struct StockPreviewRow: View {
                                  // A greyed card is never asked for: nothing is rendered on a paper that cannot print the film.
                                  if place != .off, live(card) { visible.insert(card.slot) } else { visible.remove(card.slot) }
                              }) { stock in
-            if let card = byStock[stock] { cell(card, live: live(card)) }
-        }
-    }
-
-    /// One card's button. Its own function, not the `ForEach` closure: as one expression the
-    /// chain below is past what Xcode 26's type checker finishes in time (GitHub's macos-26
-    /// image, 2026-11-08); Xcode 27 managed it.
-    private func cell(_ card: StockPreviewCard, live: Bool) -> some View {
-        Button {
-            // The chosen card again changes nothing (`StockPreviewRules.pick`).
-            let p = session.edit.params
-            switch StockPreviewRules.pick(card, film: p.filmStock, paper: StockPreviewRules.chosenPaper(p)) {
-            case .film(let film): session.change { $0.params.load(film: film) }
-            case .paper(let paper): session.change { $0.params.print(on: paper) }
-            case .digitalIntermediate: session.change { $0.params.scanFilm = false; $0.params.digitalIntermediate = true }
-            case nil: break
+            if let card = byStock[stock] {
+                let chosen = card.stock == selected
+                StockCardButton(session: session, strip: strip, card: card, selected: chosen, live: live(card)) { state, starred in
+                    cardView(card, state: state, starred: starred, selected: chosen, live: live(card))
+                }
             }
-        } label: {
-            cardView(card, selected: card.stock == selected, live: live)
         }
-        .buttonStyle(.plain)
-            .disabled(!live)
-            .accessibilityLabel(accessibilityName(card))
-            .accessibilityIdentifier("stock-preview." + card.slot)
-            .accessibilityValue(live && strip.state(card).isRendering ? L("Developing") : "")
-            .accessibilityAddTraits(card.stock == selected ? .isSelected : [])
-            .accessibilityAction(named: L("Retry")) { strip.refresh() }
-            .contextMenu { if live { Button(L("Retry")) { strip.refresh() } } }
     }
 
-    /// The card's name, and on a paper card the film's recommended paper says so.
-    private func accessibilityName(_ card: StockPreviewCard) -> String {
-        let name: String = StockCatalog.shared.stock(card.stock)?.name ?? (card.isDigitalIntermediate ? L("Digital Intermediate") : card.stock)
-        let recommended = card.strip == .paper && StockCatalog.shared.isRecommendedPairing(film: card.film, paper: card.stock)
-        return recommended ? name + L(", the film's own paper") : name
-    }
-
-    private func cardView(_ card: StockPreviewCard, selected: Bool, live: Bool) -> some View {
-        let state: StockPreviewState? = live ? strip.state(card) : nil
+    private func cardView(_ card: StockPreviewCard, state: StockPreviewState?, starred: Bool, selected: Bool, live: Bool) -> some View {
         let stock = StockCatalog.shared.stock(card.stock)
         let size = StripCard<EmptyView>.size(compact: compact)
         return StripCard(compact: compact, selected: selected, live: live) {
@@ -452,7 +519,7 @@ struct StockPreviewRow: View {
                 Image(uiImage: image).resizable().scaledToFill()
                     .frame(width: size.width, height: size.height).clipped()
             }
-            StripCardCaption(title: stock?.shortName ?? (card.isDigitalIntermediate ? L("Digital Intermediate") : card.stock),
+            StripCardCaption(title: card.shownName,
                              size: labelSize) {
                 if card.strip == .paper, StockCatalog.shared.isRecommendedPairing(film: card.film, paper: card.stock) {
                     Circle().fill(StockCatalog.shared.stock(card.film)?.color ?? .white).frame(width: 5, height: 5).padding(.bottom, 3)
@@ -460,11 +527,98 @@ struct StockPreviewRow: View {
             }
             if state?.isRendering == true {
                 ProgressView().tint(.white).scaleEffect(0.65).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if state == .failed {
-                Image(systemName: "arrow.clockwise").font(.system(size: 10)).padding(5)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
+            // The card's top right holds a failed card's arrow and a favourite's star, the arrow on the star's left.
+            HStack(spacing: 3) {
+                if state == .failed { Image(systemName: "arrow.clockwise").font(.system(size: 10)) }
+                if starred { StockStar() }
+            }
+            .padding(5)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
+    }
+}
+
+extension StockPreviewCard {
+    /// The name on the card: the stock's short name, or the words of a card that is no stock's (the Digital
+    /// Intermediate's, No Paper's).
+    var shownName: String {
+        StockCatalog.shared.stock(stock)?.shortName
+            ?? (isDigitalIntermediate ? L("Digital Intermediate") : isNoPaper ? L("No Paper") : stock)
+    }
+}
+
+/// A stock card's button, whatever face it wears: a strip's row (`StockPreviewRow`) and the desktop's grid
+/// (`StockGrid`) have the one tap, right-click menu and VoiceOver element (out of `StockPreviewRow`, 2026-11-16).
+struct StockCardButton<Face: View>: View {
+    let session: OpenFrameSession
+    let strip: StockStrip
+    let card: StockPreviewCard
+    let selected: Bool
+    /// False: greyed, never chosen and never rendered (a paper that cannot print the film, the film not applied).
+    let live: Bool
+    /// Told as a live card is tapped, before what the tap chooses: the grid tells a card chosen under the pointer
+    /// from one chosen elsewhere (`StockGridLayout.reveal`).
+    var tapped: () -> Void = {}
+    /// The card drawn, from what it shows (nil while greyed: nothing is asked for) and whether it is starred.
+    @ViewBuilder let face: (StockPreviewState?, Bool) -> Face
+
+    var body: some View {
+        Button(action: pick) { face(live ? strip.state(card) : nil, isStarred) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityName)
+            .accessibilityIdentifier("stock-preview." + card.slot)
+            .accessibilityValue(live && strip.state(card).isRendering ? L("Developing") : "")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityActions {
+                if card.canBeStarred() { Button(favouriteWord) { toggleFavourite() } }
+                if live { Button(L("Retry")) { strip.refresh() } }
+            }
+            .contextMenu { menu }
+    }
+
+    private func pick() {
+        // A greyed card is not chosen. It is not `.disabled` either: a disabled button may take its context menu
+        // with it, and a greyed card keeps its Favourite (the rule: "a greyed card still has its menu").
+        guard live else { return }
+        tapped()
+        // The chosen card again changes nothing (`StockPreviewRules.pick`).
+        let p = session.edit.params
+        switch StockPreviewRules.pick(card, film: p.filmStock, paper: StockPreviewRules.chosenPaper(p)) {
+        case .film(let film): session.change { $0.params.load(film: film) }
+        case .paper(let paper): session.change { $0.params.print(on: paper) }
+        case .digitalIntermediate: session.change { $0.params.scanFilm = false; $0.params.digitalIntermediate = true }
+        // The paper stays as it was: "which paper" and "is there a paper" are two questions, as for the DI.
+        case .noPaper: session.change { $0.params.scanFilm = true; $0.params.digitalIntermediate = false }
+        case nil: break
+        }
+    }
+
+    private var catalog: StockCatalog { .shared }
+    private var isStarred: Bool { card.canBeStarred() && catalog.isFavourite(card.stock) }
+    private var favouriteWord: String { isStarred ? L("Unfavourite") : L("Favourite") }
+    private func toggleFavourite() {
+        guard card.canBeStarred() else { return }
+        catalog.setFavourite(card.stock, !isStarred)
+    }
+
+    /// The right-click menu (2026-11-15): Favourite on every card of a stock, above Retry
+    /// where the card is live. The Digital Intermediate's and No Paper's cards are no stock's: Retry alone, or none.
+    @ViewBuilder private var menu: some View {
+        if card.canBeStarred() {
+            Button { toggleFavourite() } label: {
+                Label(favouriteWord, systemImage: isStarred ? "star.slash" : "star")
             }
         }
+        if live { Button(L("Retry")) { strip.refresh() } }
+    }
+
+    /// The card's name; a cine stock says so, on a paper card the film's recommended paper says so, and a star.
+    private var accessibilityName: String {
+        var name: String = catalog.stock(card.stock)?.name ?? card.shownName
+        if StockPreviewRules.wearsCinePill(card) { name += L(", cine") }
+        if card.strip == .paper, catalog.isRecommendedPairing(film: card.film, paper: card.stock) { name += L(", the film's own paper") }
+        return name + (isStarred ? L(", favourite") : "")
     }
 }
 

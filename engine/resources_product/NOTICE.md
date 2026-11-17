@@ -14,10 +14,12 @@ an array in it. Keeping the two directories apart is what keeps that statement t
 | `profiles/cinestill_800t.json` | CineStill 800T: Kodak Vision3 500T with its rem-jet removed. An **alias** (`"derived_from": "kodak_vision3_500t"`): no data of its own, only `info` keys (name, `use: still`, `antihalation: no`) laid over the base's at load time. | Nothing copied: the engine reads `engine/resources/profiles/kodak_vision3_500t.json` unmodified. The halation it selects is the engine's own back-reflection model (`halation_psf.hpp`). |
 | `paper_grades.json` | Multigrade filter 00–5 → `m_filter_neutral`, `y_filter_neutral`, `print_exposure`. The pack is the paper's; it was fitted on Tri-X and prints the other three films' mid-grey at the same density (`bw_checks.py`). | Fitted and then measured on engine renders. |
 | `neutral_print_filters.json` | The filter-2 pack for (Multigrade IV RC, TH-KG3) and each of the four films, in the shape of `engine/resources/neutral_print_filters.json`. | The same fit. |
+| `profiles/kodak_portra_160nc.json`, `kodak_portra_160vc.json`, `kodak_portra_400nc.json`, `kodak_portra_400vc.json` | Kodak Professional Portra 160NC, 160VC, 400NC, 400VC (the 2006–2011 line, C-41), colour negatives in the schema of spektrafilm 0.3.x (sub-layer CDFs, Status-M-normalised dyes, hanatos2025 window and surface). | Kodak publication E-190 (10/2006), pp. 8–11: characteristic curves, spectral sensitivity and spectral dye density (midscale neutral, D-min) digitised from the PDF's vector paths (grid residuals ≤ 0.001 D, 0.01 nm). Processed by spektrafilm's own profile factory (commit 9428440, GPL-3.0, with its generic starting dyes), then brought to the shipped profiles' form by rules measured on them (method in each profile's `metadata`); the hanatos2025 window fitted to the Otsu, Munsell, UEF forest and Japan natural-object reflectance sets. Built from modern Portra 160's and 400's own raw curves, the same chain renders within ΔE2000 0.85 / 1.6 (mean, ColorChecker on Portra Endura) of the shipped profiles. No array of a shipped profile is copied. |
+| `neutral_print_filters_colour.json` | The neutral pack (C 0, M, Y) of each of those four films on each colour paper under TH-KG3, in the shape of `engine/resources/neutral_print_filters.json`. **The engine reads this one** (`spk_engine_create`), filling only films spektrafilm's table does not name. | Fitted through the engine as spektrafilm's `fit_print_filters` fits its own: 18 % grey printed back at 18 %, M, Y and print exposure free. The same fit reproduces every shipped row it was tried on (16 pairs) to 0.01. |
 
 What is taken from the sheets and what is assumed is tagged inside each profile's `metadata` and
 written up in `research/black-and-white-tri-x.md` and `research/black-and-white-three-more-films.md`.
-"Kodak", "Tri-X", "T-Max", "Fujifilm", "Neopan", "Acros", "Ilford", "HP5" and "Multigrade" are
+"Kodak", "Portra", "Tri-X", "T-Max", "Fujifilm", "Neopan", "Acros", "Ilford", "HP5" and "Multigrade" are
 their owners' trademarks; the names say which published data a profile was built from.
 
 **In the macOS app, every build since 1.3.3** (2026-10-09; Debug only before that). The engine loads a profile from
@@ -25,4 +27,11 @@ their owners' trademarks; the names say which published data a profile was built
 notice into the app's `Resources/engine/`; the app lists them only where
 `FeatureFlags.blackAndWhite` is on. `engine/tests/bw_checks.py` renders them from a scratch
 resources directory that overlays this one on `engine/resources/`. The engine does not read `paper_grades.json` or this
-directory's `neutral_print_filters.json`; a caller sends the pack on the wire.
+directory's `neutral_print_filters.json`; a caller sends the pack on the wire. It does read
+`neutral_print_filters_colour.json`, which both bundle steps copy beside spektrafilm's table: the colour films'
+packs are the engine's own `solve("filter_pack")` answer, as spektrafilm's are, and keeping the silver packs out of it
+keeps a database row from overriding the grade a host sends.
+
+The four Portra NC/VC profiles are listed in every build (no feature flag). The digitiser, the raw curves and the
+builder are kept with the sheet in `research/v2.4.1/more_films/` (not tracked); `engine/tests/portra_nc_vc_checks.py`
+renders the four from an overlay of this directory.

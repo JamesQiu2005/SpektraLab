@@ -170,6 +170,8 @@ bundle_resources() {
   if [[ -d "$here/resources_product/profiles" ]]; then
     cp "$here/resources_product/profiles/"*.json "$app/profiles/"
     cp "$here/resources_product/NOTICE.md" "$app/PRODUCT_PROFILES_NOTICE.md"
+    # the product colour films' neutral packs, which the engine lays under spektrafilm's table
+    cp "$here/resources_product/neutral_print_filters_colour.json" "$app/"
   fi
   local size
   size=$(du -sh "$app" | cut -f1)

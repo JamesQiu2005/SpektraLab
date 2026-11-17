@@ -78,16 +78,25 @@ struct MacSource: Identifiable, Codable, Hashable, Sendable {
     var isReadOnly: Bool { kind == .captureOneCatalog || kind == .captureOneSession }
     /// A referenced folder can be added and kept in step (Capture One's own library is Capture One's).
     var acceptsFolders: Bool { kind == .catalog || kind == .session }
-    /// Files can be imported into it, by reference or by copy. A Capture One catalog's go into its mirror
-    /// (SpektraLab's own rows, a Recent Imports album of SpektraLab's: spklib 0.2.1); Capture One's file is
-    /// not touched.
-    var acceptsImports: Bool { kind == .catalog || kind == .session || kind == .captureOneCatalog }
+    /// Files can be imported into it, by reference or by copy: SpektraLab's own catalogs and sessions only.
+    /// **Never a Capture One catalog or session** (the owner, 2026-11-16: "limit the app-side behaviour of 'import
+    /// image' while we're reading Capture One's catalog / session"). 2.4.0 imported into a Capture One catalog's
+    /// mirror (2026-10-24, MAC-LIBRARY-DATA §2c); those rows stayed SpektraLab's and could not be removed. A
+    /// Capture One picture comes into SpektraLab by *Copy to SpektraLab Catalog…* (§2h). The import page, the
+    /// window's drop, the store (`importChunk`, `importFiles`) and an agent's import all ask this.
+    var acceptsImports: Bool { kind == .catalog || kind == .session }
     /// What an import does unless told otherwise (Capture One's defaults): a catalog references the
     /// files where they are; a session copies them into its Capture folder.
     var defaultImport: MacImportMode { kind == .session ? .copy : .reference }
     var isHelperBacked: Bool { kind != .appLibrary }
     /// *Update from Capture One* applies: a SpektraLab catalog made by *Copy to SpektraLab Catalog…*.
     var isCopiedFromCaptureOne: Bool { kind == .catalog && copiedFrom != nil }
+    /// One of Capture One's own pictures (2026-11-16): every picture of a Capture One session (its folder's files),
+    /// and in a Capture One catalog's mirror the rows Capture One made, not SpektraLab's (a pair's, a double's, one
+    /// 2.4.0 imported). Remove from SpektraLab takes only SpektraLab's edits of one; it stays where Capture One has it.
+    func isCaptureOnes(_ image: MacImage) -> Bool {
+        kind == .captureOneSession || (kind == .captureOneCatalog && image.fromCaptureOne)
+    }
 }
 
 /// Where a copied catalog came from (`library.info`'s `copied_from`, spklib 0.3.0).

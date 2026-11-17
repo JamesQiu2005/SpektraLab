@@ -143,9 +143,11 @@ struct FilmPainter {
             var gate = inside
             gate.clip(to: opening)
             if image != nil { drawPicture(&gate) } else { gate.fill(Path(canvasRect), with: .color(gateFill)) }
+            drawNeighbours(&inside, toCanvas: toCanvas)
             // the rebate: unexposed film, a brown wash
             var wash = Path(canvasRect.insetBy(dx: -1, dy: -1))
             wash.addPath(opening)
+            for nb in g.neighbourOpenings { wash.addPath(nb.applying(toCanvas)) }
             inside.fill(wash, with: .color(Theme.rebate.opacity(image != nil ? 0.8 : 1)), style: FillStyle(eoFill: true))
             let holes = g.holesPath.applying(toCanvas)
             inside.fill(holes, with: .color(Theme.text.opacity(0.16)))
@@ -170,6 +172,7 @@ struct FilmPainter {
             var gate = inside
             gate.clip(to: opening)
             if image != nil { drawPicture(&gate) } else { gate.fill(Path(canvasRect), with: .color(gateFill)) }
+            drawNeighbours(&inside, toCanvas: toCanvas)
             inside.fill(g.holesPath.applying(toCanvas),
                         with: .color(g.request.holes == .white ? Self.holeWhite : Self.holeBlack))
             inside.fill(g.edgeOutline.applying(toCanvas), with: .color(ink))
@@ -181,13 +184,31 @@ struct FilmPainter {
         }
     }
 
+    /// A cine gauge's neighbours (API-SPEC §24, Super 8 and 16 mm): the same picture again in the gate one advance
+    /// before and after, as the engine exposes it -- the frame's far end in the one before, its near end in the one
+    /// after. Nothing on any other format (`neighbourOpenings` is empty there).
+    private func drawNeighbours(_ c: inout GraphicsContext, toCanvas: CGAffineTransform) {
+        let g = geometry
+        for (opening, along) in zip(g.neighbourOpenings, [-g.neighbourPrev, g.neighbourNext]) {
+            var nb = c
+            nb.clip(to: opening.applying(toCanvas))
+            if image != nil {
+                // one advance along the film, on the canvas
+                drawPicture(&nb, shift: CGSize(width: toCanvas.a * along, height: toCanvas.b * along))
+            } else {
+                nb.fill(opening.applying(toCanvas), with: .color(gateFill))
+            }
+        }
+    }
+
     /// The picture, through its cut, in the gate: upright, with the scan's
     /// residual tilt about the gate's centre.
-    private func drawPicture(_ c: inout GraphicsContext) {
+    private func drawPicture(_ c: inout GraphicsContext, shift: CGSize = .zero) {
         guard let image, sourceSize.width > 0, sourceSize.height > 0 else { return }
         let (box, tilt, centre) = geometry.pictureBox
         let out = framing.outputSize(for: sourceSize)
         var p = c
+        p.translateBy(x: shift.width, y: shift.height)
         p.translateBy(x: nudgeMM.width, y: nudgeMM.height)
         p.translateBy(x: centre.x, y: centre.y)
         p.rotate(by: .degrees(tilt))

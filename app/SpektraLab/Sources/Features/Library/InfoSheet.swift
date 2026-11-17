@@ -138,7 +138,8 @@ struct InfoSheet: View {
             ]),
             InfoSection(title: L("Develop"), rows: [
                 .init(L("Film"), catalog.stock(p.filmStock)?.name ?? L("Unknown")),
-                .init(L("Print", as: "the paper"), catalog.stock(p.printStock)?.name ?? L("Unknown")),
+                // A scanned film, a slide or a negative set to No Paper, is printed on no paper, whatever it still holds.
+                .init(L("Print", as: "the paper"), catalog.isScanned(p) ? L("Scanned") : catalog.stock(p.printStock)?.name ?? L("Unknown")),
                 .init(L("Changed"), frame.edit.changedText),
             ]),
             InfoSection(title: L("Where"), rows: [

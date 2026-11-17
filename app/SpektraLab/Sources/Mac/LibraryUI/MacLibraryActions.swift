@@ -43,6 +43,7 @@ final class MacLibraryActions {
         if library.isEmpty { library.endSelecting() }
         trash(leaving, store: leavingStore)
         leaving = []
+        sayKept()
     }
 
     /// 从 SpektraLab 中移除 (the owner, 2026-10-27): every chosen picture goes into its source's 回收站. One
@@ -52,13 +53,48 @@ final class MacLibraryActions {
     private var leavingStore: (any MacLibraryData)?
     func removeFromSpektraLab(_ images: [MacImage], frames: Set<LibraryFrame.ID>, store: any MacLibraryData) {
         guard !images.isEmpty else { return }
-        if frames.isEmpty { trash(images.map(\.id), store: store); return }
+        // Capture One's own pictures stay where Capture One has them (2026-11-16): what SpektraLab has of them (a
+        // frame) goes, and then it says why they are still listed, rather than doing nothing without a word.
+        let held = Self.captureOnes(images, store: store)
+        kept = held.isEmpty ? nil : (held.count, Self.keptWords(held, store: store))
+        if frames.isEmpty { trash(images.map(\.id), store: store); sayKept(); return }
         leaving = images.map(\.id)
         leavingStore = store
         ask(frames)
     }
 
-    func cancelRemoval() { leaving = []; removing = [] }
+    /// Why Remove from SpektraLab has nothing to do for `images`, or nil (2026-11-16): every one is Capture One's
+    /// own (`MacSource.isCaptureOnes`) and none has a frame of SpektraLab's. The picture's menu greys the item with
+    /// this under it, as it greys Capture One's read-only edits (Delete Variant's).
+    static func removeRefusal(_ images: [MacImage], frames: Set<LibraryFrame.ID>, store: any MacLibraryData) -> String? {
+        guard !images.isEmpty, frames.isEmpty else { return nil }
+        let held = captureOnes(images, store: store)
+        return held.count == images.count ? keptWords(held, store: store) : nil
+    }
+
+    /// The chosen pictures Capture One holds: SpektraLab cannot take them out of its catalog or session.
+    static func captureOnes(_ images: [MacImage], store: any MacLibraryData) -> [MacImage] {
+        images.filter { i in store.sources.first { $0.id == i.id.source }?.isCaptureOnes(i) == true }
+    }
+
+    /// Why they stay, and the way that works: in Capture One; for a catalog, its copy into SpektraLab.
+    private static func keptWords(_ held: [MacImage], store: any MacLibraryData) -> String {
+        let session = held.contains { i in store.sources.first { $0.id == i.id.source }?.kind == .captureOneSession }
+        return session
+            ? L("SpektraLab never changes a Capture One session, so its pictures stay. Remove them in Capture One.")
+            : L("SpektraLab never changes a Capture One catalog, so its pictures stay. Remove them in Capture One, or use Copy to SpektraLab Catalog… to manage them in SpektraLab.")
+    }
+
+    /// Capture One's pictures among the last removal, and why they stay: said once the removal is done.
+    @ObservationIgnored private var kept: (count: Int, words: String)?
+    private func sayKept() {
+        guard let kept else { return }
+        self.kept = nil
+        refusalTitle = kept.count == 1 ? L("This picture stays in Capture One") : L("\(kept.count) pictures stay in Capture One")
+        refusal = kept.words
+    }
+
+    func cancelRemoval() { leaving = []; removing = []; kept = nil }
 
     private func trash(_ ids: [MacImage.ID], store: (any MacLibraryData)?) {
         guard let store, !ids.isEmpty else { return }

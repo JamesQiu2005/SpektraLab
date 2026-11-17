@@ -111,8 +111,8 @@ struct FilmEdgeJourney: Equatable, Sendable {
 enum FilmEdgeOptions {
     // MARK: Edge
 
-    /// Holes: only a perforated film has them — not 120.
-    static func holes(_ edge: FilmEdgeSettings) -> Bool { edge.format.isPerforated || edge.perforation.on(edge.format) == .ks65 }
+    /// Holes: only a perforated film has them — not 120 (unless keyholed); every cine gauge (API-SPEC §24).
+    static func holes(_ edge: FilmEdgeSettings) -> Bool { edge.format.hasHoles(perforation: edge.perforation.on(edge.format)) }
 
     /// 齿孔's choice (PRD-D §3.2): offered on a 120 format only — the engine refuses the keyholes on 135 and its
     /// panoramic formats — and only by an engine that draws them.
@@ -138,7 +138,7 @@ enum FilmEdgeOptions {
     static func view(_ edge: FilmEdgeSettings) -> Bool { edge.format.fixedView == nil }
 
     static func holesRow(_ edge: FilmEdgeSettings) -> HolesRow {
-        if edge.format.isPerforated { return .colour }
+        if edge.format.isPerforated || edge.format.isCine { return .colour }
         guard perforation(edge) else { return .none }
         return .perforations(showsColour: edge.perforation == .ks65)
     }
@@ -157,6 +157,7 @@ enum FilmEdgeOptions {
     /// Why the frame's number is not seen, for the Body panel's note; nil when it is.
     static func frameNumberReason(_ edge: FilmEdgeSettings, stockID: String) -> String? {
         let look = EdgeLook.of(stockID)
+        if let cine = edge.format.edgePrintReason { return cine }
         if edge.perforation.on(edge.format) == .ks65 { return L("Keyholed 120 carries no edge print.") }
         if edge.format.isPerforated, look.k135 == .cine { return L("This film’s edge prints no frame numbers.") }
         let nearGate = !edge.format.isPerforated && look.k120 == .fuji

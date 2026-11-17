@@ -133,6 +133,16 @@ pixels, the size, the decoder and the system's version. Nothing developed is in 
 effect are the engine's, and an edit is recomputed as before. Until it, every open of a RAW's page decoded the file
 again, and Develop's film and paper strips waited on that decode.
 
+**水印's 底片 marks are laid into the decode here** (`EngineHost.decode`, `Engine/WatermarkBase.swift`, RFC-067 §4.2):
+after `FrameDecoder` (its lens correction and the host's cut), before `spk_open_device`, on every single photograph's
+path — the page's develop, a frame's own, the zoom's and the Light Table's full render, an export, a strip's card. Their
+word is in the job's source word (`Request.sourceKey`, never `decodeKey`), so a moved mark opens the frame again; the
+page's clean decode is kept while its develop carries marks, so it is opened again **from that decode, not the file**
+(the job's own copy of it, priced: `RenderJob.watermarkBytes`), and a card copies the strip's. A full-size job lays them
+into its own decode, in place: no second source. With the meter on, the frame is metered before the mark and developed
+with the meter off at Film Exposure plus the reading (`EngineHost.params`; `SpkEngine.open` asks for the wire after the
+decode).
+
 ## 4. Parameters
 
 ### 4.1 The delta
@@ -321,8 +331,9 @@ and a second pass compressed an export's highlights.
 
 - **A frame's develop** (`Engine/DevelopedPicture.swift`): written as a picture in Display P3, and what the library
   and the browser draw; nothing is developed again to draw a tile. **The stamp is what it was made from** — the whole
-  wire, the decode settings, the decoder, the cut and turns, the size and `EngineRouter.identity` — and is in the file's
-  name, because the picture cache keys by path. A frame whose stamp is not the one its edit would make today is stale:
+  wire, the decode settings, the decoder, the cut and turns, the size and `EngineRouter.identity` (and 水印's 底片 marks,
+  each placement and its file's hash, only where there are some: every other stamp is 2.4.0's, held by
+  `tools/watermark_base_selftest.sh`) — and is in the file's name, because the picture cache keys by path. A frame whose stamp is not the one its edit would make today is stale:
   shown as it is, and developed again in the queue. Since 2026-11-05 a catalog's develops live in that catalog's
   `Cache/Previews` (`MAC-LIBRARY-DATA.md` §2j).
 - **The full render** (`Engine/FullRender.swift`, the owner, 2026-10-20): the engine's own result at full size, in its

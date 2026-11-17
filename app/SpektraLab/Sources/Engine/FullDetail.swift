@@ -61,6 +61,8 @@ final class FullView {
         let adjustments: Adjustments
         /// The 成片 layers it carries (PRD-E): the page shows it only while they are the edit's.
         let layers: FinishedLayers?
+        /// The 成片 watermarks drawn over it (PRD-8): the page shows it only while they are the edit's.
+        var marks: WatermarkComposite.Laid? = nil
     }
 
     /// What the canvas asks to see.
@@ -72,6 +74,8 @@ final class FullView {
         var adjustments: Adjustments
         /// The edit's 成片 layers (`AppServices.finishedLayers`): nil, today's pass.
         var layers: FinishedLayers? = nil
+        /// The photograph's 成片 watermarks (`WatermarkComposite.Laid`): nil, none — and while the canvas draws them.
+        var marks: WatermarkComposite.Laid? = nil
     }
 
     let frameID: LibraryFrame.ID
@@ -100,6 +104,8 @@ final class FullView {
         self.library = library
         self.scheduler = scheduler
         self.darkroom = darkroom
+        // A page opened on the frame asks again for a render that failed before (`FullRenderJobs.failures`).
+        FullRenderJobs.forgetFailures(of: frameID)
     }
 
     /// Whether a frame has more to show than its preview: a photograph whose
@@ -129,6 +135,9 @@ final class FullView {
             return
         }
         if job?.stamp == ask.stamp || bringing != nil { return }       // on its way
+        // The same render failed when last asked, and the edit has not moved its stamp: it would fail again, a decode of
+        // the whole original each zoom (`FullRenderJobs.failures`). Asked again once the edit changes or the page reopens.
+        if FullRenderJobs.failure(made) != nil { state = .failed; return }
         noteMiss(ask)
         cancelJob()
         // An original that stays in Photos is brought first: a render at full size is of the file itself.
@@ -289,7 +298,7 @@ final class FullView {
                 let planes = try await ask.layers?.planes(device: renderer.device)
                 made = try await Task.detached(priority: .userInitiated) {
                     try renderer.render(reader, rect: ask.rect, pixels: ask.pixels, adjustments: ask.adjustments,
-                                        layers: ask.layers, planes: planes ?? [])
+                                        layers: ask.layers, planes: planes ?? [], marks: ask.marks)
                 }.value
             } catch {
                 self?.log.error("the detail could not be made: \(String(describing: error), privacy: .public)")
@@ -299,7 +308,7 @@ final class FullView {
             self.drawing = false
             // Still the render, and still zoomed: shown. The canvas may have moved on meanwhile.
             if let made, self.kept?.ask == kept.ask, self.asked != nil {
-                self.detail = Detail(image: made, rect: ask.rect, adjustments: ask.adjustments, layers: ask.layers)
+                self.detail = Detail(image: made, rect: ask.rect, adjustments: ask.adjustments, layers: ask.layers, marks: ask.marks)
             }
             if self.asked != ask { self.draw() }
         }
@@ -363,7 +372,7 @@ final class FullDetail: @unchecked Sendable {
     /// has it — in Display P3, 16 bits a channel, with `adjustments` laid on, and `layers` (their `planes`, baked)
     /// where there are.
     func render(_ reader: FullRender.Reader, rect: CGRect, pixels: PixelSize, adjustments: Adjustments,
-                layers: FinishedLayers? = nil, planes: [MaskPlane] = []) throws -> CGImage {
+                layers: FinishedLayers? = nil, planes: [MaskPlane] = [], marks: WatermarkComposite.Laid? = nil) throws -> CGImage {
         let h = reader.header
         let (fw, fh) = h.finished
         // On the finished picture, in its pixels.
@@ -448,7 +457,14 @@ final class FullDetail: @unchecked Sendable {
                                   decode: nil, shouldInterpolate: true, intent: .defaultIntent) else {
             throw EngineError.failed("the detail could not be made")
         }
-        return image
+        guard let marks else { return image }
+        // 水印 over the part (RFC-067 §4.3): the marks laid on the finished picture through Edit's crop, then onto this
+        // part of it — a finished pixel x is the detail's (x − r.minX) / step (the kernel's own sampling) — drawn into
+        // the detail's own buffer, and noted for its HDR.
+        PictureMemory.owns(image, bytes: out.contents())
+        let toPart = CGAffineTransform(translationX: -r.minX, y: -r.minY).concatenating(CGAffineTransform(scaleX: 1 / step, y: 1 / step))
+        return WatermarkComposite.onPage(image, laid: marks,
+                                         placing: marks.placing(picture: CGSize(width: fw, height: fh)).then(toPart))
     }
 
     /// One screen pixel: the render's pixels under its footprint, averaged

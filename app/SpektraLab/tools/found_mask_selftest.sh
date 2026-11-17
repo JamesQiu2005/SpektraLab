@@ -12,7 +12,7 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 src="$here/Sources"
 out="$here/build/tools"
 mkdir -p "$out"
-files=(Model/Format.swift Model/Localization.swift Model/FeatureFlags.swift Model/FilmParams.swift Model/FrameEdit.swift Model/LocalLayers.swift
+files=(Model/Format.swift Model/Localization.swift Model/FeatureFlags.swift Model/FilmParams.swift Model/FrameEdit.swift Model/LocalLayers.swift Model/Watermark.swift
        Model/Adjustments.swift Model/CurveMath.swift Model/Geometry.swift Model/FilmEdge.swift Model/LensEdge.swift Model/Stock.swift
        Model/HalfFramePair.swift Model/DoubleExposure.swift Engine/HostCut.swift Engine/PiecePlacer.swift
        Model/DevelopRevision.swift Model/HistoryLabel.swift Model/HistoryFields.swift Model/EditHistory.swift Services/EditHistoryStore.swift

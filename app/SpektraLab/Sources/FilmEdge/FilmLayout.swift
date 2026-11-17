@@ -39,6 +39,10 @@ enum FilmLayout {
     static func layout(_ r: FilmEdgeRequest) -> FilmGeometry? {
         let fmt = r.format
         let frameW = max(1, r.frame.width), frameH = max(1, r.frame.height)
+        // A cine gauge is laid out with the engine's own table (API-SPEC §24, `EngineGauges`): none read, no layout.
+        let cine = EngineGauges.cine(fmt)
+        if fmt.isCine && cine == nil { return nil }
+        let small = cine?.small ?? 1.0
 
         // The frame is the gate: its long edge is the format's, and its shape
         // has to be the gate's, either way up.
@@ -64,11 +68,20 @@ enum FilmLayout {
         let cam = UInt64(UInt32(truncatingIfNeeded: r.cameraSeed)), frm = UInt64(UInt32(truncatingIfNeeded: r.frameSeed))
         var rc = Rng(Rng.stream(cam, .camera, 1)), rf = Rng(Rng.stream(frm ^ (cam << 32), .frame, 1))
 
-        // --- film and gate
+        // --- film and gate (`film_and_gate`): a cine film guided by its holes, its gate within `t_tol`
         L.perforated = fmt.isPerforated
-        L.filmW = fmt.filmWidthMM + (fmt.isPerforated ? 0.0 : rc.uni(-0.15, 0.15))
-        let tOff = (fmt.isPerforated ? rc.uni(-0.10, 0.10) : rc.uni(-0.45, 0.45)) + rf.normal() * 0.025
-        L.gateT0 = 0.5 * (L.filmW - L.gateAcross) + tOff
+        if let cine {
+            _ = rc.uni()
+            L.filmW = fmt.filmWidthMM
+            let tOff = rc.uni(-cine.tTol, cine.tTol) + rf.normal() * 0.025 * small
+            let guided = cine.guided <= 0 ? 0.5 * (L.filmW - L.gateAcross)
+                       : cine.rows == 2 ? L.filmW - cine.guided - L.gateAcross : cine.guided
+            L.gateT0 = guided + tOff
+        } else {
+            L.filmW = fmt.filmWidthMM + (fmt.isPerforated ? 0.0 : rc.uni(-0.15, 0.15))
+            let tOff = (fmt.isPerforated ? rc.uni(-0.10, 0.10) : rc.uni(-0.45, 0.45)) + rf.normal() * 0.025
+            L.gateT0 = 0.5 * (L.filmW - L.gateAcross) + tOff
+        }
         L.gateS0 = 0.0
         for _ in 0..<4 {
             for _ in 0..<3 {
@@ -76,7 +89,8 @@ enum FilmLayout {
                 _ = rc.uni(0.0, 2.0 * .pi)
             }
         }
-        let gateGap = rc.uni(0.18, 0.40)
+        var gateGap = rc.uni(0.18, 0.40)
+        if let cine { gateGap *= cine.mech }        // a cine gate sits closer to its film
         let n = r.fNumber > 0.5 ? r.fNumber : 5.6
         L.penumbra = gateGap / (2.0 * n)
 
@@ -88,6 +102,11 @@ enum FilmLayout {
             family = fams[Int(rg.uni(0.0, Double(fams.count))) % fams.count]
         }
         gateShape(&L, family, &rg)
+        if let cine {
+            // the aperture plate at the gauge's scale: its radii x `mech`; no nicks under 35 mm
+            for i in 0..<4 { L.gateR[i] *= cine.mech }
+            if cine.mech < 0.5 { L.quads.removeAll() }
+        }
 
         // --- perforations: the frame's place on the grid is the camera's
         if L.perforated {
@@ -101,6 +120,24 @@ enum FilmLayout {
             }
         }
         L.holed = L.perforated
+        if let cine {
+            // API-SPEC §24: the cine film's own holes, sprocket-locked (camera 29, frame 30); the neighbours, the same
+            // picture again one advance away -- or none, as the engine's table says (`neighbours`).
+            var rk = Rng(Rng.stream(cam, .camera, 29)), rn = Rng(Rng.stream(frm ^ (cam << 32), .frame, 30))
+            L.holed = true
+            L.perf = FilmGeometry.Perf(pitch: cine.pitch, along: cine.holeAlong, across: cine.holeAcross,
+                                       edge: cine.holeEdge, radius: cine.holeR)
+            L.perfShape = cine.shape
+            L.perfRows = cine.rows
+            let reg = rk.uni(-cine.reg, cine.reg)
+            let jitter = rn.normal() * cine.advErr
+            let centre = L.gateS0 + 0.5 * L.gateAlong
+            let line = cine.atLine || cine.perfs % 2 == 0
+            L.perfPhase = centre - 0.5 * cine.holeAlong + (line ? 0.5 * cine.pitch : 0.0) + reg + jitter
+            let prev = cine.advance + rn.normal() * cine.advErr
+            let next = cine.advance + rn.normal() * cine.advErr
+            if cine.neighbours { L.neighbourPrev = prev; L.neighbourNext = next }
+        }
         if r.perforation.on(fmt) == .ks65 {
             // 120 cut from 65 mm cine film (API-SPEC §21.3): the KS holes, whole, on both edges of the slit film. Not
             // sprocket-locked, so the phase is the frame's; the slitter's wander is the camera's, both rows alike.
@@ -113,7 +150,7 @@ enum FilmLayout {
         }
 
         // --- canvas
-        let marginAlong: Double
+        var marginAlong: Double
         if r.mode == .strip {
             if fmt.isPerforated {
                 marginAlong = fmt.alongMM < 20.0 ? rc.uni(0.40, 0.50) : rc.uni(0.75, 0.95)
@@ -133,6 +170,13 @@ enum FilmLayout {
             L.tLo = L.gateT0 - 1.1
             L.tHi = L.gateT0 + L.gateAcross + 1.1
         }
+        if let cine {
+            // the frame and a sliver of each neighbour at the gauge's named aspect, or one frame's advance
+            let longAcross = fmt.acrossMM > fmt.alongMM
+            let a = Double(cine.aspectLong), b = Double(cine.aspectShort)
+            let canvasAlong = !cine.neighbours ? cine.advance : (longAcross ? L.filmW * b / a : L.filmW * a / b)
+            marginAlong = max(0.0, 0.5 * (canvasAlong - L.gateAlong))
+        }
         let mPx = Int((marginAlong / L.px).rounded())
         let alongPx = (L.vertical ? frameH : frameW) + 2 * mPx
         let acrossPx = Int(((L.tHi - L.tLo) / L.px).rounded())
@@ -145,8 +189,8 @@ enum FilmLayout {
         let halfAlong = 0.5 * Double(alongPx) * L.px
         let tiltLim = min(0.35, asin(min(1.0, 0.27 / halfAlong)) * 180.0 / .pi)
         L.scanRot = min(max(rf.normal() * 0.14, -tiltLim), tiltLim) * .pi / 180.0
-        let ds = rf.normal() * 0.08
-        let dt = rf.normal() * 0.06
+        let ds = rf.normal() * 0.08 * small         // (x 1, exactly, off a cine gauge)
+        let dt = rf.normal() * 0.06 * small
         L.cu = 0.5 * Double(L.canvas.width) * L.px
         L.cv = 0.5 * Double(L.canvas.height) * L.px
         let c = cos(L.scanRot), sn = sin(L.scanRot)
@@ -406,6 +450,14 @@ enum FilmLayout {
                             top.append(.text(rest))
                         }
                         top.append(.text(tx))
+                        if look.nameBlocks && !light {
+                            // the engine's `name_blocks` (overscan.cpp): two cap-high blocks after the name
+                            var b0 = s0 + EdgeType.width(tx.text, font: tx.font, sizeMM: tx.sizeMM, trackingMM: tx.trackingMM, hscale: 1.0) + 0.58
+                            for _ in 0..<2 {
+                                top.append(rect(b0, baseT - capT, b0 + 1.09, baseT))
+                                b0 += 1.09 + 0.43
+                            }
+                        }
                     }
                     dxCode(s, num, aHalf, &bot)
                     var nb = helv(light ? "HelveticaNeue" : "HelveticaNeue-Bold", cap: 1.40, capPerEm: kCap,

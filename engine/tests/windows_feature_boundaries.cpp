@@ -214,6 +214,70 @@ int main(int argc, char** argv) {
                 std::string("film-edge geometry failed: ") + spk_last_error(engine.get()));
         spk_string_free(geometry_json);
 
+        // API-SPEC §24: the five cine gauges are in the format table, laid out with their neighbours, and render
+        // a canvas wider than the frame. Each needs a picture of the gate's own shape.
+        char* formats_json = nullptr;
+        require(spk_overscan_formats(&formats_json) == SPK_OK && formats_json,
+                "overscan format table failed");
+        const std::string formats = formats_json;
+        spk_string_free(formats_json);
+        // The table's keys come back sorted, and a cine entry nests its own object: read one entry at a time.
+        const auto entry_for = [&](const std::string& key) {
+            const size_t array = formats.find('[');
+            if (array == std::string::npos) return std::string();
+            for (size_t p = formats.find('{', array); p != std::string::npos; p = formats.find('{', p + 1)) {
+                int depth = 0;
+                size_t q = p;
+                for (; q < formats.size(); ++q) {
+                    if (formats[q] == '{') ++depth;
+                    else if (formats[q] == '}' && --depth == 0) break;
+                }
+                const std::string entry = formats.substr(p, q - p + 1);
+                if (entry.find("\"name\":\"" + key + "\"") != std::string::npos) return entry;
+                p = q;
+            }
+            return std::string();
+        };
+        for (const char* gauge : {"8_super", "16_super", "35_4perf", "65_5perf", "65_15perf"}) {
+            const std::string name = gauge;
+            const std::string entry = entry_for(name);
+            require(!entry.empty(), name + " missing from the format table");
+            const auto field = [&](const std::string& key) {
+                const size_t p = entry.find("\"" + key + "\":");
+                require(p != std::string::npos, name + " has no " + key);
+                return std::atof(entry.c_str() + p + key.size() + 3);
+            };
+            const double across = field("across_mm"), along = field("along_mm");
+            const uint32_t w = 48;
+            const uint32_t h = std::max(2.0, std::round(w * std::min(across, along) / std::max(across, along)));
+            std::vector<float> picture(size_t(w) * h * 3);
+            for (size_t i = 0; i < picture.size(); ++i) picture[i] = 0.025f + float(i % 31) * 0.025f;
+            const spk_image cine_input{picture.data(), w, h, 3};
+            std::unique_ptr<spk_session, decltype(&spk_session_release)> cine_session(
+                spk_open(engine.get(), &cine_input, before.c_str(), nullptr), spk_session_release);
+            require(bool(cine_session), name + " open failed: " + spk_last_error(engine.get()));
+            const std::string delta = "{\"overscan_active\":true,\"overscan_format\":\"" + name + "\"}";
+            require(spk_set_params(cine_session.get(), delta.c_str(), nullptr) == SPK_OK,
+                    name + " was refused: " + spk_last_error(engine.get()));
+            render_pixels(engine.get(), cine_session.get());
+            char* json = nullptr;
+            require(spk_overscan_geometry(cine_session.get(), &json) == SPK_OK && json,
+                    name + " geometry failed: " + spk_last_error(engine.get()));
+            const std::string geometry(json);
+            spk_string_free(json);
+            require(geometry.find("\"neighbours_mm\"") != std::string::npos &&
+                        geometry.find("\"format\":\"" + name + "\"") != std::string::npos,
+                    name + " geometry is not a cine gauge's: " + geometry);
+            const size_t cw = geometry.find("\"canvas_w\":");
+            const size_t ch = geometry.find("\"canvas_h\":");
+            require(cw != std::string::npos && ch != std::string::npos &&
+                        size_t(std::atoi(geometry.c_str() + cw + 11)) * size_t(std::atoi(geometry.c_str() + ch + 11)) >
+                            size_t(w) * h,
+                    name + " canvas has no rebate around the frame: " + geometry);
+        }
+        require(spk_set_params(session.get(), "{\"overscan_format\":\"135\"}", nullptr) == SPK_OK,
+                std::string("135 could not be restored: ") + spk_last_error(engine.get()));
+
         require(spk_set_params(session.get(),
                     "{\"date_imprint_active\":true,\"date_imprint_text\":\"2026 11 15\"}",
                     nullptr) == SPK_OK,

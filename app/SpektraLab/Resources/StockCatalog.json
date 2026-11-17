@@ -131,6 +131,58 @@
    "grain": 1.23
   },
   {
+   "id": "kodak_portra_160nc",
+   "name": "Kodak Portra 160NC",
+   "shortName": "Portra 160NC",
+   "kind": "colour negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_portra_endura",
+   "iso": 160,
+   "swatch": "#e8c8ad",
+   "grain": 0.79
+  },
+  {
+   "id": "kodak_portra_160vc",
+   "name": "Kodak Portra 160VC",
+   "shortName": "Portra 160VC",
+   "kind": "colour negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_portra_endura",
+   "iso": 160,
+   "swatch": "#e0a47f",
+   "grain": 0.69
+  },
+  {
+   "id": "kodak_portra_400nc",
+   "name": "Kodak Portra 400NC",
+   "shortName": "Portra 400NC",
+   "kind": "colour negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_portra_endura",
+   "iso": 400,
+   "swatch": "#ddb390",
+   "grain": 0.94
+  },
+  {
+   "id": "kodak_portra_400vc",
+   "name": "Kodak Portra 400VC",
+   "shortName": "Portra 400VC",
+   "kind": "colour negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_portra_endura",
+   "iso": 400,
+   "swatch": "#d08c63",
+   "grain": 0.81
+  },
+  {
    "id": "kodak_ultramax_400",
    "name": "Kodak Ultramax 400",
    "shortName": "Ultramax 400",

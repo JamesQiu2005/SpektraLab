@@ -82,16 +82,17 @@ enum RawExposure {
         filter.extendedDynamicRangeAmount = 0
     }
 
-    /// The frame's white balance on `filter`: as shot, a preset's kelvin, or the custom temperature and tint.
+    /// The frame's white balance on `filter`: as shot, a preset's kelvin, or the custom temperature and tint — each
+    /// axis by its own mode since 2.4.1 (`DecodeSettings.tintAsShot`): an As Shot axis is the filter's own, the camera's.
+    /// The temperature is set before the tint, as before: Core Image reads the pair at the output.
     static func whiteBalance(_ filter: CIRAWFilter, settings: DecodeSettings) {
         switch settings.whiteBalance {
         case .asShot: break
-        case .custom:
-            filter.neutralTemperature = Float(settings.temperature)
-            filter.neutralTint = Float(settings.tint)
+        case .custom: filter.neutralTemperature = Float(settings.temperature)
         default:
             if let kelvin = settings.whiteBalance.kelvin { filter.neutralTemperature = Float(kelvin) }
         }
+        if settings.appliesTint { filter.neutralTint = Float(settings.tint) }
     }
 
     /// Same bounded, clamped Lanczos recipe as FrameDecoder; never use RAW

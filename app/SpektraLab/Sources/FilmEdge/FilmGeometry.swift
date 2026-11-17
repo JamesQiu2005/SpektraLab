@@ -192,6 +192,12 @@ struct FilmGeometry: Equatable, Sendable {
     var perf = Perf.p135
     /// The slitter's shift of both rows across the film (ks65; 0 elsewhere).
     var perfDT = 0.0
+    /// A cine gauge's holes (API-SPEC §24, the engine's table): their shape (0 KS, 1 Bell & Howell) and rows (0 both
+    /// edges, 1 the t-low edge only, 2 the t-high edge only). 0 everywhere else.
+    var perfShape = 0, perfRows = 0
+    /// A cine gauge's neighbours: the same picture again, this far before and after along the film (mm); 0 when the
+    /// engine's table says the gauge shows none (a single frame) and on every other format.
+    var neighbourPrev = 0.0, neighbourNext = 0.0
 
     /// canvas (u, v) → film (s, t): `(s, t) = A (u − cu, v − cv) + (cs, ct)`.
     var A = [1.0, 0.0, 0.0, 1.0]
@@ -313,7 +319,8 @@ struct FilmGeometry: Equatable, Sendable {
         var k = Int(floor((sLo - 6 - perfPhase) / perf.pitch))
         while perfPhase + Double(k) * perf.pitch < sHi + 6 {
             let s = perfPhase + Double(k) * perf.pitch
-            for t in [perf.edge + perfDT, filmW - perf.edge - perf.across + perfDT] {
+            for (row, t) in [(1, perf.edge + perfDT), (2, filmW - perf.edge - perf.across + perfDT)]
+            where perfRows == 0 || perfRows == row {
                 out.append(CGRect(x: s, y: t, width: perf.along, height: perf.across))
             }
             k += 1
@@ -323,8 +330,26 @@ struct FilmGeometry: Equatable, Sendable {
 
     var holesPath: Path {
         var p = Path()
-        for r in holes { p.addRoundedRect(in: r, cornerSize: CGSize(width: perf.radius, height: perf.radius)) }
+        for r in holes {
+            if perfShape == 1 {
+                // Bell & Howell (API-SPEC §24): a disc of the hole's width across, cut flat along to its height
+                let disc = CGPath(ellipseIn: CGRect(x: r.midX - r.height / 2, y: r.minY, width: r.height, height: r.height),
+                                  transform: nil)
+                p.addPath(Path(disc.intersection(CGPath(rect: r, transform: nil))))
+            } else {
+                p.addRoundedRect(in: r, cornerSize: CGSize(width: perf.radius, height: perf.radius))
+            }
+        }
         return p
+    }
+
+    /// The neighbours' openings (API-SPEC §24): the gate's opening one advance before and after, where the engine
+    /// exposes the same picture again; none on a single-frame gauge or any other format.
+    var neighbourOpenings: [Path] {
+        guard neighbourPrev > 0 || neighbourNext > 0 else { return [] }
+        let opening = gateOpening
+        return [opening.applying(CGAffineTransform(translationX: -neighbourPrev, y: 0)),
+                opening.applying(CGAffineTransform(translationX: neighbourNext, y: 0))]
     }
 
     /// Marks as one outline, in film millimetres: text through CoreText, as

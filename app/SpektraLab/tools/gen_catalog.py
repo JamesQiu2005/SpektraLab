@@ -52,6 +52,10 @@ NAMES = {
     "kodak_portra_800": ("Kodak Portra 800", "Portra 800", "colour negative"),
     "kodak_portra_800_push1": ("Kodak Portra 800 (Push 1)", "Portra 800 +1", "colour negative"),
     "kodak_portra_800_push2": ("Kodak Portra 800 (Push 2)", "Portra 800 +2", "colour negative"),
+    "kodak_portra_160nc": ("Kodak Portra 160NC", "Portra 160NC", "colour negative"),
+    "kodak_portra_160vc": ("Kodak Portra 160VC", "Portra 160VC", "colour negative"),
+    "kodak_portra_400nc": ("Kodak Portra 400NC", "Portra 400NC", "colour negative"),
+    "kodak_portra_400vc": ("Kodak Portra 400VC", "Portra 400VC", "colour negative"),
     "kodak_ultramax_400": ("Kodak Ultramax 400", "Ultramax 400", "colour negative"),
     "fujifilm_c200": ("Fujifilm C200", "C200", "colour negative"),
     "fujifilm_xtra_400": ("Fujifilm X-Tra 400", "X-Tra 400", "colour negative"),
@@ -95,6 +99,9 @@ DRAWN = {
 CHOSEN = {
     "kodak_portra_160": "#e3b997", "kodak_portra_800": "#c98c62",
     "kodak_portra_800_push1": "#b97a52", "kodak_portra_800_push2": "#a66944",
+    # the 2006-2011 line: NC softer, VC deeper, beside their successors' hues
+    "kodak_portra_160nc": "#e8c8ad", "kodak_portra_160vc": "#e0a47f",
+    "kodak_portra_400nc": "#ddb390", "kodak_portra_400vc": "#d08c63",
     "kodak_ultramax_400": "#d98a3d", "kodak_ektachrome_100": "#4f7fc0",
     "kodak_vision3_50d": "#6d8fa3", "kodak_vision3_200t": "#57799a", "kodak_vision3_250d": "#5f8a92",
     "kodak_verita_200d": "#7a6c9c", "cinestill_800t": "#5b5f86",
@@ -105,6 +112,8 @@ ORDER = [
     # camera films: the drawing's five, then the families
     "kodak_portra_400", "kodak_gold_200", "kodak_ektar_100", "kodak_vision3_500t", "cinestill_800t", "fujifilm_pro_400h",
     "kodak_portra_160", "kodak_portra_800", "kodak_portra_800_push1", "kodak_portra_800_push2",
+    # the product's own colour films (E-190), with their family
+    "kodak_portra_160nc", "kodak_portra_160vc", "kodak_portra_400nc", "kodak_portra_400vc",
     "kodak_ultramax_400", "fujifilm_c200", "fujifilm_xtra_400",
     "kodak_ektachrome_100", "kodak_kodachrome_64", "fujifilm_provia_100f", "fujifilm_velvia_100",
     "kodak_vision3_50d", "kodak_vision3_200t", "kodak_vision3_250d", "kodak_verita_200d",
@@ -153,6 +162,9 @@ COLOUR_GRAIN = {
     "kodak_portra_800_push1": 1.23, "kodak_portra_800_push2": 1.23,
     "kodak_ektar_100": 0.79, "kodak_gold_200": 0.97, "kodak_ultramax_400": 1.09,
     "fujifilm_c200": 0.70, "fujifilm_xtra_400": 0.74, "fujifilm_pro_400h": 1.20,
+    # ISO, the product's own profiles (2026-11-15; the same probe re-measured Portra 160 / 400 at 0.915 / 1.062):
+    # green 7.29 / 8.34 / 7.46 / 8.61 at 1. VC's steeper curves render grainier, so it takes less to reach its speed's.
+    "kodak_portra_160nc": 0.79, "kodak_portra_160vc": 0.69, "kodak_portra_400nc": 0.94, "kodak_portra_400vc": 0.81,
 }
 # A silver paper's grades as packs (`engine/resources_product/paper_grades.json`),
 # and the filter new prints are made through.

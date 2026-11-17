@@ -1,0 +1,9 @@
+# The self-test binaries tools/gate/swiftc builds with -O as written; every other -O becomes -Onone. One name a line.
+# A binary is here when its run asserts on time or its run is measured to need -O (2026-11-14):
+#   lens_profile_selftest   lens_resolution_selftest.swift: "a resolved frame is kept" is `ms < 50`; RAW decodes
+#   scheduler_selftest      `Date().timeIntervalSince(started) < 1`
+#   raw_samples_check       RAW decodes: 150 s at -Onone under load against 55 s at -O
+# lens_profile_selftest at -Onone ran 47 min at 1,200 % CPU (90 s at -O) and loaded the Mac to 85: never take it out.
+lens_profile_selftest
+scheduler_selftest
+raw_samples_check

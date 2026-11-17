@@ -26,6 +26,11 @@
 //  The relaunch (`--hdr-choice-relaunch <dir>`): Settings' default still on; A, C, D their own; B, B's variant and a
 //  photograph imported at this launch (E) never chose, and show on; Develop on B shows on.
 //
+//  EDR (the print's Extended Dynamic Range, 2026-11-16), in the first run after D: D switched EDR on — its own, EDR's
+//  default on and HDR's off; B (chose neither) shows EDR on and HDR off, A (its own HDR on) keeps HDR and not EDR, C
+//  follows EDR → C switched EDR off: its own, only EDR's default off → Settings' two rows: EDR's on turns HDR's off,
+//  HDR's on turns EDR's off. The relaunch: EDR's default off, D's own on, C's own off, B never chose.
+//
 //  Not in a release build.
 
 #if targetEnvironment(macCatalyst) && DEBUG
@@ -35,7 +40,7 @@ import UIKit
 @MainActor
 enum MacHDRChoiceCheck {
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
-        guard let i = arguments.firstIndex(of: "--hdr-choice-check"), i + 1 < arguments.count, arguments[i + 1].hasPrefix("/") else { return }
+        guard let i = MacCheckFolder.index(of: "--hdr-choice-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
         let exits = arguments.contains("--hdr-choice-check-exit")
         let relaunch = arguments.firstIndex(of: "--hdr-choice-relaunch").flatMap { j in
@@ -86,6 +91,17 @@ enum MacHDRChoiceCheck {
     /// The default as the model has it, as the frames follow it, and as the suite keeps it.
     private static func defaultState(_ model: AppServices) -> (settings: Bool, frames: Bool, kept: Bool) {
         (model.settings.hdrByDefault, FrameEdit.hdrByDefault, model.defaults.bool(forKey: "settings.hdrByDefault"))
+    }
+
+    /// EDR's state as its frame holds it: its own choice and what it shows.
+    private static func edrState(_ model: AppServices, _ id: UUID) -> String {
+        guard let p = model.library.frame(id)?.edit.params else { return "gone" }
+        return "EDR " + (p.edrChoice.map { $0 ? "on" : "off" } ?? "never") + "/" + (p.extendedDynamicRange ? "shows on" : "shows off")
+    }
+
+    /// EDR's default as the model has it, as the frames follow it, and as the suite keeps it.
+    private static func edrDefault(_ model: AppServices) -> (settings: Bool, frames: Bool, kept: Bool) {
+        (model.settings.edrByDefault, FilmParams.edrByDefault, model.defaults.bool(forKey: "settings.edrByDefault"))
     }
 
     /// One step along Develop's strip, and the page of `to` open.
@@ -152,6 +168,35 @@ enum MacHDRChoiceCheck {
         r.check(model.library.frame(c)?.edit.hdr == false && model.library.frame(b)?.edit.hdr == true,
                 "C keeps its own off, B follows on (\(state(model, c)), \(state(model, b)))")
 
+        // EDR (the print's, 2026-11-16): remembered as HDR is, and never both on — whichever was switched on last is the
+        // remembered default. D switched EDR on: D's own, EDR's default on and HDR's off.
+        pageD.switchEDR(true)
+        r.check(model.library.frame(d)?.edit.params.edrChoice == true, "EDR: D switched on is D's own choice (\(edrState(model, d)))")
+        r.check(edrDefault(model) == (true, true, true) && defaultState(model) == (false, false, false),
+                "EDR: D switched on is EDR's default, kept, and HDR's default goes off (EDR \(edrDefault(model)), HDR \(defaultState(model)))")
+        r.check(model.library.frame(b)?.edit.params.extendedDynamicRange == true && model.library.frame(b)?.edit.hdr == false
+                && model.library.frame(b)?.edit.params.effectiveExtendedDynamicRange == true,
+                "EDR: B, which chose neither, follows: EDR on (on its wire too), HDR off (\(edrState(model, b)), \(state(model, b)))")
+        r.check(model.library.frame(a)?.edit.hdrChoice == true && model.library.frame(a)?.edit.params.extendedDynamicRange == false,
+                "EDR: A, whose own HDR is on, does not follow EDR's default: HDR on, EDR off (\(state(model, a)), \(edrState(model, a)))")
+        r.check(model.library.frame(c)?.edit.params.extendedDynamicRange == true, "EDR: C (HDR off its own) follows EDR on (\(edrState(model, c)))")
+        // C switched EDR off: C's own, EDR's default off, HDR's still off.
+        guard let pageC2 = await step(model, -1, to: c) else { r.check(false, "a step back opens C"); return }
+        pageC2.switchEDR(false)
+        r.check(model.library.frame(c)?.edit.params.edrChoice == false && edrDefault(model) == (false, false, false)
+                && defaultState(model) == (false, false, false),
+                "EDR: C switched off is C's own and turns only EDR's default off (EDR \(edrDefault(model)), HDR \(defaultState(model)))")
+        r.check(model.library.frame(b)?.edit.params.extendedDynamicRange == false && model.library.frame(d)?.edit.params.extendedDynamicRange == true,
+                "EDR: B follows off, D keeps its own on (\(edrState(model, b)), \(edrState(model, d)))")
+        // Settings' two rows (`MacSettingsDevelop`'s checkboxes set these): turning one on turns the other off.
+        model.settings.edrByDefault = true
+        r.check(edrDefault(model) == (true, true, true) && defaultState(model) == (false, false, false), "EDR: Settings' EDR row on: EDR's default on, HDR's off")
+        model.settings.hdrByDefault = true
+        r.check(defaultState(model) == (true, true, true) && edrDefault(model) == (false, false, false),
+                "EDR: Settings' HDR row on turns EDR's off (HDR \(defaultState(model)), EDR \(edrDefault(model)))")
+        r.check(model.library.frame(b)?.edit.hdr == true && model.library.frame(b)?.edit.params.extendedDynamicRange == false,
+                "EDR: B follows HDR on, EDR off (\(state(model, b)), \(edrState(model, b)))")
+
         // Clone Variant: A's carries A's own choice; B's never chose, as B.
         let importer = ImportService(model: model)
         let va = importer.cloneFrame(of: a, variant: "hdr-choice-a"), vb = importer.cloneFrame(of: b, variant: "hdr-choice-b")
@@ -190,6 +235,10 @@ enum MacHDRChoiceCheck {
         r.check(model.library.frame(kept.b)?.edit.hdrChoice == nil && model.library.frame(kept.b)?.edit.hdr == true,
                 "B, which never chose, shows on (\(state(model, kept.b)))")
         r.check(kept.variantB.map { model.library.frame($0)?.edit.hdr == true } == true, "B's variant shows on")
+        r.check(edrDefault(model) == (false, false, false), "EDR: after a relaunch EDR's default is off, HDR's the last switched on (\(edrDefault(model)))")
+        r.check(model.library.frame(kept.d)?.edit.params.edrChoice == true && model.library.frame(kept.c)?.edit.params.edrChoice == false
+                && model.library.frame(kept.b)?.edit.params.edrChoice == nil && model.library.frame(kept.b)?.edit.params.extendedDynamicRange == false,
+                "EDR: D keeps its own on, C its own off, B never chose and shows off (\(edrState(model, kept.d)), \(edrState(model, kept.c)), \(edrState(model, kept.b)))")
         if let fresh {
             r.check(fresh.edit.hdrChoice == nil && model.library.frame(fresh.id)?.edit.hdr == true,
                     "a photograph imported at this launch (\(fresh.fileName)) shows on (\(state(model, fresh.id)))")

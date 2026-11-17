@@ -44,6 +44,8 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown: $1"; exit 2 ;;
   esac
 done
+# The app starts a check only for an absolute folder: a relative one is made absolute here (2026-11-14).
+mkdir -p "$out"; out=$(CDPATH= cd -- "$out" && pwd)
 bin="$app/Contents/MacOS/SpektraLab"
 [[ -x "$bin" ]] || { echo "no app at $app (build Debug first)"; exit 2; }
 # A copy with a bundle identifier of this run's own: the build's preferences are never reachable (tools/check_app.sh).

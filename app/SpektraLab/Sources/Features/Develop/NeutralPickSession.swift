@@ -75,9 +75,7 @@ extension OpenFrameSession {
                       point.x, point.y, found.temperature, found.tint, found.residual, found.steps)
                 #endif
                 self.change { e in
-                    e.decode.whiteBalance = .custom
-                    e.decode.temperature = found.temperature.rounded()
-                    e.decode.tint = found.tint.rounded()
+                    e.decode.setCustom(temperature: found.temperature.rounded(), tint: found.tint.rounded())
                 }
                 self.neutralNote = found.residual < 0.02
                     ? L("White balance \(Int(found.temperature.rounded())) K, tint \(Fmt.signed(found.tint.rounded(), decimals: 0))")

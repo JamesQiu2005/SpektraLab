@@ -25,6 +25,12 @@
 //    the planes the page reads). The name carries the layers' key beside the edit's, so a delta, an opacity, an eye or
 //    a mask is a new copy; a frame without layers keeps today's name and today's file.
 //
+//  - **With 水印's 成片 marks** (PRD-8, RFC-067 §4.1): the copy carries them, drawn over the pass through Edit's crop's
+//    map so the tile's cut puts them where the export does (`WatermarkComposite.Laid`). A frame with marks and no
+//    edit gets a copy too (the pass then is the develop). The name carries the marks' key — each placement and each
+//    file's hash — so a move, a size, a mark deleted or replaced is a new copy; a frame without marks keeps today's
+//    name. The library tile, the browser, the Light Table and the Export page's preview all draw this copy.
+//
 //  Not seen on a host: its time and its memory are this Mac's in a simulator.
 
 import CoreGraphics
@@ -71,7 +77,7 @@ final class Layer2Copies {
     /// is made, so a tile does not go back to the unedited picture for the
     /// length of a copy. Nil everywhere else: the develop, as before.
     func served(_ frame: LibraryFrame) -> PictureRef? {
-        guard frame.edit.editPassActs, let copy = copies[frame.id], let developed = frame.developed,
+        guard frame.edit.finishedActs(isComposite: frame.isComposite), let copy = copies[frame.id], let developed = frame.developed,
               copy.of == developed.stamp else { return nil }
         return copy.picture
     }
@@ -104,7 +110,8 @@ final class Layer2Copies {
 
     private func track() {
         guard let library else { return }
-        withObservationTracking { _ = library.frames } onChange: { [weak self] in
+        // The watermark library too: a mark deleted or renamed in Settings is another copy of every frame that places it.
+        withObservationTracking { _ = library.frames; _ = (WatermarkComposite.library as? WatermarkStore)?.marks } onChange: { [weak self] in
             Task { @MainActor in
                 self?.reconcileSoon()
                 self?.track()
@@ -122,13 +129,16 @@ final class Layer2Copies {
     }
 
     /// What a frame's copy would be, if it is to have one.
-    private func wanted(_ frame: LibraryFrame) -> (source: URL, of: String, key: String, name: String, layers: FinishedLayers?)? {
+    private func wanted(_ frame: LibraryFrame) -> (source: URL, of: String, key: String, name: String, layers: FinishedLayers?,
+                                                   marks: WatermarkComposite.Laid?)? {
         let a = frame.edit.adjustments
         let layers = frame.edit.editPassActs ? finishedLayers(frame) : nil
-        guard !frame.isDemo, Layer2Local.acts(a, layers), let developed = frame.shownDevelop, let url = developed.picture.fileURL else { return nil }
-        // Today's key without layers (so today's copies keep their names); the layers' beside it with them.
-        let key = key(frame.id, a) + (layers.map { "|" + $0.key } ?? "")
-        return (url, developed.stamp, key, Self.name(frame.id, of: developed.stamp, key: key), layers)
+        let marks = WatermarkComposite.Laid(frame.edit, isComposite: frame.isComposite)
+        guard !frame.isDemo, Layer2Local.acts(a, layers) || marks != nil, let developed = frame.shownDevelop,
+              let url = developed.picture.fileURL else { return nil }
+        // Today's key without layers or marks (so today's copies keep their names); theirs beside it with them.
+        let key = key(frame.id, a) + (layers.map { "|" + $0.key } ?? "") + (marks.map { "|wm " + $0.key() } ?? "")
+        return (url, developed.stamp, key, Self.name(frame.id, of: developed.stamp, key: key), layers, marks)
     }
 
     /// A layer's key, kept per frame: the library changes at every step of a
@@ -152,7 +162,8 @@ final class Layer2Copies {
     /// no longer carries an edit.
     func reconcile() {
         guard let library else { return }
-        var next: (id: UUID, source: URL, of: String, key: String, name: String, adjustments: Adjustments, layers: FinishedLayers?)?
+        var next: (id: UUID, source: URL, of: String, key: String, name: String, adjustments: Adjustments, layers: FinishedLayers?,
+                   marks: WatermarkComposite.Laid?)?
         for frame in library.frames {
             guard let w = wanted(frame) else {
                 if copies[frame.id] != nil { drop(frame.id) }
@@ -165,7 +176,7 @@ final class Layer2Copies {
                 continue
             }
             if next == nil, !held.contains(frame.id) {
-                next = (frame.id, w.source, w.of, w.key, w.name, frame.edit.adjustments, w.layers)
+                next = (frame.id, w.source, w.of, w.key, w.name, frame.edit.adjustments, w.layers, w.marks)
             }
         }
         // A frame gone from the library takes its copy with it.
@@ -174,16 +185,17 @@ final class Layer2Copies {
         keys = keys.filter { here.contains($0.key) }
         guard let next, making == nil else { return }
         guard canRun() else { reconcileSoon(after: 1); return }
-        make(next.id, source: next.source, of: next.of, key: next.key, name: next.name, adjustments: next.adjustments, layers: next.layers)
+        make(next.id, source: next.source, of: next.of, key: next.key, name: next.name, adjustments: next.adjustments, layers: next.layers,
+             marks: next.marks)
     }
 
     private func make(_ id: UUID, source: URL, of stamp: String, key: String, name: String, adjustments: Adjustments,
-                      layers: FinishedLayers?) {
+                      layers: FinishedLayers?, marks: WatermarkComposite.Laid?) {
         making = id
         let target = ImportService.previews.appendingPathComponent(name)
         worker.async { [weak self] in
             let started = DispatchTime.now().uptimeNanoseconds
-            let outcome = Result { try autoreleasepool { try Self.write(source, adjustments, layers: layers, to: target) } }
+            let outcome = Result { try autoreleasepool { try Self.write(source, adjustments, layers: layers, marks: marks, to: target) } }
             let ms = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
             Task { @MainActor in
                 guard let self else { return }
@@ -222,14 +234,17 @@ final class Layer2Copies {
     /// The develop at `source`, with the layer and its 成片 layers, written to `target`: HEIF where
     /// this system writes it, Display P3, its profile in the file — as a kept
     /// develop is written (`EngineHost.write`). Any thread but the main one (the planes are baked on it).
-    nonisolated static func write(_ source: URL, _ adjustments: Adjustments, layers: FinishedLayers? = nil, to target: URL) throws {
+    nonisolated static func write(_ source: URL, _ adjustments: Adjustments, layers: FinishedLayers? = nil,
+                                  marks: WatermarkComposite.Laid? = nil, to target: URL) throws {
         guard let renderer = Layer2Renderer.shared else { throw Layer2Kernel.Failure.noDevice }
         guard let file = CGImageSourceCreateWithURL(source as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               let image = CGImageSourceCreateImageAtIndex(file, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else {
             throw Layer2Renderer.Failure.picture("the develop could not be read")
         }
         let picture = try renderer.source(image)
-        let (made, _) = try renderer.image(picture, adjustments, local: try Layer2Work.local(layers, adjustments, renderer))
+        let (pass, _) = try renderer.image(picture, adjustments, local: try Layer2Work.local(layers, adjustments, renderer))
+        // 水印 over it, in the pass's own buffer, through Edit's crop's map (the tile cuts it as the page does).
+        let made = WatermarkComposite.onPage(pass, laid: marks)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = target.deletingLastPathComponent().appendingPathComponent("." + target.lastPathComponent)
         for type in [UTType.heic, UTType.jpeg] {

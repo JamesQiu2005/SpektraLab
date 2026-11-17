@@ -18,8 +18,8 @@ extension AppServices {
         let side = pair.pickedSide(layer)
         if scope == .decode {
             guard let focus = side ?? session.placementSide, let source = library.frame(pair[focus]?.frame),
-                  source.edit.decode.whiteBalance != .asShot else { return }
-            changeDecode(of: focus, in: session.frameID) { d in d.whiteBalance = .asShot }
+                  !source.edit.decode.isAsShot else { return }
+            changeDecode(of: focus, in: session.frameID) { d in d.setAsShot() }
             keepDecode(of: focus, in: session.frameID)
         } else if let side, [.filmExposure, .enlarger, .preflash, .crop].contains(scope) {
             let trim = pair.trim(on: layer, look: session.edit.params)
@@ -77,11 +77,14 @@ extension AppServices {
         let layer = session.layer, side = pair.pickedSide(session.layer)
         var shared = clip
         // Decode always belongs to the source frame, including on the film layer.
-        shared.groups.subtract([.decode, .enlarger, .preflash])
-        if side != nil { shared.groups.subtract([.filmExposure, .enlarger, .preflash, .decode]) }
-        let decodeSide = clip.groups.contains(.decode) ? (side ?? session.placementSide) : nil
+        // Decode's parts as 2.4.0 had them all as Decode: the white balance to the frame, and the curve with it, unpasted.
+        let decodeParts = ClipboardGroup.decodeLeaves.union([.decode])
+        shared.groups.subtract(decodeParts.union([.enlarger, .preflash]))
+        if side != nil { shared.groups.subtract(decodeParts.union([.filmExposure, .enlarger, .preflash])) }
+        let balance = clip.groups.intersection([.decode, .decodeTemperature, .decodeTint])
+        let decodeSide = balance.isEmpty ? nil : (side ?? session.placementSide)
         if let focus = decodeSide, let source = library.frame(pair[focus]?.frame) {
-            let decode = SettingsClip(groups: [.decode], settings: clip.settings, sourceName: "").applied(to: source.edit, picture: source.originalSize).decode
+            let decode = SettingsClip(groups: balance, settings: clip.settings, sourceName: "").applied(to: source.edit, picture: source.originalSize).decode
             library.update(source.id) { $0.edit.decode = decode }
         }
         changePair(session.frameID) { piece, look in

@@ -51,12 +51,13 @@ enum MacImportDrop {
     /// offer of a picture or a folder.
     static let types: [UTType] = [.fileURL, .folder, .directory, .rawImage, .image]
 
-    /// A drop is taken now: no other page's cover or sheet is up, no import is running, and the import
-    /// page is not asking Finder (its answer would replace the picks). The open page itself takes one.
+    /// A drop is taken now: no other page's cover or sheet is up, no import is running, and neither Import
+    /// (`MacLibraryBrowser.askImport`) nor the import page is asking Finder (its answer would replace the
+    /// picks). The open page itself takes one.
     static func accepts(_ router: AppRouter) -> Bool {
         let browser = MacLibraryBrowser.shared
         guard router.cover == nil, router.sheets.isEmpty, !browser.exportAsked, !browser.moveShown,
-              !browser.sourcePickerShown, !running, open?.finderUp != true else { return false }
+              !browser.sourcePickerShown, !running, !browser.importFinding, open?.finderUp != true else { return false }
         return true
     }
 

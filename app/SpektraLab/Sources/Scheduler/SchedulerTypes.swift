@@ -263,6 +263,11 @@ struct RenderJob: Identifiable, Equatable, Sendable {
     /// render. 0 for a job with none. Priced by `CostModel`.
     let scenePlanes: Int
     let scenePlaneBytes: UInt64
+    /// **What the job's 水印 底片 pass holds beside its source** (`WatermarkComposite.held`, RFC-067 §4.2): the marks'
+    /// pixels at the size drawn, the table, the meter's copy, and — for a job that lays them into a copy of a kept
+    /// decode (the page's develop, a strip's card) — that copy. 0 for a job with none. Priced by `CostModel`; set at
+    /// submit by the scheduler's `marks` hook, so every kind of job is priced by one rule.
+    var watermarkBytes: UInt64 = 0
     let submitted: Date
 
     /// What a composed open decodes, as the cost model prices it.
@@ -336,12 +341,21 @@ struct RenderJob: Identifiable, Equatable, Sendable {
 
     /// The same job, its open composed of these decodes (`composition`).
     func composed(_ composition: Composition?) -> RenderJob {
-        RenderJob(id: id, frameID: frameID, kind: kind, tier: tier, canvas: canvas, layers: layers, what: what,
+        var out = RenderJob(id: id, frameID: frameID, kind: kind, tier: tier, canvas: canvas, layers: layers, what: what,
                   decodesOriginal: decodesOriginal, bandable: bandable, original: original, printLayers: printLayers,
                   opens: opens, slot: slot, gainMap: gainMap, gainMaps: gainMaps, hdrRendition: hdrRendition,
                   composition: composition, rawDecode: rawDecode, scenePlanes: scenePlanes, scenePlaneBytes: scenePlaneBytes,
                   submitted: submitted)
+        out.watermarkBytes = watermarkBytes
+        return out
     }
+    /// The same job, its 底片 pass priced at `bytes` (`watermarkBytes`).
+    func marked(_ bytes: UInt64) -> RenderJob {
+        var out = self
+        out.watermarkBytes = bytes
+        return out
+    }
+
 
     /// A reprint reuses the cached negative; anything else develops it.
     var isReprint: Bool { kind == .canvasReprint }

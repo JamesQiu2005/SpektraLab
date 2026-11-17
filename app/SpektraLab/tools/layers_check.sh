@@ -26,6 +26,8 @@ home=$(mktemp -d "${TMPDIR:-/tmp}/layers-check-home.XXXXXX")
 mkdir -p "$out" "$home/Desktop" "$home/in"
 cp "$first" "$home/in/1-$(basename "$first")"
 cp "$second" "$home/in/2-$(basename "$second")"
+# The app starts a check only for an absolute folder: a relative one is made absolute here (2026-11-14).
+mkdir -p "$out"; out=$(CDPATH= cd -- "$out" && pwd)
 bin="$app/Contents/MacOS/SpektraLab"
 [[ -x "$bin" ]] || { echo "no app at $app (build Debug first)"; exit 2; }
 # A copy with a bundle identifier of this run's own: the build's preferences are never reachable (tools/check_app.sh).

@@ -33,6 +33,8 @@ enum HistoryGroup: Int, CaseIterable, Sendable {
     /// 图层's mask layers (PRD-E): last, so a step that moved a layer and a whole-picture control is named by the
     /// whole picture's (the column's order puts the panel's rows above, but a layer's step is its own gesture).
     case layers
+    /// 图层's watermarks (PRD-8): after the mask layers, for the same reason.
+    case watermarks
 
     /// The group's own name, as its section header or tool says it.
     var label: HistoryLabel {
@@ -58,6 +60,7 @@ enum HistoryGroup: Int, CaseIterable, Sendable {
         case .colour: HistoryLabel("Colour")
         case .edit: HistoryLabel("Edit")
         case .layers: HistoryLabel("Layers")
+        case .watermarks: HistoryLabel("Watermarks")
         }
     }
 }
@@ -225,6 +228,10 @@ enum HistoryFields {
         d(lensPaths("lensHideDistortedAreas"), .decode, lensDiffers(\.lensHideDistortedAreas)) { r in
             HistoryLabel("Hide Distorted Areas", valueKey: on(r.edit.decode.lensHideDistortedAreas))
         },
+        // 色调's own As Shot (2.4.1): Tint, As Shot or its number.
+        d(lensPaths("tintAsShot"), .decode, lensDiffers(\.tintAsShotOverride)) { r in
+            r.edit.decode.tintAsShot ? HistoryLabel("Tint", valueKey: "As Shot") : HistoryLabel("Tint", value: Fmt.signed(r.edit.decode.tint, decimals: 0))
+        },
         f("edit.params.sceneCurve", .decode, { $0.edit.params.sceneCurve }) { _ in HistoryLabel("Curve") },
         // Film, Paper.
         f("edit.params.filmStock", .film, { $0.edit.params.filmStock }) { r in HistoryLabel("Film", value: stock(r.edit.params.filmStock)) },
@@ -273,7 +280,8 @@ enum HistoryFields {
             r.edit.params.glareActive ? HistoryLabel("Glare", value: String(format: "%.1f×", r.edit.params.effects.glare)) : HistoryLabel("Glare", valueKey: "Off")
         },
         // High Dynamic Range. Enable HDR by the stored choice, never by `hdr` (`FrameEdit.hdr`).
-        f("edit.params.extendedDynamicRange", .hdr, { $0.edit.params.extendedDynamicRange }) { r in
+        // EDR by its stored choice too (`FilmParams.edrChoice`: the two keys it is kept in), never by the value it shows.
+        d(["edit.params.extendedDynamicRange", "edit.params.edrOff"], .hdr, [by { $0.edit.params.edrChoice }]) { r in
             HistoryLabel("Extended Dynamic Range (EDR)", valueKey: on(r.edit.params.extendedDynamicRange))
         },
         f("edit.hdr", .hdr, { $0.edit.hdrChoice }) { r in HistoryLabel("Enable HDR", valueKey: on(r.edit.hdr)) },
@@ -302,7 +310,16 @@ enum HistoryFields {
         d(["edit.geometry"] + holes("geometry") + ["double.exposures[].cut"], .crop,
           [by { $0.edit.geometry }, by { sides($0, \.geometry) }, by { exposures($0, \.cut) }]) { _ in HistoryLabel("Crop") },
         // Light Leak, Lens.
-        f("edit.leak", .leak, { $0.edit.leak }) { _ in HistoryLabel("Light Leak") },
+        d(["edit.leak.kind", "edit.leak.amount"], .leak, [by { $0.edit.leak.kind }, by { $0.edit.leak.amount }]) { _ in HistoryLabel("Light Leak") },
+        // 随机 and 相机默认 (API-SPEC §21.8): the leak's own seed, or the camera's again.
+        f("edit.leak.seed", .leak, { $0.edit.leak.seed }) { r in
+            r.edit.leak.seed == 0 ? HistoryLabel("Light Leak", valueKey: "Camera's Own {a light leak}") : HistoryLabel("Light Leak", valueKey: "Shuffle {a light leak}")
+        },
+        // 边缘漏光 (API-SPEC §21.9, 2026-11-16): beside the kind, its own switch and strength.
+        f("edit.leak.edge", .leak, { $0.edit.leak.edge }) { r in
+            r.edit.leak.edgeOn ? HistoryLabel("Edge Burn", as: "a light leak", value: String(format: "%.2f", r.edit.leak.edge))
+                : HistoryLabel("Edge Burn", as: "a light leak", valueKey: "Off")
+        },
         d(["edit.lens.filter", "edit.lens.strength"], .lens, [by { $0.edit.lens.filter }, by { $0.edit.lens.strength }]) { _ in HistoryLabel("Soft Filter") },
         d(["edit.lens.character", "edit.lens.amount"], .lens, [by { $0.edit.lens.character }, by { $0.edit.lens.amount }]) { _ in
             HistoryLabel("Character", as: "a lens")
@@ -340,7 +357,7 @@ enum HistoryFields {
         f("edit.adjustments.enabled", .edit, { $0.edit.adjustments.enabled }) { r in HistoryLabel("Edit", valueKey: on(r.edit.adjustments.enabled)) },
         f("edit.printCrop", .edit, { $0.edit.printCrop }) { _ in HistoryLabel("Crop") },
         f(holes("adjustments"), .edit, { sides($0, \.adjustments) }) { _ in HistoryLabel("Edit") },
-    ] + layerTable
+    ] + layerTable + watermarkTable
 
     // MARK: mask layers (PRD-E)
 
@@ -413,6 +430,60 @@ enum HistoryFields {
         finished("vibrance", { $0.vibrance }) { n, v in HistoryLabel("\(n) · Vibrance", value: v) },
         finished("temperature", { $0.temperature }) { n, v in HistoryLabel("\(n) · Temperature", value: v) },
         finished("tint", { $0.tint }) { n, v in HistoryLabel("\(n) · Tint", as: "the colour shift", value: v) },
+    ]
+
+    // MARK: watermarks (PRD-8)
+
+    private static func marksOf(_ r: DevelopRevision) -> [WatermarkPlacement] { r.edit.watermarks }
+
+    /// The marks both states hold, matched by placement id, in the after state's order.
+    private static func matchedMarks(_ a: DevelopRevision, _ b: DevelopRevision) -> [(WatermarkPlacement, WatermarkPlacement)] {
+        let before = Dictionary(marksOf(a).map { ($0.id, $0) }, uniquingKeysWith: { x, _ in x })
+        return marksOf(b).compactMap { p in before[p.id].map { ($0, p) } }
+    }
+
+    /// A mark as a step names it: its library name, or *Watermark*.
+    private static func markTitle(_ p: WatermarkPlacement) -> String {
+        WatermarkNames.library().name(p.mark).flatMap { $0.isEmpty ? nil : $0 } ?? L("Watermark")
+    }
+
+    /// One aspect of a placement both states hold, named for the first that moved in it: *签名 · 移动*.
+    private static func markField<V: Equatable>(_ paths: [String], _ get: @escaping (WatermarkPlacement) -> V,
+                                                _ named: @escaping (WatermarkPlacement) -> HistoryLabel) -> HistoryField {
+        HistoryField(paths: paths.map { "edit.watermarks[]." + $0 }, group: .watermarks,
+                     differs: { a, b in matchedMarks(a, b).contains { get($0.0) != get($0.1) } },
+                     named: { a, b in
+                         guard let (_, p) = matchedMarks(a, b).first(where: { get($0.0) != get($0.1) }) else { return .adjustment }
+                         return named(p)
+                     })
+    }
+
+    /// Every field of a placement, named: added or removed (the set), the order, where it is, its size, its turn, its
+    /// opacity, its stage, its eye, which mark of the library it uses. A drag's end that re-anchors moves `anchor`, `dx`
+    /// and `dy` together: one *Move*.
+    static let watermarkTable: [HistoryField] = [
+        HistoryField(paths: ["edit.watermarks[].id"], group: .watermarks,
+                     differs: { a, b in marksOf(a).map(\.id) != marksOf(b).map(\.id) },
+                     named: { a, b in
+                         let was = Set(marksOf(a).map(\.id)), now = Set(marksOf(b).map(\.id))
+                         if now.count > was.count, let p = marksOf(b).first(where: { !was.contains($0.id) }) {
+                             return HistoryLabel("Add \(markTitle(p))")
+                         }
+                         if now.count < was.count, let p = marksOf(a).first(where: { !now.contains($0.id) }) {
+                             return HistoryLabel("Delete \(markTitle(p))")
+                         }
+                         return HistoryLabel("Watermark Order")
+                     }),
+        markField(["anchor", "dx", "dy"], { [$0.anchor.rawValue, "\($0.dx)", "\($0.dy)"] }) { p in HistoryLabel("\(markTitle(p)) · Move") },
+        markField(["size"], { $0.size }) { p in HistoryLabel("\(markTitle(p)) · Size", value: "\(Int((p.size * 100).rounded())) %") },
+        markField(["rotation"], { $0.rotation }) { p in
+            HistoryLabel("\(markTitle(p)) · Rotation", value: "\(Int(WatermarkGeometry.degrees(p.rotation).rounded()))°")
+        },
+        markField(["opacity"], { $0.opacity }) { p in HistoryLabel("\(markTitle(p)) · Opacity", value: "\(Int((p.opacity * 100).rounded()))") },
+        markField(["stage"], { $0.stage }) { p in HistoryLabel("\(markTitle(p)) · Stage", valueKey: p.stage == .full ? "Finished" : "Base") },
+        markField(["on"], { $0.on }) { p in HistoryLabel("\(markTitle(p)) · Visible", valueKey: on(p.on)) },
+        markField(["mark"], { $0.mark }) { p in HistoryLabel("\(markTitle(p)) · Watermark") },
+        markField(["fill"], { $0.fill }) { p in HistoryLabel("\(markTitle(p)) · Fill", value: p.fill, valueKey: p.fill == nil ? "Native {a watermark's own colours}" : nil) },
     ]
 
     // MARK: naming a step

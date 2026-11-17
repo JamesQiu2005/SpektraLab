@@ -108,9 +108,11 @@ final class StockStrip {
 
     /// The film strip: every film, each on the paper it was made for.
     var filmCards: [StockPreviewCard] { StockPreviewRules.filmStrip() }
-    /// The paper strip under the chosen film: none under a slide, the silver
+    /// The paper strip under the chosen film: No Paper's card first, always; then none under a slide, the silver
     /// paper alone under a black-and-white film.
-    var paperCards: [StockPreviewCard] { StockPreviewRules.paperStrip(under: edit.params.filmStock) }
+    var paperCards: [StockPreviewCard] {
+        StockPreviewRules.paperStrip(under: edit.params.filmStock)
+    }
 
     func state(_ card: StockPreviewCard) -> StockPreviewState { states[card.id] ?? .rendering(previous: nil) }
 
