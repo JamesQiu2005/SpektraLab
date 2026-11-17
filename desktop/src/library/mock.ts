@@ -188,7 +188,18 @@ export class MockLibrary implements LibraryClient {
         const f = (p.filter ?? {}) as { text?: string; rating_min?: number };
         if (f.text) rows = rows.filter((i) => i.file_name.toLowerCase().includes(String(f.text).toLowerCase()));
         if (f.rating_min) rows = rows.filter((i) => (i.rating ?? 0) >= Number(f.rating_min));
-        rows.sort((a, b) => (a.captured_local ?? '').localeCompare(b.captured_local ?? '') * (p.descending ? -1 : 1));
+        const key = (i: (typeof rows)[number]): string | number => {
+          switch (p.sort) {
+            case 'name': return i.file_name.toLowerCase();
+            case 'rating': return i.rating ?? 0;
+            case 'imported': case 'added': return String((i as { imported_at?: string }).imported_at ?? i.captured_local ?? '');
+            default: return i.captured_local ?? '';
+          }
+        };
+        rows.sort((a, b) => {
+          const x = key(a), y = key(b);
+          return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))) * (p.descending ? -1 : 1);
+        });
         const offset = Number(p.offset ?? 0), limit = Number(p.limit ?? 1000);
         return { total: rows.length, offset, images: rows.slice(offset, offset + limit).map((i) => ({ ...i, exists: !l.offline.has(i.uuid) })) };
       }

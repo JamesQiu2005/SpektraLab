@@ -1,21 +1,26 @@
-// AppWindow.tsx — the one window (README §1, board_window.svg): a 32 epx
-// title bar over the left rail · the picture · the right rail; the toolbar
-// over the picture only; the filmstrip under it. The Library is a workspace
-// of the same window (Library | Edit), not a second window.
+// AppWindow.tsx — the one window (PRD-W5 §2; the Mac's `MainWindowLayout`):
+// a 32 epx title bar over the LEFT COLUMN (the mode row, then the mode's
+// tools) · the picture (the picture bar over it, the info strip under it) ·
+// the BROWSER (the library's rows, in every mode). The mode is state, not a
+// page: the shell is mounted once, so going to the Library and back has no
+// page transition and the browser's scroll and selection are as they were.
+// The light table and the contact sheet are full-window pages above it.
 //
-// Rails fold by the window's width (layout.ts); a folded rail comes back over
-// the picture with a shadow (F7/F8), and Esc or a click on the picture puts
-// it away. The walls between them drag 280–440, double-click for 320.
+// Panes fold by the window's width (layout.ts: the browser first, then the
+// column); a folded pane comes back over the picture with a shadow (F7/F8),
+// and Esc or a press on the picture puts it away. The column's wall drags
+// 280–440, the browser's 240–900; double-click for the default.
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { TitleBar } from './TitleBar';
 import { computeLayout } from './layout';
 import { useUi } from './ui';
-import { useSettings, settingsStore } from '../state/settings';
+import { useSettings } from '../state/settings';
 import { useSession } from '../state/session';
-import { DevelopRail, EditRail } from '../edit/rails';
-import { FilmstripBand, Picture, Toolbar } from '../edit/EditWorkspace';
-import { LibraryWorkspace } from '../library/LibraryWorkspace';
+import { DevelopTools, EditTools, LatitudeMeter } from '../edit/rails';
+import { InfoStrip, Picture, Toolbar } from '../edit/EditWorkspace';
+import { FullWindowPage, LibraryCentre, LibraryColumn } from '../library/LibraryWorkspace';
+import { Browser } from '../library/Browser';
 import { AboutDialog } from '../windows/Dialogs';
 import { FolderImportDialog } from '../windows/FolderImportDialog';
 import { ExportDialog } from '../export/ExportDialog';
@@ -24,18 +29,22 @@ import { useLibrary } from '../library/store';
 import { baseName } from '../platform';
 import { setWindowTitle, watchWindow } from './windowChrome';
 import { scheduler } from '../scheduler';
-import { geometry as G } from '../theme/tokens';
+import { tz } from '../i18n';
+import { ModeRow, Wall } from './Shell';
+import type { Layout, RailMode } from './layout';
 
-function Wall({ side, x }: { side: 'left' | 'right'; x: number }) {
-  const drag = useRef<{ x: number; w: number } | null>(null);
-  const key = side === 'left' ? 'railLeft' : 'railRight';
+/** The left column: the mode row in its head, then the mode's tools (the Library's, or the meter and Develop's or Edit's). */
+function Column({ mode, layout }: { mode: RailMode; layout: Layout }) {
+  const ws = useUi((u) => u.workspace);
   return (
-    <div className="v2-wall" data-testid={`wall-${side}`} style={{ left: x - (G.wallGrip - 1) / 2 }}
-      role="separator" aria-orientation="vertical" aria-label={side === 'left' ? 'Develop rail width' : 'Edit rail width'}
-      onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture(e.pointerId); drag.current = { x: e.clientX, w: settingsStore.getState()[key] }; }}
-      onPointerMove={(e) => { const d = drag.current; if (!d) return; const dx = e.clientX - d.x; settingsStore.getState().set(key, d.w + (side === 'left' ? dx : -dx)); }}
-      onPointerUp={() => { drag.current = null; }}
-      onDoubleClick={() => settingsStore.getState().set(key, G.rail)} />
+    <aside className={`v2-rail left ${mode}`} data-testid="rail-left" data-mode={mode} data-column={ws} aria-label={tz('Left column', '左栏')}>
+      <div className="v2-rail-head modes" data-testid="rail-left-head"><ModeRow /></div>
+      {/* Every mode's tools stay mounted (their scroll and open sections are kept); the one in front shows. */}
+      <div className="v2-column-page" hidden={ws !== 'library'} data-testid="column-library"><LibraryColumn /></div>
+      {ws !== 'library' && <div className="v2-rail-fixed latitude" data-testid="latitude-meter"><LatitudeMeter /></div>}
+      <div className="v2-column-page" hidden={ws !== 'develop'} data-testid="column-develop"><DevelopTools navigator={layout.navigator} /></div>
+      <div className="v2-column-page" hidden={ws !== 'edit'} data-testid="column-edit"><EditTools /></div>
+    </aside>
   );
 }
 
@@ -43,13 +52,12 @@ export function AppWindow() {
   const ui = useUi((s) => s);
   const st = useSettings((s) => s);
   const selection = useSession((s) => s.selection);
-  const cropping = useSession((s) => s.tool === 'crop');
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
   const settingsOpen = useSession((s) => s.settingsOpen);
   const source = useLibrary((s) => s.source);
   const layout = computeLayout({ width: ui.window.width, height: ui.window.height, leftHidden: st.leftCollapsed, rightHidden: st.rightCollapsed,
-    filmstripHidden: st.filmstripCollapsed, navigatorHidden: st.navigatorHidden, overlay: ui.overlay, railLeft: st.railLeft, railRight: st.railRight, fullScreen: ui.fullScreen });
+    fullGrid: ui.fullGrid, navigatorHidden: st.navigatorHidden, overlay: ui.overlay, railLeft: st.railLeft, browserWidth: st.browserWidth, fullScreen: ui.fullScreen });
   const library = ui.workspace === 'library';
   const title = library ? `${source?.info.name ?? 'SpektraLab'}${source ? ' — SpektraLab' : ''}` : selection ? `${baseName(selection).replace(/\.[^.]+$/, '')} — SpektraLab` : 'SpektraLab';
   useEffect(() => watchWindow(), []);
@@ -60,24 +68,29 @@ export function AppWindow() {
       openFrame: selection, foreground: true, interaction: 'idle', dialogOpen: false });
   }, [exportOpen, settingsOpen, library, ui.libraryView, selection]);
   const leftShown = layout.left === 'docked' || layout.left === 'over';
-  const rightShown = layout.right === 'docked' || layout.right === 'over';
+  const rightShown = layout.fullGrid || layout.right === 'docked' || layout.right === 'over';
+  const W = ui.window.width;
   return (
     <div className={'v2-window' + (ui.maximized || ui.fullScreen ? ' square' : '')} data-testid="v2-window" data-workspace={ui.workspace}
       style={{ ['--v2-rail-left' as string]: `${layout.leftWidth}px`, ['--v2-rail-right' as string]: `${layout.rightWidth}px`, ['--v2-title-h' as string]: `${layout.titleBar}px` }}>
       {!ui.fullScreen && <TitleBar title={title} />}
-      {library ? <LibraryWorkspace layout={layout} /> : (
-        <div className="v2-body" style={{ pointerEvents: batch ? 'none' : undefined }} data-testid="editor">
-          {leftShown && <DevelopRail mode={layout.left} navigator={layout.navigator} />}
-          {layout.left === 'docked' && <Wall side="left" x={layout.leftWidth} />}
+      <div className="v2-body" style={{ pointerEvents: batch ? 'none' : undefined }} data-testid="editor">
+        {leftShown && <Column mode={layout.left} layout={layout} />}
+        {layout.left === 'docked' && <Wall side="left" x={layout.leftWidth} layout={layout} />}
+        {!layout.fullGrid && (
           <main className="v2-centre" style={{ left: layout.picture.x, width: layout.picture.width }} data-testid="centre">
             <Toolbar layout={layout} />
-            <Picture layout={layout} />
-            {layout.filmstrip && !cropping && <FilmstripBand />}
+            {library ? <LibraryCentre /> : <><Picture layout={layout} /><InfoStrip layout={layout} /></>}
           </main>
-          {layout.right === 'docked' && <Wall side="right" x={ui.window.width - layout.rightWidth - 1} />}
-          {rightShown && <EditRail mode={layout.right} />}
+        )}
+        {layout.right === 'docked' && !layout.fullGrid && <Wall side="right" x={W - layout.rightWidth - 1} layout={layout} />}
+        {/* The browser is mounted in every mode (folded, it is only out of sight), so its scroll is kept. */}
+        <div className="v2-browser-slot" hidden={!rightShown} style={layout.fullGrid ? { left: layout.picture.x } : { width: layout.rightWidth }}>
+          {layout.fullGrid && <div className="v2-full-grid-bar"><Toolbar layout={layout} /></div>}
+          <Browser mode={layout.fullGrid ? 'full' : layout.right} width={layout.fullGrid ? W - layout.picture.x : layout.rightWidth} full={layout.fullGrid} />
         </div>
-      )}
+      </div>
+      <FullWindowPage />
       <ExportDialog />
       <SettingsWindow />
       <FolderImportDialog />

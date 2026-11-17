@@ -14,7 +14,8 @@ import { chord, isEditable, isTypingKey, shortcutTable } from '../windows/keys';
 import { KEY_COMMANDS, developFromLibrary, menuBar, runCommand } from './commands';
 import { escapeUi, openMenu, setUi, uiStore } from './ui';
 import { sessionStore, setOriginal, setPages, setTool, zoomTo, zoomToFit } from '../state/session';
-import { libraryStore, pick, setLibrary, setRating } from '../library/store';
+import { libraryStore, setLibrary, setRating } from '../library/store';
+import { stepRow } from '../library/browser';
 
 const TEXT_KEYS = ['ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+shift+z', 'ctrl+y', 'ctrl+shift+v'];
 
@@ -49,23 +50,17 @@ export function installV2Keys(): () => void {
     if (c === 'f10') { e.preventDefault(); setUi({ accessKeys: true }); openMenu('file'); return; }
     // Pages over the window (Settings, Export, About) take only their own keys.
     if ((s.exportOpen || s.settingsOpen || s.aboutOpen) && !c.startsWith('ctrl+')) return;
-    if (s.batchExporting && !['f11', 'f7', 'f8', 'ctrl+b', 'ctrl+shift+f', 'ctrl+0', 'ctrl+1', 'ctrl+=', 'ctrl+-'].includes(c)) return;
+    if (s.batchExporting && !['f11', 'f7', 'f8', 'ctrl+b', 'ctrl+alt+v', 'ctrl+0', 'ctrl+1', 'ctrl+=', 'ctrl+-'].includes(c)) return;
     if (e.repeat && (c === 'delete' || c === ' ' || c === '\\')) { e.preventDefault(); return; }
     // Held keys: Space or \ shows the Original until release (README §6.2).
-    if ((c === ' ' || c === '\\') && u.workspace === 'edit' && s.selection) {
+    if ((c === ' ' || c === '\\') && u.workspace !== 'library' && s.selection) {
       e.preventDefault(); held = c; setOriginal(true); return;
     }
+    // ← → walk the browser's rows in every mode (PRD-W5 §2): in Develop and Edit the picture follows.
+    if (c === 'arrowleft' || c === 'arrowright') { e.preventDefault(); void stepRow(c === 'arrowright' ? 1 : -1); return; }
     if (u.workspace === 'library') {
-      const lib = libraryStore.getState();
       if (c === 'enter') { e.preventDefault(); void developFromLibrary(); return; }
       if (/^[0-5]$/.test(c)) { e.preventDefault(); void setRating(Number(c) || null); return; }
-      if ((c === 'arrowleft' || c === 'arrowright') && lib.images.length) {
-        e.preventDefault();
-        const i = Math.max(0, lib.images.findIndex((x) => x.uuid === lib.focus));
-        const next = lib.images[Math.max(0, Math.min(lib.images.length - 1, i + (c === 'arrowright' ? 1 : -1)))]!;
-        pick(next.uuid);
-        return;
-      }
     } else {
       if (c === 'z' && s.selection) { e.preventDefault(); if (s.view.fit) zoomTo(1); else zoomToFit(); return; }
       if (c === 'enter' && s.tool === 'crop') { e.preventDefault(); setTool('select'); return; }

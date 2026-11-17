@@ -11,7 +11,7 @@
 import { tz } from '../i18n';
 import {
   copySettings, currentFitZoom, pasteSettings, redo, resetAdjustments, resetCrop, resetEnlarger, resetFilmStock,
-  selectAllFrames, selectRelative, sessionStore, setAdjustments, setGeometry, setPages, setTool, solveNow,
+  selectAllFrames, sessionStore, setAdjustments, setGeometry, setPages, setTool, solveNow,
   toggleCompare, undo, zoomStep, zoomTo, zoomToFit, openPaths, select, recomputeFilmFormat,
 } from '../state/session';
 import { settingsStore } from '../state/settings';
@@ -25,6 +25,8 @@ import {
   addFolder, closeLibrary, developTargets, libraryStore, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, pickAll, pickNone,
   refresh, setRating, toggleFavourite,
 } from '../library/store';
+import { browserRows, exportPaths, stepRow } from '../library/browser';
+import { chooseMode } from './modes';
 
 export type MenuId = 'file' | 'edit' | 'view' | 'frame' | 'go' | 'help';
 
@@ -51,28 +53,49 @@ const inField = () => {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 };
 
-function layoutNow() {
+export function layoutNow() {
   const u = uiStore.getState(), s = settings();
   return computeLayout({ width: u.window.width, height: u.window.height, leftHidden: s.leftCollapsed, rightHidden: s.rightCollapsed,
-    filmstripHidden: s.filmstripCollapsed, navigatorHidden: s.navigatorHidden, overlay: u.overlay, railLeft: s.railLeft, railRight: s.railRight, fullScreen: u.fullScreen });
+    fullGrid: u.fullGrid, navigatorHidden: s.navigatorHidden, overlay: u.overlay, railLeft: s.railLeft, browserWidth: s.browserWidth, fullScreen: u.fullScreen });
 }
 
+/** The left column's toggle (F7, Ctrl+B) and the split's (F8): `left` is the column, `right` the browser. */
 export function toggleRailCommand(side: RailSide) {
-  const r = toggleRail(side, layoutNow(), uiStore.getState().window.width);
+  const u = uiStore.getState();
+  // The split pressed under the full grid: the picture comes back beside the browser.
+  if (side === 'right' && u.fullGrid) { setUi({ fullGrid: false }); settings().set('rightCollapsed', false); return; }
+  const r = toggleRail(side, layoutNow(), u.window.width);
   if (r.hide !== undefined) settings().set(side === 'left' ? 'leftCollapsed' : 'rightCollapsed', r.hide);
   if (r.overlay !== undefined) setUi({ overlay: r.overlay });
 }
 
-/** Develop ↵ (Enter, double-click): the Library's frames into the editor, as the filmstrip. */
+/** The grid takes the window (G; the Mac's `fullGrid`): pressed in Develop or Edit it goes to the Library with it on. */
+export function toggleFullGrid() {
+  const u = uiStore.getState();
+  if (u.workspace !== 'library') { setWorkspace('library'); setUi({ fullGrid: true, libraryView: 'grid' }); return; }
+  setUi({ fullGrid: !u.fullGrid, libraryView: 'grid' });
+}
+
+/** Develop ↵ (Enter, double-click): the Library's rows into the editor, the focused one open. */
 export async function developFromLibrary() {
-  const { paths, open } = developTargets();
+  const { open } = developTargets();
+  // The editor's roll is the browser's rows (the browser is the roll now); the chosen ones stay chosen.
+  const paths = browserRows().filter((r) => r.exists).map((r) => r.path);
   if (!paths.length) return;
-  const lib = libraryStore.getState();
-  const from = lib.collections.find((c) => c.uuid === lib.collection);
-  setUi({ stripSource: from ? (from.title || from.name) : null });
-  setWorkspace('edit');
-  await openPaths(paths);
+  setWorkspace('develop');
+  const roll = sess().frames.map((f) => f.path);
+  // The roll is already these rows (a row opened on the page brought them): just open the one.
+  if (!(roll.length === paths.length && paths.every((p) => roll.includes(p)))) await openPaths(paths);
   if (open && sess().selection !== open) await select(open);
+}
+
+/** Export: the browser's chosen frames (in its order), or the open picture alone (`MacDevelopExport`). */
+export function exportFromBrowser() {
+  const frames = new Set(sess().frames.map((f) => f.path));
+  const paths = exportPaths(sess().selection).filter((p) => frames.has(p));
+  if (paths.length > 1) sessionStore.setState({ picked: paths });
+  else if (sess().selection) sessionStore.setState({ picked: [sess().selection!] });
+  openExport();
 }
 
 export function showInExplorer() {
@@ -91,6 +114,7 @@ export function commands(): Record<string, Command> {
   const gate = s.gate;
   const library = u.workspace === 'library';
   const editing = canEdit();
+  const rows = browserRows();
   const printed = !!s.selection && s.badge !== null;
   const c = (id: string, label: string, run: () => void, o: Partial<Omit<Command, 'id' | 'label' | 'run'>> = {}): Command =>
     ({ id, label, run, enabled: true, ...o });
@@ -106,7 +130,7 @@ export function commands(): Record<string, Command> {
     c('addFolder', tz('Add a Folder…', '添加文件夹…'), () => void addFolder(), {}),
     c('closeLibrary', tz('Close Library', '关闭图库'), () => void closeLibrary(), { enabled: !!lib.source }),
     c('refreshLibrary', tz('Refresh Library', '刷新图库'), () => void refresh(), { access: 'R', keys: 'F5', enabled: !!lib.source }),
-    c('export', tz('Export…', '导出…'), () => (library ? void developFromLibrary().then(openExport) : openExport()), { access: 'E', keys: 'Ctrl+E', enabled: library ? lib.picked.length > 0 : printed && !s.batchExporting }),
+    c('export', tz('Export…', '导出…'), () => (library ? void developFromLibrary().then(exportFromBrowser) : exportFromBrowser()), { access: 'E', keys: 'Ctrl+E', enabled: library ? lib.picked.length > 0 : printed && !s.batchExporting }),
     c('exportLast', tz('Export with the Last Recipe', '用上次的配方导出'), () => openExport(), { access: 'W', keys: 'Ctrl+Shift+E', enabled: printed && !s.batchExporting }),
     c('settings', tz('Settings…', '设置…'), () => setPages({ settingsOpen: true }), { access: 'T', keys: 'Ctrl+,' }),
     c('exit', tz('Exit', '退出'), () => void closeWindow(), { access: 'X', keys: 'Alt+F4' }),
@@ -116,17 +140,20 @@ export function commands(): Record<string, Command> {
     c('cut', tz('Cut', '剪切'), () => document.execCommand('cut'), { access: 't', keys: 'Ctrl+X', enabled: inField() }),
     c('copy', tz('Copy', '复制'), () => document.execCommand('copy'), { access: 'C', keys: 'Ctrl+C', enabled: inField() }),
     c('paste', tz('Paste', '粘贴'), () => document.execCommand('paste'), { access: 'P', keys: 'Ctrl+V', enabled: inField() }),
-    c('selectAll', tz('Select All', '全选'), () => (library ? pickAll() : selectAllFrames()), { access: 'A', keys: 'Ctrl+A' }),
-    c('selectNone', tz('Select None', '全不选'), () => (library ? pickNone() : sessionStore.setState({ picked: [] })), { access: 'N', keys: 'Ctrl+Shift+A' }),
+    // The browser's rows: the library's where one is open, else the folder's frames — in every mode.
+    c('selectAll', tz('Select All', '全选'), () => (lib.source ? pickAll() : selectAllFrames()), { access: 'A', keys: 'Ctrl+A' }),
+    c('selectNone', tz('Select None', '全不选'), () => (lib.source ? pickNone() : sessionStore.setState({ picked: [] })), { access: 'N', keys: 'Ctrl+Shift+A' }),
     c('copySettings', tz('Copy Settings', '拷贝设置'), copySettings, { access: 'S', keys: 'Ctrl+Shift+C', enabled: editing }),
     c('copySettingsDialog', tz('Copy Settings…', '拷贝设置…'), () => setUi({ copySettingsOpen: true, moreOpen: false }), { access: 'e', keys: 'Ctrl+Alt+Shift+C', enabled: editing }),
     c('pasteSettings', tz('Paste Settings', '粘贴设置'), () => void pasteSettings(), { access: 'P', keys: 'Ctrl+Shift+V', enabled: !!s.clipboard && !s.batchExporting }),
-    c('find', tz('Find', '查找'), () => { setWorkspace('library'); requestAnimationFrame(() => (document.querySelector('[data-testid="library-search"]') as HTMLInputElement | null)?.focus()); }, { access: 'F', keys: 'Ctrl+F', enabled: !!lib.source }),
+    // The browser's search, in every mode (it is the browser's slim bar).
+    c('find', tz('Find', '查找'), () => { if (st.rightCollapsed) st.set('rightCollapsed', false); requestAnimationFrame(() => (document.querySelector('[data-testid="browser-search"]') as HTMLInputElement | null)?.focus()); }, { access: 'F', keys: 'Ctrl+F', enabled: !!lib.source }),
     // View
-    c('developRail', tz('Develop Rail', '冲洗栏'), () => toggleRailCommand('left'), { access: 'D', keys: 'F7', checked: l.left === 'docked' || l.left === 'over' }),
-    c('editRail', tz('Edit Rail', '编辑栏'), () => toggleRailCommand('right'), { access: 'E', keys: 'F8', checked: l.right === 'docked' || l.right === 'over' }),
-    c('hideRails', tz('Hide Both Rails', '隐藏两侧栏'), () => { const hide = !(st.leftCollapsed && st.rightCollapsed); st.set('leftCollapsed', hide); st.set('rightCollapsed', hide); setUi({ overlay: null }); }, { access: 'H', keys: 'Ctrl+B' }),
-    c('filmstrip', tz('Filmstrip', '胶片条'), () => st.set('filmstripCollapsed', !st.filmstripCollapsed), { access: 'F', keys: 'Ctrl+Shift+F', checked: !st.filmstripCollapsed }),
+    // The one window's panes (PRD-W5 R5): the left column, the browser beside the picture, the full grid, the loupe.
+    c('leftColumn', tz('Left Column', '左栏'), () => toggleRailCommand('left'), { access: 'L', keys: 'Ctrl+B', checked: l.left === 'docked' || l.left === 'over' }),
+    c('browser', tz('Browser', '浏览器'), () => toggleRailCommand('right'), { access: 'B', keys: 'F8', checked: !l.fullGrid && (l.right === 'docked' || l.right === 'over') }),
+    c('fullGrid', tz('Grid', '网格'), toggleFullGrid, { access: 'G', keys: 'G', checked: l.fullGrid }),
+    c('loupe', tz('Light Table', '看片台'), () => setLibraryView('lightTable'), { access: 'T', keys: 'Ctrl+Shift+L', enabled: !!lib.source }),
     c('navigator', tz('Navigator', '导航器'), () => st.set('navigatorHidden', !st.navigatorHidden), { access: 'N', checked: !st.navigatorHidden }),
     c('zoomIn', tz('Zoom In', '放大'), () => zoomStep(1, currentFitZoom), { access: 'I', keys: 'Ctrl++', enabled: !!s.selection }),
     c('zoomOut', tz('Zoom Out', '缩小'), () => zoomStep(-1, currentFitZoom), { access: 'O', keys: 'Ctrl+−', enabled: !!s.selection }),
@@ -137,7 +164,8 @@ export function commands(): Record<string, Command> {
     c('fullScreen', tz('Full Screen', '全屏'), () => void toggleFullScreen(), { access: 'u', keys: 'F11', checked: u.fullScreen }),
     // Frame
     c('developAgain', tz('Develop Again', '重新冲洗'), () => void solveNow(), { access: 'D', keys: 'Ctrl+Enter', enabled: editing }),
-    c('crop', tz('Crop', '裁剪'), () => setTool(s.tool === 'crop' ? 'select' : 'crop'), { access: 'C', keys: 'C', enabled: editing, checked: s.tool === 'crop' }),
+    // Crop is persistent (the shared bar's): pressed in the Library it is the open picture's, on the Develop page.
+    c('crop', tz('Crop', '裁剪'), () => { if (library) void chooseMode('develop').then(() => setTool('crop')); else setTool(s.tool === 'crop' ? 'select' : 'crop'); }, { access: 'C', keys: 'C', enabled: editing, checked: s.tool === 'crop' }),
     c('rotateLeft', tz('Rotate Left', '向左旋转'), geo((g) => turned(g, -1)), { access: 'L', keys: 'Ctrl+[', enabled: editing }),
     c('rotateRight', tz('Rotate Right', '向右旋转'), geo((g) => turned(g, 1)), { access: 'R', keys: 'Ctrl+]', enabled: editing }),
     c('flipH', tz('Flip Horizontal', '水平翻转'), geo((g) => ({ ...g, flipH: !g.flipH })), { access: 'H', enabled: editing }),
@@ -150,11 +178,12 @@ export function commands(): Record<string, Command> {
     c('resetCrop', tz('Crop', '裁剪'), resetCrop, { enabled: editing }),
     c('showInExplorer', tz('Show in File Explorer', '在文件资源管理器中显示'), showInExplorer, { access: 'S', keys: 'Ctrl+Shift+R', enabled: library ? !!lib.focus : !!s.selection }),
     // Go
-    c('goLibrary', tz('Library', '图库'), () => setWorkspace('library'), { access: 'L', keys: 'Ctrl+Alt+1', checked: library }),
-    c('goEdit', tz('Edit', '编辑'), () => setWorkspace('edit'), { access: 'E', keys: 'Ctrl+Alt+2', checked: !library }),
-    c('goLightTable', tz('Light Table', '看片台'), () => setLibraryView('lightTable'), { access: 'T', keys: 'Ctrl+Shift+L', enabled: !!lib.source }),
-    c('prevFrame', tz('Previous Frame', '上一张'), () => selectRelative(-1), { access: 'P', keys: '←', enabled: s.frames.length > 1 }),
-    c('nextFrame', tz('Next Frame', '下一张'), () => selectRelative(1), { access: 'N', keys: '→', enabled: s.frames.length > 1 }),
+    c('goLibrary', tz('Library', '图库'), () => void chooseMode('library'), { access: 'L', keys: 'Ctrl+Alt+1', checked: library }),
+    c('goDevelop', tz('Develop', '冲洗'), () => void chooseMode('develop'), { access: 'D', keys: 'Ctrl+Alt+2', checked: u.workspace === 'develop' }),
+    c('goEdit', tz('Edit', '编辑'), () => void chooseMode('edit'), { access: 'E', keys: 'Ctrl+Alt+3', checked: u.workspace === 'edit' }),
+    // ← → walk the browser's rows in every mode (PRD-W5 §2).
+    c('prevFrame', tz('Previous Frame', '上一张'), () => void stepRow(-1), { access: 'P', keys: '←', enabled: rows.length > 1 }),
+    c('nextFrame', tz('Next Frame', '下一张'), () => void stepRow(1), { access: 'N', keys: '→', enabled: rows.length > 1 }),
     c('back', tz('Back', '返回'), goBack, { access: 'B', keys: 'Alt+←', enabled: !!u.previous }),
     // Help
     c('help', tz('SpektraLab Help', 'SpektraLab 帮助'), () => void platform().openUrl('https://github.com/JamesQiu2005/SpektraLab'), { access: 'H', keys: 'F1' }),
@@ -169,7 +198,7 @@ export function commands(): Record<string, Command> {
   const out: Record<string, Command> = {};
   for (const x of list) {
     // Nothing runs while a batch is exporting, but looking around (View, Go) and leaving do.
-    const look = ['developRail', 'editRail', 'hideRails', 'filmstrip', 'navigator', 'fullScreen', 'zoomIn', 'zoomOut', 'zoomFit', 'zoom100', 'exit', 'about', 'logs', 'help', 'keyboard'];
+    const look = ['leftColumn', 'browser', 'navigator', 'fullScreen', 'zoomIn', 'zoomOut', 'zoomFit', 'zoom100', 'exit', 'about', 'logs', 'help', 'keyboard'];
     out[x.id] = s.batchExporting && !look.includes(x.id) ? { ...x, enabled: false } : x;
   }
   return out;
@@ -186,11 +215,11 @@ export function menuBar(): { id: MenuId; label: string; access: string; items: M
   return [
     { id: 'file', label: tz('File', '文件'), access: 'F', items: [k.open!, k.import!, sub('recent', tz('Open Recent', '最近打开'), recent, 'R'), sep, k.newCatalog!, k.newSession!, k.openLibrary!, k.openCaptureOne!, k.refreshLibrary!, sep, k.export!, k.exportLast!, sep, k.settings!, sep, k.exit!] },
     { id: 'edit', label: tz('Edit', '编辑'), access: 'E', items: [k.undo!, k.redo!, sep, k.cut!, k.copy!, k.paste!, k.selectAll!, k.selectNone!, sep, k.copySettings!, k.copySettingsDialog!, k.pasteSettings!, sep, k.find!] },
-    { id: 'view', label: tz('View', '视图'), access: 'V', items: [k.developRail!, k.editRail!, k.hideRails!, k.filmstrip!, k.navigator!, sep, k.zoomIn!, k.zoomOut!, k.zoomFit!, k.zoom100!, sep, k.compare!, k.bypass!, sep, k.fullScreen!] },
+    { id: 'view', label: tz('View', '视图'), access: 'V', items: [k.leftColumn!, k.browser!, k.fullGrid!, k.loupe!, k.navigator!, sep, k.zoomIn!, k.zoomOut!, k.zoomFit!, k.zoom100!, sep, k.compare!, k.bypass!, sep, k.fullScreen!] },
     { id: 'frame', label: tz('Frame', '照片'), access: 'R', items: [k.developAgain!, sep, k.crop!, k.rotateLeft!, k.rotateRight!, k.flipH!, k.flipV!, sep, k.favourite!,
       sub('rating', tz('Rating', '评分'), [0, 1, 2, 3, 4, 5].map((n) => ({ id: `rating${n}`, label: n ? '★'.repeat(n) : tz('None', '无'), keys: String(n), run: () => void setRating(n || null), enabled: uiStore.getState().workspace === 'library' && lib.picked.length > 0 } as Command)), 'a'),
       sep, sub('reset', tz('Reset', '重置'), [k.resetFilmPaper!, k.resetFormat!, k.resetAdjust!, k.resetDarkroom!, k.resetCrop!], 's'), sep, k.showInExplorer!] },
-    { id: 'go', label: tz('Go', '转到'), access: 'G', items: [k.goLibrary!, k.goEdit!, k.goLightTable!, sep, k.prevFrame!, k.nextFrame!, sep, k.back!] },
+    { id: 'go', label: tz('Go', '转到'), access: 'G', items: [k.goLibrary!, k.goDevelop!, k.goEdit!, sep, k.prevFrame!, k.nextFrame!, sep, k.back!] },
     { id: 'help', label: tz('Help', '帮助'), access: 'H', items: [k.help!, k.keyboard!, sep, k.updates!, k.logs!, k.diagnostic!, sep, k.about!] },
   ];
 }
@@ -200,10 +229,10 @@ export const KEY_COMMANDS: Record<string, string> = {
   'ctrl+o': 'open', 'ctrl+shift+i': 'import', 'ctrl+shift+o': 'openCaptureOne', f5: 'refreshLibrary', 'ctrl+e': 'export', 'ctrl+shift+e': 'exportLast',
   'ctrl+,': 'settings', 'ctrl+z': 'undo', 'ctrl+y': 'redo', 'ctrl+shift+z': 'redo', 'ctrl+a': 'selectAll', 'ctrl+shift+a': 'selectNone',
   'ctrl+shift+c': 'copySettings', 'ctrl+alt+shift+c': 'copySettingsDialog', 'ctrl+shift+v': 'pasteSettings', 'ctrl+f': 'find',
-  f7: 'developRail', f8: 'editRail', 'ctrl+b': 'hideRails', 'ctrl+shift+f': 'filmstrip', 'ctrl+=': 'zoomIn', 'ctrl++': 'zoomIn', 'ctrl+-': 'zoomOut',
+  f7: 'leftColumn', f8: 'browser', 'ctrl+b': 'leftColumn', 'ctrl+alt+v': 'browser', g: 'fullGrid', 'ctrl+=': 'zoomIn', 'ctrl++': 'zoomIn', 'ctrl+-': 'zoomOut',
   'ctrl+0': 'zoomFit', 'ctrl+1': 'zoom100', y: 'compare', 'ctrl+shift+b': 'bypass', f11: 'fullScreen', 'ctrl+enter': 'developAgain', c: 'crop',
   'ctrl+[': 'rotateLeft', 'ctrl+]': 'rotateRight', 'ctrl+alt+[': 'rotateLeft', 'ctrl+alt+]': 'rotateRight', '.': 'favourite', 'ctrl+shift+r': 'showInExplorer',
-  'ctrl+alt+1': 'goLibrary', 'ctrl+alt+2': 'goEdit', 'ctrl+shift+l': 'goLightTable', 'alt+arrowleft': 'back', f1: 'help',
+  'ctrl+alt+1': 'goLibrary', 'ctrl+alt+2': 'goDevelop', 'ctrl+alt+3': 'goEdit', 'ctrl+shift+l': 'loupe', 'alt+arrowleft': 'back', f1: 'help',
 };
 
 /** Run a command by id if it exists and can run; returns whether it did. */

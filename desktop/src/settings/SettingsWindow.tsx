@@ -70,7 +70,7 @@ function General({ paths }: { paths: AppPaths | null }) {
     <Group title={tz('LAYOUT', '布局')}>
       <Row label={tz('Rails, sections and the filmstrip', '侧栏、分区与胶片条')}>
         <button className="v2-button" data-testid="reset-layout" onClick={() => {
-          for (const k of ['interfaceScale', 'leftCollapsed', 'rightCollapsed', 'filmstripCollapsed', 'railLeft', 'railRight', 'navigatorHidden', 'collapsedSections'] as const) set(k, SETTINGS_DEFAULT[k] as never);
+          for (const k of ['interfaceScale', 'leftCollapsed', 'rightCollapsed', 'filmstripCollapsed', 'railLeft', 'railRight', 'browserWidth', 'navigatorHidden', 'collapsedSections'] as const) set(k, SETTINGS_DEFAULT[k] as never);
         }}>{tz('Reset All Layout', '重置全部布局')}</button>
       </Row>
     </Group>

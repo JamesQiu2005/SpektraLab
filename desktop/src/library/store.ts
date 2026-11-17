@@ -14,6 +14,18 @@ import { inTauri } from '../host/transport';
 
 export type SourceKind = 'catalog' | 'session' | 'captureOneCatalog' | 'captureOneSession' | 'folder';
 
+export type LibrarySort = 'captured' | 'imported' | 'name' | 'rating' | 'added';
+export const LIBRARY_SORTS: LibrarySort[] = ['captured', 'imported', 'name', 'rating', 'added'];
+export function sortWords(s: LibrarySort): string {
+  switch (s) {
+    case 'captured': return tz('Capture Date', '拍摄日期');
+    case 'imported': return tz('Import Date', '导入日期');
+    case 'name': return tz('File Name', '文件名');
+    case 'rating': return tz('Rating', '评分');
+    case 'added': return tz('Date Added', '添加日期');
+  }
+}
+
 export interface RecentLibrary { name: string; path: string; kind: SourceKind }
 
 export interface LibrarySource {
@@ -35,6 +47,9 @@ export interface LibraryState {
   focus: string | null;
   anchor: string | null;
   search: string;
+  /** The browser's order (spklib `images.list` `sort`, `descending`): one order in every mode (`MacSharedControls`). */
+  sort: LibrarySort;
+  descending: boolean;
   recent: RecentLibrary[];
   message: string | null;
   sourceMenu: boolean;
@@ -65,7 +80,7 @@ const readRecent = (): RecentLibrary[] => {
 
 export const LIBRARY_INITIAL: LibraryState = {
   phase: 'none', source: null, collections: [], collection: null, images: [], total: 0, picked: [], focus: null, anchor: null,
-  search: '', recent: [], message: null, sourceMenu: false, progress: null, offline: [], filmOf: {},
+  search: '', sort: 'captured', descending: true, recent: [], message: null, sourceMenu: false, progress: null, offline: [], filmOf: {},
 };
 
 export const libraryStore = createStore<LibraryState>(() => ({ ...LIBRARY_INITIAL, recent: readRecent() }));
@@ -211,14 +226,15 @@ export async function newAlbum() {
 export async function closeLibrary() {
   const s = get().source;
   if (s) await lib.close(client, s.handle).catch(() => {});
-  set({ ...LIBRARY_INITIAL, recent: get().recent });
+  set({ ...LIBRARY_INITIAL, recent: get().recent, sort: get().sort, descending: get().descending });
 }
 
 export async function refresh() {
   const s = get().source;
   if (!s) return;
   try {
-    const page = await lib.images(client, s.handle, { collection: get().collection ?? undefined, filter: get().search ? { text: get().search } : undefined, check_files: true, full: true });
+    const page = await lib.images(client, s.handle, { collection: get().collection ?? undefined, filter: get().search ? { text: get().search } : undefined,
+      sort: get().sort, descending: get().descending, check_files: true, full: true });
     set({ images: page.images, total: page.total, picked: get().picked.filter((id) => page.images.some((i) => i.uuid === id)) });
   } catch (e) { fail(e); }
 }
@@ -229,6 +245,7 @@ export async function chooseCollection(uuid: string) {
 }
 
 export async function setSearch(text: string) { set({ search: text }); await refresh(); }
+export async function setSort(sort: LibrarySort, descending = get().descending) { set({ sort, descending }); await refresh(); }
 
 /** A click on a tile: alone, Ctrl (toggle) or Shift (range), as File Explorer picks. */
 export function pick(uuid: string, mods: { ctrl?: boolean; shift?: boolean } = {}) {

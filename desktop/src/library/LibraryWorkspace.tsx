@@ -1,29 +1,32 @@
-// LibraryWorkspace.tsx — the Library (README §4, Mac HIG §4; PC-L0–L6,
-// PC-T1–T2, PC-K1): the sidebar (the workspace switch, the source well and
-// its menu, the source's rows), the grid by capture date, and the Info rail.
-// The light table and the contact sheet take the grid's place.
+// LibraryWorkspace.tsx — the Library mode of the one window (PRD-W5 §2;
+// README §4; PC-L0–L6, PC-T1–T2, PC-K1): in the left column under the mode
+// row, the source well and its menu and the source's rows; in the middle the
+// viewer — the browser's focus, large, with its info strip — or, with no
+// library, the first-run card. The grid is the window's browser (Browser.tsx),
+// in every mode. The light table and the contact sheet are full-window pages
+// above the shell (`MainWindowLayout`).
 //
 // Data comes only through the `LibraryClient` (store.ts). Capture One's
 // sources are read-only: a rating key says so; nothing is written there.
 
 import { useEffect, useMemo, useState } from 'react';
 import { tz } from '../i18n';
-import { V2Section, WorkspaceSwitch } from '../edit/rails';
+import { Thumb } from '../windows/Filmstrip';
+import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { Glyph as G, type GlyphName } from '../theme/Glyph';
 import type { Collection } from './client';
 import { setLibraryView, setUi, useUi } from '../app/ui';
 import { developFromLibrary, showInExplorer, commands } from '../app/commands';
 import { MenuList } from '../app/TitleBar';
-import type { Layout } from '../app/layout';
-import { toggleFavourite, addFolder, newAlbum, chooseCollection, closeLibrary, kindWords, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, pick, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
+import { toggleFavourite, addFolder, newAlbum, chooseCollection, closeLibrary, kindWords, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
 import type { ImageRow } from './client';
 import { useSession } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import type { StockCatalog } from '@shared/stocks';
 import { platform } from '../platform';
 
-const DAY = (d: string | null) => (d ? d.slice(0, 10) : '');
-function dayWords(day: string, today = new Date()): [string, string] {
+export const DAY = (d: string | null) => (d ? d.slice(0, 10) : '');
+export function dayWords(day: string, today = new Date()): [string, string] {
   if (!day) return [tz('Undated', '无日期'), ''];
   const d = new Date(`${day}T12:00:00`);
   const same = d.toDateString() === today.toDateString();
@@ -57,11 +60,11 @@ function picture(uuid: string): string {
  * dot at its foot for the film it was developed through, a white ring when
  * picked. No hearts: Favourites is a row of the sidebar.
  */
-function Tile({ img, picked, film, onClick, onOpen }: { img: ImageRow; picked: boolean; film: string | null; onClick: (e: React.MouseEvent) => void; onOpen: () => void }) {
+export function LibraryTile({ img, picked, focus, film, onClick, onOpen }: { img: ImageRow; picked: boolean; focus?: boolean; film: string | null; onClick: (e: React.MouseEvent) => void; onOpen: () => void }) {
   const offline = img.exists === false;
   const catalog = useSession((s) => s.catalog);
   return (
-    <button className={'v2-lib-tile' + (picked ? ' picked' : '') + (offline ? ' offline' : '')} data-testid="library-tile" data-uuid={img.uuid}
+    <button className={'v2-lib-tile' + (picked ? ' picked' : '') + (focus ? ' focus' : '') + (offline ? ' offline' : '')} data-testid="library-tile" data-uuid={img.uuid}
       aria-pressed={picked} aria-label={`${img.file_name}${offline ? `, ${tz('Offline', '离线')}` : ''}${picked ? `, ${tz('selected', '已选中')}` : ''}`}
       onClick={onClick} onDoubleClick={onOpen}>
       <span className="v2-lib-pic" style={{ background: picture(img.uuid) }} />
@@ -137,7 +140,8 @@ const filmOfRow = (c: Collection): string | null => {
   return typeof f === 'string' ? f : null;
 };
 
-function Sidebar() {
+/** The Library's tools in the left column (`MainWindowLayout`): the source well, the source's rows, the filters. */
+export function LibraryColumn() {
   const s = useLibrary((x) => x);
   const view = useUi((u) => u.libraryView);
   const catalog = useSession((x) => x.catalog);
@@ -155,9 +159,8 @@ function Sidebar() {
     return [...out.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
   }, [s.collections, s.source]);
   return (
-    <aside className="v2-lib-sidebar" data-testid="library-sidebar">
-      <div className="v2-rail-head"><span className="v2-rail-title">{tz('Library', '图库')}</span></div>
-      <div className="v2-rail-fixed"><WorkspaceSwitch /><SourceWell /></div>
+    <div className="v2-lib-sidebar" data-testid="library-sidebar">
+      <div className="v2-rail-fixed"><SourceWell /></div>
       <div className="v2-rail-scroll">
         {!s.source && s.recent.length > 0 && <div className="v2-lib-group" data-testid="recent-libraries">
           <div className="v2-caps"><span>{tz('RECENT', '最近')}</span><G name="capsChevron" /></div>
@@ -196,7 +199,7 @@ function Sidebar() {
           <input className="v2-search" data-testid="library-search" placeholder={tz('Search', '搜索')} value={s.search} onChange={(e) => void setSearch(e.target.value)} />
         </div>}
       </div>
-    </aside>
+    </div>
   );
 }
 
@@ -216,84 +219,72 @@ function FirstRun() {
   );
 }
 
-function Grid() {
-  const s = useLibrary((x) => x);
-  const tile = useSettings((x) => x.libraryTile);
-  const groups = useMemo(() => {
-    const m = new Map<string, ImageRow[]>();
-    for (const i of s.images) m.set(DAY(i.captured_local), [...(m.get(DAY(i.captured_local)) ?? []), i]);
-    return [...m.entries()];
-  }, [s.images]);
-  return (
-    <div className="v2-lib-grid" data-testid="library-grid" style={{ ['--v2-lib-tile' as string]: `${tile}px` }}>
-      {s.source?.readOnly && s.message && <div className="v2-infobar soft" role="status" data-testid="library-message">{s.message}</div>}
-      {groups.map(([day, rows]) => {
-        const [label, date] = dayWords(day);
-        return (
-          <section key={day} className="v2-day">
-            <div className="v2-day-head"><b>{label}</b><span className="dim">{date}</span><span className="dim count">{rows.length}</span></div>
-            <div className="v2-day-tiles">
-              {rows.map((img) => <Tile key={img.uuid} img={img} picked={s.picked.includes(img.uuid)} film={s.filmOf[img.uuid] ?? null}
-                onClick={(e) => pick(img.uuid, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
-                onOpen={() => { pick(img.uuid); void developFromLibrary(); }} />)}
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
+/** "4,000 × 6,000 · 24 MP". */
+const dims = (w?: number | null, h?: number | null) => (w && h ? `${w.toLocaleString('en')} × ${h.toLocaleString('en')}  ·  ${Math.round((w * h) / 1e6)} MP` : '');
 
-function Info() {
+/**
+ * The Library's middle (`MacLibraryBrowser` with the viewer on): the browser's focus, large, and
+ * under it the info strip — its file, capture and print; with several chosen, what can be done to
+ * them all. The Develop and Edit modes are the mode row's; Show in File Explorer stays here.
+ */
+function Viewer() {
   const s = useLibrary((x) => x);
   const clip = useSession((x) => x.clipboard);
-  const f = s.images.find((i) => i.uuid === s.focus);
   const catalog = useSession((x) => x.catalog);
+  const frames = useSession((x) => x.frames);
+  const selection = useSession((x) => x.selection);
+  const folderPicked = useSession((x) => x.picked);
   const c1 = s.source?.kind === 'captureOneCatalog' || s.source?.kind === 'captureOneSession';
-  if (s.picked.length > 1) {
+  const f = s.images.find((i) => i.uuid === s.focus);
+  const several = s.source ? s.picked.length : folderPicked.length;
+  if (several > 1) {
     return (
-      <div className="v2-info-body" data-testid="info-picked">
-        <div className="v2-info-line count">{tz(`${s.picked.length} frames`, `${s.picked.length} 张`)}</div>
-        <div className="v2-info-line dim small">{clip ? `${tz('Clipboard', '剪贴板')}: ${clip.sourceName}` : tz('Clipboard: empty', '剪贴板：空')}</div>
-        <div className="v2-info-actions">
-          <button className="v2-button" data-testid="paste-picked" disabled={!clip || !!s.source?.readOnly}
-            title={!clip ? tz('Copy settings from a frame first (Ctrl+Shift+C).', '请先从一张照片拷贝设置（Ctrl+Shift+C）。') : undefined}
-            onClick={() => void developFromLibrary().then(() => commands().pasteSettings?.run())}>{tz(`Paste to ${s.picked.length}`, `粘贴到 ${s.picked.length} 张`)}</button>
-          <button className="v2-button" data-testid="favourite-picked" disabled={!!s.source?.readOnly} onClick={() => void toggleFavourite()}>♡  {tz('Favourite', '收藏')}</button>
-        </div>
-        <div className="v2-info-foot">
-          <button className="v2-button" onClick={() => void developFromLibrary().then(() => setUi({}))}>{tz(`Export ${s.picked.length}`, `导出 ${s.picked.length} 张`)}</button>
-          <button className="v2-button accent" data-testid="develop-picked" onClick={() => void developFromLibrary()}>{tz(`Develop ${s.picked.length}`, `冲洗 ${s.picked.length} 张`)}  ↵</button>
+      <div className="v2-viewer" data-testid="info-picked">
+        <div className="v2-viewer-card">
+          <div className="v2-info-line count">{tz(`${several} frames`, `${several} 张`)}</div>
+          <div className="v2-info-line dim small">{clip ? `${tz('Clipboard', '剪贴板')}: ${clip.sourceName}` : tz('Clipboard: empty', '剪贴板：空')}</div>
+          <div className="v2-info-actions">
+            <button className="v2-button" data-testid="paste-picked" disabled={!clip || !!s.source?.readOnly}
+              title={!clip ? tz('Copy settings from a frame first (Ctrl+Shift+C).', '请先从一张照片拷贝设置（Ctrl+Shift+C）。') : undefined}
+              onClick={() => void developFromLibrary().then(() => commands().pasteSettings?.run())}>{tz(`Paste to ${several}`, `粘贴到 ${several} 张`)}</button>
+            {s.source && <button className="v2-button" data-testid="favourite-picked" disabled={!!s.source?.readOnly} onClick={() => void toggleFavourite()}>{tz('Favourite', '收藏')}</button>}
+          </div>
         </div>
       </div>
     );
   }
-  if (!f) return <div className="v2-info-body" data-testid="info-empty"><div className="v2-info-well empty"><span className="dim">{tz('No selection', '未选择')}</span></div></div>;
+  // No library: the folder's frame the browser is on.
+  if (!s.source) {
+    const open = frames.find((x) => x.path === selection);
+    if (!open) return <FirstRun />;
+    return (
+      <div className="v2-viewer" data-testid="info-one">
+        <div className="v2-viewer-well"><Thumb path={open.path} geometry={GEOMETRY_DEFAULT} height={480} /></div>
+        <div className="v2-viewer-strip" data-testid="viewer-strip">
+          <b>{open.name}</b>
+          <button className="v2-button" data-testid="show-in-explorer" onClick={showInExplorer}>{tz('Show in File Explorer', '在文件资源管理器中显示')}</button>
+        </div>
+      </div>
+    );
+  }
+  if (!f) return <div className="v2-viewer" data-testid="info-empty"><div className="v2-viewer-well empty"><span className="dim">{tz('No selection', '未选择')}</span></div></div>;
   const ex = f.exposure;
-  const Sec = ({ id, title, children }: { id: string; title: string; children: React.ReactNode }) => (
-    <V2Section id={`info-${id}`} title={title} more={false}><dl className="v2-info-rows">{children}</dl></V2Section>
-  );
+  const film = s.filmOf[f.uuid];
+  const print = film ? catalog.stock(film)?.name.replace(/^(Kodak|Fujifilm|Ilford|Fuji) (Professional )?/, '') ?? '' : f.variants[0]?.edit_revision ? tz('Developed', '已冲洗') : '';
+  const parts = [
+    dims(f.width, f.height),
+    f.camera?.model ?? '',
+    ex ? `${ex.shutter} s · f/${ex.aperture} · ISO ${ex.iso}` : '',
+    takenWords(f.captured_local),
+    c1 ? tz('Adjustments stay in Capture One', '调整保留在 Capture One 中') : print,
+  ].filter((x) => x && x !== '—');
   return (
-    <div className="v2-info-body" data-testid="info-one">
-      <div className="v2-info-well"><span className="v2-info-pic" style={{ background: picture(f.uuid) }} /></div>
-      <Sec id="file" title={tz('File', '文件')}>
-        <dt>{tz('Name', '名称')}</dt><dd>{f.file_name}</dd>
-        <dt>{tz('Folder', '文件夹')}</dt><dd>{f.path.replace(/[\\/][^\\/]+$/, '').replace(/\//g, '\\').replace(/^C:\\Users\\[^\\]+\\/, '')}</dd>
-        <dt>{tz('Dimensions', '尺寸')}</dt><dd>{f.width && f.height ? `${f.width.toLocaleString('en')} × ${f.height.toLocaleString('en')}  ·  ${Math.round((f.width * f.height) / 1e6)} MP` : '—'}</dd>
-      </Sec>
-      <Sec id="capture" title={tz('Capture', '拍摄')}>
-        <dt>{tz('Camera', '相机')}</dt><dd>{f.camera?.model ?? '—'}</dd>
-        <dt>{tz('Exposure', '曝光')}</dt><dd>{ex ? `${ex.shutter} s · f/${ex.aperture} · ISO ${ex.iso}` : '—'}</dd>
-        <dt>{tz('Taken', '拍摄时间')}</dt><dd>{takenWords(f.captured_local)}</dd>
-      </Sec>
-      <Sec id="app" title={c1 ? 'Capture One' : 'SpektraLab'}>
-        {c1 ? <><dt>{tz('Rating', '评分')}</dt><dd>{'★'.repeat(f.rating ?? 0)}{'☆'.repeat(5 - (f.rating ?? 0))}</dd><dt>{tz('Adjustments', '调整')}</dt><dd>{tz('Stay in Capture One', '保留在 Capture One 中')}</dd></>
-          : <><dt>{tz('Print', '印放')}</dt><dd>{s.filmOf[f.uuid] ? catalog.stock(s.filmOf[f.uuid]!)?.name.replace(/^(Kodak|Fujifilm|Ilford|Fuji) (Professional )?/, '') ?? '—' : f.variants[0]?.edit_revision ? tz('Developed', '已冲洗') : '—'}</dd><dt>{tz('Variants', '变体')}</dt><dd>{tz(`1 of ${f.variants.length}`, `1 / ${f.variants.length}`)}</dd></>}
-      </Sec>
-      <div className="v2-info-foot">
-        {c1 && <button className="v2-button" disabled title={tz('Not on this computer', '此电脑上不可用')}>{tz('Open in Capture One', '在 Capture One 中打开')}</button>}
+    <div className="v2-viewer" data-testid="info-one">
+      <div className="v2-viewer-well"><span className="v2-viewer-pic" style={{ background: picture(f.uuid) }} /></div>
+      <div className="v2-viewer-strip" data-testid="viewer-strip">
+        <b title={f.path}>{f.file_name}</b>
+        <span className="dim">{parts.join('  ·  ')}</span>
         <button className="v2-button" data-testid="show-in-explorer" onClick={showInExplorer}>{tz('Show in File Explorer', '在文件资源管理器中显示')}</button>
-        <button className="v2-button accent" data-testid="develop-one" disabled={f.exists === false} onClick={() => void developFromLibrary()}>{tz('Develop', '冲洗')}  ↵</button>
       </div>
     </div>
   );
@@ -359,64 +350,55 @@ function takenWords(local: string | null | undefined): string {
 }
 
 /**
- * The Library's toolbar (PC-L1): the sidebar's toggle; where you are (the
- * source › the collection) over the count; Import; the sort capsule; the
- * tile size; grid or list; the Info rail's toggle.
+ * The Library's half of the picture bar (PC-L1's, after the shared bar): where you are (the source ›
+ * the collection) over the count; Import; the tiles' size.
  */
-function LibraryToolbar({ layout }: { layout: Layout }) {
+export function LibraryBar() {
   const s = useLibrary((x) => x);
-  const view = useUi((u) => u.libraryView);
   const tile = useSettings((x) => x.libraryTile);
   const src = s.source;
   const collection = s.collections.find((c) => c.uuid === s.collection);
   const k = commands();
-  const where = view === 'grid' ? collection?.title ?? '' : view === 'lightTable' ? tz('Table', '看片台') : tz('Contact Sheet', '印样');
   const count = s.picked.length > 1 ? tz(`${s.picked.length} Selected`, `已选 ${s.picked.length} 张`)
     : tz(`${s.total} photos${s.picked.length ? '  ·  1 selected' : ''}`, `${s.total} 张照片${s.picked.length ? '  ·  已选 1 张' : ''}`);
   return (
-    <div className="v2-toolbar lib" data-testid="library-toolbar">
-      <button className="v2-glyph" title={`${tz('Sidebar', '边栏')} (F7)`} aria-label={tz('Sidebar', '边栏')} aria-pressed={layout.left !== 'hidden'} onClick={() => k.developRail!.run()} data-testid="lib-left-rail"><G name="dockLeft" /></button>
+    <>
       <div className="v2-crumb">
-        {src ? <div className="v2-crumb-line"><span className="v2-crumb-source">{src.info.name}</span><G name="crumb" /><b>{where}</b>
+        {src ? <div className="v2-crumb-line"><span className="v2-crumb-source">{src.info.name}</span><G name="crumb" /><b>{collection?.title ?? ''}</b>
           {src.readOnly && <span className="v2-readonly"><G name="lock" />{tz('Read-only', '只读')}</span>}</div> : null}
         {src && <div className="v2-crumb-count">{count}</div>}
       </div>
       <button className="v2-glyph" title={tz('Import', '导入')} aria-label={tz('Import', '导入')} disabled={!src || src.readOnly} onClick={() => k.import!.run()} data-testid="lib-import"><G name="import" /></button>
-      {view === 'grid' && <>
-        <span className={'v2-pill sort' + (src ? '' : ' off')} title={tz('Sorted by Capture Date', '按拍摄日期排序')}><span>{tz('Capture Date', '拍摄日期')}</span><G name="dropDown" /></span>
-        <input className="v2-size-slider" type="range" min={96} max={240} step={1} value={tile} disabled={!src} aria-label={tz('Thumbnail Size', '缩略图大小')} data-testid="lib-size"
-          onChange={(e) => settingsStore.getState().set('libraryTile', Number(e.target.value))} />
-        <div className="v2-seg-glyphs" role="radiogroup" aria-label={tz('View', '视图')}>
-          <button role="radio" aria-checked className="on" title={tz('Grid', '网格')} aria-label={tz('Grid', '网格')} disabled={!src}><G name="gridView" /></button>
-          <button role="radio" aria-checked={false} disabled title={tz('List', '列表')} aria-label={tz('List', '列表')}><G name="listView" /></button>
-        </div>
-      </>}
-      <button className="v2-glyph" title={`${tz('Info', '信息')} (F8)`} aria-label={tz('Info', '信息')} aria-pressed={layout.right !== 'hidden'} onClick={() => k.editRail!.run()} data-testid="lib-right-rail"><G name="dockRight" /></button>
+      <input className="v2-size-slider" type="range" min={96} max={240} step={1} value={tile} aria-label={tz('Thumbnail Size', '缩略图大小')} data-testid="lib-size"
+        onChange={(e) => settingsStore.getState().set('libraryTile', Number(e.target.value))} />
+    </>
+  );
+}
+
+/** The Library's middle: the viewer (or the first-run card), and a folder dropped on it is added. */
+export function LibraryCentre() {
+  const src = useLibrary((x) => x.source);
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => platform().onDrop((paths) => { if (paths.length) void addFolder(paths[0]); }), [src]);
+  return (
+    <div className={'v2-library-centre' + (dragOver ? ' drop' : '')} data-testid="library-centre" onDragOver={() => setDragOver(true)} onDragLeave={() => setDragOver(false)}>
+      <Viewer />
     </div>
   );
 }
 
-export function LibraryWorkspace({ layout }: { layout: Layout }) {
-  const s = useLibrary((x) => x);
+/** The light table and the contact sheet: full-window pages above the shell (`MainWindowLayout`); Esc or ✕ puts them away. */
+export function FullWindowPage() {
   const view = useUi((u) => u.libraryView);
   const actual = useUi((u) => u.lightTableActual);
-  const [dragOver, setDragOver] = useState(false);
-  useEffect(() => platform().onDrop((paths) => { if (paths.length) void (s.source ? addFolder(paths[0]) : addFolder(paths[0])); }), [s.source]);
-  const src = s.source;
-  const fullActual = view === 'lightTable' && actual;
-  // The light table and the contact sheet take the Info rail's room as well (PC-T1, PC-K1).
-  const sheet = view !== 'grid';
+  if (view === 'grid') return null;
   return (
-    <div className={'v2-body library' + (dragOver ? ' drop' : '')} data-testid="library" onDragOver={() => setDragOver(true)} onDragLeave={() => setDragOver(false)}>
-      {!fullActual && layout.left !== 'hidden' && <Sidebar />}
-      <main className={'v2-centre' + (sheet ? ' sheet' : '')} style={fullActual ? { left: 0, width: '100%' } : undefined} data-testid="library-centre">
-        <LibraryToolbar layout={layout} />
-        {!src ? <FirstRun /> : view === 'lightTable' ? <LightTable actual={actual} /> : view === 'contactSheet' ? <ContactSheet /> : <Grid />}
-      </main>
-      {!sheet && <aside className="v2-info" data-testid="info-rail">
-        <div className="v2-rail-head"><span className="v2-rail-title">{tz('Info', '信息')}</span></div>
-        <Info />
-      </aside>}
+    <div className="v2-full-page" data-testid="full-page" role="dialog" aria-label={view === 'lightTable' ? tz('Light Table', '看片台') : tz('Contact Sheet', '印样')}>
+      <div className="v2-full-head">
+        <b>{view === 'lightTable' ? tz('Light Table', '看片台') : tz('Contact Sheet', '印样')}</b>
+        <button className="v2-button" data-testid="full-page-done" onClick={() => setLibraryView('grid')}>{tz('Done', '完成')}</button>
+      </div>
+      {view === 'lightTable' ? <LightTable actual={actual} /> : <ContactSheet />}
     </div>
   );
 }

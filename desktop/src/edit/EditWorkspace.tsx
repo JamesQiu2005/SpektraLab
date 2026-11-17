@@ -1,27 +1,30 @@
-// EditWorkspace.tsx — the picture column of the Edit workspace (README §5,
-// §7; PC-E1–E13, PC-X1–X3): the toolbar over the picture, the picture on
-// black, the filmstrip under it, and what is over the picture — the failed
-// develop's InfoBar (PC-E12), the engine card (PC-E13), the embedded-preview
-// capsule (PC-E8), ··· (PC-X1), Copy Settings (PC-X2) and the right-click
-// command bar flyout (PC-X3).
+// EditWorkspace.tsx — the picture of the Develop and Edit modes (PRD-W5 §2;
+// README §5, §7; PC-E1–E13, PC-X1–X3): the picture bar over it (the shared
+// bar at its leading edge, then zoom, Original, Compare, ···, Paste, Export),
+// the picture on black, the info strip under it (the frame and the status
+// line), and what is over the picture — the failed develop's InfoBar
+// (PC-E12), the engine card (PC-E13), the embedded-preview capsule (PC-E8),
+// ··· (PC-X1), Copy Settings (PC-X2) and the right-click command bar flyout
+// (PC-X3). No filmstrip, no "1 of N": the browser at the window's right is
+// the roll (the owner, 2026-10-26).
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tz } from '../i18n';
 import { Canvas } from '../canvas/Canvas';
-import { Filmstrip } from '../windows/Filmstrip';
 import { Glyph as G } from '../theme/Glyph';
 import {
-  copySettings, requestPrint, sessionStore, setOriginal, setPages, setTool, toggleCompare, useSession, zoomTo, zoomToFit, selectRelative,
-  resetCrop,
+  copySettings, requestPrint, sessionStore, setOriginal, toggleCompare, useSession, zoomTo, zoomToFit, resetCrop,
 } from '../state/session';
 import { baseName } from '../platform';
 import { FILM_PARAMS_DEFAULT } from '@shared/params';
 import { CLIPBOARD_GROUPS, type ClipboardGroup } from '@shared/clipboard';
-import { commands, showInExplorer, toggleRailCommand } from '../app/commands';
+import { commands, exportFromBrowser, showInExplorer } from '../app/commands';
+import { SharedBar } from '../app/Shell';
 import { MenuList } from '../app/TitleBar';
 import { setUi, useUi } from '../app/ui';
 import type { Layout } from '../app/layout';
-import { editedParts, fitParts, statusParts, SEP } from './words';
+import { LibraryBar } from '../library/LibraryWorkspace';
+import { editedParts, fitParts, statusParts } from './words';
 import { restartHost } from '../windows/actions';
 import { host } from '../host/client';
 import { ExportingFlyout, useExportRun } from '../export/ExportDialog';
@@ -85,42 +88,33 @@ function OriginalButton() {
   );
 }
 
+/**
+ * The picture bar (`MainWindowLayout`'s bar): the shared bar at its leading edge in every mode, then
+ * the mode's half — the Library's crumb and Import, or the picture's zoom, Original, Compare, ···,
+ * Paste Settings and Export. Export takes the browser's chosen frames (`MacDevelopExport`).
+ */
 export function Toolbar({ layout }: { layout: Layout }) {
   const s = useSession((x) => x);
-  const left = layout.left, right = layout.right;
+  const library = useUi((u) => u.workspace === 'library');
   const more = useUi((u) => u.moreOpen);
   const exportFlyout = useUi((u) => u.exportFlyout);
   const run = useExportRun();
-  const index = s.frames.findIndex((f) => f.path === s.selection);
-  const title = s.selection ? `${baseName(s.selection).replace(/\.[^.]+$/, '')}${SEP}${tz(`${index + 1} of ${s.frames.length}`, `${index + 1} / ${s.frames.length}`)}` : '';
-  const statusRoom = Math.max(80, layout.picture.width - (layout.overflow.zoomCropOriginal ? 250 : 540));
-  const status = useStatusLine(statusRoom);
   const printed = s.badge !== null;
   const k = commands();
   const pct = s.view.fit ? tz('Fit', '适合') : `${Math.round(s.view.zoom * 100)} %`;
   const [zoomMenu, setZoomMenu] = useState(false);
-  const busy = s.job && (s.job.state === 'running' || s.job.state === 'waiting' || s.job.state === 'queued');
   const overflowItems = [
     ...(layout.overflow.navCompareTitle ? [k.prevFrame!, k.nextFrame!, k.compare!, k.pasteSettings!, { separator: true } as const] : []),
-    ...(layout.overflow.zoomCropOriginal ? [k.zoomFit!, k.zoom100!, k.crop!, { separator: true } as const] : []),
+    ...(layout.overflow.zoomCropOriginal ? [k.zoomFit!, k.zoom100!, { separator: true } as const] : []),
     k.copySettings!, k.copySettingsDialog!, { separator: true } as const, k.settings!,
   ];
   return (
-    <div className="v2-toolbar" data-testid="toolbar" role="toolbar" aria-label={tz('Toolbar', '工具栏')}>
+    <div className={'v2-toolbar' + (library ? ' lib' : '')} data-testid="toolbar" role="toolbar" aria-label={tz('Toolbar', '工具栏')}>
       <div className="v2-tb-lead">
-        <Glyph label={tz('Develop Rail', '冲洗栏')} keys="F7" on={left === 'docked' || left === 'over'} onClick={() => toggleRailCommand('left')} testId="tb-left-rail"><G name="dockLeft" /></Glyph>
-        {!layout.overflow.navCompareTitle && <>
-          <Glyph label={tz('Previous Frame', '上一张')} keys="←" disabled={s.frames.length < 2} onClick={() => selectRelative(-1)} testId="tb-prev"><G name="back" /></Glyph>
-          <Glyph label={tz('Next Frame', '下一张')} keys="→" disabled={s.frames.length < 2} onClick={() => selectRelative(1)} testId="tb-next"><G name="forward" /></Glyph>
-        </>}
-        <div className="v2-tb-title">
-          <div className="v2-frame-title" data-testid="frame-title">{title}</div>
-          <div className={'v2-status' + (status.tone === 'danger' ? ' danger' : '')} data-testid="status-line" role="status" aria-live="polite">
-            {busy && <i className="v2-busy-dot" />}{status.text}
-          </div>
-        </div>
+        <SharedBar layout={layout} />
+        {library && <LibraryBar />}
       </div>
-      <div className="v2-tb-mid">
+      {!library && <div className="v2-tb-mid">
         {!layout.overflow.zoomCropOriginal && <>
           <div className="v2-zoom">
             <button className="v2-pill zoom" data-testid="tb-zoom" disabled={!s.selection} onClick={() => setZoomMenu(!zoomMenu)}><span>{pct}</span><G name="dropDown" /></button>
@@ -131,17 +125,16 @@ export function Toolbar({ layout }: { layout: Layout }) {
               ]} />
             </div>}
           </div>
-          <Glyph label={tz('Crop', '裁剪')} keys="C" on={s.tool === 'crop'} disabled={!s.selection} onClick={() => setTool(s.tool === 'crop' ? 'select' : 'crop')} testId="tb-crop"><G name="crop" /></Glyph>
           <OriginalButton />
         </>}
         {!layout.overflow.navCompareTitle && <Glyph label={tz('Compare', '对比')} keys="Y" on={s.comparing} disabled={!s.selection} onClick={toggleCompare} testId="tb-compare"><G name="compare" /></Glyph>}
-      </div>
+      </div>}
       <div className="v2-tb-trail">
-        <div className="v2-more">
+        {!library && <div className="v2-more">
           <Glyph label={tz('More', '更多')} on={more} onClick={() => setUi({ moreOpen: !more, menu: null })} testId="tb-more"><G name="more" /></Glyph>
           {more && <div className="v2-menu-drop right" data-testid="more-menu"><MenuList items={overflowItems} onDone={() => setUi({ moreOpen: false })} /></div>}
-        </div>
-        {!layout.overflow.navCompareTitle && <Glyph label={tz('Paste Settings', '粘贴设置')} keys="Ctrl+Shift+V" disabled={!k.pasteSettings!.enabled} onClick={k.pasteSettings!.run} testId="tb-paste"><G name="paste" /></Glyph>}
+        </div>}
+        {!library && !layout.overflow.navCompareTitle && <Glyph label={tz('Paste Settings', '粘贴设置')} keys="Ctrl+Shift+V" disabled={!k.pasteSettings!.enabled} onClick={k.pasteSettings!.run} testId="tb-paste"><G name="paste" /></Glyph>}
         <div className="v2-export-wrap">
           {s.batchExporting && run.progress ? (
             <button className="v2-export running" data-testid="export-ring" onClick={() => setUi({ exportFlyout: !exportFlyout })}
@@ -150,13 +143,29 @@ export function Toolbar({ layout }: { layout: Layout }) {
               <span className="v2-ring" /><span>{tz(`${Math.min(run.progress.done + 1, run.progress.total)} of ${run.progress.total}`, `${Math.min(run.progress.done + 1, run.progress.total)} / ${run.progress.total}`)}</span>
             </button>
           ) : (
-            <button className="v2-export" data-testid="export-button" disabled={!printed || s.batchExporting || s.hostState.phase !== 'ready'} onClick={() => setPages({ exportOpen: true })} title={`${tz('Export', '导出')} (Ctrl+E)`}>
+            <button className="v2-export" data-testid="export-button" disabled={!k.export!.enabled || (!library && (!printed || s.hostState.phase !== 'ready'))}
+              onClick={() => k.export!.run()} title={`${tz('Export', '导出')} (Ctrl+E)`}>
               <span>{tz('Export', '导出')}</span>
             </button>
           )}
           <ExportingFlyout />
         </div>
-        <Glyph label={tz('Edit Rail', '编辑栏')} keys="F8" on={right === 'docked' || right === 'over'} onClick={() => toggleRailCommand('right')} testId="tb-right-rail"><G name="dockRight" /></Glyph>
+      </div>
+    </div>
+  );
+}
+
+/** The info strip under the picture (`MainWindowLayout`): the frame's name and the status line, fitted without "…". */
+export function InfoStrip({ layout }: { layout: Layout }) {
+  const s = useSession((x) => x);
+  const busy = s.job && (s.job.state === 'running' || s.job.state === 'waiting' || s.job.state === 'queued');
+  const name = s.selection ? baseName(s.selection).replace(/\.[^.]+$/, '') : '';
+  const status = useStatusLine(Math.max(80, layout.picture.width - 32 - (name ? measure(name) + 24 : 0)));
+  return (
+    <div className="v2-info-strip" data-testid="info-strip">
+      <div className="v2-frame-title" data-testid="frame-title">{name}</div>
+      <div className={'v2-status' + (status.tone === 'danger' ? ' danger' : '')} data-testid="status-line" role="status" aria-live="polite">
+        {busy && <i className="v2-busy-dot" />}{status.text}
       </div>
     </div>
   );
@@ -213,7 +222,7 @@ function PictureMenu() {
         <Glyph label={tz('Copy Settings', '拷贝设置')} onClick={() => { close(); copySettings(); }}><G name="copy" /></Glyph>
         <Glyph label={tz('Paste Settings', '粘贴设置')} disabled={!k.pasteSettings!.enabled} onClick={() => { close(); k.pasteSettings!.run(); }}><G name="paste" /></Glyph>
         <Glyph label={tz('Compare', '对比')} onClick={() => { close(); toggleCompare(); }}><G name="compare" /></Glyph>
-        <Glyph label={tz('Export', '导出')} disabled={!k.export!.enabled} onClick={() => { close(); setPages({ exportOpen: true }); }}><G name="export" /></Glyph>
+        <Glyph label={tz('Export', '导出')} disabled={!k.export!.enabled} onClick={() => { close(); exportFromBrowser(); }}><G name="export" /></Glyph>
       </div>
       <MenuList onDone={close} items={[k.zoomFit!, k.zoom100!, { separator: true }, { ...k.resetCrop!, label: tz('Reset Crop', '重置裁剪'), run: resetCrop }, { ...k.showInExplorer!, run: showInExplorer }]} />
     </div>
@@ -280,20 +289,6 @@ export function Picture({ layout }: { layout: Layout }) {
       <EmbeddedCapsule />
       <PictureMenu />
       <CopySettingsFlyout />
-    </div>
-  );
-}
-
-/** The filmstrip (PC-E1): the frames centred, and at its left a chip naming where they came from and how many. */
-export function FilmstripBand() {
-  const frames = useSession((s) => s.frames);
-  const source = useUi((u) => u.stripSource);
-  const folder = frames[0] ? baseName(frames[0].path.replace(/[\\/][^\\/]*$/, '')) : '';
-  const name = source ?? folder;
-  return (
-    <div className="v2-filmstrip" data-testid="v2-filmstrip">
-      {frames.length > 0 && <span className="v2-strip-chip" data-testid="strip-chip">{name ? `${name}  ·  ${frames.length}` : String(frames.length)}</span>}
-      <Filmstrip cellHeight={56} />
     </div>
   );
 }

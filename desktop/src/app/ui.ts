@@ -1,16 +1,17 @@
 // ui.ts — what the v2 window is showing, apart from the photograph's state
 // (state/session.ts) and the persisted settings (state/settings.ts).
 //
-// The workspace switch (Library | Edit, README §4 and Mac HIG §4.1) changes
-// only what is on screen: the open frame, its edits, the scheduler's jobs and
-// the library's selection all stay where they are, so going to the Library
-// and back is free. That is why none of the session lives here.
+// The mode (Library · Develop · Edit, PRD-W5 §2, the Mac's `MacModeSwitch`)
+// changes only what is on screen: the window is one shell, and the open
+// frame, its edits, the scheduler's jobs and the library's rows and selection
+// all stay where they are, so going to the Library and back is free and has
+// no page transition. That is why none of the session lives here.
 
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { RailSide } from './layout';
 
-export type Workspace = 'library' | 'edit';
+export type Workspace = 'library' | 'develop' | 'edit';
 /** The Library's centre: the grid, the light table, a contact sheet. */
 export type LibraryView = 'grid' | 'lightTable' | 'contactSheet';
 export type AdjustTile = 'brightness' | 'contrast' | 'tone' | 'hsl' | 'channels' | 'wheels' | 'vibrance' | 'saturation' | 'temperature' | 'curve' | 'vignette';
@@ -23,8 +24,12 @@ export interface UiState {
   previous: Workspace | null;
   libraryView: LibraryView;
   lightTableActual: boolean;
-  /** A rail folded by width and brought over the picture (F7/F8). */
+  /** A pane folded by width and brought over the picture (F7/F8). */
   overlay: RailSide | null;
+  /** The browser takes the window right of the column (G; the Mac's `fullGrid`). */
+  fullGrid: boolean;
+  /** Why a mode the row was asked for cannot be entered, said in place under the row. */
+  modeNote: string | null;
   fullScreen: boolean;
   /** The title bar's menu that is open, and whether Alt is showing access keys. */
   menu: MenuId | null;
@@ -42,19 +47,19 @@ export interface UiState {
   originalLatched: boolean;
   /** The stock cards' pictures cropped to fill the card (the crop-to-card button, PC-E1), or whole. */
   cardsCropped: boolean;
-  /** Where the filmstrip's frames came from, for its chip (PC-E1: "All Photos · 214"): a library collection, or null for a folder. */
-  stripSource: string | null;
   /** The window's own size in epx (the layout rule reads it). */
   window: { width: number; height: number };
   maximized: boolean;
 }
 
 export const UI_INITIAL: UiState = {
-  workspace: 'edit',
+  workspace: 'develop',
   previous: null,
   libraryView: 'grid',
   lightTableActual: false,
   overlay: null,
+  fullGrid: false,
+  modeNote: null,
   fullScreen: false,
   menu: null,
   accessKeys: false,
@@ -66,7 +71,6 @@ export const UI_INITIAL: UiState = {
   darkroomTile: null,
   originalLatched: false,
   cardsCropped: true,
-  stripSource: null,
   window: { width: typeof window !== 'undefined' ? window.innerWidth : 1536, height: typeof window !== 'undefined' ? window.innerHeight : 816 },
   maximized: false,
 };
@@ -79,14 +83,16 @@ const get = () => uiStore.getState();
 export function setWorkspace(w: Workspace) {
   const s = get();
   if (s.workspace === w) return;
-  set({ workspace: w, previous: s.workspace, overlay: null, menu: null, moreOpen: false, pictureMenu: null, copySettingsOpen: false });
+  set({ workspace: w, previous: s.workspace, overlay: null, menu: null, moreOpen: false, pictureMenu: null, copySettingsOpen: false, modeNote: null,
+    // The full grid is the library's third way to look; entering Develop or Edit gives the picture back.
+    fullGrid: w === 'library' ? s.fullGrid : false });
 }
 export function goBack() {
   const p = get().previous;
   if (p) setWorkspace(p);
 }
 export function setLibraryView(v: LibraryView) {
-  set({ libraryView: v, workspace: 'library', previous: get().workspace === 'library' ? get().previous : get().workspace });
+  set({ libraryView: v, workspace: 'library', previous: get().workspace === 'library' ? get().previous : get().workspace, modeNote: null });
 }
 export function setOverlay(overlay: RailSide | null) { set({ overlay }); }
 export function openMenu(menu: MenuId | null) { set({ menu, moreOpen: false, pictureMenu: null }); }
@@ -101,5 +107,8 @@ export function escapeUi(): boolean {
     return true;
   }
   if (s.overlay) { set({ overlay: null }); return true; }
+  // A full-window page (the light table, the contact sheet) stands above the shell: Esc puts it away.
+  if (s.workspace === 'library' && s.libraryView !== 'grid') { set({ libraryView: 'grid' }); return true; }
+  if (s.modeNote) { set({ modeNote: null }); return true; }
   return false;
 }

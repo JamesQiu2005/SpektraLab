@@ -75,6 +75,15 @@ html, body, #root { background: var(--v2-ground); }
 .v2-rail-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 
 .v2-switch { height: 28px; background: var(--v2-card); border-radius: 14px; display: grid; grid-template-columns: 1fr 1fr; padding: 2px; margin-bottom: 12px; }
+/* The mode row (PRD-W5 §2, `MacModeSwitch`): the drawn workspace switch's capsule, three ways, in the column's head */
+.v2-rail-head.modes { display: block; place-items: normal; padding: 10px var(--v2-margin) 0; height: auto; min-height: var(--v2-rail-head); }
+.v2-switch.modes { grid-template-columns: 1fr 1fr 1fr; margin-bottom: 10px; }
+.v2-switch button.off { color: var(--v2-faint); }
+.v2-mode-note { font-size: var(--v2-fs-caption); color: var(--v2-secondary); line-height: 16px; margin: -4px 2px 10px; }
+.v2-column-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.v2-column-page[hidden] { display: none !important; }
+.v2-rail-fixed.navigator { padding-top: 10px; }
+.v2-rail.left .v2-rail-fixed.latitude { border-top: 1px solid var(--v2-wall); }
 .v2-switch button { border: 0; background: none; border-radius: 12px; color: var(--v2-secondary); font-size: 12.5px; font-weight: 500; }
 .v2-switch button.on { background: var(--v2-selection); color: var(--v2-on-selection); font-size: var(--v2-fs-label); font-weight: 600; }
 
@@ -351,7 +360,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-seg button.on { background: var(--v2-selection); color: var(--v2-on-selection); }
 
 /* ----------------------------------------------------------------- library */
-.v2-lib-sidebar { position: absolute; left: 0; top: 0; bottom: 0; width: var(--v2-rail-left); background: var(--v2-panel); display: flex; flex-direction: column; border-right: 1px solid var(--v2-wall); }
+.v2-lib-sidebar { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .v2-lib-sidebar .v2-rail-fixed { border-bottom: 0; }
 .v2-source-wrap { position: relative; }
 /* PC-L1: the source card — 292 × 58, radius 11; its glyph at 35, the name at 56, the switcher ⌃⌄ at 290 */
@@ -385,7 +394,6 @@ html, body, #root { background: var(--v2-ground); }
 .v2-lib-row.on .v2-row-count { color: #5A5A58; }
 .v2-lib-row.add { color: var(--v2-accent); font-weight: 600; font-size: var(--v2-fs-label); padding-left: 48px; }
 .v2-search { margin: 4px 14px; width: calc(100% - 28px); height: 28px; border: 0; border-radius: 4px; background: var(--v2-card); color: var(--v2-text); padding: 0 10px; }
-.library .v2-centre { left: calc(var(--v2-rail-left) + 1px); right: calc(var(--v2-rail-right) + 1px); width: auto !important; }
 /* PC-L1's toolbar: ◧ at 345; the crumb at 375; Import, the sort capsule, the size slider, grid | list; ◨ at 1188 */
 .v2-toolbar.lib { padding: 0 11px 0 9px; gap: 8px; }
 .v2-crumb { flex: 1; min-width: 0; display: flex; flex-direction: column; margin-left: 4px; }
@@ -409,6 +417,11 @@ html, body, #root { background: var(--v2-ground); }
 .v2-lib-tile { position: relative; aspect-ratio: 1; border: 0; padding: 0; background: var(--v2-plot); overflow: hidden; }
 .v2-lib-pic { position: absolute; inset: 0; }
 .v2-lib-tile.picked { outline: 3px solid var(--v2-selection-frame); outline-offset: -2px; z-index: 1; }
+/* a folder's frame in the browser: the whole photograph on the plot, its name under it */
+.v2-lib-tile.frame { display: grid; place-items: center; color: var(--v2-text); }
+.v2-lib-tile.frame canvas, .v2-lib-tile.frame .placeholder { max-width: calc(100% - 16px); max-height: calc(100% - 34px); width: auto; height: auto; }
+.v2-lib-tile.frame .placeholder { width: 70%; height: 50%; background: var(--v2-card); border-radius: 2px; }
+.v2-frame-name { position: absolute; left: 8px; right: 8px; bottom: 6px; font-size: var(--v2-fs-caption); color: var(--v2-secondary); text-align: center; overflow-wrap: anywhere; line-height: 14px; }
 .v2-lib-tile.offline .v2-lib-pic { opacity: 0.45; }
 .v2-lib-dot { position: absolute; left: 6px; bottom: 6px; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 0.8px rgba(0, 0, 0, 0.4); }
 .v2-offline { position: absolute; left: 10px; bottom: 8px; color: var(--v2-danger); font-size: var(--v2-fs-caption); }
@@ -424,7 +437,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-info .v2-section-body { padding-bottom: 6px; }
 .v2-info-rows { display: grid; grid-template-columns: auto 1fr; row-gap: 4px; column-gap: 8px; margin: 2px 0 4px; font-size: var(--v2-fs-caption); line-height: 16px; }
 .v2-info-rows dt { color: var(--v2-dim); }
-.v2-info-rows dd { margin: 0; text-align: right; color: var(--v2-secondary); white-space: nowrap; overflow: hidden; }
+.v2-info-rows dd { margin: 0; text-align: right; color: var(--v2-secondary); overflow-wrap: anywhere; line-height: 14px; }
 .v2-info-caps { font-weight: 600; margin: 4px 0 8px; }
 .v2-info-line { margin-bottom: 6px; }
 .v2-info-line.count { font-weight: 600; margin-top: 4px; margin-bottom: 4px; }
@@ -455,7 +468,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-strip-frame small { position: absolute; left: 2px; top: -10px; }
 .v2-strip-frame small:last-child { top: auto; bottom: -10px; }
 /* the film's own edge print: part of the pictured film, cut at each frame's edge as the film is (not a label) */
-.v2-strip-frame .edge { position: absolute; left: 16px; right: 0; top: -10px; white-space: nowrap; overflow: hidden; }
+.v2-strip-frame .edge { position: absolute; left: 16px; right: 0; top: -10px; overflow-wrap: anywhere; line-height: 14px; }
 .v2-lt-foot { height: 64px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; border-top: 1px solid var(--v2-wall); font-size: var(--v2-fs-caption); }
 
 /* focus: Fluent's rectangle, white on our dark ground */
@@ -477,7 +490,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-lat-bar { fill: #9C9C9A; }
 .v2-lat-axis { display: flex; justify-content: space-between; color: var(--v2-dim); font-weight: 500; height: 16px; margin: 0 -6px; }
 .v2-lat-split { display: flex; justify-content: space-between; height: 16px; font-weight: 500; }
-.v2-lat-pair { height: 16px; white-space: nowrap; overflow: hidden; }
+.v2-lat-pair { height: 16px; overflow-wrap: anywhere; line-height: 14px; }
 .v2-pairs .row { min-width: 0; }
 .v2-pairs .row > .value-field { width: 48px; }
 .v2-filmstrip .thumb-name { display: none; }
@@ -489,3 +502,45 @@ html, body, #root { background: var(--v2-ground); }
 .v2-cards + .v2-filter { margin-top: 6px; }
 .v2-strip + .v2-ruler-row { margin-top: 6px; }
 .v2-tiles { padding-top: 4px; }
+
+/* ------------------------------------------------------------- one window (PRD-W5 §2) */
+/* the browser: at the window's right in every mode, the library's rows under its slim bar */
+.v2-browser-slot { position: absolute; top: 0; bottom: 0; right: 0; z-index: 10; display: flex; flex-direction: column; background: var(--v2-ground); }
+.v2-browser-slot[hidden] { display: none !important; }
+.v2-browser { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--v2-ground); }
+.v2-browser.over { position: absolute; right: 0; top: 0; bottom: 0; z-index: 40; box-shadow: 0 0 32px rgba(0, 0, 0, 0.8); border-left: 1px solid var(--v2-wall); }
+.v2-browser-bar { height: var(--v2-toolbar); flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--v2-wall); }
+.v2-browser-count { color: var(--v2-dim); font-size: var(--v2-fs-caption); font-weight: 500; white-space: nowrap; flex: none; }
+.v2-search.slim { margin: 0 0 0 auto; width: auto; flex: 0 1 200px; min-width: 96px; height: 28px; }
+.v2-browser-rows { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.v2-browser-rows > .v2-day-tiles { padding-top: 2px; }
+.v2-browser-empty { padding: 18px 14px; font-size: var(--v2-fs-caption); line-height: 18px; }
+.v2-full-grid-bar { flex: none; }
+/* the picture bar: the shared bar at its leading edge (MacSharedControls), a two-tier rule after it */
+.v2-shared { display: flex; align-items: center; gap: 2px; flex: none; padding-right: 10px; margin-right: 6px; border-right: 1px solid var(--v2-rule); height: 28px; }
+.v2-shared .v2-menu-anchor { margin: 0 2px 0 6px; }
+.v2-direction { display: grid; place-items: center; }
+.v2-direction.up { transform: rotate(180deg); }
+.v2-toolbar.lib .v2-shared { margin-right: 4px; }
+/* the info strip under the picture: the frame, and the status line */
+.v2-info-strip { height: 40px; flex: none; display: flex; flex-direction: column; justify-content: center; padding: 0 16px; border-top: 1px solid var(--v2-wall); background: var(--v2-ground); }
+.v2-info-strip .v2-frame-title { font-weight: 600; font-size: 13px; line-height: 17px; white-space: nowrap; }
+.v2-info-strip .v2-status { line-height: 16px; }
+/* the Library's middle: the viewer (the browser's focus, large) and its info strip */
+.v2-library-centre { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.v2-library-centre.drop { outline: 2px dashed var(--v2-accent); outline-offset: -8px; }
+.v2-viewer { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.v2-viewer-well { flex: 1; min-height: 0; display: grid; place-items: center; padding: 24px; }
+.v2-viewer-well.empty { place-items: center; }
+.v2-viewer-well canvas, .v2-viewer-well .placeholder { max-width: 100%; max-height: 100%; }
+.v2-viewer-pic { width: min(56%, 420px); aspect-ratio: 2 / 3; max-height: 100%; border-radius: 2px; }
+.v2-viewer-strip { flex: none; min-height: 40px; display: flex; align-items: center; gap: 12px; padding: 6px 16px; border-top: 1px solid var(--v2-wall); flex-wrap: wrap; }
+.v2-viewer-strip b { font-weight: 600; }
+.v2-viewer-strip .dim { font-size: var(--v2-fs-caption); flex: 1 1 200px; }
+.v2-viewer-strip .v2-button { margin-left: auto; height: 28px; border-radius: 14px; padding: 0 14px; }
+.v2-viewer-card { margin: auto; width: 320px; display: flex; flex-direction: column; }
+/* full-window pages (the light table, the contact sheet) above the shell */
+.v2-full-page { position: absolute; left: 0; right: 0; bottom: 0; top: var(--v2-title-h); z-index: 45; background: var(--v2-ground); display: flex; flex-direction: column; }
+.v2-full-head { height: var(--v2-toolbar); flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--v2-wall); }
+.v2-full-head .v2-button { height: 28px; border-radius: 14px; padding: 0 16px; }
+.v2-full-page .v2-light-table { flex: 1; min-height: 0; }

@@ -1,7 +1,8 @@
-// rails.tsx — Develop (the left rail) and Edit (the right rail), both on
-// screen (README §3, PC-E1). The controls are the Mac's, in the Mac HIG's
-// sections, drawn as desktop/design/windows draws them; their bodies are
-// v1's components wherever v1 already had them (Navigator, Enlarger, Decode,
+// rails.tsx — the Develop and Edit tools of the left column (PRD-W5 §2, the
+// Mac's one window: all edits on the left, under the mode row; the Latitude
+// meter heads both). The controls are the Mac's, in the Mac HIG's sections,
+// drawn as desktop/design/windows draws them; their bodies are v1's
+// components wherever v1 already had them (Navigator, Enlarger, Decode,
 // Curve, Colour Wheels, Film Edge, Date Back, the pair), placed in the v2
 // order and drawn in the v2 rows.
 //
@@ -19,7 +20,7 @@ import {
   setGeometry, setTool, undo,
 } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
-import { setUi, setWorkspace, toggleAdjustTile, toggleDarkroomTile, useUi, type AdjustTile, type DarkroomTile } from '../app/ui';
+import { setUi, toggleAdjustTile, toggleDarkroomTile, useUi, type AdjustTile, type DarkroomTile } from '../app/ui';
 import { EFFECT_RANGES, EFFECTS_DEFAULT, FILM_FRAMES_STILL, clamp } from '@shared/params';
 import { ADJUSTMENTS_DEFAULT, CURVES_IDENTITY, type Adjustments } from '@shared/adjustments';
 import {
@@ -111,28 +112,6 @@ export function V2Section({ id, title, summary, onReset, resetEnabled = true, de
 
 /** A v1 section's body inside a v2 place: its own head is the v2 one. */
 const Host = ({ children, testId }: { children: ReactNode; testId?: string }) => <div className="v2-host" data-testid={testId}>{children}</div>;
-
-export function Rail({ side, title, mode, children }: { side: 'left' | 'right'; title: string; mode: string; children: ReactNode }) {
-  return (
-    <aside className={`v2-rail ${side} ${mode}`} data-testid={`rail-${side}`} data-mode={mode} aria-label={title}>
-      <div className="v2-rail-head" data-testid={`rail-${side}-head`}><span className="v2-rail-title">{title}</span></div>
-      {children}
-    </aside>
-  );
-}
-
-export function WorkspaceSwitch() {
-  const ws = useUi((s) => s.workspace);
-  return (
-    <div className="v2-switch" role="tablist" aria-label={tz('Workspace', '工作区')} data-testid="workspace-switch">
-      {(['library', 'edit'] as const).map((w) => (
-        <button key={w} role="tab" aria-selected={ws === w} className={ws === w ? 'on' : ''} data-testid={`workspace-${w}`} onClick={() => setWorkspace(w)}>
-          {w === 'library' ? tz('Library', '图库') : tz('Edit', '编辑')}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // -------------------------------------------------------------- Develop
 
@@ -334,14 +313,12 @@ function Format() {
   );
 }
 
-export function DevelopRail({ mode, navigator }: { mode: string; navigator: 'well' | 'line' | 'hidden' }) {
+/** Develop's tools, under the column's meter: the Navigator, then Film & Paper and Format (the Mac's develop column). */
+export function DevelopTools({ navigator }: { navigator: 'well' | 'line' | 'hidden' }) {
   const gate = useSession((s) => s.gate);
   return (
-    <Rail side="left" title={tz('Develop', '冲洗')} mode={mode}>
-      <div className="v2-rail-fixed">
-        <WorkspaceSwitch />
-        <Navigator fold={navigator} />
-      </div>
+    <>
+      {navigator !== 'hidden' && <div className="v2-rail-fixed navigator"><Navigator fold={navigator} /></div>}
       <div className="v2-rail-scroll" data-testid="develop-sections">
         <FilmPaper />
         <Format />
@@ -349,7 +326,7 @@ export function DevelopRail({ mode, navigator }: { mode: string; navigator: 'wel
         {gate.dateImprint && <V2Section id="dateBack" title={tz('Date Back', '日期背')}><Host><DateBackSection /></Host></V2Section>}
         {gate.overscan && <Host testId="pair-host"><PairSection /></Host>}
       </div>
-    </Rail>
+    </>
   );
 }
 
@@ -657,15 +634,13 @@ export function LatitudeMeter() {
   );
 }
 
-export function EditRail({ mode }: { mode: string }) {
+/** Edit's tools, directly under the column's meter — no second tab row (the owner, 2026-10-26). */
+export function EditTools() {
   return (
-    <Rail side="right" title={tz('Edit', '编辑')} mode={mode}>
-      <div className="v2-rail-fixed latitude" data-testid="latitude-meter"><LatitudeMeter /></div>
-      <div className="v2-rail-scroll" data-testid="edit-sections">
-        <Adjust />
-        <Darkroom />
-        <CropPart />
-      </div>
-    </Rail>
+    <div className="v2-rail-scroll" data-testid="edit-sections">
+      <Adjust />
+      <Darkroom />
+      <CropPart />
+    </div>
   );
 }
