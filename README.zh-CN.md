@@ -89,4 +89,6 @@ SpektraLab Mac 版免费、开源，并将一直如此。如果它在你的创�
 <!-- 下方 spklib 链接要等该仓库公开后才能打开。 The spklib link resolves only once that repository is published. -->
 Capture One 目录由 spklib 读取（MIT，https://github.com/JamesQiu2005/SpektraLab_library），应用附带其预编译助手。
 
+官方维护的 AtomGit 镜像见此链接 [SpektraLab](https://atomgit.com/DomesticDragon05/SpektraLab)
+
 Capture One 是 Capture One A/S 的商标。SpektraLab 与 spklib 与其无关联，也未获其认可；它们只读取目录，从不写入。（Capture One is a trademark of Capture One A/S. SpektraLab and spklib are not affiliated with or endorsed by it; they read a catalog and never write to it.）SpektraLab 与 spektrafilm 项目无关联，也未获其认可。胶片与相纸名称是各自所有者的商标，仅用于说明配置依据的是哪份公开资料。
