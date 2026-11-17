@@ -562,7 +562,34 @@ async function checkFit(page: Page) {
       const hit = a.lines.some((p) => b.lines.some((q) => Math.min(p.right, q.right) - Math.max(p.left, q.left) > 1 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 1));
       if (hit) out.push(`${name(a.el, a.text)} overlaps ${name(b.el, b.text)}`);
     }
+    // The filmstrip's chip ("Roll 01 · 8") never lies over a frame of the strip, a placeholder or a thumbnail.
+    const chip = document.querySelector('[data-testid="strip-chip"]')?.getBoundingClientRect();
+    if (chip && chip.width > 0) {
+      for (const cell of document.querySelectorAll('[data-testid="v2-filmstrip"] .filmstrip-cells > *')) {
+        const c = cell.getBoundingClientRect();
+        if (c.width > 0 && Math.min(chip.right, c.right) - Math.max(chip.left, c.left) > 0.5 && Math.min(chip.bottom, c.bottom) - Math.max(chip.top, c.top) > 0.5)
+          out.push(`the filmstrip chip overlaps ${name(cell, (cell.textContent ?? '').trim())}`);
+      }
+    }
     return [...new Set(out)];
+  });
+}
+
+// The review's case: the chip over the first frame while the thumbnails are still loading.
+for (const lang of ['english', 'simplifiedChinese'] as const) {
+  test(`T2b the filmstrip chip fits beside loading thumbnails (${lang === 'english' ? 'English' : '简体中文'})`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1536, height: 816 } });
+    const page = await context.newPage();
+    try {
+      await page.addInitScript(() => { try { localStorage.clear(); } catch { /* none */ } });
+      await openRoll(page, '&thumbDelay=60000');
+      if (lang !== 'english') await page.evaluate(() => (globalThis as unknown as { __spk: { settingsStore: { getState(): { set(k: string, v: unknown): void } } } }).__spk.settingsStore.getState().set('language', 'simplifiedChinese'));
+      await expect(page.getByTestId('strip-chip')).toBeVisible();
+      // Still loading: frames of the strip without their picture yet.
+      expect(await page.locator('[data-testid="v2-filmstrip"] .filmstrip-cells .placeholder').count()).toBeGreaterThan(0);
+      const bad = await checkFit(page);
+      expect(bad, `loading filmstrip in ${lang}:\n  ${bad.join('\n  ')}`).toEqual([]);
+    } finally { await context.close(); }
   });
 }
 

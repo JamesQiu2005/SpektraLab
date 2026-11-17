@@ -273,11 +273,12 @@ html, body, #root { background: var(--v2-ground); }
 
 /* -------------------------------------------------------------- filmstrip */
 /* PC-E1: the frames centred in the band, no arrow buttons (the arrow keys and ‹ › step), a chip at the left */
-.v2-filmstrip { height: var(--v2-filmstrip); flex: none; border-top: 1px solid var(--v2-wall); overflow: hidden; position: relative; }
-.v2-filmstrip .filmstrip { height: 100%; background: var(--v2-ground); border-top: 0; }
+.v2-filmstrip { height: var(--v2-filmstrip); flex: none; border-top: 1px solid var(--v2-wall); overflow: hidden; position: relative; display: flex; align-items: flex-start; background: var(--v2-ground); }
+.v2-filmstrip .filmstrip { height: 100%; flex: 1; min-width: 0; background: var(--v2-ground); border-top: 0; }
 .v2-filmstrip .strip-chevron { display: none; }
 .v2-filmstrip .filmstrip-cells { padding: 12px 10px 8px; gap: 6px; justify-content: safe center; }
-.v2-strip-chip { position: absolute; left: 10px; top: 4px; z-index: 2; height: 17px; line-height: 15px; padding: 0 10px; border-radius: 8.5px; background: rgba(0, 0, 0, 0.7); border: 1px solid var(--v2-wall); font-size: var(--v2-fs-caption); color: var(--v2-secondary); white-space: nowrap; pointer-events: none; }
+/* In the band's flow, left of the frames: it can never sit over the first one, loaded or not (review, phase 2). */
+.v2-strip-chip { flex: none; margin: 4px 0 0 10px; height: 17px; line-height: 15px; padding: 0 10px; border-radius: 8.5px; background: rgba(0, 0, 0, 0.7); border: 1px solid var(--v2-wall); font-size: var(--v2-fs-caption); color: var(--v2-secondary); white-space: nowrap; pointer-events: none; }
 .v2-filmstrip .thumb { height: var(--v2-filmstrip-frame); }
 .v2-filmstrip .thumb .placeholder { width: 84px; height: 56px; }
 .v2-filmstrip .thumb-name { bottom: -14px; font-size: var(--v2-fs-caption); }

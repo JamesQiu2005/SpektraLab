@@ -16,6 +16,7 @@ export function browserTransport(): Transport {
     nativeWidth: 1800,
     nativeHeight: 1200,
     renderDelayMs: Number(params.get('renderDelay') ?? 0),
+    thumbnailDelayMs: Number(params.get('thumbDelay') ?? 0),
   });
   let id = 1;
   let hello: Record<string, unknown> | null = null;

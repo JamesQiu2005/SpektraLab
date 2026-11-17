@@ -42,6 +42,8 @@ export interface MockOptions {
   nativeHeight?: number;
   /** A fixed delay per render, ms (to exercise the tiers). */
   renderDelayMs?: number;
+  /** A fixed delay per thumbnail, ms (to hold the filmstrip on its placeholders). */
+  thumbnailDelayMs?: number;
   /** Paths `probe`/`open` treat as missing (tests). */
   missing?: (path: string) => boolean;
 }
@@ -177,6 +179,7 @@ export class MockHost {
       nativeWidth: opts.nativeWidth ?? 3000,
       nativeHeight: opts.nativeHeight ?? 2000,
       renderDelayMs: opts.renderDelayMs ?? 0,
+      thumbnailDelayMs: opts.thumbnailDelayMs ?? 0,
       missing: opts.missing,
     };
   }
@@ -390,6 +393,7 @@ export class MockHost {
         return { result: { kind: this.kind(path), ...this.dims(path), metadata: this.metadata(path) } };
       }
       case 'thumbnail': {
+        if (this.opts.thumbnailDelayMs) await sleep(this.opts.thumbnailDelayMs);
         const path = String(p.path ?? '');
         if ('embedded_only' in p && typeof p.embedded_only !== 'boolean')
           throw new HostError('bad_request', 'embedded_only must be boolean');
