@@ -1,0 +1,42 @@
+[package]
+name = "spk-scheduler"
+version = "0.1.0"
+description = "SpektraLab's render scheduler (RFC-036), ported from the Mac v2 app, driving the C++/Vulkan engine host"
+authors = ["SpektraLab contributors"]
+license = "GPL-3.0-or-later"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[lib]
+name = "spk_scheduler"
+
+[features]
+# The selftest's checks and its mutation run as a library module, for the `scheduler-selftest` binary.
+# The unit tests compile it regardless.
+selftest = ["tokio/test-util"]
+
+[[bin]]
+name = "scheduler-selftest"
+path = "src/bin/scheduler_selftest.rs"
+required-features = ["selftest"]
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
