@@ -3,7 +3,7 @@
 #
 #   engine/build-linux.sh [--test] [--no-deps]
 #
-# 1. engine/setup-deps.sh: pinned LibRaw 0.22.2 + Vulkan-Headers into the
+# 1. engine/setup-deps.sh: pinned LibRaw (master snapshot) + Vulkan-Headers into the
 #    gitignored build/deps (verified; skipped with --no-deps).
 # 2. CMake + Ninja in build/linux: the engine (Vulkan backend, kernels to
 #    SPIR-V), LibRaw, spektralab-host, and the tests. libstdc++/libgcc are

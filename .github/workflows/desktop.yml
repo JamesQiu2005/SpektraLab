@@ -76,7 +76,7 @@ jobs:
       - name: Vulkan device
         run: vulkaninfo --summary
 
-      # LibRaw 0.22.2 + Vulkan-Headers, pinned and checksum-verified by the script.
+      # LibRaw (master snapshot) + Vulkan-Headers, pinned and checksum-verified by the script.
       - uses: actions/cache@v4
         with:
           path: build/deps
@@ -159,7 +159,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/deps
-          key: engine-deps-windows-msvc-${{ hashFiles('engine/setup-libraw.ps1', 'engine/setup-libraw.sh', 'engine/third_party/libraw-arw6/**') }}
+          key: engine-deps-windows-msvc-${{ hashFiles('engine/setup-libraw.ps1', 'engine/setup-libraw.sh', 'engine/third_party/libraw-pin/**') }}
 
       # CMake 3.31.6 rather than whatever the image defaults to: 4.x refuses a
       # cmake_minimum_required without a version range, which is what this tree
@@ -210,8 +210,8 @@ jobs:
           }
 
           & (Join-Path $env:GITHUB_WORKSPACE 'engine/setup-libraw.ps1') -DependencyDirectory $deps
-          if (-not (Test-Path -LiteralPath (Join-Path $deps 'LibRaw-0.22.2/libraw/libraw.h'))) {
-              throw 'LibRaw 0.22.2 did not land in build/deps'
+          if (-not (Test-Path -LiteralPath (Join-Path $deps 'LibRaw-42f89c165763272a5482a254c446337f8048e0df/libraw/libraw.h'))) {
+              throw 'the pinned LibRaw did not land in build/deps'
           }
           Get-ChildItem -LiteralPath $deps -Directory | Select-Object -ExpandProperty Name
 
@@ -238,7 +238,7 @@ jobs:
               '-DCMAKE_BUILD_TYPE=Release',
               "-DSPEKTRALAB_VULKAN_HEADERS=$deps/Vulkan-Headers/include",
               "-DSPEKTRALAB_GLSLANG=$deps/glslang-16.6.0/bin/glslang.exe",
-              "-DSPEKTRALAB_LIBRAW_SOURCE=$deps/LibRaw-0.22.2",
+              "-DSPEKTRALAB_LIBRAW_SOURCE=$deps/LibRaw-42f89c165763272a5482a254c446337f8048e0df",
               '-DSPEKTRALAB_REQUIRE_VULKAN=ON',
               '-DSPEKTRALAB_LIBRAW_OPENMP=OFF',
               '-DSPEKTRALAB_BUILD_NATIVE_RAW=ON',

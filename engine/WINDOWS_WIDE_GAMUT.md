@@ -12,7 +12,7 @@ is no legacy grading mode. Non-neutral old edits can therefore look different.
 ProPhoto print -> encoded-domain ProPhoto post -> crop/rotation -> resize ->
 display or export conversion`.
 
-- RAW keeps LibRaw 0.22.2, AHD, white balance, and compatible16/headroom modes.
+- RAW keeps LibRaw (now the pinned master snapshot, `RAW-SUPPORT-20261117.md`), AHD, white balance, and compatible16/headroom modes.
   `SPEKTRALAB_LIBRAW_OPENMP=ON` requires OpenMP and propagates consistent LibRaw
   definitions to consumers. Windows GNU also defines `LIBRAW_FORCE_OPENMP`.
   `LIBRAW_NOTHREADS` is removed. A worker scope defaults to

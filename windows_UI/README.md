@@ -163,8 +163,6 @@ original/split comparison, histogram, post-development grading and perspective
 geometry are future work. TIFF and PNG16 retain 16-bit
 pixels; PNG8/JPEG8 use 8-bit samples, and resizing is explicitly requested.
 
-Nikon HE/HE* RAW remains explicitly unsupported by this LibRaw build. A failed
-NEF open must leave the previous ARW and its session usable. Sony A7 V
-(`ILCE-7M5`) ARW 6 "Compressed" and "Compressed (HQ)" files are supported
-through the tracked LibRaw ARW 6 overlay described in
-`engine/WINDOWS_NATIVE_RAW.md`.
+Since 2026-11-17 LibRaw is a pinned upstream master snapshot (`RAW-SUPPORT-20261117.md`): Nikon
+HE/HE* NEFs and Sony A7 V (`ILCE-7M5`) ARW 6 "Compressed" files decode without any overlay. A failed
+open must still leave the previous ARW and its session usable.

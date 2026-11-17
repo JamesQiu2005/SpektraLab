@@ -5,7 +5,8 @@
 #
 # MinGW-w64 (posix threads) through cmake/toolchain-mingw-w64.cmake; Vulkan
 # through volk, so no SDK import library -- the exe opens vulkan-1.dll at run
-# time; LibRaw 0.22.2 cross-built from the same pinned tree as Linux;
+# time; LibRaw (the pinned upstream master snapshot, engine/setup-libraw.sh)
+# cross-built from the same verified tree as Linux;
 # libstdc++, libgcc and winpthread linked statically, so the exe depends only
 # on system DLLs. Stages build/host-win-x64/ (HOST-PROTOCOL.md §4).
 #

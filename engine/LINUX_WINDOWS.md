@@ -26,7 +26,7 @@ All pinned and verified, fetched into the gitignored `build/deps` by
 
 | | version | licence | how it is used |
 |---|---|---|---|
-| LibRaw | 0.22.2 (zip SHA-256 or git commit + tree id) | LGPL-2.1 (of LGPL/CDDL) | built from source, linked statically |
+| LibRaw | master `42f89c16`, 0.23.0-Snapshot202611 (zip SHA-256 + tree id, or git commit + tree id; every file checked by CMake) | LGPL-2.1 (of LGPL/CDDL) | built from source, linked statically |
 | Vulkan-Headers | vulkan-sdk-1.4.341.0 | Apache-2.0 OR MIT | compile time only |
 | volk | vendored, `third_party/volk` | MIT | loads `libvulkan.so.1` / `vulkan-1.dll` at run time -- no SDK import library, and a machine without a driver gets an error message, not a loader failure |
 | stb_image / stb_image_write / stb_truetype | vendored, `third_party/stb` | public domain / MIT | JPEG/PNG decode, PNG/JPEG encode, deflate |
@@ -218,11 +218,15 @@ backend builds natively on macOS with `-DSPEKTRALAB_VULKAN_ON_APPLE=ON`
 `SPK_VULKAN_BACKEND`; off by default, and nothing changes off Apple):
 
 ```bash
-brew install cmake ninja glslang molten-vk vulkan-loader vulkan-headers
-# the Vulkan engine, its CTests (MoltenVK)
+brew install cmake ninja glslang molten-vk vulkan-loader
+engine/setup-deps.sh          # the pinned LibRaw and Vulkan-Headers into build/deps
+# the Vulkan engine, its CTests (MoltenVK). The pinned Vulkan-Headers, not
+# /opt/homebrew/include: that directory also holds Homebrew's jpeglib.h
+# (libjpeg 8), which shadows the bundled libjpeg-turbo, and JPEG export
+# fails ("Wrong JPEG library version", spk_host_codecs).
 cmake -S . -B build/mac-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DSPEKTRALAB_VULKAN_ON_APPLE=ON -DSPEKTRALAB_REQUIRE_VULKAN=ON \
-      -DSPEKTRALAB_VULKAN_HEADERS=/opt/homebrew/include
+      -DSPEKTRALAB_VULKAN_HEADERS="$PWD/build/deps/Vulkan-Headers/include"
 ninja -C build/mac-vulkan
 export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # volk dlopens libvulkan.1.dylib
 (cd build/mac-vulkan && ctest)

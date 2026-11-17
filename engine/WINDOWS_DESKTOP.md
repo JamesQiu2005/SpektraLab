@@ -52,7 +52,7 @@ TIFF 保留完整分辨率 RGB16，并嵌入固定 sRGB ICC；不透明 alpha �
 
 自动测试覆盖共享 host 的完整 RAW 打开、参数更新、缓存重印、headroom、打开失败后保留旧会话、旧结果寿命，以及与同一显示帧逐个 RGB16 样本一致的 TIFF 导出。默认 CTest 还检查 BGRA 通道顺序、行间填充、全部 65,536 个量化输入、透明度约束和 viewport 边界。
 
-Win32 离屏测试检查真实窗口处理函数、控件选择、适合窗口和 100% 绘制、导出及失败打开后的状态。可使用自己提供的支持 RAW 和预期被拒绝的 Nikon HE/HE* 样本重跑：
+Win32 离屏测试检查真实窗口处理函数、控件选择、适合窗口和 100% 绘制、导出及失败打开后的状态。可使用自己提供的支持 RAW 和一个 Nikon HE/HE* 样本（现应成功解码）重跑：
 
 ```powershell
 python engine/tools/windows_preview_smoke.py `
@@ -64,4 +64,4 @@ python engine/tools/windows_preview_smoke.py `
 
 输出目录必须不存在。此工具记录可执行文件和输入哈希、执行结果及输出文件。其图像由离屏窗口和内存 DC 绘制，**不是实际显示器截图**，也不能证明真实拖放、文件对话框、用户手势响应或屏幕色彩正确。测试总耗时包括比较与文件输出，不是正式渲染基准。
 
-当前 LibRaw 0.22.2 明确拒绝 Nikon HE/HE*；不会提取内嵌 JPEG 冒充 RAW 结果。支持 Nikon 正向测试需要受支持的无损压缩 NEF、经验证的 RAW DNG，或将来另行验收的解码器。HE/HE* 的完整解码尚未接入。
+自 2026-11-17 起 LibRaw 固定为上游 master（0.23.0-Snapshot202611），Nikon HE/HE* 可以解码（`RAW-SUPPORT-20261117.md`）。`--integration` 的 NEF 参数现在须能解码；“打开失败后保留旧会话”改用测试自行写出的非 RAW 文件验证。
