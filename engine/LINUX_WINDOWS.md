@@ -218,11 +218,15 @@ backend builds natively on macOS with `-DSPEKTRALAB_VULKAN_ON_APPLE=ON`
 `SPK_VULKAN_BACKEND`; off by default, and nothing changes off Apple):
 
 ```bash
-brew install cmake ninja glslang molten-vk vulkan-loader vulkan-headers
-# the Vulkan engine, its CTests (MoltenVK)
+brew install cmake ninja glslang molten-vk vulkan-loader
+engine/setup-deps.sh          # the pinned LibRaw and Vulkan-Headers into build/deps
+# the Vulkan engine, its CTests (MoltenVK). The pinned Vulkan-Headers, not
+# /opt/homebrew/include: that directory also holds Homebrew's jpeglib.h
+# (libjpeg 8), which shadows the bundled libjpeg-turbo, and JPEG export
+# fails ("Wrong JPEG library version", spk_host_codecs).
 cmake -S . -B build/mac-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DSPEKTRALAB_VULKAN_ON_APPLE=ON -DSPEKTRALAB_REQUIRE_VULKAN=ON \
-      -DSPEKTRALAB_VULKAN_HEADERS=/opt/homebrew/include
+      -DSPEKTRALAB_VULKAN_HEADERS="$PWD/build/deps/Vulkan-Headers/include"
 ninja -C build/mac-vulkan
 export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # volk dlopens libvulkan.1.dylib
 (cd build/mac-vulkan && ctest)
