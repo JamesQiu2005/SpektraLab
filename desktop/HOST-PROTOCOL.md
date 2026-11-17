@@ -412,6 +412,18 @@ packaging). The Tauri core (Rust) launches
 `resources/host/spektralab-host[.exe] --resources resources/host/engine`.
 In development, `SPEKTRALAB_HOST_DIR` overrides the directory.
 
+**SpektraLab 2 (phase 2): who talks to the host.** The app still runs one host process, and the
+protocol is unchanged. Its renders, exports, thumbnails and stock previews now come from the Rust
+scheduler (`desktop/crates/spk-scheduler`, `desktop/src-tauri/src/scheduler.rs`), which owns every
+session it opens; the webview opens and closes none. Its calls on a frame that are not jobs
+(`set_params`, `solve`, `scene_latitude`, `pick_neutral`, `render_source`, `redecode`,
+`update_pair`) go through the scheduler to its editing session. The webview's direct
+`host_request` remains for calls that need no session (`hello`, `probe`, `params_schema`,
+`memory_report`, `render_proof` and the exports' `cancel` of a proof, `export_cube`). The scheduler's
+session ids are scoped to the host process that made them, so a call naming a session of a host that
+has since restarted is answered `not_found` by the app, never sent. Windows also bundles the library
+helper, `spklib-host.exe`, beside the host (its own JSON-lines protocol: spklib `API-SPEC.md`).
+
 
 ### TIFF lossless compression and embedded preview (F16)
 

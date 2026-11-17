@@ -1,5 +1,22 @@
 # PARITY — the macOS app (`modern_UI/Spektrafilm`) → `desktop/`
 
+## SpektraLab 2 for Windows, phase 2 — 2026-11-17
+
+Phase 2 wires what phase 1 drew against mocks to the real backends. **Built** below means: on the
+real engine host and the real library helper on this Mac (T5a, T5b), and cross-built for Windows;
+**unverified on Windows** throughout (`docs/WINDOWS-V2-CHECKLIST.md`).
+
+| Mac v2 | here | status | why / notes |
+|---|---|---|---|
+| `RenderQueue` / `SpkEngine` (RFC-036): one queue owns every render, its memory budget and its sessions | `crates/spk-scheduler` behind `src-tauri/src/scheduler.rs`; the webview's `TauriScheduler` | built | the webview queues nothing and opens no session: canvas jobs run on the engine's editing session; full views, exports, thumbnails, stock previews are one-shot (WIRE.md). The 180 ms settle and the file-dialog hold stay in the page (WIRE has neither). The v1 host renders whole frames: a banded plan runs whole and is recorded `ran: "whole"` |
+| the Mac's budget numbers | `DevicePolicy::mac()` on macOS, `desktop_pc(installed RAM, GPU)` on Windows/Linux | built, **unmeasured on Windows** | every PC number is a named placeholder listed in `scheduler_budget().policy.unmeasured`; the v1 host reports no GPU memory, so VRAM is not in the budget |
+| the job log (`scheduler-log.jsonl`), the cost model's corrections | the app's log folder; `<app data>/scheduler-corrections.json` | built | the Mac's line, keys sorted |
+| a full view on the editing session | — | changed | WIRE's rule (the Mac's): the full tier is one-shot, so a full view decodes the frame afresh from the frame's whole parameters instead of reusing the editing session's negative. Correct by construction; it costs a second decode per settled edit (unmeasured on Windows) |
+| the print thumbnail from the cached print | the canvas print drawn down | changed | an uncropped, unturned frame's thumbnail is drawn from the print the canvas shows (no render); a cropped or turned one is a one-shot `thumbnail` job, as WIRE prices it |
+| a failed render returns the controls to the shown print (HIG §7) | `FAILED_RENDER_KEEPS_EDITED_CONTROLS` (`state/session.ts`) | deviation, one switch | kept as phase 1 built it (the controls keep the failed edit so Try Again renders it); setting the constant to `false` puts them back to the last print |
+| `LibraryModel` over spklib | `library_call` / `library_state` over `spk_library::LibraryHost`; `TauriLibrary` | built | the helper is `spklib-host.exe` beside the engine host (bundled), the Mac's dev helper on macOS; a folder source's library lives in the helper's store, not in the folder; Capture One is read through a mirror and never written (T5a and T5b hold a catalog's every byte) |
+| the soft proof (`render_proof`) | the direct path | kept | not a job (a proof waits for nothing and is cancelled with the dialog); it no longer names the frame's session: the host opens a private one from `source_path` |
+
 ## SpektraLab 2 (Mac v2 2.4.1 → Windows 2.0.0-alpha.1), phase 1 — 2026-11-17
 
 The interface is v2's (NOTES.md, "SpektraLab 2 for Windows"); the engine is v1's.
@@ -20,7 +37,7 @@ app has it and the v1 engine could, but this phase did not build it.
 | Scene Placement, Digital Intermediate | Copy Settings, Recipes | gated | absent when the host lists `scene_latitude_mapping` / `digital_intermediate` |
 | layers / doubles, masks, HDR / gain maps, history and variants, lens profiles beyond v1's Lensfun | — | absent | no v1 engine support (PRD-W2 R7) |
 | Presets (··· › Presets ▸, Save as Preset…), Undo History, "Undo *Tone*" step names | — | not built | v1 has no presets or named undo steps |
-| status line from the scheduler (waiting · running with elapsed · done · failed), last print stays, InfoBar + Try Again, engine card | `edit/EditWorkspace.tsx`, `edit/words.ts` | built | the controls keep the failed edit (so Try Again renders it); the HIG returns them to the shown print — a deviation |
+| status line from the scheduler (waiting · running with elapsed · done · failed), last print stays, InfoBar + Try Again, engine card | `edit/EditWorkspace.tsx`, `edit/words.ts` | built | the controls keep the failed edit (so Try Again renders it); the HIG returns them to the shown print — a deviation, one constant since phase 2 (`FAILED_RENDER_KEEPS_EDITED_CONTROLS`) |
 | the embedded preview while a frame opens | `EmbeddedCapsule` | built | the capsule shows until the first print lands |
 | Compare, the Original (hold Space / \\, latch by a short click) | v1 canvas | built | |
 | right-click command bar flyout, ···, Copy Settings flyout | `EditWorkspace.tsx` | built | Copy Settings groups are v1's six (Scene Placement gated) |

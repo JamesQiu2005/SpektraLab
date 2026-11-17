@@ -7,38 +7,87 @@ Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
 Brief: PRD-W2 R10/R11/T5, PRD-W0 §5; WIRE.md and the two crate READMEs are final.
 
-- **Done**
-  - R1 workspace: `src-tauri/Cargo.toml` is the workspace root (members `.`, `../crates/spk-scheduler`,
-    `../crates/spk-library`; each crate names it with `package.workspace`). One `Cargo.lock`
-    (`src-tauri/`), one `target/` (`src-tauri/target`). The crate gates `cd` into the crate and run cargo
-    there, which now resolves to the workspace: nothing in them names `target/` or the lockfile.
-  - `scripts/build-host-mac.sh`: the one MoltenVK host (configured as `engine/tests/raw_gate.sh`
-    configures `build/raw-gate-mac`, host target only), staged at `build/host-mac` for T5 and the
-    scheduler gate; the RAW gate then reuses the same build directory.
-  - R7b: lease tests hold `agent_files::SERIAL` (46/300 failing runs before, 0/300 after).
-  - R2/R3/R5 (Rust): `src-tauri/src/scheduler.rs` (`AppHostLink` over `HostManager`, sessions scoped
-    `"<generation>:<sid>"`; `SchedulerHub`; WIRE's commands + `scheduler_editing_open/_call`; job log
-    `<logs>/scheduler-log.jsonl`, corrections `<app data>/scheduler-corrections.json`; Mac policy on
-    macOS, `desktop_pc` from the real probe on Windows/Linux), `src-tauri/src/library.rs`
-    (`library_call`, `library_state`). `HostManager` is generic over the runtime (T5a uses
-    `tauri::test`). Crate change: `HostEngine::open_editing` / `call_editing` (spk-scheduler).
-  - T5a: `src-tauri/tests/t5a_real_host.rs` (shown red: without the session scoping a canvas job after
-    a restart renders another file's session).
-  - R4: the webview speaks WIRE (`src/scheduler/types.ts`); `TauriScheduler` (the app; keeps the 180 ms
-    settle and the dialog hold), `LocalScheduler` + `MockEngine` (the browser mock and the tests; the
-    Rust engine's session rules over the page's host client). `session.ts` owns no session: the frame
-    opens in the engine's editing session (`frameHost(frame)` → `scheduler_editing_open/_call`); full
-    views, cropped-frame thumbnails and exports are one-shot jobs; the print thumbnail of an uncropped
-    frame is the canvas print drawn down. `wire.test.ts` holds both to WIRE.md's examples.
-    R7c: `FAILED_RENDER_KEEPS_EDITED_CONTROLS` in `session.ts`.
-- **In progress**: R5 TS (`TauriLibrary`), R6 bundle (`package.mjs`, `check-installer.mjs`), T5b
-  (`src-tauri/src/selftest.rs`, `src/app/selftest.ts`, `scripts/selftest-mac.sh`) — written, not committed.
-- **Next**: R7a chip; composed gate; docs (incl. `docs/WINDOWS-V2-CHECKLIST.md`).
+- **Done**: R1 workspace; R2/R3 scheduler in Rust; R4 webview on the scheduler; R5 library (Rust + TS);
+  R6 bundle (`package.mjs`, `check-installer.mjs`); R7a chip, R7b lease tests, R7c the failed-render
+  constant; T5a; T5b; the composed gate (`scripts/gate-mac.sh`, `SPEKTRALAB_GATE_PHASE=2`); docs
+  (this file, PARITY.md, HOST-PROTOCOL.md §4, docs/WINDOWS-INSTALLER.md, WINDOWS-RELEASES.md,
+  docs/WINDOWS-V2-CHECKLIST.md).
+- **Next**: whatever the composed gate's last run says (below, "Phase 2 — the gate").
 - Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests`,
   `SPKLIB_SRC=<repo>/build/spklib`, `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
-  T5a by hand: `SPK_REQUIRE_REAL_HOST=1 SPEKTRALAB_HOST_DIR=<repo>/build/host-mac SPEKTRALAB_RAW_FIXTURES=…
-  SPKLIB_HOST=<repo>/build/spklib/build/spklib-host SPKLIB_FIXTURES=<repo>/build/spklib/tests/fixtures
-  cargo test --test t5a_real_host` in `src-tauri`.
+
+## SpektraLab 2 for Windows, phase 2 (2026-11-17, W2)
+
+The Rust layer now owns what phase 1 mocked: the scheduler (`crates/spk-scheduler`) and the library
+helper's client (`crates/spk-library`), in one Cargo workspace rooted at `src-tauri/` (one `Cargo.lock`,
+one `target/`; the crates name it with `package.workspace`, and their own `gate.sh` run unchanged).
+
+**Where things are.**
+
+| | |
+|---|---|
+| `src-tauri/src/scheduler.rs` | `AppHostLink` (`spk_scheduler::HostLink` over `HostManager`: one host process), `SchedulerHub` (the facade, made inside the runtime on first use), the WIRE commands' bodies |
+| `src-tauri/src/library.rs` | `LibraryState` over `spk_library::LibraryHost`: the helper resolved beside the host, the store at `default_store()` (`SPEKTRALAB_LIBRARY_STORE` replaces it for a test) |
+| `src-tauri/src/selftest.rs`, `src/app/selftest.ts`, `scripts/selftest-mac.sh` | T5b (debug / `selftest` feature only) |
+| `src-tauri/tests/t5a_real_host.rs` | T5a |
+| `src/scheduler/` | `types.ts` (WIRE.md in TypeScript), `tauriScheduler.ts` (the app), `localScheduler.ts` + `mockEngine.ts` + `typedCaller.ts` (the browser mock and the tests), `frame.ts` (the frame's session calls), `wire.test.ts` (both held to WIRE.md's examples) |
+| `src/library/tauriLibrary.ts` | `LibraryClient` over `library_call` / `library_state` |
+| `scripts/build-host-mac.sh` | the one MoltenVK host for T5a/T5b/the scheduler gate |
+
+**How session ownership moved.** Phase 1's webview opened a host session per frame and ran its
+renders, full views, exports and thumbnails on it (or opened its own). Now:
+
+- The webview submits jobs (WIRE's `JobSpec`: `request {source, setParams, method, params}`, the canvas,
+  the pricing fields, `opens` = the decoded size below Full) and never names a session. The Rust
+  `HostEngine` keeps one *editing* session per open frame for canvas jobs and opens a one-shot session
+  for every full view, export (none: the host's private session from `source_path`), thumbnail (none)
+  and stock preview, closing it however the job ends.
+- What the page does on a frame that is not a job but needs its session goes to that same editing
+  session through two commands added for it, `scheduler_editing_open(frameId, source)` (the frame's
+  `open` / `open_pair` reply: parameters, size, metadata, pair readings) and
+  `scheduler_editing_call(frameId, session, method, params)` for `set_params`, `get_params`, `solve`,
+  `scene_latitude`, `overscan_geometry`, `pick_neutral`, `render_source`, `redecode`, `update_pair`. They
+  run under the lock the engine's jobs take (a call never lands between a job's `set_params` and its
+  render). The `session` the page holds is the engine's handle; a stale one is answered `not_found`. A
+  successful `redecode` / `update_pair` moves the editing session's source, so the next canvas job from
+  that decode reuses it instead of decoding again. (Crate change: `HostEngine::open_editing` /
+  `call_editing`, ~90 lines, with a test in `tests/host_engine.rs`.) The page has no `close`: the
+  session goes when another frame's canvas job or open comes, or when `scheduler_frontend_state`'s
+  `openFrame` moves.
+- Session ids are scoped to the host process that made them (`"<generation>:<sid>"` in
+  `AppHostLink`): after a restart, a session of the old host is `not_found` without being sent, so the
+  engine reopens the frame instead of reaching a session the new host gave the same id (T5a shows the
+  wrong-picture failure without it).
+- **What `session.ts` still sends the host directly** (`host_request`, no session): `hello` and the
+  host state, `probe` (sizes of frames not open), `params_schema`, `memory_report` and diagnostics,
+  `render_proof` (the soft proof: a private session from `source_path`) and its `cancel`, `export_cube`.
+  Nothing on the direct path opens or closes a session any more.
+- The 180 ms settle and the file-dialog hold stay in the page (`TauriScheduler`): WIRE has neither.
+
+**Decisions (and why).**
+- A full view is one-shot (WIRE's rule, the Mac's): it opens the frame afresh with the whole parameters
+  instead of rendering the editing session's cached negative. The print thumbnail of an uncropped,
+  unturned frame is the canvas's print drawn down; a cropped one is a one-shot thumbnail job. A second
+  decode per settled edit is the cost, unmeasured on Windows (PARITY.md).
+- The in-page mock lets two thumbnails run beside a render (phase 1's decode lane); the Rust engine
+  takes its lock for every job. Only the browser mock and the tests run the mock.
+- `FAILED_RENDER_KEEPS_EDITED_CONTROLS` (`state/session.ts`) is the review's one switch.
+- A folder source's library lives in the helper's store (`Folders/<name>-<fnv>.spkcatalog`), never in
+  the person's folder.
+- `--selftest` exists only in a debug or `selftest`-feature build (`cfg`), so no package carries it.
+
+**Gotchas found.**
+- A child forked by one test inherits another test's `workspace.lock` descriptor until it execs, and
+  with it the flock: the "partial write" flake (46 of 300 runs). Lease tests hold `agent_files::SERIAL`.
+- A listener that throws inside the in-page scheduler's event loop stopped the queue (a Playwright spec
+  still reading phase 1's nested snapshot): listeners are isolated now.
+- vitest's worker died, and the JSON reporter still said "0 failed", when a test deep-compared a 17 MB
+  payload: compare lengths and a byte rule instead.
+- WKWebView in a window behind others stopped the self-test's timers: T5b turns App Nap off in its own
+  home's preferences.
+- The v2 Export dialog shows a recipe's words, not its name (the name is the `title`), and reads its
+  recipes when it opens: wait for them before clicking Export.
+
 
 ## SpektraLab 2 for Windows, phase 1 (2026-11-17, W2)
 
