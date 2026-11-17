@@ -297,13 +297,47 @@ async fn the_requests_each_job_kind_makes() {
     assert_eq!(link.methods(), ["open", "preview_stock_lut", "close"]);
     assert_eq!(link.calls()[2].1["session"], link.calls()[1].1["session"]);
 
-    // A full view is one-shot: its own session, closed when it ends; the editing session stays.
+    // A full view of the frame being edited, from the same source, borrows its session: the file is not
+    // decoded again and nothing is closed (phase 3, part 2). Its delta lands on that session first.
+    link.clear();
+    let editing_source = SourceSpec { decode: Some(json!({"raw_mode": "headroom"})), ..source("/p/a.ARW") };
+    let full = RenderJob::new(a.clone(), JobKind::FullView, RenderTier::Full, PixelSize::new(6000, 4000)).with_request(
+        Some(Arc::new(JobRequest {
+            source: Some(editing_source.clone()),
+            set_params: Some(json!({"film_stock": "x"})),
+            method: "render_view".into(),
+            params: view("full"),
+        })),
+    );
+    assert!(q.outcome(q.submit(full)).await.is_finished());
+    assert_eq!(link.methods(), ["set_params", "render_view"]);
+    assert_eq!(link.calls()[0].1["session"], "s1");
+    assert_eq!(link.calls()[1].1["session"], "s1");
+    assert_eq!(engine.editing_frame().await, Some(a.clone()));
+    // Without a delta it is the render alone.
     link.clear();
     let full = RenderJob::new(a.clone(), JobKind::FullView, RenderTier::Full, PixelSize::new(6000, 4000))
-        .with_request(Some(request("render_view", Some(source("/p/a.ARW")), view("full"))));
+        .with_request(Some(request("render_view", Some(editing_source.clone()), view("full"))));
     assert!(q.outcome(q.submit(full)).await.is_finished());
+    assert_eq!(link.methods(), ["render_view"]);
+    assert_eq!(link.open_sessions(), 1, "the editing session, and nothing opened beside it");
+
+    // The same frame from other pixels, or another frame: one-shot, its own session, closed when it
+    // ends; the editing session stays as it was.
+    link.clear();
+    let other_pixels = RenderJob::new(a.clone(), JobKind::FullView, RenderTier::Full, PixelSize::new(6000, 4000))
+        .with_request(Some(request("render_view", Some(source("/p/a.ARW")), view("full"))));
+    assert!(q.outcome(q.submit(other_pixels)).await.is_finished());
     assert_eq!(link.methods(), ["open", "render_view", "close"]);
+    link.clear();
+    let other_frame =
+        RenderJob::new(FrameId::new("b"), JobKind::FullView, RenderTier::Full, PixelSize::new(6000, 4000))
+            .with_request(Some(request("render_view", Some(source("/p/b.ARW")), view("full"))));
+    assert!(q.outcome(q.submit(other_frame)).await.is_finished());
+    assert_eq!(link.methods(), ["open", "render_view", "close"]);
+    assert_ne!(link.calls()[1].1["session"], "s1");
     assert_eq!(engine.editing_frame().await, Some(a.clone()));
+    assert_eq!(link.open_sessions(), 1);
 
     // An export runs without a session: the host opens a private one from source_path.
     link.clear();

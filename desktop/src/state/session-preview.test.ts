@@ -99,18 +99,39 @@ describe('processed preview scheduling', () => {
     session.sessionStore.setState({ nativeSize: { width: 7028, height: 4688 }, maxTextureSize: 8192,
       canvasPx: { width: 1600, height: 1000 }, sidecar });
     fake.renderView.mockImplementation(async (_sid: string, tier: string) => ({ ...frame(200), tier }));
-    // A full view and a cropped frame's thumbnail are one-shot jobs: each opens a session of its own (WIRE.md).
+    // The full view borrows the editing session (no second decode of the file); a cropped frame's
+    // thumbnail is a one-shot job and opens a session of its own (WIRE.md, "Sessions").
     fake.open.mockResolvedValue({ session: 'one-shot', width: 7028, height: 4688, kind: 'raw', metadata: {}, params: {} });
     await session.requestPrint();
     await vi.advanceTimersByTimeAsync(400);
     const calls = fake.renderView.mock.calls;
     expect(calls).toHaveLength(3);
     expect(calls[0]).toEqual(['s1', 'live', expect.objectContaining({ long_edge: 2560, geometry: sidecar.geometry })]);
-    expect(calls[1]).toEqual(['one-shot', 'full', expect.objectContaining({ long_edge: 2560, geometry: sidecar.geometry })]);
+    expect(calls[1]).toEqual(['s1', 'full', expect.objectContaining({ long_edge: 2560, geometry: sidecar.geometry })]);
     expect(calls[2]).toEqual(['one-shot', 'preview', expect.objectContaining({ long_edge: 320,
       geometry: expect.objectContaining({ crop: { x: 0, y: 0, width: 1, height: 1 }, quarterTurns: 0 }) })]);
-    expect(fake.close).toHaveBeenCalledTimes(2);
+    expect(fake.open).toHaveBeenCalledTimes(1);
+    expect(fake.close).toHaveBeenCalledTimes(1);
     expect(session.sessionStore.getState().badge).toBe('full');
+  });
+
+  it('prices the full view as opening nothing, and sends it what of the edit the session lacks', async () => {
+    session.sessionStore.setState({ nativeSize: { width: 7028, height: 4688 }, maxTextureSize: 8192, canvasPx: { width: 1600, height: 1000 } });
+    const { scheduler } = await import('../scheduler');
+    const submit = vi.spyOn(scheduler(), 'submit');
+    // The live render fails after its set_params may have landed: the session's parameters are unknown.
+    fake.renderView.mockImplementationOnce(async () => { throw new Error('device lost'); });
+    await session.requestPrint();
+    fake.setParams.mockClear();
+    await vi.advanceTimersByTimeAsync(400);
+    const full = submit.mock.calls.map(([j]) => j).find((j) => j.kind === 'fullView');
+    expect(full).toBeDefined();
+    expect(full).not.toHaveProperty('decodesOriginal');
+    expect(full).not.toHaveProperty('original');
+    expect(full).not.toHaveProperty('opens');
+    expect(full!.request.setParams).toBeDefined();
+    expect(fake.setParams).toHaveBeenCalledWith('s1', expect.any(Object));
+    expect(fake.open).not.toHaveBeenCalled();
   });
 
   it('requests native output at 100 percent and never re-renders merely to pan', async () => {

@@ -174,14 +174,21 @@ async fn the_app_develops_a_raw_and_reads_a_library_on_the_real_binaries() {
     assert_picture("reprint", &pixels, iw, ih);
     let (again, _) = unframe(&hub.editing_call(frame, &session, "get_params", json!({})).await.unwrap());
     assert_eq!(again["result"]["params"]["print_exposure"], json!(1.2), "the job ran on the frame's editing session");
-    // 3. A full view.
+    // 3. A full view of the frame being edited: it borrows the editing session (phase 3, part 2), so it
+    // is priced as opening nothing, and it leaves its negative there beside the canvas's.
     let (out, pixels) = finished(&hub, "full view", json!({"frameId": frame, "kind": "fullView", "tier": "full",
-        "canvas": {"width": w, "height": h}, "decodesOriginal": true, "original": opens,
+        "canvas": {"width": w, "height": h},
         "request": {"source": {"path": path, "params": params}, "method": "render_view", "params": view("full", 3000, 3)}})).await;
     let image = &out["result"]["hostResult"]["image"];
     let (fw, fh) = (image["width"].as_u64().unwrap(), image["height"].as_u64().unwrap());
     assert_eq!(fw.max(fh), 3000);
     assert_picture("full view", &pixels, fw, fh);
+    let (report, _) = host.request("memory_report", json!({}), vec![], Duration::from_secs(30), None).await.unwrap();
+    let rows = report["result"]["persistent"]["sessions"].as_array().cloned().unwrap_or_default();
+    assert_eq!(rows.len(), 1, "the editing session alone, nothing opened beside it: {rows:?}");
+    assert_eq!(rows[0]["negatives"], 2, "the full view ran on the editing session: {rows:?}");
+    let (again, _) = unframe(&hub.editing_call(frame, &session, "get_params", json!({})).await.unwrap());
+    assert_eq!(again["result"]["params"]["print_exposure"], json!(1.2), "and left its parameters as the canvas had them");
     // 4. An export to a file.
     let file = scratch.join("export.jpg");
     finished(&hub, "export", json!({"frameId": frame, "kind": "export", "tier": "full",
@@ -201,8 +208,11 @@ async fn the_app_develops_a_raw_and_reads_a_library_on_the_real_binaries() {
     assert_eq!(tw.max(th), 256);
     assert_picture("thumbnail", &pixels, tw, th);
 
-    // 6. A cancel that lands: a full-size render, cancelled once the host is rendering it.
-    let slow = |generation: u64| json!({"frameId": frame, "kind": "fullView", "tier": "full",
+    // 6. A cancel that lands: a full-size render, cancelled once the host is rendering it. Another
+    // frame's, so one-shot from a fresh decode (a borrowed one prints from a cached negative, too fast
+    // to catch in flight).
+    let elsewhere = format!("{frame}#elsewhere");
+    let slow = |generation: u64| json!({"frameId": elsewhere, "kind": "fullView", "tier": "full",
         "canvas": {"width": w, "height": h}, "decodesOriginal": true, "original": opens,
         "request": {"source": source, "method": "render_view", "params": view("full", 0, generation)}});
     let running = |id: &str| {

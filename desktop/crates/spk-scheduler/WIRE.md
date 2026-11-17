@@ -68,7 +68,11 @@ as `cancelled`, as on the Mac.
 **Pricing a job for the v1 host.** The v1 host's `open` decodes the whole file whatever tier is later
 rendered, so a job below the full tier that opens a session should send `opens` = the decoded size
 (`probe`'s `width`/`height`) and `decodesOriginal: true` + `original` for its first open of a frame. A
-job priced at its canvas alone is under-priced, and its record will say `openedInstead`.
+job priced at its canvas alone is under-priced, and its record will say `openedInstead`. A `fullView`
+of the frame being edited from the editing session's source **opens nothing** (it borrows that session,
+below): send it with no `decodesOriginal`, `original` or `opens`, so it is priced as the render alone.
+A `fullView` of any other frame opens its own session: price it as an export (`decodesOriginal: true` +
+`original`).
 
 ### JobRequest — the host calls
 
@@ -96,6 +100,13 @@ job priced at its canvas alone is under-priced, and its record will say `openedI
   (from `source.path` unless given) and the host opens a private session. `thumbnail` needs none.
 - `preview_stock_lut` and `render_source` borrow the editing session when it is the same frame from the
   same source (they do not change its parameters); otherwise they are one-shot.
+- **A `fullView` (`render_view`) of the editing frame from the same source** (`path`, `decode`, `pair`)
+  borrows the editing session too: no `open`, no `close`, the file is not decoded again. Its
+  `setParams`, if any, lands on that session first, as a canvas job's does — so a full view sent with
+  the canvas's pending delta leaves the session where the canvas would. The host keeps a negative per
+  output size on a session (`memory_report`'s `negatives`), so the canvas's next reprint still prints
+  from the canvas's negative (measured on the Mac host, `tests/real_host.rs` step 3b). Any other
+  `fullView` — another frame, or this frame from other pixels — stays one-shot.
 - The editing session closes when `FrontendStateMsg.openFrame` moves to another frame, and when a job
   someone waits on cannot fit (the scheduler's reclaim; a canvas job of the same frame keeps it).
 - If the host dies, every session is forgotten; the job in flight fails with

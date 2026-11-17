@@ -149,6 +149,7 @@ async fn the_real_host_develops_a_raw_through_the_queue() {
         link.inner.request("open", json!({"path": path}), vec![], Duration::from_secs(300)).await.unwrap();
     assert_eq!(opened["ok"], true, "open: {opened}");
     let params = opened["result"]["params"].clone();
+    assert!(params["print_exposure"].is_number(), "the reprint below edits a field there is");
     let _ = link
         .inner
         .request("close", json!({"session": opened["result"]["session"]}), vec![], Duration::from_secs(30))
@@ -186,6 +187,7 @@ async fn the_real_host_develops_a_raw_through_the_queue() {
     let (iw, ih) = (image["width"].as_u64().unwrap(), image["height"].as_u64().unwrap());
     assert_eq!(iw.max(ih), canvas_edge, "the develop is the long edge asked ({iw}x{ih})");
     assert_picture("develop", pixels.as_deref().expect("pixels"), iw, ih);
+    eprintln!("T5 develop: timings={}", out.result.as_ref().unwrap().host_result.as_ref().unwrap()["timings_ms"]);
     assert_eq!(link.take(), ["open", "render_view"]);
 
     // 2. A print-side edit: a reprint on the same session, no second open.
@@ -197,20 +199,26 @@ async fn the_real_host_develops_a_raw_through_the_queue() {
     let (out, pixels) = scheduler.outcome(reprint).await;
     assert_eq!(out.outcome, OutcomeKind::Finished, "reprint: {out:?}");
     assert_eq!(out.result.as_ref().unwrap().host_result.as_ref().unwrap()["generation"], 2);
+    eprintln!(
+        "T5 reprint: print_cached={}",
+        out.result.as_ref().unwrap().host_result.as_ref().unwrap()["print_cached"]
+    );
     assert_picture("reprint", pixels.as_deref().expect("pixels"), iw, ih);
     assert_eq!(link.take(), ["render_view"], "a reprint reuses the editing session");
     let (again, none) = scheduler.outcome(reprint).await;
     assert!(none.is_none() && again.result.unwrap().payload_bytes == 0, "pixels are handed over once");
 
-    // 3. The full view: one-shot, at a bounded output size.
+    // 3. The full view of the frame being edited: it borrows the editing session (no second decode of
+    //    the file, nothing closed), at a bounded output size, from the whole frame.
     let full = scheduler
         .submit(&spec(json!({"frameId": frame, "kind": "fullView", "tier": "full",
-        "canvas": {"width": w, "height": h}, "decodesOriginal": true, "original": opens,
+        "canvas": {"width": w, "height": h},
         "request": {"source": source, "method": "render_view", "params": view("full", 3000, 3)}})))
         .unwrap();
     let (out, pixels) = scheduler.outcome(full).await;
     assert_eq!(out.outcome, OutcomeKind::Finished, "full view: {out:?}; stderr: {:?}", process.stderr_tail());
-    let image = &out.result.as_ref().unwrap().host_result.as_ref().unwrap()["image"];
+    let reply = out.result.as_ref().unwrap().host_result.as_ref().unwrap();
+    let image = &reply["image"];
     let (fw, fh) = (image["width"].as_u64().unwrap(), image["height"].as_u64().unwrap());
     assert_eq!(fw.max(fh), 3000);
     assert_eq!(
@@ -219,7 +227,43 @@ async fn the_real_host_develops_a_raw_through_the_queue() {
         "from the whole frame"
     );
     assert_picture("full view", pixels.as_deref().expect("pixels"), fw, fh);
-    assert_eq!(link.take(), ["open", "render_view", "close"], "a full view's session is its own");
+    assert_eq!(link.take(), ["render_view"], "a full view of the editing frame borrows its session");
+    eprintln!("T5 full view (borrowed): print_cached={} timings={}", reply["print_cached"], reply["timings_ms"]);
+    let (report, _) = link.inner.request("memory_report", json!({}), vec![], Duration::from_secs(30)).await.unwrap();
+    let rows = report["result"]["persistent"]["sessions"].as_array().cloned().unwrap_or_default();
+    eprintln!("T5 after the full view: {rows:?}");
+    // The host keeps a negative per size: the canvas's beside the full view's, on the one session. (The
+    // print times printed above are the evidence that the next reprint runs from the canvas's.)
+    assert_eq!(rows.len(), 1, "the editing session alone: {rows:?}");
+    assert_eq!(rows[0]["negatives"], 2, "the canvas's negative kept beside the full view's: {rows:?}");
+
+    // 3b. A print-side edit after it still reprints on the editing session: the negative the develop made
+    //     is the one it prints from (`print_cached`), so the full view did not cost the canvas its film.
+    let after = scheduler
+        .submit(&spec(json!({"frameId": frame, "kind": "canvasReprint", "tier": "live",
+        "canvas": {"width": cw, "height": ch}, "layers": ["print"], "opens": opens,
+        "request": {"source": source, "setParams": {"print_exposure": 1.1},
+                    "method": "render_view", "params": view("live", canvas_edge, 4)}})))
+        .unwrap();
+    let (out, pixels) = scheduler.outcome(after).await;
+    assert_eq!(out.outcome, OutcomeKind::Finished, "reprint after the full view: {out:?}");
+    let reply = out.result.as_ref().unwrap().host_result.as_ref().unwrap();
+    assert_picture("reprint after the full view", pixels.as_deref().expect("pixels"), iw, ih);
+    assert_eq!(link.take(), ["set_params", "render_view"], "on the editing session, no open");
+    eprintln!("T5 reprint after the full view: print_cached={} timings={}", reply["print_cached"], reply["timings_ms"]);
+
+    // 3c. A full view of a frame that is not the one being edited is one-shot: its own session, closed.
+    let other = scheduler
+        .submit(&spec(json!({"frameId": "raw:2", "kind": "fullView", "tier": "full",
+        "canvas": {"width": w, "height": h}, "decodesOriginal": true, "original": opens,
+        "request": {"source": source, "method": "render_view", "params": view("full", 1200, 5)}})))
+        .unwrap();
+    let (out, pixels) = scheduler.outcome(other).await;
+    assert_eq!(out.outcome, OutcomeKind::Finished, "another frame's full view: {out:?}");
+    let image = &out.result.as_ref().unwrap().host_result.as_ref().unwrap()["image"];
+    let (ow, oh) = (image["width"].as_u64().unwrap(), image["height"].as_u64().unwrap());
+    assert_picture("another frame's full view", pixels.as_deref().expect("pixels"), ow, oh);
+    assert_eq!(link.take(), ["open", "render_view", "close"], "another frame's full view has its own session");
 
     // 4. An export to a file: it exists, decodes as a JPEG, at the size asked.
     let dir = std::env::temp_dir().join(format!("spk-scheduler-t5-{}", std::process::id()));
@@ -255,11 +299,12 @@ async fn the_real_host_develops_a_raw_through_the_queue() {
     assert_picture("thumbnail", pixels.as_deref().expect("pixels"), tw, th);
     assert_eq!(link.take(), ["thumbnail"]);
 
-    // 6. A cancel: a full-size render cancelled while the host renders it ends `cancelled`.
+    // 6. A cancel: a full-size render cancelled while the host renders it ends `cancelled` (another
+    //    frame's, so one-shot: a borrowed full view prints from the cached negative too fast to catch).
     let slow = scheduler
-        .submit(&spec(json!({"frameId": frame, "kind": "fullView", "tier": "full",
+        .submit(&spec(json!({"frameId": "raw:2", "kind": "fullView", "tier": "full",
         "canvas": {"width": w, "height": h}, "decodesOriginal": true, "original": opens,
-        "request": {"source": source, "method": "render_view", "params": view("full", 0, 4)}})))
+        "request": {"source": source, "method": "render_view", "params": view("full", 0, 6)}})))
         .unwrap();
     // Cancelled once its call is in flight: the snapshot reads Film at 0.15 (the session opened, the
     // render sent) — a state, not a time.

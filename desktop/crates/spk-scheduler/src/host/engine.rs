@@ -5,7 +5,9 @@
 //! - **The sessions are the engine's.** A canvas job runs on the frame's *editing* session, kept open
 //!   between canvas jobs so a print-side edit reprints from the cached negative; one editing session at
 //!   a time. Every other job is *one-shot*: its session is its own and goes when the job ends, however
-//!   it ends (`SpkEngine.oneShot = tier == .full || !kind.isCanvas`). `export_frame`, `export_cineon` and
+//!   it ends (`SpkEngine.oneShot = tier == .full || !kind.isCanvas`) — except a `fullView` of the editing
+//!   frame from the same source, which borrows the editing session (no second decode of the file), as
+//!   `preview_stock_lut` and `render_source` do. `export_frame`, `export_cineon` and
 //!   `render_proof` need none at all: the host opens a private session from `source_path`.
 //! - **Same frame, other pixels**: another `decode` is a `redecode` in place; another path or pair
 //!   recipe is opened again (`SpkEngine.sourceKey`).
@@ -32,7 +34,7 @@ use crate::cost_model::BandGeometry;
 use crate::device_policy::GpuMemory;
 use crate::engine::{Delivery, DevelopEngine, EngineError, ProgressFn, RenderResult};
 use crate::types::{
-    FrameId, JobId, PixelSize, RenderJob, RenderMode, RenderProgress, RenderStage, RenderTier, RunMeasurement,
+    FrameId, JobId, JobKind, PixelSize, RenderJob, RenderMode, RenderProgress, RenderStage, RenderTier, RunMeasurement,
 };
 use crate::wire::{JobRequest, SourceSpec};
 
@@ -388,7 +390,12 @@ impl HostEngine {
         let key = source.key();
         let same = sessions.editing.as_ref().is_some_and(|e| e.frame == job.frame_id && e.key == key);
         if one_shot {
-            if BORROWING_METHODS.contains(&method) && same {
+            // A full view of the frame being edited, from the same pixels, is that session's own picture at
+            // its own size: it borrows the session rather than decoding the file again (phase 3, part 2).
+            // Its `set_params` delta lands there first, as a canvas job's does.
+            let borrows =
+                BORROWING_METHODS.contains(&method) || (job.kind == JobKind::FullView && method == "render_view");
+            if borrows && same {
                 let session = sessions.editing.as_ref().unwrap().session.clone();
                 return Ok(Placed { session: Some(session), ..none });
             }

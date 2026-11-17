@@ -3,17 +3,18 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
-## Phase 2 — status (W2; a restart picks up from here)
+## Phase 3 — status (W2 phase 3; a restart picks up from here)
 
-Brief: PRD-W2 R10/R11/T5, PRD-W0 §5; WIRE.md and the two crate READMEs are final.
+Brief: the coordinator's phase 3 (2026-11-17) — part 1 PRD-W5 (the Mac's one window), part 2 the
+borrowed full view. Phase 2's notes follow below and still hold.
 
-- **Done**: R1 workspace; R2/R3 scheduler in Rust; R4 webview on the scheduler; R5 library (Rust + TS);
-  R6 bundle (`package.mjs`, `check-installer.mjs`); R7a chip, R7b lease tests, R7c the failed-render
-  constant; T5a; T5b; the composed gate (`scripts/gate-mac.sh`, `SPEKTRALAB_GATE_PHASE=2`); docs
-  (this file, PARITY.md, HOST-PROTOCOL.md §4, docs/WINDOWS-INSTALLER.md, WINDOWS-RELEASES.md,
-  docs/WINDOWS-V2-CHECKLIST.md).
-- **The composed gate is green** (2026-11-17, HEAD f676ca9a; below, "Phase 2 — the gate"). Nothing open
-  on the Mac; what only Windows can tell is `docs/WINDOWS-V2-CHECKLIST.md`.
+- **Part 2 done**: a `fullView` of the editing frame from the canvas's source borrows the editing
+  session (`HostEngine::place`, `MockEngine.place`), priced as opening nothing, carrying the session's
+  pending delta (`session.ts` `renderFull`). Red then green: `tests/host_engine.rs`,
+  `src/scheduler/mockEngine.test.ts`, `session-preview.test.ts`. Real host: `tests/real_host.rs` step
+  3/3b/3c and T5a step 3. Finding: the host keeps a negative per size (`negatives: 2`), the next
+  reprint prints in ~25 ms vs the develop's ~230 ms — it still reprints from the canvas's negative.
+- **Part 1**: not started.
 - Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests`,
   `SPKLIB_SRC=<repo>/build/spklib`, `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
 

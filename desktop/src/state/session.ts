@@ -541,9 +541,10 @@ async function renderJob(tier: 'live' | 'full', reprint: boolean, request: JobRe
   const t0 = performance.now();
   try {
     // Below Full the v1 host's open decodes the whole frame: the job says so (WIRE.md's pricing tip).
+    // The full view is of the frame being edited, from the canvas's own source, so it borrows the
+    // editing session and opens nothing: it is priced as the render alone (WIRE.md, "Sessions").
     const r = await runJob({ kind, frameId: s.selection!, what, tier, canvas: canvasOf(native, tier === 'full' ? 0 : longEdge),
-      ...(reprint ? { layers: ['print'] } : {}), ...(native && tier !== 'full' ? { opens: native } : {}),
-      ...(tier === 'full' && native ? { decodesOriginal: true, original: native } : {}), request },
+      ...(reprint ? { layers: ['print'] } : {}), ...(native && tier !== 'full' ? { opens: native } : {}), request },
     (id) => { clockOf(id); if (tier === 'live') canvasJob = { id, running: false }; });
     return decode(r.result, r.payload, performance.now() - t0);
   } finally {
@@ -698,7 +699,20 @@ async function renderFull(gen: number) {
   foregroundWork();
   try {
     const t0 = performance.now();
-    const r = await renderForView(sid, 'full', gen);
+    // It runs on the editing session (it borrows it): whatever of the edit has not reached that session
+    // yet goes with it, as the canvas's next job would send it.
+    const want = s.sidecar.params;
+    const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog).delta : wireParams(want);
+    const pending = Object.keys(d).length ? d as Record<string, unknown> : null;
+    let r: RenderReply;
+    try {
+      r = await renderForView(sid, 'full', gen, false, pending);
+    } catch (e) {
+      // Its set_params may have landed without its render: the next canvas job sends everything.
+      if (pending) sentParams = null;
+      throw e;
+    }
+    if (pending) sentParams = want;
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
     if (gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;

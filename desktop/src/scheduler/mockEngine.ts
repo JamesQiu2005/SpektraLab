@@ -9,7 +9,8 @@
 //  - every other job is **one-shot**: its own session, closed however it ends;
 //    `export_frame`, `export_cineon`, `render_proof` get `source_path` and no
 //    session; `thumbnail` needs none; `preview_stock_lut` / `render_source`
-//    borrow the editing session of the same frame and source;
+//    and a `fullView`'s `render_view` borrow the editing session of the same
+//    frame and source (no second decode of the file);
 //  - a session the host no longer knows (`not_found`) is opened again once;
 //  - `editingOpen` / `editingCall` are the webview's own calls on the frame's
 //    editing session (`HostEngine::open_editing` / `call_editing`).
@@ -173,7 +174,9 @@ export class MockEngine implements Engine {
     if (e0 && e0.key === '*' && e0.frame === job.frameId) { e0.key = key; e0.source = source; }
     const same = !!this.editing && this.editing.frame === job.frameId && this.editing.key === key;
     if (oneShot) {
-      if (BORROWING_METHODS.includes(method) && same) return { session: this.editing!.session, owned: false, fresh: false };
+      // A full view of the editing frame from its source borrows the session too (phase 3, part 2).
+      const borrows = BORROWING_METHODS.includes(method) || (job.kind === 'fullView' && method === 'render_view');
+      if (borrows && same) return { session: this.editing!.session, owned: false, fresh: false };
       return { session: await this.openSession(source), owned: true, fresh: true };
     }
     if (same) return { session: this.editing!.session, owned: false, fresh: false };
