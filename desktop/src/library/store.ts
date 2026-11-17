@@ -9,6 +9,8 @@ import { tz } from '../i18n';
 import { platform } from '../platform';
 import { LibraryError, lib, type Collection, type ImageRow, type LibraryClient, type LibraryInfo } from './client';
 import { MOCK_LIBRARY_PATHS, MockLibrary } from './mock';
+import { TauriLibrary } from './tauriLibrary';
+import { inTauri } from '../host/transport';
 
 export type SourceKind = 'catalog' | 'session' | 'captureOneCatalog' | 'captureOneSession' | 'folder';
 
@@ -53,6 +55,7 @@ const readRecent = (): RecentLibrary[] => {
     const v = JSON.parse(globalThis.localStorage?.getItem(RECENT_KEY) ?? 'null') as unknown;
     if (Array.isArray(v)) return v.filter((x): x is RecentLibrary => !!x && typeof x.path === 'string' && typeof x.name === 'string');
   } catch { /* none */ }
+  if (inTauri()) return [];
   return [
     { name: 'Darkroom 2026', path: MOCK_LIBRARY_PATHS.catalog, kind: 'catalog' },
     { name: 'Coast 2026', path: MOCK_LIBRARY_PATHS.session, kind: 'captureOneSession' },
@@ -70,8 +73,8 @@ export const useLibrary = <T>(sel: (s: LibraryState) => T): T => useStore(librar
 const get = () => libraryStore.getState();
 const set = (p: Partial<LibraryState>) => libraryStore.setState(p);
 
-let client: LibraryClient = new MockLibrary();
-/** Phase 2 binds the Tauri `library_call`; tests bind their own. */
+let client: LibraryClient = inTauri() ? new TauriLibrary() : new MockLibrary();
+/** The app's is the helper through Tauri; the browser's and the tests' the in-page mock; tests bind their own. */
 export function setLibraryClient(c: LibraryClient) { client = c; }
 export function libraryClient() { return client; }
 
@@ -174,12 +177,26 @@ export async function addFolder(dir?: string | null) {
       return;
     }
     const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-    const r = await lib.create(client, `${path}/.spektralab/${name}.spkcatalog`, 'catalog', name);
+    // A folder's own library lives in the helper's store, never inside the person's folder; the
+    // same folder again opens the library it already has. (The page's mock has no store.)
+    const store = (await client.state().catch(() => null))?.store;
+    const where = store ? `${store}/Folders/${name}-${folderKey(path)}.spkcatalog` : `${path}/.spektralab/${name}.spkcatalog`;
+    const r = await lib.create(client, where, 'catalog', name).catch(async (e: unknown) => {
+      if (e instanceof LibraryError && e.code === 'exists') return lib.open(client, where);
+      throw e;
+    });
     const files = await platform().listImages(path).catch(() => []);
     if (files.length) await lib.addImages(client, r.library, files.map((f) => f.path));
     else await lib.addFolder(client, r.library, path);
     await adopt(r.library, { ...r.info, path, origin: { kind: 'folder', path, write_back: false } }, true);
   } catch (e) { fail(e); }
+}
+
+/** A short stable key of a folder's path (FNV-1a), so two folders of one name keep two libraries. */
+function folderKey(path: string): string {
+  let h = 0x811c9dc5;
+  for (const c of path.replaceAll('\\', '/').toLowerCase()) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
 }
 
 export async function newAlbum() {

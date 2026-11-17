@@ -123,10 +123,12 @@ export class MockLibrary implements LibraryClient {
   private next = 1;
   calls: string[] = [];
   /** A helper that is not there: folder sources only (README §8.2 (4)). */
-  constructor(private opts: { helper?: LibraryState['helper'] } = {}) {}
+  constructor(private opts: { helper?: 'running' | 'absent' | 'stopped' } = {}) {}
 
   async state(): Promise<LibraryState> {
-    return { helper: this.opts.helper ?? 'running', version: '0.3.1' };
+    const running = (this.opts.helper ?? 'running') === 'running';
+    return { running, version: '0.4.0', launches: running ? 1 : 0, store: null, executable: null, origin: 'in-page mock',
+      ...(running ? {} : { reason: 'The library helper is not running.' }) };
   }
 
   async call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {

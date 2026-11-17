@@ -2,9 +2,10 @@
 // method table (`SpektraLab_library/API-SPEC.md`, 0.3.1, abi 1) behind
 // `call(method, params)`, plus the helper's state.
 //
-// Phase 1 binds it to `MockLibrary` (mock.ts) in the page and under Tauri;
-// phase 2 binds it to the Tauri commands `library_call` / `library_state`
-// over `spk_library::LibraryHost` (desktop/crates/spk-library/README.md).
+// Under Tauri it is `TauriLibrary` (tauriLibrary.ts): the commands
+// `library_call` / `library_state` over `spk_library::LibraryHost`
+// (desktop/crates/spk-library/README.md); in the browser and the tests, the
+// in-page `MockLibrary` (mock.ts).
 // The typed wrappers below are the only place a method name is written.
 
 export type LibraryErrorCode =
@@ -17,10 +18,17 @@ export class LibraryError extends Error {
   constructor(readonly code: LibraryErrorCode, message: string, readonly data: unknown = null) { super(message); }
 }
 
+/** `library_state()`: the README's `{running, version, launches, store, executable}`; `origin` says how
+ * the helper was found (`SPKLIB_HOST`, beside the engine host …), `reason` why there is none. */
 export interface LibraryState {
-  /** The helper process: running, not bundled (folder sources only), or stopped with a reason. */
-  helper: 'running' | 'absent' | 'stopped';
+  running: boolean;
   version: string | null;
+  /** Helpers started so far: when it changes, every handle died with the old one (reopen by path). */
+  launches: number;
+  /** Where linked Capture One mirrors and the app's own folder libraries live; null in the page's mock. */
+  store: string | null;
+  executable: string | null;
+  origin?: string;
   reason?: string;
 }
 
