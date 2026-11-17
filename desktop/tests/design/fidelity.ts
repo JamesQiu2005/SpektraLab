@@ -200,7 +200,7 @@ export const FIDELITY: Record<string, { claims?: Box[]; notBuilt?: Record<string
     "control @943,784": "as @851,784",
     "glyph @936,781": "as @851,784",
     "control \"1:1\"": "built as v1's segment (1:1 | A4) at the foot's right, not as the drawn discs",
-    "control \"A4\"": "as 1:1",
+    "control \"A4\"": "built as v1's segment (1:1 | A4) at the foot's right, not as the drawn discs",
     "control @1081,784": "as @851,784",
     "control @1127,784": "as @851,784",
     "glyph @1123,781": "as @851,784",
