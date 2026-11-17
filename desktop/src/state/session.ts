@@ -55,7 +55,7 @@ import { PreviewQueue } from './previewQueue';
 import { tz } from '../i18n';
 import { JobEnded, runJob, scheduler, steps } from '../scheduler';
 import type { HostStep, JobSnapshot } from '../scheduler/types';
-import type { RenderReply } from '../host/client';
+import type { RenderReply, RgbaImage } from '../host/client';
 import { canvasWhat } from '../edit/words';
 import { hostMessage } from '../host/messages';
 import { clampZoom, steppedZoom } from '../canvas/zoom';
@@ -266,7 +266,8 @@ export const importPreviews = new PreviewQueue(async ({ path }, signal) => {
   const found = await readDisplayCache(key, { retain });
   if (signal.aborted) return;
   if (!found) {
-    const image = await host().thumbnail(path, 2048, true);
+    // v2: an import preview is a thumbnail job; it waits behind the canvas in the scheduler.
+    const image = await runJob<RgbaImage>({ kind: 'thumbnail', frameId: path, slot: 'camera', what: baseName(path), tier: 'preview', steps: [steps.thumbnail(path, 2048, true)] });
     if (signal.aborted) return;
     if (!await writeDisplayCache(key, image, { retain })) return 'skipped';
   }
@@ -664,12 +665,14 @@ async function refreshThumb() {
   // and the crop mask once. A displayed render_view has already baked them.
   // Request a small uncropped view from the same GPU print cache instead of
   // copying/encoding a full-resolution image in the browser.
-  const img = hostViews() && s.engineSession ? await host().renderView(s.engineSession, frameImages.print.tier, {
-    ...(s.sidecar.noFilm ? { no_film: true } : {}),
-    adjustments: s.sidecar.adjustments, geometry: GEOMETRY_DEFAULT,
-    source_geometry: sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm) ?? GEOMETRY_DEFAULT,
-    display: 'srgb', generation: gen, long_edge: THUMB_EDGE,
-  }) : frameImages.print;
+  // v2: a thumbnail is a scheduler job (R5), after the canvas's own.
+  const img = hostViews() && s.engineSession ? await runJob<RenderReply>({ kind: 'thumbnail', frameId: s.selection, slot: 'print', what: baseName(s.selection), tier: frameImages.print.tier,
+    steps: [steps.renderView(s.engineSession, frameImages.print.tier, {
+      ...(s.sidecar.noFilm ? { no_film: true } : {}),
+      adjustments: s.sidecar.adjustments, geometry: GEOMETRY_DEFAULT,
+      source_geometry: sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm) ?? GEOMETRY_DEFAULT,
+      display: 'srgb', generation: gen, long_edge: THUMB_EDGE,
+    })] }) : frameImages.print;
   if (gen !== wantedGen || get().selection !== s.selection) return;
   const url = await makeThumbFromPrint(img);
   if (url && gen === wantedGen && get().selection === s.selection) {

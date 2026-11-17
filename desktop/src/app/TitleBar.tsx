@@ -81,15 +81,6 @@ export function TitleBar({ title }: { title: string }) {
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
   }, [open]);
-  useEffect(() => {
-    if (!access) return;
-    const onKey = (e: KeyboardEvent) => {
-      const m = menus.find((x) => x.access.toLowerCase() === e.key.toLowerCase());
-      if (m) { e.preventDefault(); openMenu(m.id); setUi({ accessKeys: false }); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
   const done = () => { openMenu(null); setUi({ accessKeys: false }); };
   return (
     <header className="v2-titlebar" data-testid="titlebar" data-tauri-drag-region onDoubleClick={(e) => { if (e.target === e.currentTarget) void toggleMaximize(); }}>

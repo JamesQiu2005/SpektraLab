@@ -170,6 +170,7 @@ function FailedBar() {
   if (!failure) return null;
   return (
     <div className="v2-infobar" role="alert" data-testid="render-failed">
+      <svg className="v2-infobar-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden><circle cx="8" cy="8" r="7" fill="var(--v2-danger)" /><path d="M8 4v5M8 11.5v.5" stroke="var(--v2-ground)" strokeWidth="1.6" strokeLinecap="round" /></svg>
       <b>{tz('Could not develop', '无法冲洗')}</b>
       <span className="reason">{failure}</span>
       <button className="v2-button" data-testid="try-again" onClick={() => { sessionStore.setState({ renderFailure: null }); void requestPrint(); }}>{tz('Try Again', '重试')}</button>

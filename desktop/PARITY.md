@@ -1,5 +1,36 @@
 # PARITY — the macOS app (`modern_UI/Spektrafilm`) → `desktop/`
 
+## SpektraLab 2 (Mac v2 2.4.1 → Windows 2.0.0-alpha.1), phase 1 — 2026-11-17
+
+The interface is v2's (NOTES.md, "SpektraLab 2 for Windows"); the engine is v1's.
+**Built** = on screen and working on the mock backends and, for the editor,
+against the v1 host. **Absent** = not on screen on purpose (R7: the v1 engine
+cannot do it, or the HIG gates it), with the reason. **Not built** = the v2
+app has it and the v1 engine could, but this phase did not build it.
+
+| Mac v2 / Windows HIG | here | status | why / notes |
+|---|---|---|---|
+| one window, app-drawn 32 epx title bar, menu bar with access keys, caption buttons | `app/AppWindow`, `TitleBar` | built | Snap layouts on Maximise hover need `HTMAXBUTTON` from `WM_NCHITTEST`, which the webview cannot answer: not done; unverified on Windows |
+| rails 320 (280–440, double-click 320, remembered), walls, filmstrip 80, toolbar 48, folding by width/height, F7/F8/Ctrl+B/Ctrl+Shift+F/F11 | `app/layout.ts`, `AppWindow` | built | full screen is the window's own `setFullscreen` |
+| Library \| Edit workspaces, Go › Back (Alt+←) | `app/ui.ts` | built | state is kept across the switch |
+| Develop rail: Navigator (Fit · 100 % · 200 %), Film & Paper cards, Film Exposure ruler, Format | `edit/rails.tsx` | built | the film filter menu (Negative / Positive / B&W / Cine) is not built: *All* only; Custom size is not offered on the cards (the v1 control remains in the data) |
+| Edit rail: Latitude meter pinned, Adjust tiles, Darkroom tiles (Enlarger, Decode, Effects), Crop | `edit/rails.tsx` | built | Adjust: Brightness, Contrast, Tone, Colour Wheels, Saturation, Temperature, Curve, Vignette |
+| Adjust: HSL, Channels, Vibrance | — | absent | v1's Layer 2 (`shared/adjustments.ts`, the host's `render_view`) has no maths for them |
+| Film Edge, Date Back, Half-Frame Pair | v1 sections in their v2 places | gated | shown only when the host does not list `overscan` / `date_imprint`; the v1 Windows host's mock lists both; not redrawn as PC-E5 |
+| Scene Placement, Digital Intermediate | Copy Settings, Recipes | gated | absent when the host lists `scene_latitude_mapping` / `digital_intermediate` |
+| layers / doubles, masks, HDR / gain maps, history and variants, lens profiles beyond v1's Lensfun | — | absent | no v1 engine support (PRD-W2 R7) |
+| Presets (··· › Presets ▸, Save as Preset…), Undo History, "Undo *Tone*" step names | — | not built | v1 has no presets or named undo steps |
+| status line from the scheduler (waiting · running with elapsed · done · failed), last print stays, InfoBar + Try Again, engine card | `edit/EditWorkspace.tsx`, `edit/words.ts` | built | the controls keep the failed edit (so Try Again renders it); the HIG returns them to the shown print — a deviation |
+| the embedded preview while a frame opens | `EmbeddedCapsule` | built | the capsule shows until the first print lands |
+| Compare, the Original (hold Space / \\, latch by a short click) | v1 canvas | built | |
+| right-click command bar flyout, ···, Copy Settings flyout | `EditWorkspace.tsx` | built | Copy Settings groups are v1's six (Scene Placement gated) |
+| Library: first run, source well and menu, catalog / Capture One catalog / session / folder, grid by capture date, Info rail, picked frames, Develop ↵ | `library/*` | built on the mock | phase 1's `MockLibrary` answers spklib's method table; Capture One is read-only (rating keys say so); "Open in Capture One" is drawn and disabled; drive relink (Locate…), Recycle Bin, drag-out to File Explorer are not built |
+| Light Table, Contact Sheet 135 | `LibraryWorkspace.tsx` | built (simplified) | the sheet's scale is not the display's; Actual Size has no display size in a webview (no 1:1 is claimed) |
+| Export ContentDialog, exporting ring and flyout, Stop after this frame | `export/ExportDialog.tsx` over v1's page | built | v1's recipe editor inside; the dialog's left/right arrangement is CSS over v1's page |
+| Settings: General, Recipes, Library, Rendering, Engine, Diagnostics | `settings/SettingsWindow.tsx` | built | drawn in the window (not a second Tauri window); Library pane shows fixed words |
+| languages | `tz()` / i18n | English, 简体中文 | 繁體中文 and 日本語 are not built |
+| contrast themes, Narrator names | — | partial | roles and names on the controls; no contrast-theme colours |
+
 What of the SwiftUI/Metal app this TypeScript (Tauri 2) port carries, area by
 area. **ported** = the behaviour is here; **partial** = present with a stated
 gap; **stub** = the controls are drawn and disabled with the reason;

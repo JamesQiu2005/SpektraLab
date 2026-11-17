@@ -11,10 +11,10 @@
 // bar's access keys, as F10 does.
 
 import { chord, isEditable, isTypingKey, shortcutTable } from '../windows/keys';
-import { KEY_COMMANDS, developFromLibrary, runCommand } from './commands';
+import { KEY_COMMANDS, developFromLibrary, menuBar, runCommand } from './commands';
 import { escapeUi, openMenu, setUi, uiStore } from './ui';
 import { sessionStore, setOriginal, setPages, setTool, zoomTo, zoomToFit } from '../state/session';
-import { libraryStore, pick, setRating } from '../library/store';
+import { libraryStore, pick, setLibrary, setRating } from '../library/store';
 
 const TEXT_KEYS = ['ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+shift+z', 'ctrl+y', 'ctrl+shift+v'];
 
@@ -30,9 +30,18 @@ export function installV2Keys(): () => void {
     const u = uiStore.getState();
     // A field keeps its own editing chords (Ctrl+Shift+V is "paste as plain text" there).
     if (isEditable(e.target) && TEXT_KEYS.includes(c)) return;
+    // The access keys (README §6.1): after Alt or F10, a menu's letter opens it.
+    if (u.accessKeys && /^[a-z]$/.test(c)) {
+      const m = menuBar().find((x) => x.access.toLowerCase() === c);
+      e.preventDefault();
+      setUi({ accessKeys: false });
+      if (m) openMenu(m.id);
+      return;
+    }
     if (c === 'escape') {
       e.preventDefault();
       if (escapeUi()) return;
+      if (libraryStore.getState().sourceMenu) { setLibrary({ sourceMenu: false }); return; }
       if (u.fullScreen) { void runCommand('fullScreen'); return; }
       v1.escape?.();
       return;

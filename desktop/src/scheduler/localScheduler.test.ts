@@ -99,25 +99,44 @@ describe('LocalScheduler', () => {
     expect((await s.outcome(b)).superseded).toBe(false);
   });
 
-  it('runs one job at a time, the canvas before an export before a thumbnail', async () => {
+  it('runs one render at a time, the canvas before an export before a stock preview', async () => {
     const { clock, host, s } = setup();
-    await s.submit(job('thumbnail', 't', '/b.arw'));
+    await s.submit(job('fullView', 'f', '/b.arw'));
     await flush();
-    expect(host.calls).toEqual(['render_view:t']);
+    expect(host.calls).toEqual(['render_view:f']);
     const e = await s.submit(job('export', 'e'));
-    await s.submit(job('thumbnail', 't2', '/c.arw'));
+    await s.submit(job('stockPreview', 'p', '/c.arw', { slot: 'film:gold' }));
     const c = await s.submit(job('canvasDevelop', 'c'));
     expect(s.peek(e)!.state).toEqual({ state: 'waiting', reason: 'queued' });
-    await host.finishNext(); // t
+    await host.finishNext(); // f
     // The canvas job is still settling: nothing less urgent starts in front of it.
-    expect(host.calls).toEqual(['render_view:t']);
+    expect(host.calls).toEqual(['render_view:f']);
     await clock.advance(180);
-    expect(host.calls).toEqual(['render_view:t', 'render_view:c']);
+    expect(host.calls).toEqual(['render_view:f', 'render_view:c']);
     await host.finishNext();
     await host.finishNext();
     await host.finishNext();
-    expect(host.calls).toEqual(['render_view:t', 'render_view:c', 'render_view:e', 'render_view:t2']);
+    expect(host.calls).toEqual(['render_view:f', 'render_view:c', 'render_view:e', 'render_view:p']);
     expect((await s.outcome(c)).status).toBe('done');
+  });
+
+  it('thumbnails run beside the renders, two at a time, and never hold an edit back', async () => {
+    const { clock, host, s } = setup();
+    const t1 = await s.submit(job('thumbnail', 't1', '/b.arw'));
+    await s.submit(job('thumbnail', 't2', '/c.arw'));
+    const t3 = await s.submit(job('thumbnail', 't3', '/d.arw'));
+    await flush();
+    expect(host.calls).toEqual(['render_view:t1', 'render_view:t2']);
+    expect(s.peek(t3)!.state).toEqual({ state: 'waiting', reason: 'queued' });
+    const c = await s.submit(job('canvasDevelop', 'c'));
+    await clock.advance(180);
+    // The edit renders although two thumbnails are still decoding.
+    expect(host.calls).toEqual(['render_view:t1', 'render_view:t2', 'render_view:c']);
+    expect(s.peek(c)!.state.state).toBe('running');
+    await host.finishNext(); // t1
+    expect(host.calls.at(-1)).toBe('render_view:t3');
+    expect((await s.outcome(t1)).status).toBe('done');
+    expect((await s.budget()).running).toBe(3);
   });
 
   it('a failed job reports its reason and the queue goes on', async () => {

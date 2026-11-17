@@ -53,6 +53,10 @@ function darkroom(): MockLibraryData {
     coll('table', 'light_table', 'Table', 11),
     coll('roll4', 'light_table', 'Roll 4', 12),
     coll('roll3', 'light_table', 'Roll 3', 7),
+    coll('film-portra400', 'smart_album', 'Porta 400', 12, { criteria: { film: 'kodak_portra_400' } }),
+    coll('film-gold200', 'smart_album', 'Gold 200', 8, { criteria: { film: 'kodak_gold_200' } }),
+    coll('film-ektar100', 'smart_album', 'Ektar 100', 5, { criteria: { film: 'kodak_ektar_100' } }),
+    coll('film-trix400', 'smart_album', 'Tri-X 400', 3, { criteria: { film: 'kodak_tri_x_400' } }),
     coll('autumn', 'album', 'Autumn Walk', 6),
     coll('coast', 'album', 'Coast', 5),
     coll('pictures', 'folder', 'Pictures', 21, { folder: 'C:/Users/Photographer/Pictures' }),
@@ -61,7 +65,7 @@ function darkroom(): MockLibraryData {
   return {
     info: { uuid: 'lib-darkroom', kind: 'catalog', name: 'Darkroom 2026', path: 'C:/Users/Photographer/Pictures/SpektraLab/Darkroom 2026.spkcatalog', origin: null, counts: { images: images.length } },
     readOnly: false, collections, images, offline,
-    members: { all, fav: images.filter((i) => (i.rating ?? 0) >= 4).map((i) => i.uuid), dev: all.slice(0, 1), recent: all.slice(0, 9), table: all.slice(0, 11), roll4: all.slice(9, 21), roll3: all.slice(21), autumn: all.slice(2, 8), coast: all.slice(12, 17), pictures: all.slice(0, 21), travel: all.slice(21) },
+    members: { 'film-portra400': all.slice(0, 12), 'film-gold200': all.slice(12, 20), 'film-ektar100': all.slice(20, 25), 'film-trix400': all.slice(25), all, fav: images.filter((i) => (i.rating ?? 0) >= 4).map((i) => i.uuid), dev: all.slice(0, 1), recent: all.slice(0, 9), table: all.slice(0, 11), roll4: all.slice(9, 21), roll3: all.slice(21), autumn: all.slice(2, 8), coast: all.slice(12, 17), pictures: all.slice(0, 21), travel: all.slice(21) },
   };
 }
 
@@ -232,6 +236,14 @@ export class MockLibrary implements LibraryClient {
         l.images.push(...rows);
         l.members.all = [...(l.members.all ?? []), ...rows.map((r) => r.uuid)];
         return { added: rows.length, results: rows.map((r) => ({ path: r.path, image: r.uuid, variant: r.variants[0]!.uuid, existing: false })) };
+      }
+      case 'collection.create': {
+        const l = this.lib(p);
+        if (l.readOnly) throw new LibraryError('read_only', "Capture One's albums are read-only");
+        const uuid = `album-${l.collections.length}`;
+        l.collections.push(coll(uuid, String(p.kind ?? 'album'), String(p.name ?? 'Untitled'), 0));
+        l.members[uuid] = [];
+        return { collection: uuid };
       }
       case 'edit.get': return { revision: 0, edit: null, modified_at: null };
       case 'edit.put': {

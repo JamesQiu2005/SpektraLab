@@ -13,6 +13,11 @@
 //    a full view, a thumbnail and a stock preview fold the same way (by frame,
 //    by frame, by slot);
 //  - a waiting job **says why** (`settling`, `queued`, `dialog`, `background`);
+//  - two lanes: renders (canvas, full view, export, stock preview) run one at a
+//    time on the host's serial GPU worker; thumbnails (the host's decode of
+//    an embedded preview, or a small view from the cached print) run beside
+//    them, two at a time, as v1's thumbnail queue did — a thumbnail never
+//    holds an edit back, and an edit never waits for one;
 //  - cancel takes a job out of the queue; a running one ends `cancelled` after
 //    its current host step, which the host cannot interrupt.
 //
@@ -71,6 +76,10 @@ interface Entry {
   outcome?: JobOutcome;
 }
 
+export type Lane = 'render' | 'decode';
+export const laneOf = (k: JobKind): Lane => (k === 'thumbnail' ? 'decode' : 'render');
+export const LANE_CAPACITY: Record<Lane, number> = { render: 1, decode: 2 };
+
 export const DEFAULT_SETTLE: Record<JobKind, number> = {
   canvasReprint: 180, canvasDevelop: 180, fullView: 0, export: 0, thumbnail: 0, stockPreview: 0,
 };
@@ -80,13 +89,13 @@ function foldKey(r: JobRequest): string {
   if (isCanvas(r.kind)) return `canvas|${r.frameId}`;
   if (r.kind === 'stockPreview') return `stock|${r.slot ?? r.frameId}`;
   if (r.kind === 'export') return `export|${r.frameId}|${JSON.stringify(r.steps)}`;
-  return `${r.kind}|${r.frameId}`;
+  return `${r.kind}|${r.frameId}|${r.slot ?? ''}`;
 }
 
 export class LocalScheduler implements SchedulerClient {
   private entries = new Map<string, Entry>();
   private order: string[] = [];
-  private running: Entry | null = null;
+  private running = new Set<Entry>();
   private listeners = new Set<(s: JobSnapshot) => void>();
   private timer: unknown = null;
   private nextId = 1;
@@ -116,10 +125,11 @@ export class LocalScheduler implements SchedulerClient {
       if (isCanvas(kind) && o.req.kind === 'canvasDevelop') kind = 'canvasDevelop';
       this.finish(o, { state: 'cancelled', supersededBy: id }, { supersededBy: id });
     }
-    if (this.running && foldKey(this.running.req) === key && !this.running.superseded) {
-      this.running.superseded = true;
-      this.running.supersededBy = id;
-      this.emit(this.running);
+    for (const r of this.running) {
+      if (foldKey(r.req) !== key || r.superseded) continue;
+      r.superseded = true;
+      r.supersededBy = id;
+      this.emit(r);
     }
     const r = { ...req, kind };
     const e: Entry = { id, req: r, submitted: now, readyAt: now + (this.settle[kind] ?? 0), state: { state: 'queued' },
@@ -134,7 +144,7 @@ export class LocalScheduler implements SchedulerClient {
   async cancel(jobId: string): Promise<void> {
     const e = this.entries.get(jobId);
     if (!e || e.outcome) return;
-    if (e === this.running) { e.cancelRequested = true; return; }
+    if (this.running.has(e)) { e.cancelRequested = true; return; }
     this.finish(e, { state: 'cancelled' });
     this.pump();
   }
@@ -159,7 +169,7 @@ export class LocalScheduler implements SchedulerClient {
 
   async budget(): Promise<BudgetReading> {
     const b = this.opts.budget?.() ?? { device: null, backend: null, budgetBytes: null, inUseBytes: null };
-    return { ...b, running: this.running ? 1 : 0, queued: this.order.length };
+    return { ...b, running: this.running.size, queued: this.order.length };
   }
 
   async frontendState(state: FrontendState): Promise<void> {
@@ -188,7 +198,7 @@ export class LocalScheduler implements SchedulerClient {
 
   private emit(e: Entry, waitingOnly = false) {
     if (waitingOnly && e.state.state !== 'queued' && e.state.state !== 'waiting') return;
-    if (!e.outcome && e !== this.running) e.state = this.waitState(e);
+    if (!e.outcome && !this.running.has(e)) e.state = this.waitState(e);
     const s = this.snap(e);
     for (const l of this.listeners) l(s);
   }
@@ -197,16 +207,23 @@ export class LocalScheduler implements SchedulerClient {
     if (this.front.dialogOpen && isCanvas(e.req.kind)) return { state: 'waiting', reason: 'dialog' };
     if (!this.front.foreground && e.req.kind !== 'export') return { state: 'waiting', reason: 'background' };
     if (this.clock.now() < e.readyAt) return { state: 'waiting', reason: 'settling' };
-    if (this.running || this.blockedBySettling(e)) return { state: 'waiting', reason: 'queued' };
+    if (this.laneFull(laneOf(e.req.kind)) || this.blockedBySettling(e)) return { state: 'waiting', reason: 'queued' };
     return { state: 'queued' };
   }
 
-  /** A canvas job still settling holds back anything less urgent (it would wait behind it otherwise). */
+  private laneFull(lane: Lane): boolean {
+    let n = 0;
+    for (const r of this.running) if (laneOf(r.req.kind) === lane) n++;
+    return n >= LANE_CAPACITY[lane];
+  }
+
+  /** A canvas job still settling holds back anything less urgent in its lane (it would wait behind it otherwise). */
   private blockedBySettling(e: Entry): boolean {
     const now = this.clock.now();
     return this.order.some((id) => {
       const o = this.entries.get(id)!;
-      return o !== e && isCanvas(o.req.kind) && now < o.readyAt && JOB_PRIORITY[o.req.kind] < JOB_PRIORITY[e.req.kind];
+      return o !== e && isCanvas(o.req.kind) && now < o.readyAt && JOB_PRIORITY[o.req.kind] < JOB_PRIORITY[e.req.kind]
+        && laneOf(o.req.kind) === laneOf(e.req.kind);
     });
   }
 
@@ -218,14 +235,18 @@ export class LocalScheduler implements SchedulerClient {
   }
 
   private pump() {
-    if (this.running) return;
     if (this.timer !== null) { this.clock.clearTimeout(this.timer); this.timer = null; }
     const now = this.clock.now();
-    const ready = this.order.map((id) => this.entries.get(id)!).filter((e) => this.runnable(e, now));
-    ready.sort((a, b) => JOB_PRIORITY[a.req.kind] - JOB_PRIORITY[b.req.kind] || a.submitted - b.submitted);
-    const next = ready[0];
-    if (next) { void this.run(next); return; }
-    // Nothing ready: wake when the first settling job is.
+    for (const lane of ['render', 'decode'] as const) {
+      while (!this.laneFull(lane)) {
+        const ready = this.order.map((id) => this.entries.get(id)!).filter((e) => laneOf(e.req.kind) === lane && this.runnable(e, now));
+        ready.sort((a, b) => JOB_PRIORITY[a.req.kind] - JOB_PRIORITY[b.req.kind] || a.submitted - b.submitted);
+        const next = ready[0];
+        if (!next) break;
+        void this.run(next);
+      }
+    }
+    // Wake when the first settling job is.
     const waits = this.order.map((id) => this.entries.get(id)!.readyAt).filter((t) => t > now);
     if (waits.length) this.timer = this.clock.setTimeout(() => { this.timer = null; this.pump(); }, Math.min(...waits) - now);
     for (const id of this.order) this.emit(this.entries.get(id)!, true);
@@ -233,7 +254,7 @@ export class LocalScheduler implements SchedulerClient {
 
   private async run(e: Entry) {
     this.order = this.order.filter((id) => id !== e.id);
-    this.running = e;
+    this.running.add(e);
     e.startedAt = this.clock.now();
     e.state = { state: 'running', stage: null, fraction: null, step: 0, steps: e.req.steps.length };
     this.emit(e);
@@ -247,7 +268,7 @@ export class LocalScheduler implements SchedulerClient {
         const r = await this.exec(e.req.steps[i]!, {
           job: e.req, jobId: e.id,
           progress: (stage, fraction) => {
-            if (this.running !== e) return;
+            if (!this.running.has(e)) return;
             e.state = { state: 'running', stage, fraction, step: i, steps: e.req.steps.length };
             this.emit(e);
           },
@@ -259,7 +280,7 @@ export class LocalScheduler implements SchedulerClient {
         break;
       }
     }
-    this.running = null;
+    this.running.delete(e);
     if (failure) this.finish(e, { state: 'failed', ...failure }, { error: failure });
     else if (e.cancelRequested) this.finish(e, { state: 'cancelled' });
     else this.finish(e, { state: 'done' });

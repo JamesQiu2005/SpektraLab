@@ -41,6 +41,19 @@ export default defineConfig({
     // --use-gl=swiftshader flag can lose a visible canvas context on first resize.
     launchOptions: { executablePath: chromium(), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] },
   },
+  // `v2`: the window as shipped (T2 design conformance, T3 behaviour).
+  // `v1`: v1's browser cases, against v1's one-window editor that a
+  // development build still renders under `spk.legacyWindow` (main.tsx). They
+  // hold the session's behaviour (pairs, no-film, exposure, export, folders),
+  // which the v2 window runs unchanged; their frame-specific parts (v1's top
+  // bar, rails and export page) are ported in intent by v2-behaviour.spec.ts.
+  projects: [
+    { name: 'v2', testMatch: /(design|v2-behaviour)\.spec\.ts$/ },
+    {
+      name: 'v1', testIgnore: /(design|v2-behaviour)\.spec\.ts$/,
+      use: { storageState: { cookies: [], origins: [{ origin: baseURL, localStorage: [{ name: 'spk.legacyWindow', value: '1' }] }] } },
+    },
+  ],
   webServer: {
     command: process.env.PW_DEV_SERVER ?? 'npm run dev:web',
     url: baseURL,

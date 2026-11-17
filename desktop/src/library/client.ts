@@ -53,6 +53,8 @@ export interface Collection {
   editable: boolean;
   image_count: number | null;
   folder?: string | null;
+  /** A smart album's filter (`images.list` filter keys); the app's film rows use `film`. */
+  criteria?: Record<string, unknown> | null;
 }
 
 export interface ImageRow {
@@ -101,6 +103,7 @@ export const lib = {
   locations: (c: LibraryClient, library: string) => c.call<{ locations: Location[] }>('locations.list', { library }),
   relink: (c: LibraryClient, library: string, location: string, path: string | null) => c.call<{ path: string; online: boolean; relinked: string[] }>('location.relink', { library, location, path }),
   addImages: (c: LibraryClient, library: string, items: string[], mode: 'reference' | 'copy' = 'reference') => c.call<{ added: number }>('images.add', { library, items, mode }),
+  createCollection: (c: LibraryClient, library: string, name: string, kind: 'album' | 'group' | 'project' | 'smart_album' = 'album') => c.call<{ collection: string }>('collection.create', { library, kind, name }),
   editGet: (c: LibraryClient, library: string, variant: string) => c.call<{ revision: number; edit: unknown | null }>('edit.get', { library, variant }),
   editPut: (c: LibraryClient, library: string, variant: string, edit: unknown, base_revision: number) => c.call<{ revision: number }>('edit.put', { library, variant, edit, base_revision }),
 };

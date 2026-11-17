@@ -150,6 +150,7 @@ function FilmPaper() {
           );
         })}
       </div>
+      <FilmExposure />
     </V2Section>
   );
 }
@@ -239,7 +240,6 @@ export function DevelopRail({ mode, navigator }: { mode: string; navigator: 'wel
       </div>
       <div className="v2-rail-scroll" data-testid="develop-sections">
         <FilmPaper />
-        <div className="v2-section-pad"><FilmExposure /></div>
         <Format />
         {gate.overscan && <V2Section id="filmEdge" title={tz('Film Edge', '片边')}><Host><FilmEdgeSection /></Host></V2Section>}
         {gate.dateImprint && <V2Section id="dateBack" title={tz('Date Back', '日期背')}><Host><DateBackSection /></Host></V2Section>}

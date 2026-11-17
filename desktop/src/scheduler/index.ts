@@ -38,7 +38,8 @@ export const hostExecutor: StepExecutor = async (step) => {
       return { result: await host().renderView(session, tier, options as unknown as RenderViewOptions) };
     }
     case 'thumbnail':
-      return { result: await host().thumbnail(String(p.path), Number(p.long_edge), !!p.embedded_only) };
+      // The v1 client's own call shape: the embedded-only flag only when it is asked for.
+      return { result: p.embedded_only ? await host().thumbnail(String(p.path), Number(p.long_edge), true) : await host().thumbnail(String(p.path), Number(p.long_edge)) };
     default: {
       const r = await host().transport.request(step.method, step.params, { timeoutMs: 1_800_000 });
       return { result: r.result, payload: r.payload };

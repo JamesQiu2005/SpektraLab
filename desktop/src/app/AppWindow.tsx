@@ -43,6 +43,7 @@ export function AppWindow() {
   const ui = useUi((s) => s);
   const st = useSettings((s) => s);
   const selection = useSession((s) => s.selection);
+  const cropping = useSession((s) => s.tool === 'crop');
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
   const settingsOpen = useSession((s) => s.settingsOpen);
@@ -71,7 +72,7 @@ export function AppWindow() {
           <main className="v2-centre" style={{ left: layout.picture.x, width: layout.picture.width }} data-testid="centre">
             <Toolbar layout={layout} />
             <Picture layout={layout} />
-            {layout.filmstrip && <FilmstripBand />}
+            {layout.filmstrip && !cropping && <FilmstripBand />}
           </main>
           {layout.right === 'docked' && <Wall side="right" x={ui.window.width - layout.rightWidth - 1} />}
           {rightShown && <EditRail mode={layout.right} />}

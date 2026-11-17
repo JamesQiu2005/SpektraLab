@@ -14,7 +14,7 @@ import { PillMenu, ToggleRow } from '../controls/controls';
 import { settingsStore, useSettings, INTERFACE_SCALES, SETTINGS_DEFAULT } from '../state/settings';
 import { setPages, useSession } from '../state/session';
 import { platform, type AppPaths } from '../platform';
-import { UpdateSettings } from '../windows/SettingsPages';
+import { checkWindowsUpdate } from '../windows/updateCheck';
 import { DiagnosticSettings } from '../windows/DiagnosticSettings';
 import { NewPhotoDefaultsSettings } from '../windows/NewPhotoDefaultsSettings';
 import { DEFAULT_RECIPES, decodeRecipes, recipeSummary, type ExportRecipe } from '../export/recipes';
@@ -40,11 +40,11 @@ export const GATED: { flag: string; name: () => string }[] = [
   { flag: 'digital_intermediate', name: () => tz('Digital Intermediate', '数字中间片') },
 ];
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="v2-set-group"><div className="v2-set-caps">{title}</div><div className="v2-set-list">{children}</div></div>;
+function Group({ title, children, tall }: { title: string; children: React.ReactNode; tall?: boolean }) {
+  return <div className="v2-set-group"><div className="v2-set-caps">{title}</div><div className={'v2-set-list' + (tall ? ' tall' : '')}>{children}</div></div>;
 }
-function Row({ label, value, children }: { label: string; value?: React.ReactNode; children?: React.ReactNode }) {
-  return <div className="v2-set-row"><span className="v2-set-label">{label}</span><span className="v2-set-value">{value}{children}</span></div>;
+function Row({ label, value, children, compact }: { label: string; value?: React.ReactNode; children?: React.ReactNode; compact?: boolean }) {
+  return <div className={'v2-set-row' + (compact ? ' compact' : '')}><span className="v2-set-label">{label}</span><span className="v2-set-value">{value}{children}</span></div>;
 }
 
 function General({ paths }: { paths: AppPaths | null }) {
@@ -65,8 +65,7 @@ function General({ paths }: { paths: AppPaths | null }) {
       <Row label={tz('When Reopened', '重新打开时')} value={tz('Where You Left Off', '回到上次的位置')} />
     </Group>
     <p className="v2-set-note">{tz('Text size in Windows is read at start. Interface Scale follows it up to 130 %.', 'Windows 的文字大小在启动时读取，界面缩放最多跟随到 130 %。')}</p>
-    <Group title={tz('UPDATES', '更新')}><div className="v2-set-host"><UpdateSettings version={paths?.version} os={paths?.os} /></div></Group>
-    <Group title={tz('NEW PHOTOGRAPHS', '新照片')}><div className="v2-set-host"><NewPhotoDefaultsSettings /></div></Group>
+    <Group title={tz('UPDATES', '更新')}><Updates version={paths?.version} /></Group>
     <Group title={tz('LAYOUT', '布局')}>
       <Row label={tz('Rails, sections and the filmstrip', '侧栏、分区与胶片条')}>
         <button className="v2-button" data-testid="reset-layout" onClick={() => {
@@ -77,8 +76,27 @@ function General({ paths }: { paths: AppPaths | null }) {
   </>;
 }
 
+/** Updates: one anonymous request, only when asked (README §8.2 (3)). */
+function Updates({ version }: { version?: string }) {
+  const [state, setState] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return <div className="v2-set-row">
+    <span className="v2-set-label">SpektraLab {version ?? ''}<small>{state ?? tz('Checked when you ask', '仅在你要求时检查')}</small></span>
+    <button className="v2-button" disabled={busy || !version} data-testid="check-updates" onClick={async () => {
+      setBusy(true);
+      try {
+        const r = await checkWindowsUpdate(version ?? '');
+        setState(r.kind === 'available' ? tz(`${r.version} is available`, `${r.version} 可用`) : r.kind === 'current' ? tz('Up to date', '已是最新') : tz('No Windows release found', '未找到 Windows 版本'));
+      } catch (e) { setState(String(e)); } finally { setBusy(false); }
+    }}>{tz('Check for Updates', '检查更新')}</button>
+  </div>;
+}
+
 function Recipes() {
-  const [recipes, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
+  // A recipe for a format the engine refuses (the Digital Intermediate) is not offered (README §3.8).
+  const di = useSession((s) => s.gate.digitalIntermediate);
+  const [all, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
+  const recipes = all.filter((x) => di || x.format !== 'di');
   const [current, setCurrent] = useState(0);
   useEffect(() => { void platform().storeRead('Export', 'recipes.json').then((r) => setRecipes(decodeRecipes(r))).catch(() => {}); }, []);
   const r = recipes[current] ?? recipes[0]!;
@@ -92,14 +110,20 @@ function Recipes() {
         </button>
       ))}
     </Group>
+    <button className="v2-set-link" data-testid="new-recipe" onClick={() => {
+      const next = [...all, { ...r, id: `r${Date.now()}`, name: `${r.name} ${tz('copy', '副本')}` }];
+      setRecipes(next);
+      setCurrent(recipes.length);
+      void platform().storeWrite('Export', 'recipes.json', next).catch(() => {});
+    }}>{tz('New Recipe', '新建配方')}</button>
     <Group title={r.name.toUpperCase()}>
-      <Row label={tz('Format', '格式')} value={`${r.format.toUpperCase()} · ${r.bitDepth}-bit`} />
-      <Row label={tz('Size', '尺寸')} value={size} />
-      <Row label={tz('Colour', '色彩')} value={r.colorSpace} />
-      <Row label={tz('Quality', '质量')} value={String(r.quality)} />
-      <Row label={tz('Folder', '文件夹')} value={r.folder.kind === 'besideOriginal' ? tz('Beside the original', '原图旁') : r.folder.path} />
-      <Row label={tz('Name', '名称')} value={r.naming.tokens.map((t) => `{${t}}`).join(r.naming.separator)} />
-      <Row label={tz('If it exists', '已存在时')} value={r.existing === 'skip' ? tz('Skip', '跳过') : r.existing === 'overwrite' ? tz('Replace', '替换') : tz('Add a number', '加编号')} />
+      <Row compact label={tz('Format', '格式')} value={`${r.format.toUpperCase()} · ${r.bitDepth}-bit`} />
+      <Row compact label={tz('Size', '尺寸')} value={size} />
+      <Row compact label={tz('Colour', '色彩')} value={r.colorSpace} />
+      <Row compact label={tz('Quality', '质量')} value={String(r.quality)} />
+      <Row compact label={tz('Folder', '文件夹')} value={r.folder.kind === 'besideOriginal' ? tz('Beside the original', '原图旁') : r.folder.path} />
+      <Row compact label={tz('Name', '名称')} value={r.naming.tokens.map((t) => `{${t}}`).join(r.naming.separator)} />
+      <Row compact label={tz('If it exists', '已存在时')} value={r.existing === 'skip' ? tz('Skip', '跳过') : r.existing === 'overwrite' ? tz('Replace', '替换') : tz('Add a number', '加编号')} />
     </Group>
     <p className="v2-set-note">{tz('Recipes are edited in the Export dialog; the changes are kept here.', '配方在导出对话框中编辑，修改会保存在这里。')}</p>
   </>;
@@ -119,20 +143,20 @@ function Engine() {
   }, []);
   const gated = GATED.filter((g) => unsupported.includes(g.flag));
   return <>
-    <Group title={tz('THIS COMPUTER', '这台电脑')}>
+    <Group title={tz('THIS COMPUTER', '这台电脑')} tall>
       <Row label={tz('Graphics', '显卡')} value={hello?.backend?.device_name ?? '—'} />
       <Row label={tz('Engine', '引擎')} value={`${hello?.backend?.api ?? '—'}  ·  float32`} />
       <Row label={tz('Display', '显示')} value={`${display === 'display-p3' ? 'Display P3' : 'sRGB'}  ·  8-bit`} />
     </Group>
+    {gated.length > 0 && <Group title={tz('NOT ON WINDOWS YET', 'WINDOWS 版尚未提供')}>
+      {gated.map((g) => <Row compact key={g.name()} label={g.name()} value={<code>{g.flag}</code>} />)}
+    </Group>}
+    {gated.length > 0 && <p className="v2-set-note" data-testid="gated-note">{tz('Each appears in its place when the engine has it.', '引擎支持后，每一项都会出现在它的位置上。')}{unsupported.includes('contrast_mask') ? tz(' (contrast_mask has no control on any computer yet.)', '（contrast_mask 在任何电脑上都还没有控件。）') : ''}</p>}
     <Group title={tz('SCHEDULER', '调度器')}>
       <Row label={tz('Running', '运行中')} value={budget ? String(budget.running) : '—'} />
       <Row label={tz('Waiting', '等待中')} value={budget ? String(budget.queued) : '—'} />
       <Row label={tz('Memory budget', '内存预算')} value={budget?.budgetBytes ? `${(budget.budgetBytes / 2 ** 30).toFixed(1)} GB` : tz('Not reported', '未报告')} />
     </Group>
-    {gated.length > 0 && <Group title={tz('NOT ON WINDOWS YET', 'WINDOWS 版尚未提供')}>
-      {gated.map((g) => <Row key={g.name()} label={g.name()} value={<code>{g.flag}</code>} />)}
-    </Group>}
-    {gated.length > 0 && <p className="v2-set-note" data-testid="gated-note">{tz('Each appears in its place when the engine has it.', '引擎支持后，每一项都会出现在它的位置上。')}{unsupported.includes('contrast_mask') ? tz(' (contrast_mask has no control on any computer yet.)', '（contrast_mask 在任何电脑上都还没有控件。）') : ''}</p>}
   </>;
 }
 
@@ -145,7 +169,7 @@ function Rendering() {
         <ToggleRow label={tz('Crop re-maps the frame', '裁剪重新映射画幅')} on={st.recalculateEffectsAfterCrop} onChange={(v) => set('recalculateEffectsAfterCrop', v)} />
       </div>
     </Group>
-    <p className="v2-set-note">{tz('There is no preview size to choose: the Windows host renders the whole frame.', '没有预览尺寸可选：Windows 版引擎总是渲染整张照片。')}</p>
+    <Group title={tz('NEW PHOTOGRAPHS', '新照片')}><div className="v2-set-host"><NewPhotoDefaultsSettings /></div></Group>
   </>;
 }
 

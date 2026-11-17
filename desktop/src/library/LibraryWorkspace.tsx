@@ -13,7 +13,7 @@ import { setLibraryView, setUi, useUi } from '../app/ui';
 import { developFromLibrary, showInExplorer, commands } from '../app/commands';
 import { MenuList } from '../app/TitleBar';
 import type { Layout } from '../app/layout';
-import { addFolder, chooseCollection, closeLibrary, kindWords, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, pick, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
+import { addFolder, newAlbum, chooseCollection, closeLibrary, kindWords, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, pick, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
 import type { ImageRow } from './client';
 import { useSession } from '../state/session';
 import { platform } from '../platform';
@@ -50,8 +50,9 @@ function SourceMenu() {
   const done = () => setLibrary({ sourceMenu: false });
   return (
     <div className="v2-menu-drop source" data-testid="source-menu">
+      <div className="v2-menu-caption">{tz('Recent', '最近')}</div>
       <MenuList onDone={done} items={[
-        { submenu: 'recentlib', label: tz('Recent', '最近'), items: s.recent.map((r, i) => ({ id: `r${i}`, label: r.name, enabled: true, run: () => void openLibrary(r.path) })), enabled: s.recent.length > 0 },
+        ...s.recent.map((r, i) => ({ id: `r${i}`, label: r.name, enabled: true, run: () => void openLibrary(r.path) })),
         { separator: true },
         { ...k.newCatalog!, run: () => void newLibrary('catalog') }, { ...k.newSession!, run: () => void newLibrary('session') },
         { ...k.openLibrary!, run: () => void openLibraryDialog() }, { ...k.openCaptureOne!, run: () => void openCaptureOneDialog() },
@@ -86,7 +87,7 @@ const SECTION_OF: Record<string, string> = {
 };
 const SECTION_WORDS: Record<string, () => string> = {
   LIBRARY: () => tz('LIBRARY', '图库'), 'LIGHT TABLE': () => tz('LIGHT TABLE', '看片台'), COLLECTIONS: () => tz('COLLECTIONS', '收藏集'),
-  FOLDERS: () => tz('FOLDERS', '文件夹'), SESSION: () => tz('SESSION', '会话'), CATALOG: () => tz('CATALOG', '目录'), FOLDER: () => tz('FOLDER', '文件夹'),
+  FOLDERS: () => tz('FOLDERS', '文件夹'), FILMS: () => tz('FILMS', '胶片'), SESSION: () => tz('SESSION', '会话'), CATALOG: () => tz('CATALOG', '目录'), FOLDER: () => tz('FOLDER', '文件夹'),
 };
 
 function Sidebar() {
@@ -96,11 +97,13 @@ function Sidebar() {
     const out = new Map<string, LibraryState['collections']>();
     for (const c of s.collections) {
       let sec = SECTION_OF[c.kind] ?? 'COLLECTIONS';
+      if (c.kind === 'smart_album' && c.criteria && 'film' in c.criteria) sec = 'FILMS';
       if (s.source?.kind === 'captureOneCatalog' && sec === 'LIBRARY') sec = 'CATALOG';
       if (s.source?.kind === 'folder') sec = 'FOLDER';
       out.set(sec, [...(out.get(sec) ?? []), c]);
     }
-    return [...out.entries()];
+    const order = ['LIBRARY', 'CATALOG', 'SESSION', 'FOLDER', 'LIGHT TABLE', 'FILMS', 'COLLECTIONS', 'FOLDERS'];
+    return [...out.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
   }, [s.collections, s.source]);
   return (
     <aside className="v2-lib-sidebar" data-testid="library-sidebar">
@@ -121,6 +124,7 @@ function Sidebar() {
                 <span className={'dim' + (s.offline.includes(c.uuid) ? ' danger' : '')}>{s.offline.includes(c.uuid) ? tz('Offline', '离线') : c.image_count ?? ''}</span>
               </button>
             ))}
+            {sec === 'COLLECTIONS' && !s.source?.readOnly && <button className="v2-lib-row add" onClick={() => void newAlbum()}>{tz('New Album', '新建相簿')}</button>}
             {sec === 'LIGHT TABLE' && <button className="v2-lib-row add" onClick={() => setLibraryView('contactSheet')} data-testid="new-contact-sheet">{tz('New Contact Sheet', '新建印样')}</button>}
           </div>
         ))}
@@ -144,7 +148,7 @@ function FirstRun() {
         <button className="v2-button" data-testid="first-open-c1" onClick={() => void openCaptureOneDialog()}>{tz('Open Capture One Catalog…', '打开 Capture One 目录…')}</button>
         <button className="v2-button" data-testid="first-add-folder" onClick={() => void addFolder()}>{tz('Add a Folder…', '添加文件夹…')}</button>
       </div>
-      <p className="dim">{tz('Drop a folder or pictures here.', '把文件夹或照片拖到这里。')}</p>
+      <p className="dim v2-drop-hint">{tz('Drop a folder or pictures here.', '把文件夹或照片拖到这里。')}</p>
     </div>
   );
 }
@@ -193,27 +197,28 @@ function Info() {
       </div>
     );
   }
-  if (!f) return <div className="v2-info-body" data-testid="info-empty"><div className="v2-info-well" /><p className="dim center">{tz('No selection', '未选择')}</p></div>;
+  if (!f) return <div className="v2-info-body" data-testid="info-empty"><div className="v2-info-well empty"><span className="dim">{tz('No selection', '未选择')}</span></div></div>;
   const ex = f.exposure;
+  const Sec = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <section className="v2-info-sec"><div className="v2-info-head">{title}</div><dl className="v2-info-rows">{children}</dl></section>
+  );
   return (
     <div className="v2-info-body" data-testid="info-one">
       <div className="v2-info-well" />
-      <dl className="v2-info-rows">
+      <Sec title={tz('File', '文件')}>
         <dt>{tz('Name', '名称')}</dt><dd>{f.file_name}</dd>
         <dt>{tz('Folder', '文件夹')}</dt><dd>{f.path.replace(/[\\/][^\\/]+$/, '').replace(/\//g, '\\').replace(/^C:\\Users\\[^\\]+\\/, '')}</dd>
         <dt>{tz('Dimensions', '尺寸')}</dt><dd>{f.width && f.height ? `${f.width.toLocaleString('en')} × ${f.height.toLocaleString('en')}  ·  ${Math.round((f.width * f.height) / 1e6)} MP` : '—'}</dd>
-      </dl>
-      <div className="v2-info-caps">{tz('Capture', '拍摄')}</div>
-      <dl className="v2-info-rows">
+      </Sec>
+      <Sec title={tz('Capture', '拍摄')}>
         <dt>{tz('Camera', '相机')}</dt><dd>{f.camera?.model ?? '—'}</dd>
         <dt>{tz('Exposure', '曝光')}</dt><dd>{ex ? `${ex.shutter} s · f/${ex.aperture} · ISO ${ex.iso}` : '—'}</dd>
         <dt>{tz('Taken', '拍摄时间')}</dt><dd>{f.captured_local?.replace('T', ' ').slice(0, 16) ?? '—'}</dd>
-      </dl>
-      <div className="v2-info-caps">{c1 ? 'Capture One' : 'SpektraLab'}</div>
-      <dl className="v2-info-rows">
+      </Sec>
+      <Sec title={c1 ? 'Capture One' : 'SpektraLab'}>
         {c1 ? <><dt>{tz('Rating', '评分')}</dt><dd>{'★'.repeat(f.rating ?? 0)}{'☆'.repeat(5 - (f.rating ?? 0))}</dd><dt>{tz('Adjustments', '调整')}</dt><dd>{tz('Stay in Capture One', '保留在 Capture One 中')}</dd></>
           : <><dt>{tz('Print', '印放')}</dt><dd>{f.variants[0]?.edit_revision ? tz('Developed', '已冲洗') : '—'}</dd><dt>{tz('Variants', '变体')}</dt><dd>{tz(`1 of ${f.variants.length}`, `1 / ${f.variants.length}`)}</dd></>}
-      </dl>
+      </Sec>
       <div className="v2-info-foot">
         {c1 && <button className="v2-button" disabled title={tz('Not on this computer', '此电脑上不可用')}>{tz('Open in Capture One', '在 Capture One 中打开')}</button>}
         <button className="v2-button" data-testid="show-in-explorer" onClick={showInExplorer}>{tz('Show in File Explorer', '在文件资源管理器中显示')}</button>
@@ -282,10 +287,12 @@ export function LibraryWorkspace({ layout }: { layout: Layout }) {
   const src = s.source;
   const collection = s.collections.find((c) => c.uuid === s.collection);
   const fullActual = view === 'lightTable' && actual;
+  // The light table and the contact sheet take the Info rail's room as well (PC-T1, PC-K1).
+  const sheet = view !== 'grid';
   return (
     <div className={'v2-body library' + (dragOver ? ' drop' : '')} data-testid="library" onDragOver={() => setDragOver(true)} onDragLeave={() => setDragOver(false)}>
       {!fullActual && layout.left !== 'hidden' && <Sidebar />}
-      <main className="v2-centre" style={fullActual ? { left: 0, width: '100%' } : undefined} data-testid="library-centre">
+      <main className={'v2-centre' + (sheet ? ' sheet' : '')} style={fullActual ? { left: 0, width: '100%' } : undefined} data-testid="library-centre">
         <div className="v2-toolbar lib">
           <div className="v2-crumb">
             {src ? <><span className="dim">{src.info.name}</span><b>{view === 'grid' ? collection?.title ?? '' : view === 'lightTable' ? tz('Table', '看片台') : tz('Contact Sheet', '印样')}</b>
@@ -296,7 +303,7 @@ export function LibraryWorkspace({ layout }: { layout: Layout }) {
         </div>
         {!src ? <FirstRun /> : view === 'lightTable' ? <LightTable actual={actual} /> : view === 'contactSheet' ? <ContactSheet /> : <Grid />}
       </main>
-      {!fullActual && <aside className="v2-info" data-testid="info-rail">
+      {!sheet && <aside className="v2-info" data-testid="info-rail">
         <div className="v2-rail-head"><span className="v2-rail-title">{tz('Info', '信息')}</span></div>
         <Info />
       </aside>}

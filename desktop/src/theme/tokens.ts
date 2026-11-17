@@ -32,6 +32,12 @@ export const colours = {
   flyout: '#2B2B2A',
   /** The danger red (*Engine stopped*, *Offline*), as drawn on PC-E13 and PC-L1. */
   danger: '#E8796B',
+  /** A failed develop's InfoBar (PC-E12): the danger red's ground and edge. */
+  dangerFill: '#442726',
+  dangerEdge: '#5C3A38',
+  /** A flyout's and a dialog's edge (PC-X2, PC-X3; PC-O1, Settings). */
+  flyoutEdge: '#454543',
+  dialogEdge: '#3A3A39',
   /** The selection frame around a chosen card / filmstrip frame. */
   selectionFrame: '#FAF8F4',
 } as const;
@@ -116,6 +122,10 @@ export function cssVariables(): Record<string, string> {
     '--v2-flyout': colours.flyout,
     '--v2-danger': colours.danger,
     '--v2-selection-frame': colours.selectionFrame,
+    '--v2-danger-fill': colours.dangerFill,
+    '--v2-danger-edge': colours.dangerEdge,
+    '--v2-flyout-edge': colours.flyoutEdge,
+    '--v2-dialog-edge': colours.dialogEdge,
     '--v2-title-bar': px(geometry.titleBar),
     '--v2-rail-head': px(geometry.railHead),
     '--v2-toolbar': px(geometry.toolbar),

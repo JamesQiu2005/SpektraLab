@@ -3,6 +3,81 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
+## SpektraLab 2 for Windows, phase 1 (2026-11-17, W2)
+
+`desktop/` is now the v2 interface: the Mac v2 app's structure, drawn as the
+Windows design draws it (`design/windows/`: the HIG `README.md`, `INDEX.md`
+and the 34 page SVGs, copied unchanged). Phase 2 wires the Rust scheduler
+and library crates; see "Phase 2" below.
+
+**Where things are.**
+
+| | |
+|---|---|
+| `src/app/` | the one window: `AppWindow` (title bar, workspaces, rails, walls), `TitleBar` (the in-window menu bar, access keys, caption buttons, drag region), `commands.ts` (every command once: menus, ···, the picture flyout and the keys read it), `layout.ts` (the window rule as arithmetic), `ui.ts` (what is on screen), `keys.ts` (the keyboard; trap 32's guard first), `windowChrome.ts` |
+| `src/edit/` | `rails.tsx` (Develop and Edit: Navigator, Film & Paper cards, the Film Exposure ruler, Format, the Latitude meter, Adjust tiles, Darkroom tiles, Crop; v1 section bodies reused inside), `EditWorkspace.tsx` (toolbar, status line, picture, InfoBar, engine card, ···, Copy Settings, the right-click flyout, the 80 epx filmstrip), `words.ts` (the status line's words) |
+| `src/scheduler/` | `types.ts` (the `SchedulerClient` interface and the job words), `localScheduler.ts` (phase 1's in-page scheduler), `index.ts` (the one scheduler, the host steps, `runJob`) |
+| `src/library/` | `client.ts` (`LibraryClient` over spklib's method table), `mock.ts` (an in-page spklib with the design's libraries), `store.ts`, `LibraryWorkspace.tsx` |
+| `src/export/ExportDialog.tsx` | Export as a ContentDialog over v1's export page; the batch's ring and flyout |
+| `src/settings/SettingsWindow.tsx` | Settings' six panes |
+| `src/theme/tokens.ts` | every colour and size of the drawing, in one place, held to the SVGs by `tests/design/tokens.test.ts` |
+| `tests/design/` | the SVG reader (`svg.ts`), the token test, `dump.ts` (print a region of a page) |
+| `tests/e2e/design.spec.ts` | T2: each implemented INDEX.md page against its SVG (rectangles, named texts, fills); the implemented/not-implemented lists are held to INDEX.md |
+| `tests/e2e/v2-behaviour.spec.ts` | T3 |
+| `scripts/gate-mac.sh` | the whole Mac gate; `scripts/check-installer.mjs` is T6 |
+
+**Decisions (and why).**
+- **The title bar is the app's own** (`decorations: false`), as the HIG asks
+  (§1.1: the menu bar lives in it, so it costs no height). This reverses v1's
+  "native decorations" decision. What it costs, and is not verified on
+  Windows: Snap layouts on hover over Maximise need `WM_NCHITTEST` →
+  `HTMAXBUTTON`, which a webview cannot answer; resize borders rely on Tauri's
+  undecorated-window resize support. Drag and double-click-to-maximise use
+  `data-tauri-drag-region`.
+- **The native menu (v1's `menus.ts`) is no longer installed**: it would add a
+  second menu row under the frameless window's title bar. Every chord is the
+  webview's now (`app/keys.ts`); trap 32's guard still runs first. `menus.ts`
+  and its tests stay for the Linux build's history; nothing calls it.
+- **Settings and Export are drawn in the window**, not as a second Tauri
+  window: one webview, one session store (v1's reason). Settings is 860 × 600
+  with its own title bar; Export is the 800 × 560 ContentDialog over a smoke
+  layer, centred under the title bar.
+- **Renders are scheduler jobs** (R5). Phase 1's `LocalScheduler` is a serial
+  queue with the HIG's rules (180 ms settle, newer edits fold into the newest
+  job, a waiting job says why, cancel), in two lanes: renders one at a time,
+  thumbnails two at a time beside them (v1's thumbnail queue ran two, and its
+  tests hold that a thumbnail never waits on an edit). The session's request loop still
+  computes each edit's delta; it submits `set_params` + `render_view` as one
+  job, withdraws a canvas job that has not started when a newer edit comes,
+  and the full view after the rest is a `fullView` job. Exports
+  (`export_frame`) are `export` jobs; the filmstrip's thumbnails, the import
+  previews and the open frame's print thumbnail are `thumbnail` jobs (each its
+  own `slot`, so they never fold into each other). v1's `PreviewQueue` still
+  decides *which* import previews to prepare; its work runs as jobs. There is
+  no `stockPreview` job yet: the film and paper cards show covers, not renders
+  (README §8.2 (6) leaves the card renders open). The proof
+  (`render_proof`), the original (`render_source`), latitude and neutral-pick
+  requests are not renders of the frame and keep the direct path. Unit tests run with a 0 ms settle (`import.meta.env.MODE ===
+  'test'`); the settle itself is held by `localScheduler.test.ts` on a virtual
+  clock.
+- **Gates are absence** (R7): Film Edge, Date Back and the pair render only
+  when the host supports `overscan` / `date_imprint`; Scene Placement leaves
+  Copy Settings; the DI recipe leaves Settings › Recipes. HSL, Channels and
+  Vibrance are not shipped: v1's Layer 2 has no maths for them.
+- **Crop is a stage**: the filmstrip steps away while it is open (PC-E9).
+- **Glyphs** are v1's own SVG strokes; Segoe Fluent Icons / Fluent System Icons
+  are not bundled (no network licence check was done here).
+
+**Gate** (`scripts/gate-mac.sh`): see the commit messages for the counts of
+each run. The first T2 run against the first build had 18 of 30 pages red;
+the scheduler and token tests were shown red on deliberately broken code.
+
+**Phase 2** (not done): bind `scheduler()` to `scheduler_*` (WIRE.md) and the
+library store to `library_call` / `library_state`; move thumbnails and stock
+previews into scheduler jobs; the workspace in `src-tauri` with both crates;
+`spklib-host.exe` in the bundle (`SPEKTRALAB_INSTALLER_REQUIRE=spklib-host.exe
+npm run check:installer`); T5; `SPEKTRALAB_GATE_PHASE=2 scripts/gate-mac.sh`.
+
 ## Startup state ordering (2026-10-11)
 
 A user reported waiting for the engine in the negative-return release. Its

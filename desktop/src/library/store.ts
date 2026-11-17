@@ -162,6 +162,15 @@ export async function addFolder(dir?: string | null) {
   } catch (e) { fail(e); }
 }
 
+export async function newAlbum() {
+  const s = get().source;
+  if (!s || s.readOnly) return;
+  try {
+    await lib.createCollection(client, s.handle, tz('New Album', '新建相簿'));
+    await adopt(s.handle, s.info, s.kind === 'folder');
+  } catch (e) { fail(e); }
+}
+
 export async function closeLibrary() {
   const s = get().source;
   if (s) await lib.close(client, s.handle).catch(() => {});
