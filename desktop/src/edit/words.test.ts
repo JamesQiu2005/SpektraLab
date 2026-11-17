@@ -1,7 +1,7 @@
 // The status line's words (README §7), one per state, and the fit without "…".
 
 import { describe, expect, it } from 'vitest';
-import { fitParts, statusParts, canvasWhat, type StatusInput } from './words';
+import { cardName, fitParts, statusParts, canvasWhat, type StatusInput } from './words';
 import { StockCatalog } from '@shared/stocks';
 import { FILM_PARAMS_DEFAULT } from '@shared/params';
 import type { JobSnapshot } from '../scheduler/types';
@@ -58,5 +58,22 @@ describe('the Adjust tiles', () => {
   it('ships only what the v1 Layer 2 can do (R7)', () => {
     expect(ADJUST_TILES.filter((t) => !t.built).map((t) => t.id)).toEqual(['hsl', 'channels', 'vibrance']);
     expect(ADJUST_TILES.filter((t) => t.built)).toHaveLength(8);
+  });
+});
+
+describe("a stock card's name (PC-E1: two lines of a 92 epx card)", () => {
+  const cards = new StockCatalog([
+    { id: 'kodak_vision_premier_2393', name: 'Kodak Vision Premier 2393', stage: 'printing', use: 'cine', hasPreviewLUT: false },
+    { id: 'kodak_vision_2383', name: 'Kodak Vision 2383', stage: 'printing', use: 'cine', hasPreviewLUT: false },
+    { id: 'fujifilm_crystal_archive_typeii', name: 'Fujifilm Crystal Archive Type II', stage: 'printing', use: 'still', hasPreviewLUT: false },
+    { id: 'kodak_endura_premier', name: 'Kodak Professional Endura Premier', stage: 'printing', use: 'still', hasPreviewLUT: false },
+    { id: 'kodak_vision3_500t', name: 'Kodak Vision3 500T', stage: 'filming', use: 'cine', hasPreviewLUT: false },
+  ]);
+  it('drops the maker and the words a card does not need, and keeps a name that is the name', () => {
+    expect(cardName(cards, 'kodak_vision_premier_2393')).toBe('Premier 2393');
+    expect(cardName(cards, 'kodak_vision_2383')).toBe('Vision 2383');
+    expect(cardName(cards, 'fujifilm_crystal_archive_typeii')).toBe('Crystal Archive II');
+    expect(cardName(cards, 'kodak_endura_premier')).toBe('Endura Premier');
+    expect(cardName(cards, 'kodak_vision3_500t')).toBe('Vision3 500T');
   });
 });

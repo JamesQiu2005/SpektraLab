@@ -18,10 +18,11 @@ and library crates; see "Phase 2" below.
 | `src/edit/` | `rails.tsx` (Develop and Edit: Navigator, Film & Paper cards, the Film Exposure ruler, Format, the Latitude meter, Adjust tiles, Darkroom tiles, Crop; v1 section bodies reused inside), `EditWorkspace.tsx` (toolbar, status line, picture, InfoBar, engine card, ···, Copy Settings, the right-click flyout, the 80 epx filmstrip), `words.ts` (the status line's words) |
 | `src/scheduler/` | `types.ts` (the `SchedulerClient` interface and the job words), `localScheduler.ts` (phase 1's in-page scheduler), `index.ts` (the one scheduler, the host steps, `runJob`) |
 | `src/library/` | `client.ts` (`LibraryClient` over spklib's method table), `mock.ts` (an in-page spklib with the design's libraries), `store.ts`, `LibraryWorkspace.tsx` |
-| `src/export/ExportDialog.tsx` | Export as a ContentDialog over v1's export page; the batch's ring and flyout |
+| `src/export/ExportDialog.tsx`, `ExportV2.tsx` | Export as a ContentDialog, drawn to `win_export.svg` over v1's export model (`ExportPage`); the batch's ring and flyout |
+| `src/theme/Glyph.tsx`, `glyphs.generated.ts` | the design's glyphs, cut out of the page SVGs by `scripts/gen-glyphs.ts` (phase 1b) |
 | `src/settings/SettingsWindow.tsx` | Settings' six panes |
 | `src/theme/tokens.ts` | every colour and size of the drawing, in one place, held to the SVGs by `tests/design/tokens.test.ts` |
-| `tests/design/` | the SVG reader (`svg.ts`), the token test, `dump.ts` (print a region of a page) |
+| `tests/design/` | the SVG reader (`svg.ts`), the drawing items (`items.ts`: glyphs and control shapes), T2b's claims and NOT_BUILT lists (`fidelity.ts`), the token test, `dump.ts` (print a region of a page) |
 | `tests/e2e/design.spec.ts` | T2: each implemented INDEX.md page against its SVG (rectangles, named texts, fills); the implemented/not-implemented lists are held to INDEX.md |
 | `tests/e2e/v2-behaviour.spec.ts` | T3 |
 | `scripts/gate-mac.sh` | the whole Mac gate; `scripts/check-installer.mjs` is T6 |
@@ -77,6 +78,82 @@ library store to `library_call` / `library_state`; move thumbnails and stock
 previews into scheduler jobs; the workspace in `src-tauri` with both crates;
 `spklib-host.exe` in the bundle (`SPEKTRALAB_INSTALLER_REQUIRE=spklib-host.exe
 npm run check:installer`); T5; `SPEKTRALAB_GATE_PHASE=2 scripts/gate-mac.sh`.
+
+### Phase 1b — fidelity (2026-11-17)
+
+A screenshot review found what T2's text anchors cannot see: blank tiles,
+capsules drawn as plain words, names running out of their cards, v1's page in
+a box for Export. Phase 1b redrew those and made T2 able to catch the class.
+
+**Glyphs come from the design.** `scripts/gen-glyphs.ts` cuts every icon the
+app draws out of the page SVGs (`tests/design/items.ts` reads a page into its
+drawing items, translations applied) and writes `src/theme/glyphs.generated.ts`;
+`theme/Glyph.tsx` draws one in `currentColor`. Nothing is hand-drawn: run
+`npx tsx scripts/gen-glyphs.ts` again when the design changes, and
+`npx tsx scripts/gen-glyphs.ts --list <page.svg> x0 y0 x1 y1` to find a new
+one. The README's Segoe Fluent names stay the reference; the drawings
+approximate them and so do these.
+
+**T2b** (`tests/e2e/design.spec.ts`, after T2) — three checks per implemented page:
+- *glyphs and controls*: every glyph and control shape the page draws in its
+  claimed regions (`tests/design/fidelity.ts`; default: the whole page) has a
+  built `<svg>`/`<img>` with inked, non-empty geometry at its place, or a built
+  element of its box within tolerance. A place is taken against the item's
+  owner — the label inside it or under its tile, else the nearest text on its
+  row in its column, else a caption just above — so a section that moved as a
+  whole is still found; a tile whose label is nowhere on screen is not built,
+  whatever stands at its place. Anything drawn and not built fails unless the
+  page's `notBuilt` names it with a reason; an entry the page does not draw, or
+  one that is built after all, fails too.
+- *fits*, in English and 简体中文 (switched live through the settings store, as
+  Settings › General › Language does): no text clipped by an ancestor,
+  ellipsised or wider than its box, and no two labels of one row overlapping,
+  measured on line boxes (a glyph's ascender over a tight line height is not a
+  collision). A scale under a ruler's window is `data-fit="scale"`: cut on
+  purpose, not a label.
+- Deterministic: no pixels, no fonts in thresholds, no timings. The Edit pages
+  wait for the Latitude meter's measurement (`data-state`) before reading.
+- Red first, on d7012902 (before any fix): 75 of 90 failed — every Adjust and
+  Darkroom tile ("glyph "Brightness" is not built"), the filter capsules, the
+  toolbar's zoom pill, the Latitude well, the Tone head, the size cards; in
+  简体中文 the frame title over the status line. The paper card that ran to three
+  lines ("Vision Premier 2393") went red once a card's name box was held to
+  the drawn two lines, and green with the card's own short name.
+
+**What changed on screen** (the coordinator's 13 items): tiles carry their
+glyphs; section heads have the thin chevron, ↺ and ··· at the right edge, the
+summary when closed; Film · All / Paper · All are capsules with ⌄ and a menu
+(the families), with the crop-to-card button; cards are named on two lines over
+a dark strip and show the stock's swatch where there is no render; Tone's rows
+have a gutter, the fixed track with its detent tick and knob, values dim at
+rest, and the open tile's bar (trash, undo, its name, the white ✓); the Latitude
+meter is a well with ⌄ (scene as placed / as shot) and says *Measuring* rather
+than drawing an empty plot; Crop starts closed with "Freeform · +0.0°" at the
+right and its body is the drawing's (flip and turn, Reset, the size, Straighten,
+orientation, the ratio chips, Cancel / Done in the crop stage); the picture keeps
+18 epx of black round it; the filmstrip is centred under a chip naming where its
+frames came from; every toolbar glyph is the drawing's. The Library's sidebar
+rows, source card, toolbar (◧, crumb, Import, Capture Date ⌄, size slider, grid
+| list, ◨) and tiles (edge to edge, a film dot at the foot) are the drawing's;
+Info's sections fold like the rails'. Export is redrawn to `win_export.svg`
+(`export/ExportV2.tsx` over ExportPage's model; the v2 window's built-in
+recipes are sRGB, README §8 decision 8).
+
+**Rules this round wrote down.**
+- `:where(.v2-window) button { font: inherit }`: a control's own class sets its
+  type. The plain `.v2-window button` rule out-ranked every class and put the
+  menu bar, capsules and chips at 14 epx.
+- The language switches live: `settingsStore.set('language', 'simplifiedChinese')`
+  (Settings › General › Language); every string is looked up at render.
+- `src-tauri` is warning-free on the Mac and on the Windows target: the
+  single-instance hand-off's `Emitter` and its `builder` rebinding are
+  `cfg(windows | linux)`.
+- `check-installer.mjs` also reads the app's version resource: ProductName
+  `SpektraLab`, ProductVersion package.json's.
+- A flake to know about: v1's `host::tests::partial_write_times_out_without_releasing_the_operation`
+  fails about one `cargo test` in four on this Mac ("An application batch or agent
+  operation is running"): it shares a process-wide workspace lease with the tests
+  running beside it. Untouched here; rerun before believing it.
 
 ## Startup state ordering (2026-10-11)
 
