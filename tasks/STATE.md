@@ -57,3 +57,11 @@
 ## 限制
 
 public Python 的确定性核心跨后端数值对照已通过；私有 fork/Metal、默认空间特效、显示色彩管理、Windows CI、性能和真实胶片校准仍未完成。HEIF 依赖 Windows HEIF 图像扩展；界面导出仍为 SDR。
+
+## 发布（2026-11-16 21:20）
+
+- `windows_UI/README.md` 明确 HEIF8 仅支持 sRGB，并依赖 Windows HEIF 图像扩展；提交 eff5037，只改文档。
+- 已配置 `origin` 为 `https://github.com/JamesQiu2005/SpektraLab`，`git fetch origin main` 通过；远端 `main` 为 2.4.1（f61769b），本地基线 2.4.0（87de3b6）是它的父提交。
+- 分支推送被拒：缓存凭据账号 `segayi1` 对 `JamesQiu2005/SpektraLab` 无写权限（403），本机也没有 SSH key。
+- 待所有者处理：给 `segayi1` 写权限，或在本机登录 `JamesQiu2005` 账号后重推。命令：`git push -u origin codex/windows-baseline-20261115`。
+- 分支基于 2.4.0，与 2.4.1 在 5 个 engine 文件上有重叠（spk_engine.h、engine.cpp、overscan.cpp、pipeline.cpp、windows_unported.cpp）；合入前需重新跑 Release CTest。
