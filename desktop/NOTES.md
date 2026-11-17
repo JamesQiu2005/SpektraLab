@@ -8,11 +8,16 @@ Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 Brief: the coordinator's phase 3 (2026-11-17) — part 1 PRD-W5 (the Mac's one window), part 2 the
 borrowed full view. The section below says what was built and decided; phase 2's notes still hold.
 
-- **Part 2 done** (eaf2babe): the borrowed full view, red then green, real host measured.
-- **Part 1**: the shell, browser, mode row, shared bar, keys (59fc95ab); v2-behaviour 19/19; the T2
-  re-base (SHELL rule table, SUPERSEDED, T2b passes) in progress; T5b's second frame written, not yet run;
-  README R7 note, PARITY phase-3 section, NOTES section written.
-- Next: design.spec green, T5b, the composed gate, review screenshots (`build/review-phase3/`).
+- **Done.** Part 2 (eaf2babe): the borrowed full view. Part 1: the shell (59fc95ab); T2 re-based, T5b's
+  second frame, README R7 note, PARITY and NOTES (bb929b58).
+- **The composed gate is green** (2026-11-17, at bb929b58, `SPEKTRALAB_GATE_PHASE=2 … gate-mac.sh`, exit 0):
+  T1 vitest 554 (+1 skipped), typecheck, eslint; Playwright 206/206 (6.5 min); T4 cargo test 24 + Windows
+  check; T5a 1/1 and fails without its RAW; T5b passed (develop, export, the second frame from the browser
+  in Develop, the Library on the real helper, the Capture One package unchanged); R11 package:win; T6
+  check-installer ok; spk-scheduler gate (fmt, clippy ×2, tests 11+1+8+1+7, selftest 301/301, T5 fails
+  without fixture, Windows check); spk-library gate (670 spklib tests, T-B2…B5); raw gate (CTests 46/46,
+  T-A1 542, T-A2 354, T-A3 18, T-A4).
+- Review screenshots: `build/review-phase3/{develop,edit,library}-{en,zh}.png` (1536 × 816, mock backends).
 - Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests` (now also needs
   `A7m3/DSC03733.ARW`), `SPKLIB_SRC=<repo>/build/spklib`,
   `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
