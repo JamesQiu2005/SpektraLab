@@ -15,11 +15,23 @@ Brief: PRD-W2 R10/R11/T5, PRD-W0 §5; WIRE.md and the two crate READMEs are fina
   - `scripts/build-host-mac.sh`: the one MoltenVK host (configured as `engine/tests/raw_gate.sh`
     configures `build/raw-gate-mac`, host target only), staged at `build/host-mac` for T5 and the
     scheduler gate; the RAW gate then reuses the same build directory.
-- **In progress**: R2 `HostLink` over `HostManager`.
-- **Next**: R3 scheduler commands; R4 webview on the scheduler; R5 library; R6 bundle; R7 carry-overs;
-  T5a/T5b; composed gate; docs (incl. `docs/WINDOWS-V2-CHECKLIST.md`).
+  - R7b: lease tests hold `agent_files::SERIAL` (46/300 failing runs before, 0/300 after).
+  - R2/R3/R5 (Rust): `src-tauri/src/scheduler.rs` (`AppHostLink` over `HostManager`, sessions scoped
+    `"<generation>:<sid>"`; `SchedulerHub`; WIRE's commands + `scheduler_editing_open/_call`; job log
+    `<logs>/scheduler-log.jsonl`, corrections `<app data>/scheduler-corrections.json`; Mac policy on
+    macOS, `desktop_pc` from the real probe on Windows/Linux), `src-tauri/src/library.rs`
+    (`library_call`, `library_state`). `HostManager` is generic over the runtime (T5a uses
+    `tauri::test`). Crate change: `HostEngine::open_editing` / `call_editing` (spk-scheduler).
+  - T5a: `src-tauri/tests/t5a_real_host.rs` (shown red: without the session scoping a canvas job after
+    a restart renders another file's session).
+- **In progress**: R4 the webview on the scheduler (`src/scheduler/tauriScheduler.ts`, `session.ts`).
+- **Next**: R5 TS (`LibraryClient` over `library_call`); R6 bundle; R7a chip, R7c flag; T5b self-test;
+  composed gate; docs (incl. `docs/WINDOWS-V2-CHECKLIST.md`).
 - Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests`,
   `SPKLIB_SRC=<repo>/build/spklib`, `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
+  T5a by hand: `SPK_REQUIRE_REAL_HOST=1 SPEKTRALAB_HOST_DIR=<repo>/build/host-mac SPEKTRALAB_RAW_FIXTURES=…
+  SPKLIB_HOST=<repo>/build/spklib/build/spklib-host SPKLIB_FIXTURES=<repo>/build/spklib/tests/fixtures
+  cargo test --test t5a_real_host` in `src-tauri`.
 
 ## SpektraLab 2 for Windows, phase 1 (2026-11-17, W2)
 

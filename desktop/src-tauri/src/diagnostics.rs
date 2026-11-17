@@ -126,7 +126,7 @@ pub fn clean_exit(app: &AppHandle) {
     if let Some(d) = app.try_state::<Diagnostics>() { let _ = crate::files::write_atomic(&d.marker,
         &serde_json::to_vec(&json!({"ended_ms":stamp(),"clean_exit":true})).unwrap()); }
 }
-pub fn configuration(app: &AppHandle) -> Config {
+pub fn configuration<R: tauri::Runtime>(app: &AppHandle<R>) -> Config {
     app.try_state::<Diagnostics>().map(|d| d.config.lock().unwrap().clone()).unwrap_or_default()
 }
 fn status(d: &Diagnostics) -> Value {

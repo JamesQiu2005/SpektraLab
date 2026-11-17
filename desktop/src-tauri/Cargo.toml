@@ -39,6 +39,10 @@ spk-scheduler = { path = "../crates/spk-scheduler" }
 spk-library = { path = "../crates/spk-library" }
 async-trait = "0.1"
 
+[dev-dependencies]
+# T5a drives the Rust layer with no window (tauri::test's mock runtime).
+tauri = { version = "2", features = ["test"] }
+
 [target.'cfg(any(target_os = "linux", windows))'.dependencies]
 tauri-plugin-single-instance = "2"
 

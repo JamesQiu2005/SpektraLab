@@ -10,6 +10,8 @@ pub mod frame_cache;
 pub mod agent_files;
 pub mod workspace;
 pub mod diagnostics;
+pub mod scheduler;
+pub mod library;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -18,8 +20,6 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Manager, State};
-// Only the single-instance hand-off (Windows and Linux) emits from here.
-#[cfg(any(target_os = "linux", windows))]
 use tauri::Emitter;
 
 use host::HostManager;
@@ -81,6 +81,71 @@ async fn host_request_upload(state: State<'_, AppState>, request: Request<'_>) -
     let timeout = timeout_of(header.get("timeout_ms").and_then(Value::as_u64));
     let reply = state.host.request(&method, params, payload.to_vec(), timeout, Some(lease)).await;
     Ok(reply_bytes(reply))
+}
+
+// ------------------------------------------------------------------ the scheduler (WIRE.md)
+
+type Hub = scheduler::SchedulerHub<tauri::Wry>;
+
+#[tauri::command]
+async fn scheduler_submit(hub: State<'_, Hub>, job: Value) -> Result<String, String> {
+    hub.submit(job).await
+}
+#[tauri::command]
+async fn scheduler_cancel(hub: State<'_, Hub>, job_id: String) -> Result<(), String> {
+    hub.cancel(&job_id).await
+}
+#[tauri::command]
+async fn scheduler_cancel_frame(hub: State<'_, Hub>, frame_id: String, kinds: Option<Vec<spk_scheduler::JobKind>>) -> Result<(), String> {
+    hub.cancel_frame(&frame_id, kinds).await
+}
+/// `OutcomeWire` + the payload, in the protocol's framing (as `host_request` replies).
+#[tauri::command]
+async fn scheduler_outcome(hub: State<'_, Hub>, job_id: String) -> Result<Response, String> {
+    hub.outcome(&job_id).await.map(Response::new)
+}
+#[tauri::command]
+async fn scheduler_snapshot(hub: State<'_, Hub>, frame_id: Option<String>) -> Result<Vec<spk_scheduler::wire::JobSnapshotWire>, String> {
+    hub.snapshot(frame_id.as_deref()).await
+}
+#[tauri::command]
+async fn scheduler_budget(hub: State<'_, Hub>) -> Result<spk_scheduler::wire::BudgetReadingWire, String> {
+    hub.budget().await
+}
+#[tauri::command]
+async fn scheduler_frontend_state(hub: State<'_, Hub>, state: spk_scheduler::wire::FrontendStateMsg) -> Result<(), String> {
+    hub.frontend_state(state).await
+}
+#[tauri::command]
+async fn scheduler_memory_pressure(hub: State<'_, Hub>, level: spk_scheduler::wire::PressureLevel) -> Result<(), String> {
+    hub.memory_pressure(level).await
+}
+/// The frame opened in the scheduler's editing session; the reply is `open`'s, framed.
+#[tauri::command]
+async fn scheduler_editing_open(hub: State<'_, Hub>, frame_id: String, source: spk_scheduler::wire::SourceSpec) -> Result<Response, String> {
+    hub.editing_open(&frame_id, source).await.map(Response::new)
+}
+/// A call on the frame's editing session (`scheduler::EDITING_METHODS`), framed.
+#[tauri::command]
+async fn scheduler_editing_call(hub: State<'_, Hub>, frame_id: String, session: String, method: String, params: Value) -> Result<Response, String> {
+    hub.editing_call(&frame_id, &session, &method, params).await.map(Response::new)
+}
+
+// ------------------------------------------------------------- the library helper (PRD-W0 §5.3)
+
+type Library = Arc<library::LibraryState>;
+
+/// Any method of spklib's API-SPEC; the error is the helper's `{code, message, data}`.
+#[tauri::command]
+async fn library_call(lib: State<'_, Library>, method: String, params: Option<Value>) -> Result<Value, Value> {
+    let lib = Arc::clone(&lib);
+    tauri::async_runtime::spawn_blocking(move || lib.call(&method, params.unwrap_or_else(|| json!({}))))
+        .await
+        .map_err(|e| json!({"code": "internal", "message": e.to_string(), "data": null}))?
+}
+#[tauri::command]
+fn library_state(lib: State<'_, Library>) -> Value {
+    lib.state()
 }
 
 #[tauri::command]
@@ -320,6 +385,17 @@ pub fn run() {
             let sidecar_dir = app.path().app_data_dir()?.join("Sidecars");
             let host = HostManager::new(handle.clone());
             let argv: Vec<String> = std::env::args().collect();
+            let workspace = workspace::Workspace::new(app.path().app_data_dir()?);
+            let logs = app.try_state::<diagnostics::Diagnostics>().map(|d| d.directory.clone()).unwrap_or(app.path().app_log_dir()?);
+            let host_dir = host::resolve_launch(&handle).ok().filter(|l| !l.mock).and_then(|l| l.program.parent().map(PathBuf::from));
+            app.manage::<Library>(Arc::new(library::LibraryState::resolve(host_dir.as_deref())));
+            let emitter = handle.clone();
+            app.manage(scheduler::SchedulerHub::new(
+                Arc::clone(&host),
+                Some(Arc::clone(&workspace)),
+                scheduler::SchedulerPaths { logs, data: app.path().app_data_dir()? },
+                move |snapshot| { let _ = emitter.emit(scheduler::JOB_EVENT, snapshot); },
+            ));
             app.manage(AppState {
                 host: Arc::clone(&host),
                 sidecars: files::SidecarStore { dir: sidecar_dir },
@@ -329,10 +405,15 @@ pub fn run() {
                     app.path().app_data_dir()?.join("display-cache.json"),
                 )),
                 cache_fingerprint: Arc::new(Mutex::new(None)),
-                workspace: workspace::Workspace::new(app.path().app_data_dir()?),
+                workspace,
             });
             log::info!("SpektraLab {} starting on {}", app.package_info().version, std::env::consts::OS);
-            tauri::async_runtime::spawn(async move { host.start().await });
+            let wiring = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                host.start().await;
+                // Made inside the runtime once the host is up; a command made before then waits for it.
+                if let Err(e) = wiring.state::<Hub>().wired().await { log::warn!(target: "scheduler", "{e}"); }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -340,6 +421,7 @@ pub fn run() {
                 if window.label() == "main" {
                     let host = Arc::clone(&window.state::<AppState>().host);
                     tauri::async_runtime::block_on(async move { host.shutdown().await });
+                    window.state::<Library>().shutdown();
                     diagnostics::clean_exit(window.app_handle());
                 }
             }
@@ -350,6 +432,18 @@ pub fn run() {
             host_state,
             host_diagnostics,
             host_restart,
+            scheduler_submit,
+            scheduler_cancel,
+            scheduler_cancel_frame,
+            scheduler_outcome,
+            scheduler_snapshot,
+            scheduler_budget,
+            scheduler_frontend_state,
+            scheduler_memory_pressure,
+            scheduler_editing_open,
+            scheduler_editing_call,
+            library_call,
+            library_state,
             diagnostics::diagnostics_get,
             diagnostics::diagnostics_set,
             diagnostics::diagnostics_clear_logs,
