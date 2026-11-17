@@ -40,14 +40,14 @@ $deps = Join-Path (Split-Path (Get-Location) -Parent) 'deps'
 & .\engine\setup-libraw.ps1 -DependencyDirectory $deps
 & .\engine\build-windows.ps1 `
     -BuildDirectory $build `
-    -LibRawSourceDirectory (Join-Path $deps 'LibRaw-0.22.2')
+    -LibRawSourceDirectory (Join-Path $deps 'LibRaw-42f89c165763272a5482a254c446337f8048e0df')
 ```
 
-`setup-libraw.ps1` downloads and verifies a fixed official source archive,
-applies the tracked Sony ARW 6 / A7 V overlay from
-`engine/third_party/libraw-arw6/`, and does not install a system-wide library.
-It also upgrades an existing pristine 0.22.2 tree by applying the overlay;
-CMake and the setup script reject a plain or locally patched LibRaw tree.
+`setup-libraw.ps1` downloads and verifies the source archive of the pinned
+LibRaw master commit (`0.23.0-Snapshot202611`, `engine/third_party/libraw-pin/`)
+and does not install a system-wide library. Nothing is overlaid any more; CMake
+and the setup script reject any other or locally patched LibRaw tree
+(`RAW-SUPPORT-20261117.md`).
 CMake itself does not download it. The wrapper builds, deploys adjacent MinGW
 runtime DLLs, runs CTest, and writes `toolchain.json` containing source,
 shader, dependency and executable hashes. A failed run records failure instead
@@ -68,7 +68,7 @@ Useful options:
 | `-Compiler`, `-MakeExecutable` | Select the MinGW compiler and make program |
 | `-CMakeExecutable`, `-CTestExecutable` | Select the configure/build and test tools |
 | `-VulkanIncludeDirectory`, `-VulkanLibrary`, `-GlslangExecutable` | Select Vulkan development tools explicitly |
-| `-LibRawSourceDirectory` | Use an already extracted, verified LibRaw 0.22.2 tree |
+| `-LibRawSourceDirectory` | Use an already extracted, verified tree of the pinned LibRaw commit |
 
 Direct CMake configuration supports `SPEKTRALAB_BUILD_NATIVE_RAW`,
 `SPEKTRALAB_BUILD_DESKTOP` and `SPEKTRALAB_LIBRAW_SOURCE`.

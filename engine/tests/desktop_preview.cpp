@@ -510,13 +510,22 @@ void integration(const fs::path& resources, const fs::path& arw,
         check(edited->settings.print_exposure == 1.25 && edited->timings.decode_ms == 0 && edited->timings.open_ms == 0,
               "print edit changed settings incorrectly or reopened RAW");
         report.set("print_edit", frame_report(*edited));
-        const auto nef_error = rejected([&] { host.open_raw(nef, DecodeMode::compatible16); }, "unsupported Nikon HE file opened");
-        check(nef_error.find("Nikon HE/HE*") != std::string::npos, "Nikon failure lacks compression diagnosis");
-        check(host.current() == edited, "failed Nikon open replaced prior frame");
+        // A failed open must leave the current frame alone. Until 2026-11-17
+        // the Nikon HE/HE* NEF was the file that failed; the pinned LibRaw
+        // master decodes it now (checked below), so the failure comes from a
+        // file that is not a RAW at all.
+        const auto broken = destination / "not-a-raw.NEF";
+        {
+            std::ofstream junk(broken, std::ios::binary);
+            check(bool(junk << std::string(4096, '\x5a')), "cannot write the broken NEF");
+        }
+        const auto nef_error = rejected([&] { host.open_raw(broken, DecodeMode::compatible16); }, "a file that is not a RAW opened");
+        check(nef_error.find("RAW open") != std::string::npos, "RAW failure does not name its stage");
+        check(host.current() == edited, "failed open replaced prior frame");
         report.set("nef_failure", Json(nef_error));
         print_edit.print_exposure = 0.8;
         auto after_failure = host.render(print_edit);
-        check(after_failure->reprint() && after_failure->negative_was_cached(), "Nikon open failure damaged reusable session");
+        check(after_failure->reprint() && after_failure->negative_was_cached(), "open failure damaged reusable session");
         report.set("render_after_nef_failure", frame_report(*after_failure));
 
         for (unsigned variant = 0; variant < 4; ++variant) {
@@ -560,6 +569,14 @@ void integration(const fs::path& resources, const fs::path& arw,
     check(frame_fingerprint(*first) == first_pixels &&
           fingerprint(first->bgra8.data(), first->bgra8.size()) == first_display,
           "display/result invalid after host and engine destruction");
+    {
+        // The Nikon HE/HE* NEF decodes with the pinned LibRaw master.
+        PreviewHost host(resources);
+        auto he = host.open_raw(nef, DecodeMode::compatible16);
+        check(he && he->width() > 0 && he->height() > 0 && he->metadata.decoder_name == "nikon_he_load_raw()",
+              "the Nikon HE/HE* NEF did not decode through nikon_he_load_raw()");
+        report.set("nef_open", frame_report(*he));
+    }
     compare_tiff(exported, *first, resources / "io/sRGB.icc");
     first.reset();  // spk_result_free is intentionally exercised without engine.
     report.set("status", Json(std::string("passed")));

@@ -15,8 +15,8 @@ verified hashes are in `Qt-packages.json`.
 - Qt source: <https://code.qt.io/cgit/qt/> (also mirrored at <https://github.com/qt>)
 - Qt licensing: <https://doc.qt.io/qt-6/licensing.html>
 - Qt module and bundled third-party notices: `Qt-SBOM/` and `Qt/` in this folder
-- LibRaw 0.22.2 source: <https://github.com/LibRaw/LibRaw/tree/0.22.2>
-- LibRaw ARW 6 / Sony A7 V overlay: `engine/third_party/libraw-arw6/`
+- LibRaw source (master snapshot 202611, unmodified): <https://github.com/LibRaw/LibRaw/tree/42f89c165763272a5482a254c446337f8048e0df>
+- LibRaw pin and its file manifest: `engine/third_party/libraw-pin/`
   (backport from upstream LibRaw; provenance and file list in its README)
 - LibRaw license choices and copyright: `LibRaw-LICENSE.LGPL`,
   `LibRaw-LICENSE.CDDL`, `LibRaw-COPYRIGHT`

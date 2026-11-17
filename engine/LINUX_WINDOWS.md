@@ -26,7 +26,7 @@ All pinned and verified, fetched into the gitignored `build/deps` by
 
 | | version | licence | how it is used |
 |---|---|---|---|
-| LibRaw | 0.22.2 (zip SHA-256 or git commit + tree id) | LGPL-2.1 (of LGPL/CDDL) | built from source, linked statically |
+| LibRaw | master `42f89c16`, 0.23.0-Snapshot202611 (zip SHA-256 + tree id, or git commit + tree id; every file checked by CMake) | LGPL-2.1 (of LGPL/CDDL) | built from source, linked statically |
 | Vulkan-Headers | vulkan-sdk-1.4.341.0 | Apache-2.0 OR MIT | compile time only |
 | volk | vendored, `third_party/volk` | MIT | loads `libvulkan.so.1` / `vulkan-1.dll` at run time -- no SDK import library, and a machine without a driver gets an error message, not a loader failure |
 | stb_image / stb_image_write / stb_truetype | vendored, `third_party/stb` | public domain / MIT | JPEG/PNG decode, PNG/JPEG encode, deflate |
