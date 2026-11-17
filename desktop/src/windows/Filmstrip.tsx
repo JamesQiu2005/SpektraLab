@@ -16,7 +16,7 @@ import { thumbnailGeometryPlan } from '@shared/surfaces';
 import { t, tz } from '../i18n';
 import { platform } from '../platform';
 
-export function Filmstrip() {
+export function Filmstrip({ cellHeight }: { cellHeight?: number } = {}) {
   const frames = useSession((s) => s.frames);
   const selection = useSession((s) => s.selection);
   const picked = useSession((s) => s.picked);
@@ -141,7 +141,7 @@ export function Filmstrip() {
             title={f.name}
             data-path={f.path}
           >
-            <Thumb path={f.path} geometry={f.path === selection ? live : (saved[f.path] ?? GEOMETRY_DEFAULT)} source="filmstrip" />
+            <Thumb path={f.path} geometry={f.path === selection ? live : (saved[f.path] ?? GEOMETRY_DEFAULT)} source="filmstrip" height={cellHeight} />
             <span className="thumb-name">{f.name}</span>
           </div>
         ))}

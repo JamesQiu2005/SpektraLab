@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The editor window: menus, dialogs, reveal-in-folder, logging. File access goes through the app's own narrow commands (files.rs), not the fs plugin.",
-  "windows": ["main"],
+  "description": "The editor window: menus, dialogs, reveal-in-folder, logging. File access goes through the app's own narrow commands (files.rs), not the fs plugin. v2: the window is frameless with the app's own title bar, so the caption buttons and the drag region need the window's own calls.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:menu:default",
@@ -10,6 +12,12 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
     "core:window:allow-close",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-minimize",
     "core:webview:allow-set-webview-zoom",
     "dialog:allow-open",
     "dialog:allow-save",

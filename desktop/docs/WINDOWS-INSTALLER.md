@@ -85,6 +85,19 @@ file $I                                  # PE32 ... Nullsoft Installer self-extr
 x86_64-w64-mingw32-objdump -p out/spektralab.exe | grep 'DLL Name'   # system DLLs + WebView2Loader.dll
 ```
 
+`npm run check:installer` (`scripts/check-installer.mjs`) does all of this as
+one assertion list and fails on a missing member or a wrong file type; it is
+T6 of the Mac gate (`scripts/gate-mac.sh`).
+
+**Run of 2026-11-17 (SpektraLab 2.0.0-alpha.1, phase 1, on the Mac mini):**
+`engine/build-windows-cross.sh` (Homebrew mingw-w64, GCC 16; LibRaw without
+OpenMP; v1's engine, unchanged) staged `build/host-win-x64/`, then
+`npm run package:win` with no extra environment wrote
+`release/windows/SpektraLab_2.0.0-alpha.1_x64-setup.exe` (42.3 MB, 217
+members, 49 `.spv` kernels, 34 profiles). The window is frameless
+(`decorations: false`); the capability file grants the caption buttons'
+window calls.
+
 This only checks the installer's contents. Neither the installer nor the app
 has been run here: there is no Windows machine and no wine. CI's
 `package-windows` job is what installs it silently on Windows. The installer

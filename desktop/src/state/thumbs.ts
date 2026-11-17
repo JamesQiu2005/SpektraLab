@@ -2,7 +2,8 @@
 // preview) until the frame has been printed in this session, then the print.
 // Uncropped on purpose (ARCHITECTURE §7.7): each surface applies geometry.
 
-import { host } from '../host/client';
+import type { RgbaImage } from '../host/client';
+import { runJob, steps } from '../scheduler';
 import { rgbaToURL } from './frames';
 
 interface Entry {
@@ -106,7 +107,8 @@ class ThumbCache {
       this.running++;
       void (async () => {
         try {
-          const img = await host().thumbnail(path, 320);
+          // v2: a filmstrip thumbnail is a scheduler job (R5), the least urgent kind.
+          const img = await runJob<RgbaImage>({ kind: 'thumbnail', frameId: path, slot: 'strip', what: path, tier: 'preview', steps: [steps.thumbnail(path, 320, false)] });
           const url = await rgbaToURL(img);
           if (url && current() && !this.map.get(path)?.print) this.map.set(path, { url, print: false });
           else if (url) URL.revokeObjectURL(url);

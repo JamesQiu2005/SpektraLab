@@ -6,6 +6,7 @@
 // on the same photograph. The host opens private frames one at a time.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createStore } from 'zustand/vanilla';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { platform, baseName, dirName } from '../platform';
@@ -88,6 +89,9 @@ async function loadRecipes(): Promise<ExportRecipe[]> {
     return DEFAULT_RECIPES;
   }
 }
+
+/** v2: the running batch, for the toolbar's ring and its flyout (README §6.6, PC-O2). */
+export const exportRun = createStore<{ progress: ExportProgress | null; file: string | null; format: string; colour: string; stop: (() => void) | null }>(() => ({ progress: null, file: null, format: '', colour: '', stop: null }));
 
 export function ExportPage() {
   const open = useSession((s) => s.exportOpen);
@@ -228,6 +232,12 @@ export function ExportPage() {
     };
   }, [open, selection, batch, developing, engineSession, sidecar, native, metadata, pair, pairInfo, proofRecipe, proofNoFilm, bypassRefusal, hello, catalog, gate, display, proofEdge]);
 
+  const stopRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const files = picked.length ? picked : selection ? [selection] : [];
+    exportRun.setState({ progress, file: batch && files.length ? baseName(files[Math.min(log.length, files.length - 1)]!) : null,
+      format: r.format.toUpperCase(), colour: r.colorSpace, stop: batch ? () => stopRef.current?.() : null });
+  }, [progress, log.length, batch, picked, selection, r.format, r.colorSpace]);
   if (!open) return null;
   const frames = picked.length ? picked : selection ? [selection] : [];
   const writesEdits = hostWrites(hello?.methods as string[] | undefined);
@@ -310,12 +320,14 @@ export function ExportPage() {
 
   const cancel = () => {
     stop.current = true;
+    exportRun.setState({ stop: null });
     const job = active.current;
     if (job) void host().cancel(job.session, job.progressId).catch((e) => platform().log('error', `export cancel: ${String(e)}`));
   };
 
+  stopRef.current = cancel;
   return (
-    <div className="export-page" data-testid="export-page">
+    <div className="export-page" data-testid="export-page" data-batch={batch || undefined}>
       <div className="topbar">
         <span style={{ fontWeight: 700, fontSize: 'var(--fs-rail-title)' }}>{t('helpExport')}</span>
         <span className="bar-status" data-testid="export-status">
@@ -331,7 +343,7 @@ export function ExportPage() {
         ) : (
           <>
             <button className="btn" onClick={() => setPages({ exportOpen: false })} style={{ marginRight: 8 }}>
-              {tz('Close', '关闭')}
+              {tz('Cancel', '取消')}
             </button>
             <button className="btn primary" disabled={!frames.length || !supported} onClick={() => void run()} data-testid="export-run">
               {tz('Export', '导出')}

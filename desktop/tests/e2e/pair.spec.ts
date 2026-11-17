@@ -11,7 +11,8 @@ async function open(page: Page, renderDelay = 0) {
 }
 test('creates a pair in strip order, edits one hole, and reloads the owned recipe with the folder', async ({ page }) => {
   await open(page);
-  await page.locator('.thumb').nth(1).click({ modifiers: ['Control'] });
+  // Ctrl+click picks; on the Mac that runs this harness Ctrl+click is a right-click, so Meta there.
+  await page.locator('.thumb').nth(1).click({ modifiers: ['ControlOrMeta'] });
   await page.getByTestId('make-pair').click();
   await expect(page.getByTestId('pair-overlay')).toBeVisible();
   await expect.poll(() => state(page, 's.pairInfo?.right?.available')).toBe(true);
