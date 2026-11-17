@@ -2,8 +2,8 @@
 
 The Mac v2 app's render scheduler (RFC-036) in Rust, for SpektraLab 2 on Windows, and the engine
 conformer that drives v1's C++/Vulkan engine through its host process (`desktop/HOST-PROTOCOL.md`).
-A standalone package in phase 1 (no workspace; `Cargo.lock` not committed); the Tauri layer wires it in
-phase 2. **`WIRE.md` is the webview's contract** and is held to the code by `tests/wire.rs`.
+Since phase 2 a member of the app's Cargo workspace (`desktop/src-tauri`: one `Cargo.lock`, one
+`target/`), wired by the Tauri layer (`src-tauri/src/scheduler.rs`). **`WIRE.md` is the webview's contract** and is held to the code by `tests/wire.rs`.
 
 ```
 webview ─ Tauri commands ─ Scheduler (facade) ─ RenderQueue ─ Planner / CostModel / MemoryBudget

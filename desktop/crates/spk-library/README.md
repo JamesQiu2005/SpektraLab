@@ -6,8 +6,8 @@ This README is the contract the Tauri app wires (PRD-W0 §5.3). The helper's pro
 are `API-SPEC-library-helper.md` (repository root, §10 for Windows) and, authoritatively, spklib's own
 `API-SPEC.md`; this crate adds no methods of its own.
 
-Standalone package in phase 1: no `[workspace]`, no `tauri` dependency, no async runtime, no
-`Cargo.lock` committed. Dependencies: `serde`, `serde_json`. Licence GPL-3.0-or-later (the app's); the
+Since phase 2 a member of the app's Cargo workspace (`desktop/src-tauri`: one `Cargo.lock`, one
+`target/`); no `tauri` dependency, no async runtime. Dependencies: `serde`, `serde_json`. Licence GPL-3.0-or-later (the app's); the
 helper it starts is MIT.
 
 ## Wiring it (phase 2)

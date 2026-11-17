@@ -7,6 +7,8 @@ license = "GPL-3.0-or-later"
 edition = "2021"
 rust-version = "1.80"
 publish = false
+# A member of the app's workspace (phase 2): one Cargo.lock and one target/ in desktop/src-tauri.
+workspace = "../../src-tauri"
 
 [lib]
 name = "spk_scheduler"

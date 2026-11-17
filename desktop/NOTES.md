@@ -3,6 +3,24 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
+## Phase 2 — status (W2; a restart picks up from here)
+
+Brief: PRD-W2 R10/R11/T5, PRD-W0 §5; WIRE.md and the two crate READMEs are final.
+
+- **Done**
+  - R1 workspace: `src-tauri/Cargo.toml` is the workspace root (members `.`, `../crates/spk-scheduler`,
+    `../crates/spk-library`; each crate names it with `package.workspace`). One `Cargo.lock`
+    (`src-tauri/`), one `target/` (`src-tauri/target`). The crate gates `cd` into the crate and run cargo
+    there, which now resolves to the workspace: nothing in them names `target/` or the lockfile.
+  - `scripts/build-host-mac.sh`: the one MoltenVK host (configured as `engine/tests/raw_gate.sh`
+    configures `build/raw-gate-mac`, host target only), staged at `build/host-mac` for T5 and the
+    scheduler gate; the RAW gate then reuses the same build directory.
+- **In progress**: R2 `HostLink` over `HostManager`.
+- **Next**: R3 scheduler commands; R4 webview on the scheduler; R5 library; R6 bundle; R7 carry-overs;
+  T5a/T5b; composed gate; docs (incl. `docs/WINDOWS-V2-CHECKLIST.md`).
+- Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests`,
+  `SPKLIB_SRC=<repo>/build/spklib`, `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
+
 ## SpektraLab 2 for Windows, phase 1 (2026-11-17, W2)
 
 `desktop/` is now the v2 interface: the Mac v2 app's structure, drawn as the

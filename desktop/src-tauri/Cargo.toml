@@ -8,6 +8,12 @@ edition = "2021"
 rust-version = "1.80"
 default-run = "spektralab"
 
+[workspace]
+# One lockfile and one target/ for the app and the two crates it wires (phase 2, PRD-W2 R10).
+# The crates live outside this directory, so each names this workspace in its [package].
+members = [".", "../crates/spk-scheduler", "../crates/spk-library"]
+resolver = "2"
+
 [lib]
 name = "spektralab_lib"
 # This package is a desktop executable, with a Rust library shared by main
@@ -29,6 +35,9 @@ serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread"] }
 sha2 = "0.10"
 log = "0.4"
+spk-scheduler = { path = "../crates/spk-scheduler" }
+spk-library = { path = "../crates/spk-library" }
+async-trait = "0.1"
 
 [target.'cfg(any(target_os = "linux", windows))'.dependencies]
 tauri-plugin-single-instance = "2"

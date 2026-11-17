@@ -7,10 +7,12 @@ license = "GPL-3.0-or-later"
 edition = "2021"
 rust-version = "1.80"
 publish = false
+# A member of the app's workspace (phase 2): one Cargo.lock and one target/ in desktop/src-tauri.
+workspace = "../../src-tauri"
 
-# A standalone package in phase 1 (PRD-W0 §4): no [workspace] here, and the
-# app's Cargo.toml does not depend on it yet. No tauri, no async runtime: the
-# client is blocking and thread-safe; the app calls it from spawn_blocking.
+# Phase 2: a member of the app's workspace (desktop/src-tauri), which depends on
+# it by path. No tauri, no async runtime: the client is blocking and
+# thread-safe; the app calls it from spawn_blocking.
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
