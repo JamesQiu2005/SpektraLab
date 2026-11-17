@@ -9,10 +9,22 @@ import { defineConfig } from '@playwright/test';
 function chromium(): string | undefined {
   if (process.env.PW_CHROMIUM) return process.env.PW_CHROMIUM;
   const root = '/opt/pw-browsers';
-  if (!existsSync(root)) return undefined;
-  for (const d of readdirSync(root).filter((x) => /^chromium-\d+$/.test(x))) {
-    const p = `${root}/${d}/chrome-linux/chrome`;
-    if (existsSync(p)) return p;
+  if (existsSync(root)) {
+    for (const d of readdirSync(root).filter((x) => /^chromium-\d+$/.test(x))) {
+      const p = `${root}/${d}/chrome-linux/chrome`;
+      if (existsSync(p)) return p;
+    }
+  }
+  // macOS: any Chrome for Testing already in Playwright's cache (this config
+  // still never downloads one). The newest revision wins.
+  const mac = `${process.env.HOME ?? ''}/Library/Caches/ms-playwright`;
+  if (process.platform === 'darwin' && existsSync(mac)) {
+    for (const d of readdirSync(mac).filter((x) => /^chromium-\d+$/.test(x)).sort().reverse()) {
+      for (const arch of ['chrome-mac-arm64', 'chrome-mac', 'chrome-mac-x64']) {
+        const p = `${mac}/${d}/${arch}/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+        if (existsSync(p)) return p;
+      }
+    }
   }
   return undefined;
 }

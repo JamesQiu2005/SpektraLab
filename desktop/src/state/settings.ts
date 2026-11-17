@@ -26,6 +26,11 @@ export function boundedPanelWidth(key: keyof typeof PANEL_WIDTHS, width: number)
   return Number.isFinite(width) ? Math.max(lo, Math.min(hi, width)) : normal;
 }
 
+/** v2 rails: 280–440 epx, 320 by default (README §1.1). */
+export function boundedRail(width: number): number {
+  return Number.isFinite(width) ? Math.max(280, Math.min(440, Math.round(width))) : 320;
+}
+
 export interface Settings extends NewPhotoDefaults {
   language: LanguageSetting;
   interfaceScale: InterfaceScale;
@@ -48,6 +53,15 @@ export interface Settings extends NewPhotoDefaults {
   /** Folders opened most recently, newest first (File › Open Recent). */
   recentFolders: string[];
   settingsPage: 'general' | 'rendering' | 'memory' | 'diagnostics' | 'agents';
+  /** v2: the rails' widths (README §1.1: 320, dragged 280–440, double-click resets). */
+  railLeft: number;
+  railRight: number;
+  /** v2: View › Navigator. */
+  navigatorHidden: boolean;
+  /** v2: Settings' chosen pane. */
+  settingsPane: 'general' | 'recipes' | 'library' | 'rendering' | 'engine' | 'diagnostics';
+  /** v2: the Copy Settings groups last used (Ctrl+Shift+C copies with them). */
+  copyGroups: string[];
 }
 
 export const SETTINGS_DEFAULT: Settings = {
@@ -71,6 +85,11 @@ export const SETTINGS_DEFAULT: Settings = {
   folderRawOnly: false,
   recentFolders: [],
   settingsPage: 'general',
+  railLeft: 320,
+  railRight: 320,
+  navigatorHidden: false,
+  settingsPane: 'general',
+  copyGroups: [],
 };
 
 const KEY = 'ui2.settings';
@@ -92,6 +111,10 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
     if (!(['auto', 'srgb', 'display-p3'] as const).includes(s.previewGamut)) s.previewGamut = SETTINGS_DEFAULT.previewGamut;
     s.leftWidth = boundedPanelWidth('leftWidth', s.leftWidth);
     s.rightWidth = boundedPanelWidth('rightWidth', s.rightWidth);
+    s.railLeft = boundedRail(s.railLeft);
+    s.railRight = boundedRail(s.railRight);
+    if (!['general', 'recipes', 'library', 'rendering', 'engine', 'diagnostics'].includes(s.settingsPane)) s.settingsPane = 'general';
+    s.copyGroups = (Array.isArray(s.copyGroups) ? s.copyGroups : []).filter((g): g is string => typeof g === 'string');
     if (!Number.isInteger(s.filmEdgeBodySeed) || s.filmEdgeBodySeed < 0 || s.filmEdgeBodySeed > 2147483647) s.filmEdgeBodySeed = 0;
     if (!['general', 'rendering', 'memory', 'diagnostics', 'agents'].includes(s.settingsPage)) s.settingsPage = 'general';
     s.recentFolders = (Array.isArray(s.recentFolders) ? s.recentFolders : [])
@@ -111,6 +134,7 @@ export function createSettingsStore(storage: Pick<Storage, 'getItem' | 'setItem'
   return createStore<SettingsStore>((set, get) => ({
     ...loadSettings(storage),
     set(key, value) {
+      if (key === 'railLeft' || key === 'railRight') value = boundedRail(value as number) as Settings[typeof key];
       if (key === 'leftWidth' || key === 'rightWidth') value = boundedPanelWidth(key, value as number) as Settings[typeof key];
       set({ [key]: value } as Partial<SettingsStore>);
       persist(get());

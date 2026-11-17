@@ -132,7 +132,8 @@ export function ScrubSlider(p: ScrubSliderProps) {
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
-    const k = e.altKey ? 0.25 : 1;
+    // Ctrl (README §6.3: Alt alone opens the menu bar's access keys); Alt kept for v1 habits.
+    const k = e.ctrlKey || e.altKey ? 0.25 : 1;
     const v = d.v + ((e.clientX - d.x) / d.w) * (hi - lo) * k;
     onChange(snapTo(v, e.shiftKey));
   };

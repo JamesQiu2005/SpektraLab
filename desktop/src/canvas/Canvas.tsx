@@ -65,7 +65,8 @@ import { inTauri } from '../host/transport';
 import { onFrameDrop } from '../windows/frameDrag';
 import { clampZoom } from './zoom';
 
-const SURROUND = 0x5f / 255;
+// v2: the picture is "fitted whole on black" (README §1.1; the tokens' ground).
+const SURROUND = 0;
 
 export interface Layout {
   viewport: { width: number; height: number };

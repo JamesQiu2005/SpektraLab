@@ -53,6 +53,10 @@ import { frameOrder } from './frameOrder';
 import { displayCacheKey, forgetDisplayMemoryCache, peekDisplayCache, readDisplayCache, writeDisplayCache, type DisplayCacheDescriptor } from './displayCache';
 import { PreviewQueue } from './previewQueue';
 import { tz } from '../i18n';
+import { JobEnded, runJob, scheduler, steps } from '../scheduler';
+import type { HostStep, JobSnapshot } from '../scheduler/types';
+import type { RenderReply } from '../host/client';
+import { canvasWhat } from '../edit/words';
 import { hostMessage } from '../host/messages';
 import { clampZoom, steppedZoom } from '../canvas/zoom';
 import { cameraExposureEV } from '@shared/cameraExposure';
@@ -149,6 +153,10 @@ export interface SessionState {
   settingsOpen: boolean;
   aboutOpen: boolean;
   batchExporting: boolean;
+  /** v2: the open frame's newest canvas or full-view job, as the scheduler reports it (R5). */
+  job: JobSnapshot | null;
+  /** v2: the last render of the open frame failed; the last print stays (PC-E12). */
+  renderFailure: string | null;
 }
 
 const INITIAL: SessionState = {
@@ -198,6 +206,8 @@ const INITIAL: SessionState = {
   settingsOpen: false,
   aboutOpen: false,
   batchExporting: false,
+  job: null,
+  renderFailure: null,
 };
 
 export const sessionStore = createStore<SessionState>(() => INITIAL);
@@ -284,6 +294,26 @@ function queueImportPreviews() {
 }
 let wantedGen = 0;
 let inFlight = false;
+/** The canvas job the loop below is waiting on, and whether it has started. */
+let canvasJob: { id: string; running: boolean } | null = null;
+let jobWatch: (() => void) | null = null;
+/** The page follows the scheduler (R5): the open frame's canvas and full-view jobs. */
+function watchJobs() {
+  if (jobWatch) return;
+  jobWatch = scheduler().onJob((j) => {
+    if (canvasJob && j.id === canvasJob.id && j.state.state === 'running') canvasJob.running = true;
+    const s = get();
+    if (j.job.kind !== 'canvasDevelop' && j.job.kind !== 'canvasReprint' && j.job.kind !== 'fullView') return;
+    if (j.job.frameId !== (s.selection ?? s.engineSession)) return;
+    const cur = s.job;
+    // A cancelled job that was folded into a newer one says nothing of its own.
+    if (j.state.state === 'cancelled' && j.state.supersededBy) return;
+    if (cur && cur.id !== j.id && j.job.submitted < cur.job.submitted) return;
+    set({ job: j, ...(j.state.state === 'done' && !j.superseded ? { renderFailure: null } : {}),
+      ...(j.state.state === 'failed' ? { renderFailure: j.state.message } : {}) });
+  });
+}
+const jobWords = (s: SessionState, d: { delta: Record<string, unknown> }, reprint: boolean) => canvasWhat(s.catalog, s.sidecar.params, d.delta, reprint);
 let fullTimer: ReturnType<typeof setTimeout> | null = null;
 let latitudeTimer: ReturnType<typeof setTimeout> | null = null;
 let latitudeGeneration = 0;
@@ -455,11 +485,25 @@ export function noteDisplaySpace(displaySpace: 'srgb' | 'display-p3') {
   void refreshOriginal();
 }
 
-async function renderForView(sid: string, tier: 'live' | 'full', gen: number, reprint = false) {
+/** The open frame's render, as a scheduler job (R5): `pre` are the steps that
+ * must run in the same job before it (the edit's set_params). */
+async function renderJob(sid: string, tier: 'live' | 'full', reprint: boolean, render: HostStep, pre: HostStep[], what: string): Promise<RenderReply> {
+  watchJobs();
+  const s = get();
+  const kind = tier === 'full' ? 'fullView' : reprint ? 'canvasReprint' : 'canvasDevelop';
+  try {
+    return await runJob<RenderReply>({ kind, frameId: s.selection ?? sid, what, tier, layers: reprint ? ['print'] : undefined, steps: [...pre, render] },
+      (id) => { if (tier === 'live') canvasJob = { id, running: false }; });
+  } finally {
+    if (tier === 'live') canvasJob = null;
+  }
+}
+
+async function renderForView(sid: string, tier: 'live' | 'full', gen: number, reprint = false, pre: HostStep[] = [], what = '') {
   const s = get();
   if (s.sidecar.noFilm && (s.pair || !s.gate.noFilm || !hostViews()))
     throw new Error(tz('This engine or half-frame pair cannot bypass film simulation.', '此引擎或半格拼接不支持不应用胶片模拟。'));
-  if (!hostViews()) return host().render(sid, tier, { reprint });
+  if (!hostViews()) return renderJob(sid, tier, reprint, steps.render(sid, tier, reprint), pre, what);
   if (tier === 'full' && s.pair) await flushSave();
   const descriptor = cachedDisplayDescriptor('print', s, tier);
   const keyTask = descriptor ? displayCacheKey(descriptor) : Promise.resolve(null);
@@ -468,11 +512,11 @@ async function renderForView(sid: string, tier: 'live' | 'full', gen: number, re
     fullDescriptor ? displayCacheKey(fullDescriptor) : keyTask,
     tier === 'full' && !s.pair && s.selection ? displayCacheKey(cameraDescriptor(s.selection)) : null]);
   if (gen !== wantedGen || get().engineSession !== sid) throw new Error('Superseded display request');
-  const image = await host().renderView(sid, tier, { adjustments: s.sidecar.adjustments,
+  const image = await renderJob(sid, tier, reprint, steps.renderView(sid, tier, { adjustments: s.sidecar.adjustments,
     ...(s.sidecar.noFilm ? { no_film: true } : {}),
     geometry: s.tool === 'crop' ? GEOMETRY_DEFAULT : canvasGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm),
     source_geometry: sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm) ?? GEOMETRY_DEFAULT,
-    display: s.displaySpace, generation: gen, long_edge: viewLongEdge(s) });
+    display: s.displaySpace, generation: gen, long_edge: viewLongEdge(s) }), pre, what);
   if (gen === wantedGen && get().engineSession === sid && image.pairInfo) set({ pairInfo: image.pairInfo });
   if (gen === wantedGen && get().engineSession === sid) {
     if (tier === 'full' && liveDisplayKey?.session === sid) { forgetDisplayMemoryCache(liveDisplayKey.key); liveDisplayKey = null; }
@@ -502,6 +546,9 @@ function noteAsShot() {
 export async function requestPrint(): Promise<void> {
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
+  // Newer edits fold into the newest job (README §7): a canvas job that has
+  // not started yet is withdrawn, and the loop below submits the newest one.
+  if (canvasJob && !canvasJob.running) void scheduler().cancel(canvasJob.id);
   if (get().tool === 'crop' && geometryInNegative(get().sidecar.params, get().gate, get().sidecar.noFilm)) return;
   if (inFlight) return;
   const sid = get().engineSession;
@@ -531,12 +578,19 @@ export async function requestPrint(): Promise<void> {
         void refreshOriginal();
       }
       const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog) : { delta: wireParams(want), layers: new Set(['shoot']) };
-      if (Object.keys(d.delta).length) {
-        await host().setParams(sid, d.delta);
-        sentParams = want;
-      }
+      const pre = Object.keys(d.delta).length ? [steps.setParams(sid, d.delta)] : [];
       const reprint = d.layers.size === 1 && d.layers.has('print');
-      const r = await renderForView(sid, 'live', gen, reprint);
+      let r: RenderReply;
+      try {
+        r = await renderForView(sid, 'live', gen, reprint, pre, jobWords(s, d, reprint));
+      } catch (e) {
+        // Folded before it ran: nothing reached the host; go round with the newest edit.
+        if (e instanceof JobEnded && e.outcome.status === 'cancelled' && e.outcome.results.length === 0) continue;
+        // The edit's set_params may have landed without its render: send everything next time.
+        if (pre.length) sentParams = null;
+        throw e;
+      }
+      if (pre.length) sentParams = want;
       if (get().engineSession !== sid) return;
       if (gen === wantedGen) {
         frameImages.print = r;

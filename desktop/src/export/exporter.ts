@@ -14,6 +14,7 @@ import { NEW_PHOTO_DEFAULTS, newPhotoSidecar, type NewPhotoDefaults } from '@sha
 import { latitudeRequest } from '@shared/latitude';
 import { tz } from '../i18n';
 import { host } from '../host/client';
+import { runJobRaw, steps } from '../scheduler';
 import { baseName, dirName, joinPath, platform } from '../platform';
 import { type ExportRecipe, extensionOf, hostFormat, resolveTarget, stem, stockToken } from './recipes';
 
@@ -279,7 +280,8 @@ export async function exportFrame(
     const decode = decodeWire(f.decode, isRawPath(f.path));
     const job = { session: f.session ?? '', progressId: `export-${Date.now()}-${++exportSerial}` };
     control.active?.(job);
-    const res = await host().transport.request(r.format === 'di' ? 'export_cineon' : 'export_frame', {
+    // An export is a scheduler job (R5): it waits its turn behind the canvas and says so.
+    const res = await runJobRaw({ kind: 'export', frameId: f.path, what: base, tier: 'full', steps: [steps.exportFrame(r.format === 'di' ? 'export_cineon' : 'export_frame', {
       session: f.session, source_path: f.path, params, decode: decode ?? undefined,
       adjustments: f.adjustments, ...view,
       pair: f.pair,
@@ -287,7 +289,7 @@ export async function exportFrame(
       tiff_compression: r.format === 'tiff' || r.format === 'di' ? r.tiffCompression ?? 'none' : undefined,
       embed_preview: r.format === 'tiff' ? r.embedsPreview ?? false : undefined,
       color_space: r.colorSpace, long_edge: r.format === 'di' ? 0 : r.longEdge, overwrite: target.overwrite, progress_id: job.progressId,
-    }, { timeoutMs: 1_800_000 });
+    })] });
     if (res.payload.byteLength) throw new Error(tz('export_frame unexpectedly returned image data.', 'export_frame 意外返回了图像数据。'));
     const { path, width, height, timings_ms } = res.result;
     if (typeof path !== 'string' || typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0)
