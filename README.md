@@ -135,6 +135,8 @@ derived and what was changed.
 Capture One catalogs are read by spklib (MIT, https://github.com/JamesQiu2005/SpektraLab_library);
 the app ships its prebuilt helper.
 
+The Official AtomGit mirror is in this link: [SpektraLab](https://atomgit.com/DomesticDragon05/SpektraLab)
+
 ## Trademark
 
 SpektraLab™ and the SpektraLab icon are managed by Guangzhou Songzi Intelligent
