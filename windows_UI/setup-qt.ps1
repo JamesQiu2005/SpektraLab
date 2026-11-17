@@ -14,8 +14,14 @@ $packageManifest = Join-Path $PSScriptRoot 'dependencies/qt-packages.json'
 $licenseManifest = Join-Path $PSScriptRoot 'dependencies/qt-licenses.json'
 $packages = (Get-Content -LiteralPath $packageManifest -Raw | ConvertFrom-Json).packages
 $notices = Get-Content -LiteralPath $licenseManifest -Raw | ConvertFrom-Json
+# Windows bsdtar ships without LZMA on the hosted runners, so prefer 7-Zip
+# where it is installed and keep tar for hosts that have no 7-Zip.
+$sevenZip = @(
+    (Join-Path $env:ProgramFiles '7-Zip/7z.exe'),
+    (Join-Path ${env:ProgramFiles(x86)} '7-Zip/7z.exe')
+) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
 $tar = Join-Path $env:WINDIR 'System32/tar.exe'
-if (-not (Test-Path -LiteralPath $tar)) { throw 'Windows bsdtar with .7z support is required.' }
+if (-not $sevenZip -and -not (Test-Path -LiteralPath $tar)) { throw 'A 7z-capable extractor is required: install 7-Zip or use Windows bsdtar.' }
 function Confirm-Hash([string]$Path, [string]$Expected) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
     if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Expected) {
@@ -42,15 +48,24 @@ foreach ($package in $packages) {
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     # Check all archive paths before extraction, including Windows drive and
     # parent-directory syntax. Packages themselves have pinned hashes above.
-    $entries = & $tar -tf $archive
+    if ($sevenZip) {
+        $entries = (& $sevenZip l -ba $archive) | ForEach-Object { ($_ -split '\s+')[-1] }
+    } else {
+        $entries = & $tar -tf $archive
+    }
     if ($LASTEXITCODE -ne 0) { throw "Cannot list archive: $archive" }
     foreach ($entry in $entries) {
         if ([IO.Path]::IsPathRooted($entry) -or $entry -match '(^|[/\\])\.\.([/\\]|$)' -or $entry -match ':') {
             throw "Unsafe archive entry: $entry"
         }
     }
-    & $tar -xf $archive -C $destination
-    if ($LASTEXITCODE -ne 0) { throw "Extraction failed: $archive" }
+    if ($sevenZip) {
+        & $sevenZip x -y "-o$destination" $archive | Out-Null
+        if ($LASTEXITCODE -gt 1) { throw "Extraction failed: $archive" }
+    } else {
+        & $tar -xf $archive -C $destination
+        if ($LASTEXITCODE -ne 0) { throw "Extraction failed: $archive" }
+    }
 }
 foreach ($notice in $notices) {
     if ($notice.module -notmatch '^qt[a-z]+$' -or [IO.Path]::GetFileName($notice.file) -ne $notice.file) { throw 'Unsafe license name in manifest' }
