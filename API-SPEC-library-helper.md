@@ -5,7 +5,7 @@
 | **Status** | The binary is in the repository, and the 2.0 app embeds and launches it (§9). This document is the contract the 2.0 library work builds against. |
 | **Binary** | `vendor/spklib/macos/spklib-host`, `spklib 0.4.0+f4aced84f483 (abi 1, schema 3)`, built by `./build.sh release` from SpektraLab_library `f4aced8`, the public tag [`v0.4.0`](https://github.com/JamesQiu2005/SpektraLab_library/releases/tag/v0.4.0). SHA-256 `b171e61d9abda38008f105fceb010bb17468f2b4091be05423c5a795dead026c`, also in `spklib-host.sha256` beside it. |
 | **Platform** | Universal (arm64 + x86_64), macOS 13.0 or later (the app needs 15.0). Stripped, ad-hoc signed. |
-| **Windows binary** | `vendor/spklib/windows-x64/spklib-host.exe`, `0.3.1+e3c3f1275f5c (abi 1, schema 3)`, built by `./build.sh windows-x64-release` from SpektraLab_library branch `windows/cross-compile-2026-11-17` @ `e3c3f1275f5c` (not yet published). SHA-256 `66b69c401b24193dc7178b44541706c137e6cfcc723fe92c82ed4f1c088d8183`, also in `spklib-host.exe.sha256`; `vendor/spklib/windows-x64/VERSION` and `vendor/spklib/SOURCE.md` say how. **0.3.1, not the Mac's 0.4.0**: `variant.delete` and the variant-level filter keys answer `unknown_method` / are ignored on Windows until the Windows branch is merged forward. §10. |
+| **Windows binary** | `vendor/spklib/windows-x64/spklib-host.exe`, `0.4.0+85d52813e2e8 (abi 1, schema 3)`, built by `./build.sh windows-x64-release` from SpektraLab_library branch `windows/cross-compile-2026-11-17-on-0.4.0` @ `85d52813e2e8` (the published `main` @ `f4aced84`, 0.4.0, with the Windows work re-applied; not yet published). SHA-256 `c2904dc68eeb2121786e2aba2e7616b82e499df1ed2519ebd9422455f2e30ca2`, also in `spklib-host.exe.sha256`; `vendor/spklib/windows-x64/VERSION` and `vendor/spklib/SOURCE.md` say how. The same 0.4.0 as the Mac's. §10. |
 | **Windows platform** | x86-64, Windows 10 or later (UCRT), console subsystem, statically linked; imports only KERNEL32, SHELL32, Normaliz and the UCRT api sets. Built and inspected on a Mac, **never run**. |
 | **Source** | [JamesQiu2005/SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) (public, MIT). Built there by `./build.sh release`, at the tag named above. |
 | **Licence** | MIT (the SDK repository's `LICENSE`). It is a separate program that SpektraLab starts and talks to over pipes; this repository carries the built binary, not its source. |
@@ -161,6 +161,7 @@ schema 2 when it is opened: a 0.1.0 helper refuses it afterwards.
     becomes the primary (its rating, colour, sort place, `images.lookup` variant, `meta.set {images}` target).
     Gaps are possible (1, 3). `variant.create` returns one past the highest position left.
   - In a copy, a deleted variant stays deleted at `capture_one.update` (`variants.deleted_in_spektralab`).
+  - `session.trash.commit` forgets the dropped images' variants' keywords with them (no API change).
 - `images.list` / `images.facets` / smart albums: `min_rating`, `max_rating`, `ratings[]`, `color_tags[]` and
   `keywords[]` (any of the words) are a variant's keys: an image matches when one of its present variants
   matches all of them together (4 stars, purple and "portrait" is one variant). An image with no present
@@ -356,7 +357,7 @@ protocol, the methods, the ABI and the schema are the ones above; what differs i
 
 | | Windows |
 |---|---|
-| **Binary** | `vendor/spklib/windows-x64/spklib-host.exe` (+ `.sha256`, `VERSION`), spklib **0.3.1**. Rebuilt reproducibly from the SDK branch (`vendor/spklib/SOURCE.md`); `desktop/crates/spk-library/gate.sh` rebuilds it and compares the SHA-256 |
+| **Binary** | `vendor/spklib/windows-x64/spklib-host.exe` (+ `.sha256`, `VERSION`), spklib **0.4.0**, as on the Mac. Rebuilt reproducibly from the SDK branch (`vendor/spklib/SOURCE.md`); `desktop/crates/spk-library/gate.sh` rebuilds it and compares the SHA-256 |
 | **Launch** | `spklib-host.exe --store <dir>` with three pipes and `CREATE_NO_WINDOW` (it is a console program; a GUI app's child would otherwise open a console). Started on first use, never at launch, as on the Mac (§2) |
 | **Store** | `%LOCALAPPDATA%\SpektraLab\Libraries`, absolute (the SDK expands neither `%VAR%` nor `~`). Local, not Roaming: the mirrors can be rebuilt, can be large, and use WAL, which must not sit on a network share (SDK `docs/WINDOWS.md`). The Mac's is `~/Library/Application Support/SpektraLab/Libraries`. `spk_library::default_store()` gives either |
 | **Paths in** | UTF-8. The helper accepts `\` or `/`; the client also strips a `\\?\` prefix (which `std::fs::canonicalize` produces) and upper-cases the drive letter, so one folder is never stored under two spellings (`spk_library::paths::to_helper`) |
@@ -365,8 +366,8 @@ protocol, the methods, the ABI and the schema are the ones above; what differs i
 | **Trash** | `session.trash.plan`, then the app moves each file to the Recycle Bin (`IFileOperation` with `FOFX_RECYCLEONDELETE`), then `session.trash.commit` with the paths that moved |
 | **Quitting** | `host.shutdown`, stdin closed, then `TerminateProcess` if it is still there; the client reaps it. Dropping the client does the same |
 
-**Verified here (macOS, 2026-11-17).** The SDK at the vendored commit, built for macOS: 560 checks pass
-(0.3.1's 501 and 59 Windows path-rule checks that exercise the Windows rules on a Mac). The Rust client
+**Verified here (macOS, 2026-11-17).** The SDK at the vendored commit, built for macOS: 670 checks pass
+(0.4.0's 611 and 59 Windows path-rule checks that exercise the Windows rules on a Mac). The Rust client
 against that Mac build: spawn, every typed call, an unknown method, a killed helper replaced, shutdown
 leaving no process, and a synthetic Capture One catalog's package unchanged byte for byte. The `.exe`:
 PE32+ x86-64, its import table, the commit in its version string, the rebuild's SHA-256.

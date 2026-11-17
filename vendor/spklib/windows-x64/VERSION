@@ -1,15 +1,15 @@
 spklib-host.exe for Windows x64
 
-version     0.3.1+e3c3f1275f5c (abi 1, schema 3)
-source      SpektraLab_library, branch windows/cross-compile-2026-11-17, commit
-            e3c3f1275f5c (main @ afafee6 = 0.3.1, plus the Windows work of
-            2026-10-23 brought forward); not yet in the public repository
+version     0.4.0+85d52813e2e8 (abi 1, schema 3)
+source      SpektraLab_library, branch windows/cross-compile-2026-11-17-on-0.4.0, commit
+            85d52813e2e8 (the published main @ f4aced84 = 0.4.0, plus the Windows work
+            re-applied on it); not yet in the public repository
 built       2026-11-17 on macOS, `LLVM_MINGW=<toolchain> ./build.sh windows-x64-release`
 toolchain   llvm-mingw 20261020, UCRT, clang 23.1.4 (macOS universal host build);
             -O2 -DNDEBUG, -static, -Wl,--no-insert-timestamp, llvm-strip
 reproducible two clean builds of the commit gave the same bytes
-sha256      66b69c401b24193dc7178b44541706c137e6cfcc723fe92c82ed4f1c088d8183 (spklib-host.exe.sha256)
-file        PE32+ executable (console) x86-64, 3,009,536 bytes
+sha256      c2904dc68eeb2121786e2aba2e7616b82e499df1ed2519ebd9422455f2e30ca2 (spklib-host.exe.sha256)
+file        PE32+ executable (console) x86-64, 3,019,776 bytes
 imports     KERNEL32.dll, SHELL32.dll, Normaliz.dll, and the UCRT api sets
             api-ms-win-crt-{convert,environment,filesystem,heap,locale,math,multibyte,
             private,runtime,stdio,string,time,utility}-l1-1-0.dll -- Windows system DLLs only
