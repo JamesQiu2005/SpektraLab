@@ -131,7 +131,7 @@ export class MockLibrary implements LibraryClient {
 
   async call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     this.calls.push(method);
-    if ((this.opts.helper ?? 'running') !== 'running') throw new LibraryError('helper_unavailable', 'The library helper is not running.');
+    if ((this.opts.helper ?? 'running') !== 'running') throw new LibraryError('unavailable', 'The library helper is not running.');
     return this.dispatch(method, params) as T;
   }
 

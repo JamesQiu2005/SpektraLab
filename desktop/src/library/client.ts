@@ -9,7 +9,9 @@
 
 export type LibraryErrorCode =
   | 'not_found' | 'invalid_params' | 'read_only' | 'conflict' | 'source_busy' | 'unsupported' | 'exists'
-  | 'in_use' | 'ambiguous' | 'cross_volume' | 'io' | 'internal' | 'unknown_method' | 'helper_unavailable';
+  | 'in_use' | 'ambiguous' | 'cross_volume' | 'io' | 'internal' | 'unknown_method' | 'last_variant'
+  // spk-library's own (desktop/crates/spk-library/README.md, Errors): the helper could not start or stopped; no reply in time.
+  | 'unavailable' | 'timeout';
 
 export class LibraryError extends Error {
   constructor(readonly code: LibraryErrorCode, message: string, readonly data: unknown = null) { super(message); }
