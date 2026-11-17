@@ -86,6 +86,7 @@ P3 and the browser manages the monitor. It is not export gamut soft-proofing.
 | `params_schema` | `{}` | `<spk_params_schema JSON>` |
 | `print_lut_catalog` | `{}` | `<spk_print_lut_catalog JSON>` |
 | `memory_report` | `{}` | `<spk_memory_report JSON>` |
+| `trim` | `{}` | `{freed_bytes}` — the engine's idle pool given back now (the worker's own idle trim, on request); serial, so never beside a render, and nothing a session holds is released. Asked by the scheduler (`desktop/crates/spk-scheduler`) when a job waits for memory, on pressure and after an idle spell; listed in `hello.methods` |
 
 The Windows/Linux engine also reports `suspended_bytes` for exact image-cache
 bytes held in temporary disk storage. This is **not** resident GPU memory and

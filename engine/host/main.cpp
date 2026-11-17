@@ -426,7 +426,7 @@ Json m_hello(const Request&) {
     r.set("backend", std::move(backend));
     r.set("capabilities", std::move(caps));
     Json methods = Json::array();
-    for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
+    for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report", "trim",
                           "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
                           "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress", "open_pair", "update_pair",
                           "export_image", "export_cube", "export_di", "export_cineon", "write_image", "render_view", "export_frame", "render_proof", "render_source", "pick_neutral"})
@@ -450,6 +450,16 @@ Json m_hello(const Request&) {
 Json m_params_schema(const Request&) { need_engine(); return parse_json(spk_params_schema(g.engine)); }
 Json m_print_lut_catalog(const Request&) { need_engine(); return parse_json(spk_print_lut_catalog(g.engine)); }
 Json m_memory_report(const Request&) { need_engine(); return parse_json(spk_memory_report(g.engine)); }
+// The scheduler's `trim` (desktop/crates/spk-scheduler, RFC-036): give back the engine's idle pool now --
+// the same call the worker makes after five idle seconds -- so a job waiting for memory, a pressure
+// event or the queue's own idle spell does not have to wait for the host's timer. Serial on the worker,
+// so it never runs beside a render; nothing a session keeps is released.
+Json m_trim(const Request&) {
+    need_engine();
+    Json r = Json::object();
+    r.set("freed_bytes", number(double(spk::view::trim_idle_memory(g.engine))));
+    return r;
+}
 
 
 bool pair_path(const fs::path& path) {
@@ -1586,6 +1596,7 @@ void dispatch(const Request& q) {
     else if (m == "params_schema") result = m_params_schema(q);
     else if (m == "print_lut_catalog") result = m_print_lut_catalog(q);
     else if (m == "memory_report") result = m_memory_report(q);
+    else if (m == "trim") result = m_trim(q);
     else if (m == "probe") result = m_probe(q);
     else if (m == "thumbnail") result = m_thumbnail(q, payload);
     else if (m == "open") result = pair_path(utf8_path(q.params.at("path").as_string())) ? m_pair(q, false) : m_open(q);
@@ -1676,7 +1687,7 @@ void worker() {
         // Diagnostics polling must not keep a frame-sized pool alive forever.
         const bool metadata_only = q.method == "memory_report" || q.method == "hello" ||
             q.method == "capabilities" || q.method == "params_schema" || q.method == "print_lut_catalog" ||
-            q.method == "get_params" || q.method == "progress" || q.method == "overscan_geometry";
+            q.method == "get_params" || q.method == "progress" || q.method == "overscan_geometry" || q.method == "trim";
         if (!metadata_only) {
             last_active = Clock::now();
             idle_trimmed = false;
