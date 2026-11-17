@@ -48,6 +48,8 @@ export interface Settings extends NewPhotoDefaults {
   rightWidth: number;
   filmEdgeBodySeed: number;
   collapsedSections: Record<string, boolean>;
+  /** v2: the Library grid's tile size in epx (the toolbar's slider, PC-L1: 147 by default, six to a row). */
+  libraryTile: number;
   lastFolder: string | null;
   folderRawOnly: boolean;
   /** Folders opened most recently, newest first (File › Open Recent). */
@@ -81,6 +83,7 @@ export const SETTINGS_DEFAULT: Settings = {
   rightWidth: 288,
   filmEdgeBodySeed: 0,
   collapsedSections: {},
+  libraryTile: 147,
   lastFolder: null,
   folderRawOnly: false,
   recentFolders: [],

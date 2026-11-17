@@ -40,6 +40,11 @@ export interface LibraryState {
   progress: string | null;
   /** Folder rows whose drive is not there (`folders.list` online: false): *Offline*, in red and in words. */
   offline: string[];
+  /**
+   * Each image's film, for a tile's status dot (PC-L1): read from the source's FILMS smart albums
+   * (`criteria.film`), because spklib's image row carries no film of its own (PARITY.md).
+   */
+  filmOf: Record<string, string>;
 }
 
 const RECENT_KEY = 'ui2.library.recent';
@@ -57,7 +62,7 @@ const readRecent = (): RecentLibrary[] => {
 
 export const LIBRARY_INITIAL: LibraryState = {
   phase: 'none', source: null, collections: [], collection: null, images: [], total: 0, picked: [], focus: null, anchor: null,
-  search: '', recent: [], message: null, sourceMenu: false, progress: null, offline: [],
+  search: '', recent: [], message: null, sourceMenu: false, progress: null, offline: [], filmOf: {},
 };
 
 export const libraryStore = createStore<LibraryState>(() => ({ ...LIBRARY_INITIAL, recent: readRecent() }));
@@ -102,6 +107,21 @@ async function adopt(handle: string, info: LibraryInfo, folderSource = false) {
   set({ phase: 'open', source, collections, offline: folders.folders.filter((f) => !f.online).map((f) => f.folder), collection: first?.uuid ?? null, picked: [], focus: null, anchor: null, message: null, sourceMenu: false, progress: null });
   remember({ name: info.name, path: info.path, kind });
   await refresh();
+  await readFilms(handle, collections);
+}
+
+/** Each image's film, from the FILMS smart albums' members (one `images.list` per film album). */
+async function readFilms(handle: string, collections: Collection[]) {
+  const filmOf: Record<string, string> = {};
+  for (const c of collections) {
+    const film = c.kind === 'smart_album' && c.criteria && typeof (c.criteria as Record<string, unknown>).film === 'string' ? (c.criteria as Record<string, string>).film : null;
+    if (!film) continue;
+    try {
+      const page = await lib.images(client, handle, { collection: c.uuid });
+      for (const i of page.images) filmOf[i.uuid] ??= film;
+    } catch { /* a dot is a nicety: a film album that will not list leaves its frames without one */ }
+  }
+  if (get().source?.handle === handle) set({ filmOf });
 }
 
 function fail(e: unknown) {

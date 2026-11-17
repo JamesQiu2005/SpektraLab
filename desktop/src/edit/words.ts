@@ -26,7 +26,19 @@ export function shortName(catalog: StockCatalog, id: string): string {
   return catalog.stock(id)?.name.replace(/^(Kodak|Fujifilm|Ilford|Fuji) (Professional )?/, '') ?? id;
 }
 
-const signed2 = (v: number) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
+/**
+ * A stock's name on its card (PC-E1): the short name, made to fit two lines of
+ * a 92 epx card at 12 epx — the maker gone, and the words a card does not need
+ * ("Type", "Professional") dropped. The full name stays the card's tooltip and
+ * accessible name.
+ */
+export function cardName(catalog: StockCatalog, id: string): string {
+  return shortName(catalog, id).replace(/\bType\s+/g, '').replace(/\bProfessional\s+/g, '')
+    // a print film's family word: "Vision Premier 2393" is Premier 2393 on its card ("Vision 2383" keeps it: it is the name)
+    .replace(/^Vision (?=[A-Z][a-z])/, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+const signed2 =(v: number) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
 
 /** The words a canvas job stands for: the film for a develop, the moved control for a print. */
 export function canvasWhat(catalog: StockCatalog, want: FilmParams, delta: Record<string, unknown>, reprint: boolean): string {

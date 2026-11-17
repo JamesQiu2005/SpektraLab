@@ -67,6 +67,9 @@ export function toggleRailCommand(side: RailSide) {
 export async function developFromLibrary() {
   const { paths, open } = developTargets();
   if (!paths.length) return;
+  const lib = libraryStore.getState();
+  const from = lib.collections.find((c) => c.uuid === lib.collection);
+  setUi({ stripSource: from ? (from.title || from.name) : null });
   setWorkspace('edit');
   await openPaths(paths);
   if (open && sess().selection !== open) await select(open);

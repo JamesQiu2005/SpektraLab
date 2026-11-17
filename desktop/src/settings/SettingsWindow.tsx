@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { tz } from '../i18n';
 import { PillMenu, ToggleRow } from '../controls/controls';
+import { Glyph as G, type GlyphName } from '../theme/Glyph';
 import { settingsStore, useSettings, INTERFACE_SCALES, SETTINGS_DEFAULT } from '../state/settings';
 import { setPages, useSession } from '../state/session';
 import { platform, type AppPaths } from '../platform';
@@ -22,13 +23,13 @@ import { scheduler } from '../scheduler';
 import type { BudgetReading } from '../scheduler/types';
 
 type Pane = 'general' | 'recipes' | 'library' | 'rendering' | 'engine' | 'diagnostics';
-const PANES: { id: Pane; label: () => string }[] = [
-  { id: 'general', label: () => tz('General', '常规') },
-  { id: 'recipes', label: () => tz('Recipes', '配方') },
-  { id: 'library', label: () => tz('Library', '图库') },
-  { id: 'rendering', label: () => tz('Rendering', '渲染') },
-  { id: 'engine', label: () => tz('Engine', '引擎') },
-  { id: 'diagnostics', label: () => tz('Diagnostics', '诊断') },
+const PANES: { id: Pane; label: () => string; glyph: GlyphName }[] = [
+  { id: 'general', label: () => tz('General', '常规'), glyph: 'paneGeneral' },
+  { id: 'recipes', label: () => tz('Recipes', '配方'), glyph: 'paneRecipes' },
+  { id: 'library', label: () => tz('Library', '图库'), glyph: 'library' },
+  { id: 'rendering', label: () => tz('Rendering', '渲染'), glyph: 'paneRendering' },
+  { id: 'engine', label: () => tz('Engine', '引擎'), glyph: 'paneEngine' },
+  { id: 'diagnostics', label: () => tz('Diagnostics', '诊断'), glyph: 'paneDiagnostics' },
 ];
 
 /** The engine's refusals in the HIG's words (README §3.8, PC-G3). */
@@ -53,7 +54,7 @@ function General({ paths }: { paths: AppPaths | null }) {
   return <>
     <Group title={tz('GENERAL', '常规')}>
       <Row label={tz('Language', '语言')}>
-        <PillMenu label={tz('Language', '语言')} value={st.language} testId="language"
+        <PillMenu value={st.language} testId="language"
           options={[{ value: 'system', label: tz('System', '跟随系统') }, { value: 'english', label: 'English' }, { value: 'simplifiedChinese', label: '简体中文' }]}
           onChange={(v) => set('language', v)} />
       </Row>
@@ -198,7 +199,7 @@ export function SettingsWindow() {
         </div>
         <nav className="v2-panes" aria-label={tz('Settings', '设置')}>
           {PANES.map((p) => <button key={p.id} className={p.id === current.id ? 'on' : ''} aria-current={p.id === current.id || undefined} data-testid={`pane-${p.id}`}
-            onClick={() => settingsStore.getState().set('settingsPane', p.id)}>{p.label()}</button>)}
+            onClick={() => settingsStore.getState().set('settingsPane', p.id)}><G name={p.glyph} /><span>{p.label()}</span></button>)}
         </nav>
         <div className="v2-pane" data-testid={`settings-${current.id}`}>
           <h2>{current.label()}</h2>

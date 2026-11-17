@@ -370,6 +370,8 @@ input {
   top: 0;
   bottom: 0;
 }
+/* v1's grip has no glyph; the v2 window's disc does (v2.css) */
+.compare-handle .v2-g { display: none; }
 .compare-handle {
   position: absolute;
   top: 50%;

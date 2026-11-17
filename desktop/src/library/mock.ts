@@ -47,8 +47,8 @@ function darkroom(): MockLibraryData {
   const all = images.map((i) => i.uuid);
   const collections = [
     coll('all', 'all_images', 'All Photos', images.length, { origin: 'fixed' }),
-    coll('fav', 'smart_album', 'Favourites', images.filter((i) => (i.rating ?? 0) >= 4).length),
-    coll('dev', 'smart_album', 'Developing', 1),
+    coll('fav', 'smart_album', 'Favourites', images.filter((i) => (i.rating ?? 0) >= 4).length, { criteria: { rating: { min: 4 } } }),
+    coll('dev', 'smart_album', 'Developing', 1, { criteria: { state: 'developing' } }),
     coll('recent', 'recent_import', 'Recent Imports', 9, { origin: 'fixed' }),
     coll('table', 'light_table', 'Table', 11),
     coll('roll4', 'light_table', 'Roll 4', 12),

@@ -40,6 +40,10 @@ export interface UiState {
   darkroomTile: DarkroomTile | null;
   /** The Original latched by a short click on the toolbar's Original. */
   originalLatched: boolean;
+  /** The stock cards' pictures cropped to fill the card (the crop-to-card button, PC-E1), or whole. */
+  cardsCropped: boolean;
+  /** Where the filmstrip's frames came from, for its chip (PC-E1: "All Photos · 214"): a library collection, or null for a folder. */
+  stripSource: string | null;
   /** The window's own size in epx (the layout rule reads it). */
   window: { width: number; height: number };
   maximized: boolean;
@@ -61,6 +65,8 @@ export const UI_INITIAL: UiState = {
   adjustTile: 'tone',
   darkroomTile: null,
   originalLatched: false,
+  cardsCropped: true,
+  stripSource: null,
   window: { width: typeof window !== 'undefined' ? window.innerWidth : 1536, height: typeof window !== 'undefined' ? window.innerHeight : 816 },
   maximized: false,
 };

@@ -34,7 +34,7 @@ export function ExportDialog() {
         }
       }}>
       <div className="v2-content-dialog" role="dialog" aria-modal="true" aria-label={tz('Export', '导出')}>
-        <ExportPage />
+        <ExportPage v2 />
       </div>
     </div>
   );

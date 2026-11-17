@@ -9,6 +9,7 @@
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { menuBar, type MenuEntry } from './commands';
+import { Glyph as G } from '../theme/Glyph';
 import { openMenu, setUi, useUi } from './ui';
 import { closeWindow, minimize, toggleMaximize } from './windowChrome';
 import { useSession } from '../state/session';
@@ -35,7 +36,7 @@ export function MenuList({ items, onDone, testId }: { items: MenuEntry[]; onDone
               onPointerEnter={() => setSub(it.submenu)} onClick={() => setSub(sub === it.submenu ? null : it.submenu)}>
               <span className="check" />
               <span className="label">{it.label}</span>
-              <span className="keys">›</span>
+              <span className="keys sub"><G name="chevronRight" /></span>
               {sub === it.submenu && it.items.length > 0 && <div className="v2-submenu"><MenuList items={it.items} onDone={onDone} /></div>}
             </div>
           );
@@ -44,7 +45,7 @@ export function MenuList({ items, onDone, testId }: { items: MenuEntry[]; onDone
           <button key={it.id} className="v2-menu-item" role={it.checked !== undefined ? 'menuitemcheckbox' : 'menuitem'} aria-checked={it.checked}
             disabled={!it.enabled} data-command={it.id} onPointerEnter={() => setSub(null)}
             onClick={() => { onDone(); it.run(); }}>
-            <span className="check">{it.checked ? '✓' : ''}</span>
+            <span className="check">{it.checked ? <G name="check" size={16} /> : ''}</span>
             <span className="label">{it.label}</span>
             {it.keys && <span className="keys">{it.keys}</span>}
           </button>

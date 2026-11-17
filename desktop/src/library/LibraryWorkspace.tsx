@@ -8,14 +8,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { tz } from '../i18n';
-import { WorkspaceSwitch } from '../edit/rails';
+import { V2Section, WorkspaceSwitch } from '../edit/rails';
+import { Glyph as G, type GlyphName } from '../theme/Glyph';
+import type { Collection } from './client';
 import { setLibraryView, setUi, useUi } from '../app/ui';
 import { developFromLibrary, showInExplorer, commands } from '../app/commands';
 import { MenuList } from '../app/TitleBar';
 import type { Layout } from '../app/layout';
-import { addFolder, newAlbum, chooseCollection, closeLibrary, kindWords, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, pick, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
+import { toggleFavourite, addFolder, newAlbum, chooseCollection, closeLibrary, kindWords, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, pick, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
 import type { ImageRow } from './client';
 import { useSession } from '../state/session';
+import { settingsStore, useSettings } from '../state/settings';
+import type { StockCatalog } from '@shared/stocks';
 import { platform } from '../platform';
 
 const DAY = (d: string | null) => (d ? d.slice(0, 10) : '');
@@ -29,16 +33,40 @@ function dayWords(day: string, today = new Date()): [string, string] {
   return [label, date];
 }
 
-function Tile({ img, picked, onClick, onOpen }: { img: ImageRow; picked: boolean; onClick: (e: React.MouseEvent) => void; onOpen: () => void }) {
+/**
+ * A film's dot (PC-L1): the colour the drawing gives each family — a portrait
+ * negative warm, a consumer negative yellow, cine blue, black and white grey.
+ * The same dot marks a FILMS row and a tile developed through that film.
+ */
+export function filmDot(catalog: StockCatalog, film: string): string {
+  const s = catalog.stock(film);
+  if (s?.monochrome || /tri_x|hp5|tmax|t_max|acros|neopan|ilford/.test(film)) return '#8C8A87';
+  if (s?.use === 'cine' || /vision|cinestill/.test(film)) return '#5D8FD8';
+  if (/gold|ultramax|colorplus|c200|superia|xtra/.test(film)) return '#E0B54A';
+  return '#D8A27A';
+}
+
+/** A frame's picture until the helper serves previews (PARITY.md): a tone of its own, the same in the grid and the Info well. */
+function picture(uuid: string): string {
+  const hue = [...uuid].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+  return `linear-gradient(160deg, hsl(${hue} 22% 34%), hsl(${(hue + 40) % 360} 18% 14%))`;
+}
+
+/**
+ * A tile of the grid (PC-L1): the picture edge to edge in its cell, a small
+ * dot at its foot for the film it was developed through, a white ring when
+ * picked. No hearts: Favourites is a row of the sidebar.
+ */
+function Tile({ img, picked, film, onClick, onOpen }: { img: ImageRow; picked: boolean; film: string | null; onClick: (e: React.MouseEvent) => void; onOpen: () => void }) {
   const offline = img.exists === false;
-  const hue = [...img.uuid].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
+  const catalog = useSession((s) => s.catalog);
   return (
     <button className={'v2-lib-tile' + (picked ? ' picked' : '') + (offline ? ' offline' : '')} data-testid="library-tile" data-uuid={img.uuid}
       aria-pressed={picked} aria-label={`${img.file_name}${offline ? `, ${tz('Offline', '离线')}` : ''}${picked ? `, ${tz('selected', '已选中')}` : ''}`}
       onClick={onClick} onDoubleClick={onOpen}>
-      <span className="v2-lib-pic" style={{ background: `linear-gradient(160deg, hsl(${hue} 22% 34%), hsl(${(hue + 40) % 360} 18% 14%))` }} />
+      <span className="v2-lib-pic" style={{ background: picture(img.uuid) }} />
       {offline && <span className="v2-offline">{tz('Offline', '离线')}</span>}
-      {(img.rating ?? 0) >= 4 && <span className="v2-fav" aria-hidden>♥</span>}
+      {film && !offline && <i className="v2-lib-dot" style={{ background: filmDot(catalog, film) }} title={catalog.stock(film)?.name ?? film} />}
     </button>
   );
 }
@@ -52,7 +80,7 @@ function SourceMenu() {
     <div className="v2-menu-drop source" data-testid="source-menu">
       <div className="v2-menu-caption">{tz('Recent', '最近')}</div>
       <MenuList onDone={done} items={[
-        ...s.recent.map((r, i) => ({ id: `r${i}`, label: r.name, enabled: true, run: () => void openLibrary(r.path) })),
+        ...s.recent.map((r, i) => ({ id: `r${i}`, label: r.name, enabled: true, checked: r.path === s.source?.info.path, run: () => void openLibrary(r.path) })),
         { separator: true },
         { ...k.newCatalog!, run: () => void newLibrary('catalog') }, { ...k.newSession!, run: () => void newLibrary('session') },
         { ...k.openLibrary!, run: () => void openLibraryDialog() }, { ...k.openCaptureOne!, run: () => void openCaptureOneDialog() },
@@ -72,10 +100,14 @@ function SourceWell() {
   return (
     <div className="v2-source-wrap">
       <button className="v2-source-well" data-testid="source-well" aria-haspopup="menu" aria-expanded={s.sourceMenu} onClick={() => setLibrary({ sourceMenu: !s.sourceMenu })}>
-        <span className="v2-source-name">{src ? src.info.name : tz('No library open', '没有打开的图库')}</span>
-        <span className="v2-source-kind">{src ? `${kindWords(src.kind)} · ${tz(`${src.info.counts.images} photos`, `${src.info.counts.images} 张照片`)}` : ''}</span>
-        {src?.readOnly && <span className="v2-readonly">🔒 {tz('Read-only', '只读')}</span>}
-        {s.progress && <span className="v2-source-kind">{s.progress}</span>}
+        <span className="v2-source-icon"><G name={src?.kind === 'folder' ? 'folder' : 'library'} /></span>
+        <span className="v2-source-words">
+          <span className="v2-source-name">{src ? src.info.name : tz('No library open', '没有打开的图库')}</span>
+          <span className="v2-source-kind">{src ? `${kindWords(src.kind)} · ${tz(`${src.info.counts.images} photos`, `${src.info.counts.images} 张照片`)}` : ''}</span>
+          {src?.readOnly && <span className="v2-readonly"><G name="lock" />{tz('Read-only', '只读')}</span>}
+          {s.progress && <span className="v2-source-kind">{s.progress}</span>}
+        </span>
+        <span className="v2-source-switch"><G name="sourceSwitch" /></span>
       </button>
       <SourceMenu />
     </div>
@@ -90,9 +122,26 @@ const SECTION_WORDS: Record<string, () => string> = {
   FOLDERS: () => tz('FOLDERS', '文件夹'), FILMS: () => tz('FILMS', '胶片'), SESSION: () => tz('SESSION', '会话'), CATALOG: () => tz('CATALOG', '目录'), FOLDER: () => tz('FOLDER', '文件夹'),
 };
 
+/** A sidebar row's glyph (PC-L1), by what the row is. */
+function rowGlyph(c: Collection, i: number): GlyphName {
+  const k = (c.criteria ?? {}) as Record<string, unknown>;
+  if (c.kind === 'recent_import') return 'recentImports';
+  if (c.kind === 'folder' || c.kind === 'session_folder') return 'folder';
+  if (c.kind === 'light_table') return i === 0 && !c.parent ? 'table' : 'collection';
+  if (c.kind === 'smart_album' && 'rating' in k) return 'heart';
+  if (c.kind === 'smart_album' && 'state' in k) return 'developing';
+  return 'collection';
+}
+const filmOfRow = (c: Collection): string | null => {
+  const f = c.kind === 'smart_album' ? (c.criteria as Record<string, unknown> | null)?.film : null;
+  return typeof f === 'string' ? f : null;
+};
+
 function Sidebar() {
   const s = useLibrary((x) => x);
   const view = useUi((u) => u.libraryView);
+  const catalog = useSession((x) => x.catalog);
+  const folded = useSettings((x) => x.collapsedSections);
   const groups = useMemo(() => {
     const out = new Map<string, LibraryState['collections']>();
     for (const c of s.collections) {
@@ -111,25 +160,39 @@ function Sidebar() {
       <div className="v2-rail-fixed"><WorkspaceSwitch /><SourceWell /></div>
       <div className="v2-rail-scroll">
         {!s.source && s.recent.length > 0 && <div className="v2-lib-group" data-testid="recent-libraries">
-          <div className="v2-caps">{tz('RECENT', '最近')}</div>
-          {s.recent.map((r) => <button key={r.path} className="v2-lib-row" onClick={() => void openLibrary(r.path)}><span>{r.name}</span><span className="dim">{kindWords(r.kind)}</span></button>)}
+          <div className="v2-caps"><span>{tz('RECENT', '最近')}</span><G name="capsChevron" /></div>
+          {s.recent.map((r) => (
+            <button key={r.path} className="v2-lib-row" onClick={() => void openLibrary(r.path)}>
+              <span className="v2-row-icon"><G name={r.kind === 'captureOneSession' ? 'captureOne' : r.kind === 'folder' ? 'folder' : 'library'} /></span>
+              <span className="v2-row-name">{r.name}</span><span className="v2-row-count">{kindWords(r.kind)}</span>
+            </button>
+          ))}
         </div>}
-        {groups.map(([sec, cs]) => (
-          <div key={sec} className="v2-lib-group">
-            <div className="v2-caps">{SECTION_WORDS[sec]?.() ?? sec}</div>
-            {cs.map((c) => (
-              <button key={c.uuid} className={'v2-lib-row' + (s.collection === c.uuid && view === 'grid' ? ' on' : '') + (c.parent ? ' child' : '')} data-testid={`collection-${c.uuid}`}
-                onClick={() => { if (c.kind === 'light_table') { void chooseCollection(c.uuid); setLibraryView('lightTable'); } else { setLibraryView('grid'); void chooseCollection(c.uuid); } }}>
-                <span>{c.title}</span>
-                <span className={'dim' + (s.offline.includes(c.uuid) ? ' danger' : '')}>{s.offline.includes(c.uuid) ? tz('Offline', '离线') : c.image_count ?? ''}</span>
+        {groups.map(([sec, cs]) => {
+          const closed = !!folded[`lib.${sec}`];
+          return (
+            <div key={sec} className="v2-lib-group">
+              <button className="v2-caps" aria-expanded={!closed} onClick={() => settingsStore.getState().toggleSection(`lib.${sec}`)}>
+                <span>{SECTION_WORDS[sec]?.() ?? sec}</span><G name={closed ? 'chevronRight' : 'capsChevron'} />
               </button>
-            ))}
-            {sec === 'COLLECTIONS' && !s.source?.readOnly && <button className="v2-lib-row add" onClick={() => void newAlbum()}>{tz('New Album', '新建相簿')}</button>}
-            {sec === 'LIGHT TABLE' && <button className="v2-lib-row add" onClick={() => setLibraryView('contactSheet')} data-testid="new-contact-sheet">{tz('New Contact Sheet', '新建印样')}</button>}
-          </div>
-        ))}
+              {!closed && cs.map((c, i) => {
+                const film = filmOfRow(c);
+                return (
+                  <button key={c.uuid} className={'v2-lib-row' + (s.collection === c.uuid && view === 'grid' ? ' on' : '') + (c.parent ? ' child' : '')} data-testid={`collection-${c.uuid}`}
+                    onClick={() => { if (c.kind === 'light_table') { void chooseCollection(c.uuid); setLibraryView('lightTable'); } else { setLibraryView('grid'); void chooseCollection(c.uuid); } }}>
+                    <span className="v2-row-icon">{film ? <i className="v2-film-dot" style={{ background: filmDot(catalog, film) }} /> : <G name={rowGlyph(c, i)} />}</span>
+                    <span className="v2-row-name">{c.title}</span>
+                    <span className={'v2-row-count' + (s.offline.includes(c.uuid) ? ' danger' : '')}>{s.offline.includes(c.uuid) ? tz('Offline', '离线') : c.image_count ?? ''}</span>
+                  </button>
+                );
+              })}
+              {!closed && sec === 'COLLECTIONS' && !s.source?.readOnly && <button className="v2-lib-row add" onClick={() => void newAlbum()} data-testid="new-album">{tz('New Album', '新建相簿')}</button>}
+              {!closed && sec === 'LIGHT TABLE' && <button className="v2-lib-row add" onClick={() => setLibraryView('contactSheet')} data-testid="new-contact-sheet">{tz('New Contact Sheet', '新建印样')}</button>}
+            </div>
+          );
+        })}
         {s.source && <div className="v2-lib-group">
-          <div className="v2-caps">{tz('FILTERS', '筛选')}</div>
+          <div className="v2-caps"><span>{tz('FILTERS', '筛选')}</span><G name="capsChevron" /></div>
           <input className="v2-search" data-testid="library-search" placeholder={tz('Search', '搜索')} value={s.search} onChange={(e) => void setSearch(e.target.value)} />
         </div>}
       </div>
@@ -143,10 +206,10 @@ function FirstRun() {
       <div className="v2-first-art" aria-hidden><i /><i /><i /></div>
       <h1>{tz('An empty darkroom', '空的暗房')}</h1>
       <div className="v2-first-buttons">
-        <button className="v2-button" data-testid="first-new-catalog" onClick={() => void newLibrary('catalog')}>{tz('New Catalog…', '新建目录…')}</button>
-        <button className="v2-button" data-testid="first-open-library" onClick={() => void openLibraryDialog()}>{tz('Open Library…', '打开图库…')}</button>
-        <button className="v2-button" data-testid="first-open-c1" onClick={() => void openCaptureOneDialog()}>{tz('Open Capture One Catalog…', '打开 Capture One 目录…')}</button>
-        <button className="v2-button" data-testid="first-add-folder" onClick={() => void addFolder()}>{tz('Add a Folder…', '添加文件夹…')}</button>
+        <button className="v2-button" data-testid="first-new-catalog" onClick={() => void newLibrary('catalog')}><G name="library" /><span>{tz('New Catalog…', '新建目录…')}</span></button>
+        <button className="v2-button" data-testid="first-open-library" onClick={() => void openLibraryDialog()}><G name="folder" /><span>{tz('Open Library…', '打开图库…')}</span></button>
+        <button className="v2-button" data-testid="first-open-c1" onClick={() => void openCaptureOneDialog()}><G name="captureOne" /><span>{tz('Open Capture One Catalog…', '打开 Capture One 目录…')}</span></button>
+        <button className="v2-button" data-testid="first-add-folder" onClick={() => void addFolder()}><G name="addFolder" /><span>{tz('Add a Folder…', '添加文件夹…')}</span></button>
       </div>
       <p className="dim v2-drop-hint">{tz('Drop a folder or pictures here.', '把文件夹或照片拖到这里。')}</p>
     </div>
@@ -155,13 +218,14 @@ function FirstRun() {
 
 function Grid() {
   const s = useLibrary((x) => x);
+  const tile = useSettings((x) => x.libraryTile);
   const groups = useMemo(() => {
     const m = new Map<string, ImageRow[]>();
     for (const i of s.images) m.set(DAY(i.captured_local), [...(m.get(DAY(i.captured_local)) ?? []), i]);
     return [...m.entries()];
   }, [s.images]);
   return (
-    <div className="v2-lib-grid" data-testid="library-grid">
+    <div className="v2-lib-grid" data-testid="library-grid" style={{ ['--v2-lib-tile' as string]: `${tile}px` }}>
       {s.source?.readOnly && s.message && <div className="v2-infobar soft" role="status" data-testid="library-message">{s.message}</div>}
       {groups.map(([day, rows]) => {
         const [label, date] = dayWords(day);
@@ -169,7 +233,7 @@ function Grid() {
           <section key={day} className="v2-day">
             <div className="v2-day-head"><b>{label}</b><span className="dim">{date}</span><span className="dim count">{rows.length}</span></div>
             <div className="v2-day-tiles">
-              {rows.map((img) => <Tile key={img.uuid} img={img} picked={s.picked.includes(img.uuid)}
+              {rows.map((img) => <Tile key={img.uuid} img={img} picked={s.picked.includes(img.uuid)} film={s.filmOf[img.uuid] ?? null}
                 onClick={(e) => pick(img.uuid, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
                 onOpen={() => { pick(img.uuid); void developFromLibrary(); }} />)}
             </div>
@@ -184,12 +248,19 @@ function Info() {
   const s = useLibrary((x) => x);
   const clip = useSession((x) => x.clipboard);
   const f = s.images.find((i) => i.uuid === s.focus);
+  const catalog = useSession((x) => x.catalog);
   const c1 = s.source?.kind === 'captureOneCatalog' || s.source?.kind === 'captureOneSession';
   if (s.picked.length > 1) {
     return (
       <div className="v2-info-body" data-testid="info-picked">
-        <div className="v2-info-line">{tz(`${s.picked.length} frames`, `${s.picked.length} 张`)}</div>
-        {clip && <div className="v2-info-line dim">{tz('Clipboard', '剪贴板')}: {clip.sourceName}</div>}
+        <div className="v2-info-line count">{tz(`${s.picked.length} frames`, `${s.picked.length} 张`)}</div>
+        <div className="v2-info-line dim small">{clip ? `${tz('Clipboard', '剪贴板')}: ${clip.sourceName}` : tz('Clipboard: empty', '剪贴板：空')}</div>
+        <div className="v2-info-actions">
+          <button className="v2-button" data-testid="paste-picked" disabled={!clip || !!s.source?.readOnly}
+            title={!clip ? tz('Copy settings from a frame first (Ctrl+Shift+C).', '请先从一张照片拷贝设置（Ctrl+Shift+C）。') : undefined}
+            onClick={() => void developFromLibrary().then(() => commands().pasteSettings?.run())}>{tz(`Paste to ${s.picked.length}`, `粘贴到 ${s.picked.length} 张`)}</button>
+          <button className="v2-button" data-testid="favourite-picked" disabled={!!s.source?.readOnly} onClick={() => void toggleFavourite()}>♡  {tz('Favourite', '收藏')}</button>
+        </div>
         <div className="v2-info-foot">
           <button className="v2-button" onClick={() => void developFromLibrary().then(() => setUi({}))}>{tz(`Export ${s.picked.length}`, `导出 ${s.picked.length} 张`)}</button>
           <button className="v2-button accent" data-testid="develop-picked" onClick={() => void developFromLibrary()}>{tz(`Develop ${s.picked.length}`, `冲洗 ${s.picked.length} 张`)}  ↵</button>
@@ -199,25 +270,25 @@ function Info() {
   }
   if (!f) return <div className="v2-info-body" data-testid="info-empty"><div className="v2-info-well empty"><span className="dim">{tz('No selection', '未选择')}</span></div></div>;
   const ex = f.exposure;
-  const Sec = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <section className="v2-info-sec"><div className="v2-info-head">{title}</div><dl className="v2-info-rows">{children}</dl></section>
+  const Sec = ({ id, title, children }: { id: string; title: string; children: React.ReactNode }) => (
+    <V2Section id={`info-${id}`} title={title} more={false}><dl className="v2-info-rows">{children}</dl></V2Section>
   );
   return (
     <div className="v2-info-body" data-testid="info-one">
-      <div className="v2-info-well" />
-      <Sec title={tz('File', '文件')}>
+      <div className="v2-info-well"><span className="v2-info-pic" style={{ background: picture(f.uuid) }} /></div>
+      <Sec id="file" title={tz('File', '文件')}>
         <dt>{tz('Name', '名称')}</dt><dd>{f.file_name}</dd>
         <dt>{tz('Folder', '文件夹')}</dt><dd>{f.path.replace(/[\\/][^\\/]+$/, '').replace(/\//g, '\\').replace(/^C:\\Users\\[^\\]+\\/, '')}</dd>
         <dt>{tz('Dimensions', '尺寸')}</dt><dd>{f.width && f.height ? `${f.width.toLocaleString('en')} × ${f.height.toLocaleString('en')}  ·  ${Math.round((f.width * f.height) / 1e6)} MP` : '—'}</dd>
       </Sec>
-      <Sec title={tz('Capture', '拍摄')}>
+      <Sec id="capture" title={tz('Capture', '拍摄')}>
         <dt>{tz('Camera', '相机')}</dt><dd>{f.camera?.model ?? '—'}</dd>
         <dt>{tz('Exposure', '曝光')}</dt><dd>{ex ? `${ex.shutter} s · f/${ex.aperture} · ISO ${ex.iso}` : '—'}</dd>
-        <dt>{tz('Taken', '拍摄时间')}</dt><dd>{f.captured_local?.replace('T', ' ').slice(0, 16) ?? '—'}</dd>
+        <dt>{tz('Taken', '拍摄时间')}</dt><dd>{takenWords(f.captured_local)}</dd>
       </Sec>
-      <Sec title={c1 ? 'Capture One' : 'SpektraLab'}>
+      <Sec id="app" title={c1 ? 'Capture One' : 'SpektraLab'}>
         {c1 ? <><dt>{tz('Rating', '评分')}</dt><dd>{'★'.repeat(f.rating ?? 0)}{'☆'.repeat(5 - (f.rating ?? 0))}</dd><dt>{tz('Adjustments', '调整')}</dt><dd>{tz('Stay in Capture One', '保留在 Capture One 中')}</dd></>
-          : <><dt>{tz('Print', '印放')}</dt><dd>{f.variants[0]?.edit_revision ? tz('Developed', '已冲洗') : '—'}</dd><dt>{tz('Variants', '变体')}</dt><dd>{tz(`1 of ${f.variants.length}`, `1 / ${f.variants.length}`)}</dd></>}
+          : <><dt>{tz('Print', '印放')}</dt><dd>{s.filmOf[f.uuid] ? catalog.stock(s.filmOf[f.uuid]!)?.name.replace(/^(Kodak|Fujifilm|Ilford|Fuji) (Professional )?/, '') ?? '—' : f.variants[0]?.edit_revision ? tz('Developed', '已冲洗') : '—'}</dd><dt>{tz('Variants', '变体')}</dt><dd>{tz(`1 of ${f.variants.length}`, `1 / ${f.variants.length}`)}</dd></>}
       </Sec>
       <div className="v2-info-foot">
         {c1 && <button className="v2-button" disabled title={tz('Not on this computer', '此电脑上不可用')}>{tz('Open in Capture One', '在 Capture One 中打开')}</button>}
@@ -268,12 +339,59 @@ function ContactSheet() {
         <div className="v2-sheet portrait">
           {strips.map((row, r) => (
             <div key={r} className="v2-strip-135">
-              {row.map((f, i) => <div key={f.uuid} className="v2-strip-frame"><small>{r * 6 + i + 1}</small><span className="edge">KODA PORTA 400</span><small>▸{r * 6 + i + 1}A</small></div>)}
+              {row.map((f, i) => <div key={f.uuid} className="v2-strip-frame"><small>{r * 6 + i + 1}</small><span className="edge" aria-hidden="true" data-fit="scale">KODA PORTA 400</span><small>▸{r * 6 + i + 1}A</small></div>)}
             </div>
           ))}
         </div>
       </div>
       <div className="v2-lt-foot"><span className="dim">{tz(`Roll 4  ·  135  ·  ${frames.length} of 36  ·  Porta 400`, `第 4 卷  ·  135  ·  ${frames.length} / 36  ·  Porta 400`)}</span></div>
+    </div>
+  );
+}
+
+/** "23 Oct 2026, 16:42" (PC-L1), in the interface's language. */
+function takenWords(local: string | null | undefined): string {
+  if (!local) return '—';
+  const d = new Date(local.length > 10 ? local : `${local}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return local;
+  const date = d.toLocaleDateString(tz('en-GB', 'zh-CN'), { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${date}, ${local.slice(11, 16)}`;
+}
+
+/**
+ * The Library's toolbar (PC-L1): the sidebar's toggle; where you are (the
+ * source › the collection) over the count; Import; the sort capsule; the
+ * tile size; grid or list; the Info rail's toggle.
+ */
+function LibraryToolbar({ layout }: { layout: Layout }) {
+  const s = useLibrary((x) => x);
+  const view = useUi((u) => u.libraryView);
+  const tile = useSettings((x) => x.libraryTile);
+  const src = s.source;
+  const collection = s.collections.find((c) => c.uuid === s.collection);
+  const k = commands();
+  const where = view === 'grid' ? collection?.title ?? '' : view === 'lightTable' ? tz('Table', '看片台') : tz('Contact Sheet', '印样');
+  const count = s.picked.length > 1 ? tz(`${s.picked.length} Selected`, `已选 ${s.picked.length} 张`)
+    : tz(`${s.total} photos${s.picked.length ? '  ·  1 selected' : ''}`, `${s.total} 张照片${s.picked.length ? '  ·  已选 1 张' : ''}`);
+  return (
+    <div className="v2-toolbar lib" data-testid="library-toolbar">
+      <button className="v2-glyph" title={`${tz('Sidebar', '边栏')} (F7)`} aria-label={tz('Sidebar', '边栏')} aria-pressed={layout.left !== 'hidden'} onClick={() => k.developRail!.run()} data-testid="lib-left-rail"><G name="dockLeft" /></button>
+      <div className="v2-crumb">
+        {src ? <div className="v2-crumb-line"><span className="v2-crumb-source">{src.info.name}</span><G name="crumb" /><b>{where}</b>
+          {src.readOnly && <span className="v2-readonly"><G name="lock" />{tz('Read-only', '只读')}</span>}</div> : null}
+        {src && <div className="v2-crumb-count">{count}</div>}
+      </div>
+      <button className="v2-glyph" title={tz('Import', '导入')} aria-label={tz('Import', '导入')} disabled={!src || src.readOnly} onClick={() => k.import!.run()} data-testid="lib-import"><G name="import" /></button>
+      {view === 'grid' && <>
+        <span className={'v2-pill sort' + (src ? '' : ' off')} title={tz('Sorted by Capture Date', '按拍摄日期排序')}><span>{tz('Capture Date', '拍摄日期')}</span><G name="dropDown" /></span>
+        <input className="v2-size-slider" type="range" min={96} max={240} step={1} value={tile} disabled={!src} aria-label={tz('Thumbnail Size', '缩略图大小')} data-testid="lib-size"
+          onChange={(e) => settingsStore.getState().set('libraryTile', Number(e.target.value))} />
+        <div className="v2-seg-glyphs" role="radiogroup" aria-label={tz('View', '视图')}>
+          <button role="radio" aria-checked className="on" title={tz('Grid', '网格')} aria-label={tz('Grid', '网格')} disabled={!src}><G name="gridView" /></button>
+          <button role="radio" aria-checked={false} disabled title={tz('List', '列表')} aria-label={tz('List', '列表')}><G name="listView" /></button>
+        </div>
+      </>}
+      <button className="v2-glyph" title={`${tz('Info', '信息')} (F8)`} aria-label={tz('Info', '信息')} aria-pressed={layout.right !== 'hidden'} onClick={() => k.editRail!.run()} data-testid="lib-right-rail"><G name="dockRight" /></button>
     </div>
   );
 }
@@ -285,7 +403,6 @@ export function LibraryWorkspace({ layout }: { layout: Layout }) {
   const [dragOver, setDragOver] = useState(false);
   useEffect(() => platform().onDrop((paths) => { if (paths.length) void (s.source ? addFolder(paths[0]) : addFolder(paths[0])); }), [s.source]);
   const src = s.source;
-  const collection = s.collections.find((c) => c.uuid === s.collection);
   const fullActual = view === 'lightTable' && actual;
   // The light table and the contact sheet take the Info rail's room as well (PC-T1, PC-K1).
   const sheet = view !== 'grid';
@@ -293,14 +410,7 @@ export function LibraryWorkspace({ layout }: { layout: Layout }) {
     <div className={'v2-body library' + (dragOver ? ' drop' : '')} data-testid="library" onDragOver={() => setDragOver(true)} onDragLeave={() => setDragOver(false)}>
       {!fullActual && layout.left !== 'hidden' && <Sidebar />}
       <main className={'v2-centre' + (sheet ? ' sheet' : '')} style={fullActual ? { left: 0, width: '100%' } : undefined} data-testid="library-centre">
-        <div className="v2-toolbar lib">
-          <div className="v2-crumb">
-            {src ? <><span className="dim">{src.info.name}</span><b>{view === 'grid' ? collection?.title ?? '' : view === 'lightTable' ? tz('Table', '看片台') : tz('Contact Sheet', '印样')}</b>
-              {src.readOnly && <span className="v2-readonly">🔒 {tz('Read-only', '只读')}</span>}</> : null}
-            <div className="dim small">{s.picked.length > 1 ? tz(`${s.picked.length} Selected`, `已选 ${s.picked.length} 张`) : tz(`${s.total} photos${s.picked.length ? '  ·  1 selected' : ''}`, `${s.total} 张照片${s.picked.length ? '  ·  已选 1 张' : ''}`)}</div>
-          </div>
-          {src && view === 'grid' && <span className="v2-pill">{tz('Capture Date', '拍摄日期')} ▾</span>}
-        </div>
+        <LibraryToolbar layout={layout} />
         {!src ? <FirstRun /> : view === 'lightTable' ? <LightTable actual={actual} /> : view === 'contactSheet' ? <ContactSheet /> : <Grid />}
       </main>
       {!sheet && <aside className="v2-info" data-testid="info-rail">

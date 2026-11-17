@@ -9,7 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { tz } from '../i18n';
 import { Canvas } from '../canvas/Canvas';
 import { Filmstrip } from '../windows/Filmstrip';
-import { ChevronLeft, ChevronRight, Crop, BeforeAfter, Ellipsis, Export, SidebarLeft, SidebarRight } from '../controls/icons';
+import { Glyph as G } from '../theme/Glyph';
 import {
   copySettings, requestPrint, sessionStore, setOriginal, setPages, setTool, toggleCompare, useSession, zoomTo, zoomToFit, selectRelative,
   resetCrop,
@@ -108,10 +108,10 @@ export function Toolbar({ layout }: { layout: Layout }) {
   return (
     <div className="v2-toolbar" data-testid="toolbar" role="toolbar" aria-label={tz('Toolbar', '工具栏')}>
       <div className="v2-tb-lead">
-        <Glyph label={tz('Develop Rail', '冲洗栏')} keys="F7" on={left === 'docked' || left === 'over'} onClick={() => toggleRailCommand('left')} testId="tb-left-rail"><SidebarLeft /></Glyph>
+        <Glyph label={tz('Develop Rail', '冲洗栏')} keys="F7" on={left === 'docked' || left === 'over'} onClick={() => toggleRailCommand('left')} testId="tb-left-rail"><G name="dockLeft" /></Glyph>
         {!layout.overflow.navCompareTitle && <>
-          <Glyph label={tz('Previous Frame', '上一张')} keys="←" disabled={s.frames.length < 2} onClick={() => selectRelative(-1)} testId="tb-prev"><ChevronLeft /></Glyph>
-          <Glyph label={tz('Next Frame', '下一张')} keys="→" disabled={s.frames.length < 2} onClick={() => selectRelative(1)} testId="tb-next"><ChevronRight /></Glyph>
+          <Glyph label={tz('Previous Frame', '上一张')} keys="←" disabled={s.frames.length < 2} onClick={() => selectRelative(-1)} testId="tb-prev"><G name="back" /></Glyph>
+          <Glyph label={tz('Next Frame', '下一张')} keys="→" disabled={s.frames.length < 2} onClick={() => selectRelative(1)} testId="tb-next"><G name="forward" /></Glyph>
         </>}
         <div className="v2-tb-title">
           <div className="v2-frame-title" data-testid="frame-title">{title}</div>
@@ -123,7 +123,7 @@ export function Toolbar({ layout }: { layout: Layout }) {
       <div className="v2-tb-mid">
         {!layout.overflow.zoomCropOriginal && <>
           <div className="v2-zoom">
-            <button className="v2-pill" data-testid="tb-zoom" disabled={!s.selection} onClick={() => setZoomMenu(!zoomMenu)}>{pct} ▾</button>
+            <button className="v2-pill zoom" data-testid="tb-zoom" disabled={!s.selection} onClick={() => setZoomMenu(!zoomMenu)}><span>{pct}</span><G name="dropDown" /></button>
             {zoomMenu && <div className="v2-menu-drop" onPointerLeave={() => setZoomMenu(false)}>
               <MenuList onDone={() => setZoomMenu(false)} items={[
                 { id: 'zfit', label: tz('Fit', '适合'), run: zoomToFit, enabled: true, checked: s.view.fit },
@@ -131,19 +131,17 @@ export function Toolbar({ layout }: { layout: Layout }) {
               ]} />
             </div>}
           </div>
-          <Glyph label={tz('Crop', '裁剪')} keys="C" on={s.tool === 'crop'} disabled={!s.selection} onClick={() => setTool(s.tool === 'crop' ? 'select' : 'crop')} testId="tb-crop"><Crop /></Glyph>
+          <Glyph label={tz('Crop', '裁剪')} keys="C" on={s.tool === 'crop'} disabled={!s.selection} onClick={() => setTool(s.tool === 'crop' ? 'select' : 'crop')} testId="tb-crop"><G name="crop" /></Glyph>
           <OriginalButton />
         </>}
-        {!layout.overflow.navCompareTitle && <Glyph label={tz('Compare', '对比')} keys="Y" on={s.comparing} disabled={!s.selection} onClick={toggleCompare} testId="tb-compare"><BeforeAfter /></Glyph>}
+        {!layout.overflow.navCompareTitle && <Glyph label={tz('Compare', '对比')} keys="Y" on={s.comparing} disabled={!s.selection} onClick={toggleCompare} testId="tb-compare"><G name="compare" /></Glyph>}
       </div>
       <div className="v2-tb-trail">
         <div className="v2-more">
-          <Glyph label={tz('More', '更多')} on={more} onClick={() => setUi({ moreOpen: !more, menu: null })} testId="tb-more"><Ellipsis /></Glyph>
+          <Glyph label={tz('More', '更多')} on={more} onClick={() => setUi({ moreOpen: !more, menu: null })} testId="tb-more"><G name="more" /></Glyph>
           {more && <div className="v2-menu-drop right" data-testid="more-menu"><MenuList items={overflowItems} onDone={() => setUi({ moreOpen: false })} /></div>}
         </div>
-        {!layout.overflow.navCompareTitle && <Glyph label={tz('Paste Settings', '粘贴设置')} keys="Ctrl+Shift+V" disabled={!k.pasteSettings!.enabled} onClick={k.pasteSettings!.run} testId="tb-paste">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><rect x="3.5" y="3.5" width="9" height="11" rx="1" /><path d="M6 3.5V2h4v1.5" /></svg>
-        </Glyph>}
+        {!layout.overflow.navCompareTitle && <Glyph label={tz('Paste Settings', '粘贴设置')} keys="Ctrl+Shift+V" disabled={!k.pasteSettings!.enabled} onClick={k.pasteSettings!.run} testId="tb-paste"><G name="paste" /></Glyph>}
         <div className="v2-export-wrap">
           {s.batchExporting && run.progress ? (
             <button className="v2-export running" data-testid="export-ring" onClick={() => setUi({ exportFlyout: !exportFlyout })}
@@ -153,12 +151,12 @@ export function Toolbar({ layout }: { layout: Layout }) {
             </button>
           ) : (
             <button className="v2-export" data-testid="export-button" disabled={!printed || s.batchExporting || s.hostState.phase !== 'ready'} onClick={() => setPages({ exportOpen: true })} title={`${tz('Export', '导出')} (Ctrl+E)`}>
-              <Export /><span>{tz('Export', '导出')}</span>
+              <span>{tz('Export', '导出')}</span>
             </button>
           )}
           <ExportingFlyout />
         </div>
-        <Glyph label={tz('Edit Rail', '编辑栏')} keys="F8" on={right === 'docked' || right === 'over'} onClick={() => toggleRailCommand('right')} testId="tb-right-rail"><SidebarRight /></Glyph>
+        <Glyph label={tz('Edit Rail', '编辑栏')} keys="F8" on={right === 'docked' || right === 'over'} onClick={() => toggleRailCommand('right')} testId="tb-right-rail"><G name="dockRight" /></Glyph>
       </div>
     </div>
   );
@@ -212,10 +210,10 @@ function PictureMenu() {
   return (
     <div className="v2-flyout" style={{ left: at.x, top: at.y }} data-testid="picture-menu" onPointerDown={(e) => e.stopPropagation()}>
       <div className="v2-flyout-bar">
-        <Glyph label={tz('Copy Settings', '拷贝设置')} onClick={() => { close(); copySettings(); }}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><rect x="5.5" y="5.5" width="8" height="8" rx="1" /><path d="M3 10.5V3a.5.5 0 0 1 .5-.5H10" /></svg></Glyph>
-        <Glyph label={tz('Paste Settings', '粘贴设置')} disabled={!k.pasteSettings!.enabled} onClick={() => { close(); k.pasteSettings!.run(); }}><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><rect x="3.5" y="3.5" width="9" height="11" rx="1" /><path d="M6 3.5V2h4v1.5" /></svg></Glyph>
-        <Glyph label={tz('Compare', '对比')} onClick={() => { close(); toggleCompare(); }}><BeforeAfter /></Glyph>
-        <Glyph label={tz('Export', '导出')} disabled={!k.export!.enabled} onClick={() => { close(); setPages({ exportOpen: true }); }}><Export /></Glyph>
+        <Glyph label={tz('Copy Settings', '拷贝设置')} onClick={() => { close(); copySettings(); }}><G name="copy" /></Glyph>
+        <Glyph label={tz('Paste Settings', '粘贴设置')} disabled={!k.pasteSettings!.enabled} onClick={() => { close(); k.pasteSettings!.run(); }}><G name="paste" /></Glyph>
+        <Glyph label={tz('Compare', '对比')} onClick={() => { close(); toggleCompare(); }}><G name="compare" /></Glyph>
+        <Glyph label={tz('Export', '导出')} disabled={!k.export!.enabled} onClick={() => { close(); setPages({ exportOpen: true }); }}><G name="export" /></Glyph>
       </div>
       <MenuList onDone={close} items={[k.zoomFit!, k.zoom100!, { separator: true }, { ...k.resetCrop!, label: tz('Reset Crop', '重置裁剪'), run: resetCrop }, { ...k.showInExplorer!, run: showInExplorer }]} />
     </div>
@@ -276,7 +274,7 @@ export function Picture({ layout }: { layout: Layout }) {
     <div className="v2-picture" ref={ref} data-testid="picture"
       onContextMenu={(e) => { e.preventDefault(); const r = ref.current!.getBoundingClientRect(); setUi({ pictureMenu: { x: e.clientX - r.left, y: e.clientY - r.top }, moreOpen: false, menu: null }); }}
       onPointerDown={() => { if (layout.left === 'over' || layout.right === 'over') setUi({ overlay: null }); }}>
-      <Canvas />
+      <Canvas fitMargin={18} />
       <FailedBar />
       <EngineStopped />
       <EmbeddedCapsule />
@@ -286,8 +284,18 @@ export function Picture({ layout }: { layout: Layout }) {
   );
 }
 
+/** The filmstrip (PC-E1): the frames centred, and at its left a chip naming where they came from and how many. */
 export function FilmstripBand() {
-  return <div className="v2-filmstrip" data-testid="v2-filmstrip"><Filmstrip cellHeight={56} /></div>;
+  const frames = useSession((s) => s.frames);
+  const source = useUi((u) => u.stripSource);
+  const folder = frames[0] ? baseName(frames[0].path.replace(/[\\/][^\\/]*$/, '')) : '';
+  const name = source ?? folder;
+  return (
+    <div className="v2-filmstrip" data-testid="v2-filmstrip">
+      {frames.length > 0 && <span className="v2-strip-chip" data-testid="strip-chip">{name ? `${name}  ·  ${frames.length}` : String(frames.length)}</span>}
+      <Filmstrip cellHeight={56} />
+    </div>
+  );
 }
 
 export { host };
