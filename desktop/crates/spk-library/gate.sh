@@ -2,12 +2,12 @@
 # gate.sh -- the spk-library / spklib Mac gate (PRD-W3 T-B1..T-B5). Exit 0 only
 # if every step passed. No step is skipped: a missing variable or tool fails.
 #
-#   SPKLIB_SRC=<clone of SpektraLab_library on windows/cross-compile-2026-11-17> \
+#   SPKLIB_SRC=<clone of SpektraLab_library on windows/cross-compile-2026-11-17-on-0.4.0> \
 #   LLVM_MINGW=<llvm-mingw UCRT toolchain folder> \
 #   desktop/crates/spk-library/gate.sh
 #
 # T-B1  the SDK's own tests on the Mac (./build.sh test): every check passes,
-#       and there are at least SPKLIB_EXPECT_CHECKS of them (560: 0.3.1's 501
+#       and there are at least SPKLIB_EXPECT_CHECKS of them (670: 0.4.0's 611
 #       plus the 59 Windows path-rule checks).
 # T-B2  the Windows build: ./build.sh windows-x64 (host + tests .exe) and
 #       windows-x64-release; both .exe are PE32+ x86-64; the import table is
@@ -33,7 +33,7 @@ ok() { echo "ok   $*"; }
 command -v cargo >/dev/null || fail "cargo not found"
 command -v rustup >/dev/null || fail "rustup not found (T-B5 needs its x86_64-pc-windows-gnu std)"
 export LLVM_MINGW
-expect_checks="${SPKLIB_EXPECT_CHECKS:-560}"
+expect_checks="${SPKLIB_EXPECT_CHECKS:-670}"
 vendor="$repo/vendor/spklib/windows-x64"
 log="$(mktemp -d "${TMPDIR:-/tmp}/spk-library-gate.XXXXXX")"
 trap 'rm -rf "$log"' EXIT
@@ -97,7 +97,7 @@ grep -q ' 0 ignored' <<<"$results" || fail "T-B3: a test was ignored"
 helper_tests="$(grep -cE '^test [a-z0-9_]+ \.\.\. ok$' "$log/t-b3.txt" || true)"
 path_tests="$(grep -cE '^test paths::tests::[a-z0-9_]+ \.\.\. ok$' "$log/t-b3.txt" || true)"
 [[ "$path_tests" -ge 5 ]] || fail "T-B4: only $path_tests path-rule tests ran"
-[[ "$helper_tests" -ge 9 ]] || fail "T-B3: only $helper_tests tests against the helper ran"
+[[ "$helper_tests" -ge 10 ]] || fail "T-B3: only $helper_tests tests against the helper ran"
 ok "T-B3 spk-library against the Mac helper: $helper_tests helper tests; $total tests in all, 0 failed, 0 ignored"
 ok "T-B4 Windows path rules on the Mac: $path_tests tests"
 

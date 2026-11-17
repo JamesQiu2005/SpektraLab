@@ -75,9 +75,9 @@ fn starts_on_first_use_and_speaks_abi_1() {
     assert!(!host.is_running(), "nothing starts before the first call");
     let v = host.sdk_version().unwrap();
     assert_eq!(v.abi, 1);
-    assert!(v.version.starts_with("0.3.1"), "{}", v.version);
+    assert!(v.version.starts_with("0.4.0"), "{}", v.version);
     let ready = host.version().unwrap();
-    assert!(ready.contains("0.3.1"), "the ready line: {ready}");
+    assert!(ready.contains("0.4.0"), "the ready line: {ready}");
     assert_eq!(host.launches(), 1);
     host.ping().unwrap();
     assert!(dir.join("store").is_dir(), "the store is made and passed as --store");
@@ -261,6 +261,57 @@ fn a_spektralab_catalog_through_the_typed_calls() {
     assert_eq!(again.info.uuid, opened.info.uuid);
     assert_eq!(host.library_info(&again.library).unwrap().name.as_deref(), Some("Mine"));
     assert!(photos.join("C.JPG").is_file(), "images.trash never moves a file");
+    host.shutdown();
+}
+
+#[test]
+fn variants_are_deleted_and_filtered_by_their_own_keys_0_4_0() {
+    let dir = scratch("variants");
+    touch(&dir.join("Shoot/a.NEF"), "nef-a");
+    touch(&dir.join("Shoot/b.NEF"), "nef-b");
+    let host = host_in(&dir);
+    let opened = host.create_library(&dir.join("V"), "catalog", None).unwrap();
+    let l = opened.library.as_str();
+    let a = dir.join("Shoot/a.NEF");
+    let b = dir.join("Shoot/b.NEF");
+    host.add_images(l, &[AddItem { path: &a, metadata: None }, AddItem { path: &b, metadata: None }], false, None).unwrap();
+    let page = host.images(l, &ImageQuery { sort: Some("name".into()), ..Default::default() }).unwrap();
+    let img = page.images[0].clone();
+    let first = img.variants[0].uuid.clone();
+    let second = host.new_variant(l, &img.uuid, None).unwrap()["variant"].as_str().unwrap().to_string();
+
+    // 0.4.0: a variant's own rating matches its image, not only the primary's.
+    host.set_meta(l, &[&second], Some(Some(4)), Some(Some(5))).unwrap();
+    let mut four = serde_json::Map::new();
+    four.insert("min_rating".into(), json!(4));
+    let hit = host.images(l, &ImageQuery { filter: Some(four.clone()), ..Default::default() }).unwrap();
+    assert_eq!((hit.total, hit.images[0].uuid.as_str()), (1, img.uuid.as_str()));
+    assert_eq!(hit.images[0].rating, Some(0), "the row's rating stays the primary's");
+    let facets = host.facets(l, &ImageQuery::default()).unwrap();
+    assert!(facets.facets["rating"].as_array().unwrap().iter().any(|r| r["value"] == json!(4)), "{:?}", facets.facets["rating"]);
+
+    // variant.delete: the variant goes, the image and its file stay; positions are not renumbered.
+    let d = host.delete_variant(l, &first).unwrap();
+    assert_eq!((d["deleted"].clone(), d["files_moved"].clone(), d["image"].clone()), (json!(true), json!(false), json!(img.uuid)));
+    assert!(a.is_file(), "variant.delete never touches a file");
+    let after = host.images(l, &ImageQuery { sort: Some("name".into()), ..Default::default() }).unwrap();
+    assert_eq!(after.total, 2);
+    let row = after.images.iter().find(|i| i.uuid == img.uuid).unwrap();
+    assert_eq!(row.variants.len(), 1);
+    assert_eq!(row.variants[0].uuid, second);
+    assert_eq!(row.variants[0].position, Some(2), "positions are not renumbered");
+    assert_eq!(row.rating, Some(4), "the next variant became the primary");
+    let e = host.delete_variant(l, &second).unwrap_err();
+    assert_eq!(e.code, ErrorCode::LastVariant, "{e}");
+    assert_eq!(host.delete_variant(l, "no-such-variant").unwrap_err().code, ErrorCode::NotFound);
+
+    // images.remove forgets a row only when its file is gone.
+    let r = host.remove_images(l, &[&row.uuid]).unwrap();
+    assert_eq!(r["refused"][0]["code"], json!("file_present"), "{r}");
+    fs::remove_file(&a).unwrap();
+    let r = host.remove_images(l, &[&row.uuid]).unwrap();
+    assert_eq!(r["removed"], json!(1), "{r}");
+    assert_eq!(host.images(l, &ImageQuery::default()).unwrap().total, 1);
     host.shutdown();
 }
 

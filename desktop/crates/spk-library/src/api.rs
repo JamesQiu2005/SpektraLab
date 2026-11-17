@@ -478,4 +478,18 @@ impl LibraryHost {
         put(&mut v, "from_variant", from_variant);
         self.call("variant.create", v)
     }
+
+    /// spklib 0.4.0: `{variant, image, deleted: true, files_moved: false}`. The variant's row, edit and
+    /// keywords go; never a file, never the image. `last_variant` for the image's last present variant
+    /// (move the image to the Trash instead), `read_only` for one of Capture One's. Positions are not
+    /// renumbered: show a variant's ordinal in `variants[]`, key it by `uuid`.
+    pub fn delete_variant(&self, library: &str, variant: &str) -> Result<Value, LibraryError> {
+        self.call("variant.delete", json!({"library": library, "variant": variant}))
+    }
+
+    /// spklib 0.3.1: forget images whose file is gone (`refused[]` with `file_present` / `read_only`).
+    /// Rows only, never a file.
+    pub fn remove_images(&self, library: &str, images: &[&str]) -> Result<Value, LibraryError> {
+        self.call("images.remove", json!({"library": library, "images": images}))
+    }
 }

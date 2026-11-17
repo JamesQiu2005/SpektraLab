@@ -81,14 +81,17 @@ go through `paths::to_helper`.
 | `add_images(library, items, copy, collection?)`, `describe(library, items)`, `set_meta`, `trash_images` | `images.add`, `images.describe`, `meta.set`, `images.trash` |
 | `locations`, `relink`; `add_folder`, `watched_folders -> Vec<WatchedFolder>`, `sync_folders`, `remove_folder` | `locations.list`, `location.relink`, `folders.*` |
 | `create_collection`, `add_to_collection` | `collection.create`, `collection.add` |
-| `edit(library, variant) -> Edit`, `put_edit(library, variant, edit, base_revision) -> i64`, `new_variant` | `edit.get`, `edit.put`, `variant.create` |
+| `edit(library, variant) -> Edit`, `put_edit(library, variant, edit, base_revision) -> i64`, `new_variant`, `delete_variant` (0.4.0) | `edit.get`, `edit.put`, `variant.create`, `variant.delete` |
+| `remove_images(library, images)` | `images.remove` (rows whose file is gone; never a file) |
 
-Everything else (`session.*`, `collection.update/delete/remove`, `edit.delete`, `images.remove`, ...)
+Everything else (`session.*`, `collection.update/delete/remove`, `edit.delete`, ...)
 goes through `call`. "Sources" -- the list of libraries a person has opened -- are the app's to keep
 (the Mac's `CatalogSourcesStore`); the helper is told nothing about them but paths.
 
-**Version.** The vendored Windows helper is spklib **0.3.1**; the Mac ships 0.4.0. `variant.delete`
-and the 0.4.0 variant-level filter keys are not there on Windows yet (`unknown_method`).
+**Version.** The vendored Windows helper is spklib **0.4.0**, as the Mac's: `variant.delete`, and the
+rating, colour-tag and keyword filter keys match any present variant (spklib `API-SPEC.md`, "Variants").
+Key a variant by `uuid` and show its ordinal in `variants[]`, never `position` (positions are not
+renumbered after a delete).
 
 ## Paths
 
@@ -116,7 +119,7 @@ test the Windows logic with an explicit `PathStyle::Windows`, on the Mac). For W
 only `cargo check`ed (`--lib --target x86_64-pc-windows-gnu`).
 
 ```sh
-SPKLIB_SRC=<SpektraLab_library clone, branch windows/cross-compile-2026-11-17> \
+SPKLIB_SRC=<SpektraLab_library clone, branch windows/cross-compile-2026-11-17-on-0.4.0> \
 LLVM_MINGW=<llvm-mingw UCRT toolchain> desktop/crates/spk-library/gate.sh
 ```
 

@@ -138,7 +138,7 @@ impl LibraryHost {
         lock(&self.state).launches
     }
 
-    /// The helper's ready line (`spklib 0.3.1+… (abi 1, schema 3)`), while one runs.
+    /// The helper's ready line (`spklib 0.4.0+… (abi 1, schema 3)`), while one runs.
     pub fn version(&self) -> Option<String> {
         let mut st = lock(&self.state);
         Self::reap(&mut st);
