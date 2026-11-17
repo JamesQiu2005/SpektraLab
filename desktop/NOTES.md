@@ -12,7 +12,8 @@ Brief: PRD-W2 R10/R11/T5, PRD-W0 §5; WIRE.md and the two crate READMEs are fina
   constant; T5a; T5b; the composed gate (`scripts/gate-mac.sh`, `SPEKTRALAB_GATE_PHASE=2`); docs
   (this file, PARITY.md, HOST-PROTOCOL.md §4, docs/WINDOWS-INSTALLER.md, WINDOWS-RELEASES.md,
   docs/WINDOWS-V2-CHECKLIST.md).
-- **Next**: whatever the composed gate's last run says (below, "Phase 2 — the gate").
+- **The composed gate is green** (2026-11-17, HEAD f676ca9a; below, "Phase 2 — the gate"). Nothing open
+  on the Mac; what only Windows can tell is `docs/WINDOWS-V2-CHECKLIST.md`.
 - Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests`,
   `SPKLIB_SRC=<repo>/build/spklib`, `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
 
@@ -75,6 +76,22 @@ renders, full views, exports and thumbnails on it (or opened its own). Now:
 - A folder source's library lives in the helper's store (`Folders/<name>-<fnv>.spkcatalog`), never in
   the person's folder.
 - `--selftest` exists only in a debug or `selftest`-feature build (`cfg`), so no package carries it.
+
+**Phase 2 — the gate** (`SPEKTRALAB_GATE_PHASE=2 SPEKTRALAB_RAW_FIXTURES=… SPKLIB_SRC=<repo>/build/spklib
+LLVM_MINGW=… desktop/scripts/gate-mac.sh`, 2026-11-17, exit 0):
+
+| step | result |
+|---|---|
+| T1 `npm run check` | typecheck, eslint 0 warnings, vitest 544 passed, 1 skipped |
+| T2/T2b/T3 Playwright | 199 passed (design 123 incl. the loading-filmstrip chip case in both languages) |
+| T4 | `cargo test --lib --bins` 24 passed, 1 ignored (the child fixture); `cargo check --target x86_64-pc-windows-gnu` clean |
+| the Mac host / helper | `scripts/build-host-mac.sh` (incremental), `$SPKLIB_SRC/build.sh` |
+| T5a | 1 passed; and fails with an empty RAW folder |
+| T5b | the app exited 0, nothing left running; canvas.png 1788×1312; "Developed · Portra 400 · Supra Endura"; export JPEG 1200×802; a linked folder (1) and a Capture One catalog read-only (2), its bytes unchanged |
+| package:win + T6 | `release/windows/SpektraLab_2.0.0-alpha.1_x64-setup.exe`, 43.6 MB, 221 members (49 .spv, 34 profiles, 48 licence files); spklib-host.exe = the vendored c2904dc6…; host LibRaw 0.23.0-Snapshot202611 |
+| spk-scheduler gate | green (fmt, clippy both targets, unit 11 incl. every selftest check and mutation, facade 1, host_engine 8, real host 1, wire 7; T5 fails without its fixture; Windows check) |
+| spk-library gate | T-B1 670 passed; T-B2 both exes PE32+, vendored = rebuild of 0.4.0+85d52813e2e8; T-B3 18 tests (10 on the helper); T-B4 5; T-B5 clean |
+| RAW gate | CTests 46/46; T-A1 542 checks; T-A2 354; T-A3 18; T-A4 the exe and its LibRaw notices |
 
 **Gotchas found.**
 - A child forked by one test inherits another test's `workspace.lock` descriptor until it execs, and
