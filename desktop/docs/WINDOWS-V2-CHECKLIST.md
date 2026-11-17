@@ -33,11 +33,14 @@ Library (T5b); the installer's members, file types, versions and the helper's by
 ## WebView2 and keys
 
 - [ ] Alt shows the access keys; Alt+F / F10 opens File; arrow keys move in a menu; Esc closes it.
-- [ ] Ctrl+Z / Ctrl+Shift+Z, Ctrl+E (export), Ctrl+, (Settings), Ctrl+C/Ctrl+V settings, ←/→ between frames.
+- [ ] The keys `src/app/commands.ts` binds (board_keys.svg): Ctrl+Z / Ctrl+Y, Ctrl+E (Export…), Ctrl+, (Settings),
+      Ctrl+Shift+C / Ctrl+Shift+V (copy and paste settings), F7 / F8 / Ctrl+B / Ctrl+Shift+F, Ctrl+0 / Ctrl+1,
+      Y (compare), ←/→ between frames.
 - [ ] Typing in a field (a recipe name, a number) keeps ←/→/Delete in the field (trap 32), and Ctrl+A
       selects the field's text, not the frames.
-- [ ] No WebView2 default shows through: no browser context menu, no Ctrl+P print dialog, no Ctrl+F find
-      bar, no zoom on Ctrl+wheel outside the canvas, no F5 reload.
+- [ ] No WebView2 default shows through: no browser context menu, no Ctrl+P print dialog, no zoom on
+      Ctrl+wheel outside the canvas; Ctrl+F is the Library's search (not WebView2's find bar) and F5
+      refreshes the Library (never reloads the page).
 - [ ] A machine without the WebView2 runtime (rare on Windows 11): the installer fetches it silently.
 
 ## The two helpers
@@ -83,8 +86,8 @@ policy"). On Windows the policy is `desktop_pc(installed RAM, GPU memory)` and *
 placeholders until measured on a PC**; Settings › Engine › Scheduler shows them and lists them as
 unmeasured:
 
-- [ ] Note the budget Settings › Engine shows, and `scheduler-log.jsonl` in the log folder
-      (Settings › Diagnostics › Open): `predictedPeakBytes` against what Task Manager shows for
+- [ ] Note the budget Settings › Engine shows, and `scheduler-log.jsonl` in the app's log folder
+      (`%LOCALAPPDATA%\app.spektralab.desktop\logs` unless Diagnostics moved it): `predictedPeakBytes` against what Task Manager shows for
       `spektralab-host.exe` at the peak of a full-size render and an export, on a 24 MP and a ≥45 MP RAW.
 - [ ] `PC_ALLOWANCE_SHARE_OF_RAM` (0.5), `PC_MIN_ALLOWANCE_MB` (4 GB), `PC_GPU_RESERVE_BYTES` (768 MB),
       `PC_GPU_BYTES_PER_PIXEL` (72), `PC_TIME_RATIO` (1.0): are the predicted seconds near the measured?
