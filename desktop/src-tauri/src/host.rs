@@ -609,6 +609,7 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_keeps_os_lease_until_native_completion() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let (tx, rx) = oneshot::channel();
         let mut requests = Requests::default();
@@ -626,6 +627,7 @@ mod tests {
 
     #[tokio::test]
     async fn partial_write_times_out_without_releasing_the_operation() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let (tx, rx) = oneshot::channel();
         drop(rx);
@@ -649,6 +651,7 @@ mod tests {
 
     #[tokio::test]
     async fn old_generation_exit_does_not_release_new_host_work() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let mut requests = Requests::default();
         let (old_tx, old_rx) = oneshot::channel();
@@ -676,6 +679,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_reaps_child_before_releasing_leases() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let (tx, rx) = oneshot::channel();
         drop(rx);
