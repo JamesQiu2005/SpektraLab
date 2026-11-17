@@ -3,7 +3,8 @@
 // Uncropped on purpose (ARCHITECTURE §7.7): each surface applies geometry.
 
 import type { RgbaImage } from '../host/client';
-import { runJob, steps } from '../scheduler';
+import { runJob } from '../scheduler';
+import { imageReply } from '../host/replies';
 import { rgbaToURL } from './frames';
 
 interface Entry {
@@ -108,7 +109,9 @@ class ThumbCache {
       void (async () => {
         try {
           // v2: a filmstrip thumbnail is a scheduler job (R5), the least urgent kind.
-          const img = await runJob<RgbaImage>({ kind: 'thumbnail', frameId: path, slot: 'strip', what: path, tier: 'preview', steps: [steps.thumbnail(path, 320, false)] });
+          const r = await runJob({ kind: 'thumbnail', frameId: path, slot: 'strip', what: path, tier: 'preview', canvas: { width: 320, height: 320 },
+            request: { method: 'thumbnail', params: { path, long_edge: 320 } } });
+          const img: RgbaImage = imageReply(r.result, r.payload);
           const url = await rgbaToURL(img);
           if (url && current() && !this.map.get(path)?.print) this.map.set(path, { url, print: false });
           else if (url) URL.revokeObjectURL(url);

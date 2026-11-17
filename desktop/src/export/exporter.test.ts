@@ -82,9 +82,11 @@ describe('export without film simulation', () => {
         filmGeometry: GEOMETRY_DEFAULT, filmSourceGeometry: frozen.geometry, adjustments: { exposure: 1.25 } });
       await exportFrame(recipe(), item.frame, catalog, ['export_frame']);
     }
-    expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_path: 'background.NEF', session: undefined,
+    expect(fake.request.mock.calls.map((c) => c[1].session)).toEqual([undefined, undefined]);
+    expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_path: 'background.NEF',
       no_film: true, geometry: frozen.geometry, source_geometry: GEOMETRY_DEFAULT, adjustments: { exposure: 1.25 } });
-    expect(fake.request.mock.calls[1]![1]).toMatchObject({ source_path: 'current.NEF', session: 'editor', no_film: true });
+    // An export is a one-shot job with no session: the engine sends source_path and the host opens a private one.
+    expect(fake.request.mock.calls[1]![1]).toMatchObject({ source_path: 'current.NEF', no_film: true });
   });
 
   it('freezes bypass before naming yields and skips film placement fitting for ordinary export and proof', async () => {
@@ -181,11 +183,12 @@ describe('host frame export', () => {
     expect(fake.request).toHaveBeenCalledOnce();
     const [method, args, options] = fake.request.mock.calls[0]!;
     expect(method).toBe('export_frame');
-    expect(args).toMatchObject({ session: 'editor', source_path: expected.path,
+    expect(args.session).toBeUndefined();
+    expect(args).toMatchObject({ source_path: expected.path,
       params: fullDelta(expected.params, expected.gate), adjustments: expected.adjustments, geometry: expected.geometry,
       decode: { white_balance: { mode: 'custom', temperature_k: 6200, tint: 13 } },
       color_space: 'display-p3', format: 'jpeg', quality: 92, long_edge: 3000, overwrite: true,
-      progress_id: expect.stringMatching(/^export-/) });
+      progress_id: expect.stringMatching(/^spk-/) });
     expect(args.params).not.toHaveProperty('scene_latitude_active');
     expect(options).not.toHaveProperty('payload');
     expect(fake.open).not.toHaveBeenCalled();
@@ -194,7 +197,8 @@ describe('host frame export', () => {
     const f = frame(); delete f.session;
     const active = vi.fn();
     await exportFrame(recipe(), f, catalog, ['export_frame'], { active });
-    expect(active).toHaveBeenNthCalledWith(1, { session: '', progressId: expect.any(String) });
+    // The dialog cancels an export through the scheduler, by its job id.
+    expect(active).toHaveBeenNthCalledWith(1, { jobId: expect.any(String), session: '', progressId: '' });
     expect(fake.request.mock.calls[0]![1].session).toBeUndefined();
     expect(active).toHaveBeenLastCalledWith(null);
   });
@@ -227,7 +231,8 @@ describe('host frame export', () => {
     const f = frame(); f.params.exposureCompensationEV = 2;
     fake.request.mockRejectedValue(new Error('disk full'));
     expect(await exportFrame(r, f, catalog, ['export_cineon'])).toEqual({ kind: 'failed', message: 'disk full' });
-    expect(fake.request).toHaveBeenCalledWith('export_cineon', expect.objectContaining({ session: 'editor', overwrite: true,
+    expect(fake.request.mock.calls[0]![1].session).toBeUndefined();
+    expect(fake.request).toHaveBeenCalledWith('export_cineon', expect.objectContaining({ overwrite: true,
       params: fullDelta(f.params, f.gate, catalog), geometry: f.geometry, long_edge: 0 }), expect.anything());
     expect(fake.open).not.toHaveBeenCalled();
     expect(fake.close).not.toHaveBeenCalled();

@@ -17,7 +17,7 @@ import type { StockCatalog } from '@shared/stocks';
 import type { FilmParams } from '@shared/params';
 import type { Adjustments } from '@shared/adjustments';
 import { ADJUSTMENTS_DEFAULT, CURVES_IDENTITY } from '@shared/adjustments';
-import type { JobSnapshot } from '../scheduler/types';
+import type { JobSnapshotWire } from '../scheduler/types';
 
 export const SEP = '  ·  ';
 
@@ -78,7 +78,7 @@ export interface StatusInput {
   noFilm: boolean;
   edited: string[];
   /** The open frame's newest canvas or full-view job, if any is still live. */
-  job: JobSnapshot | null;
+  job: JobSnapshotWire | null;
   /** Elapsed ms of a running job, on the page's clock. */
   elapsedMs: number;
   /** The print the picture shows has landed at least once. */
@@ -100,11 +100,12 @@ export function statusParts(i: StatusInput): { parts: string[]; tone: 'normal' |
   if (!i.hasFrame) return { parts: [], tone: 'normal' };
   if (i.crop) return { parts: [tz('Crop', '裁剪'), i.crop.ratio, `${i.crop.angle >= 0 ? '+' : '−'}${Math.abs(i.crop.angle).toFixed(1)}°`], tone: 'normal' };
   const j = i.job;
-  if (j && (j.state.state === 'waiting' || j.state.state === 'queued' || j.state.state === 'running') && !j.superseded) {
-    const verb = j.job.kind === 'canvasReprint' ? tz('Printing', '正在印放') : tz('Developing', '正在冲洗');
-    const parts = [verb, j.job.what].filter(Boolean);
-    if (j.state.state === 'running' && i.elapsedMs >= 1000) parts.push(`${(i.elapsedMs / 1000).toFixed(1)} s`);
-    if (j.state.state === 'waiting' && j.state.reason !== 'settling') parts.push(waitWords(j.state.reason));
+  // WIRE.md's flat snapshot: `verb` and `what`; `reason` while waiting; `stage` and `fraction` while running.
+  if (j && (j.state === 'waiting' || j.state === 'queued' || j.state === 'running')) {
+    const verb = j.verb === 'Printing' || j.kind === 'canvasReprint' ? tz('Printing', '正在印放') : tz('Developing', '正在冲洗');
+    const parts = [verb, j.what].filter(Boolean);
+    if (j.state === 'running' && i.elapsedMs >= 1000) parts.push(`${(i.elapsedMs / 1000).toFixed(1)} s`);
+    if (j.state === 'waiting' && j.reason !== 'settling') parts.push(waitWords(j.reason));
     return { parts, tone: 'normal' };
   }
   if (i.notice) return { parts: [i.notice], tone: 'normal' };
@@ -119,6 +120,8 @@ export function waitWords(r: string): string {
   switch (r) {
     case 'dialog': return tz('Waiting for the dialog', '等待对话框关闭');
     case 'background': return tz('Paused in the background', '后台已暂停');
+    case 'camera': return tz('Waiting for the camera', '等待相机');
+    case 'capture': return tz('Waiting for the photo to land', '等待照片完成');
     case 'memory': return tz('Waiting for memory', '等待内存');
     case 'queued': return tz('Waiting its turn', '排队中');
     default: return '';

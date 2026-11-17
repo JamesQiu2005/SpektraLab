@@ -44,7 +44,7 @@ beforeEach(async () => {
   fake.create.mockImplementation(async (_folder: string, v: unknown) => { fake.pairs.set('/store/imported.spektrapair', v); return entry('/store/imported.spektrapair'); });
   fake.open.mockImplementation(async () => opened()); fake.update.mockImplementation(async () => opened());
   fake.pick.mockResolvedValue({ temperature_k: 6200, tint: 5 });
-  fake.render.mockImplementation(async () => ({ width: 370, height: 240, nativeSize: { width: 3700, height: 2400 }, data: new Uint8Array(0), colorSpace: 'sRGB', tier: 'preview', ms: 1,
+  fake.render.mockImplementation(async () => ({ width: 370, height: 240, nativeSize: { width: 3700, height: 2400 }, data: new Uint8Array(370 * 240 * 4), colorSpace: 'sRGB', tier: 'preview', ms: 1,
     pairInfo: { ...info, gates: [{ x: .1, y: .2, width: .3, height: .6 }, { x: .6, y: .2, width: .3, height: .6 }] } }));
   fake.latitude.mockImplementation(async () => ({ medium: { shadow_ev: -5, highlight_ev: 4 }, scene: { histogram: { fractions: [.1, .8, .1] } },
     fit: { highlight: { scene_extreme_ev: 7, medium_boundary_ev: 4 }, shadow: { scene_extreme_ev: -8, medium_boundary_ev: -5 } } }));
@@ -242,6 +242,7 @@ describe('half-frame pair editing lifecycle', () => {
     let finish!: (v: { temperature_k: number; tint: number }) => void;
     fake.pick.mockImplementationOnce(() => new Promise((r) => { finish = r; }));
     session.startNeutralPick(); const pending = session.pickNeutralAt(.8, .5);
+    await vi.advanceTimersByTimeAsync(0); // the pick reaches the frame's session (the engine's lock)
     session.setPairLayer('left'); finish({ temperature_k: 9000, tint: 30 }); await pending;
     expect(state().pair!.left!.decode.whiteBalance).toBe('As Shot');
     expect(state().pair!.right!.decode.temperature).toBe(6200);

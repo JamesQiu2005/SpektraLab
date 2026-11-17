@@ -8,6 +8,7 @@ import { PillMenu, ToggleRow } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { hostMessage } from '../host/messages';
 import { host } from '../host/client';
+import { frameHost } from '../scheduler/frame';
 import { platform, type AppPaths } from '../platform';
 import { recomputeFilmFormat, requestPrint, setPages, useSession, sessionStore } from '../state/session';
 import { INTERFACE_SCALES, PREVIEW_EDGES, settingsStore, useSettings, SETTINGS_DEFAULT } from '../state/settings';
@@ -121,8 +122,8 @@ export function SettingsDialog() {
                 onChange={(v) => {
                   set('previewLongEdge', v);
                   // The live tier's size is a session parameter: send it, render.
-                  const sid = sessionStore.getState().engineSession;
-                  if (sid) void host().setParams(sid, { preview_long_edge: v }).then(() => requestPrint());
+                  const { engineSession: sid, selection } = sessionStore.getState();
+                  if (sid && selection) void frameHost(selection).setParams(sid, { preview_long_edge: v }).then(() => requestPrint());
                 }}
               />
               <div className="caption">

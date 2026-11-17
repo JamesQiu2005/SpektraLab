@@ -28,7 +28,8 @@ test('open → developing → done: the status line follows the scheduler, and t
   // The last print is still the picture while the new one develops.
   expect(await page.evaluate(() => !!(window as unknown as { __spk: { frameImages: { print: unknown } } }).__spk.frameImages.print)).toBe(true);
   await expect(status(page)).toContainText('Developed · Gold 200', { timeout: 20_000 });
-  expect(await state(page, 's.job.state.state')).toBe('done');
+  // The page's job is the scheduler's snapshot (WIRE.md's flat JobSnapshotWire).
+  expect(await state(page, 's.job.state')).toBe('done');
 });
 
 test('a failed develop keeps the last print and offers Try Again, which develops it', async ({ page }) => {
@@ -45,9 +46,9 @@ test('a failed develop keeps the last print and offers Try Again, which develops
 test('newer edits fold into the newest job: three quick picks, fewer develops, the last one shown', async ({ page }) => {
   await open(page, '&renderDelay=600');
   await page.evaluate(() => {
-    const w = window as unknown as { __jobs: string[]; __spk: { scheduler: () => { onJob(cb: (j: { id: string; job: { kind: string }; state: { state: string } }) => void): void } } };
+    const w = window as unknown as { __jobs: string[]; __spk: { scheduler: () => { onJob(cb: (j: { jobId: string; kind: string; state: string }) => void): void } } };
     w.__jobs = [];
-    w.__spk.scheduler().onJob((j) => { if (j.job.kind.startsWith('canvas') && j.state.state === 'running' && !w.__jobs.includes(j.id)) w.__jobs.push(j.id); });
+    w.__spk.scheduler().onJob((j) => { if (j.kind.startsWith('canvas') && j.state === 'running' && !w.__jobs.includes(j.jobId)) w.__jobs.push(j.jobId); });
   });
   for (const id of ['kodak_gold_200', 'kodak_ektar_100', 'kodak_portra_160']) await page.locator(`[data-stock="${id}"]`).click();
   await expect(status(page)).toContainText('Developed · Portra 160', { timeout: 20_000 });

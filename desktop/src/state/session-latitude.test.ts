@@ -41,6 +41,9 @@ beforeEach(async () => {
   fake.latitude.mockImplementation(async (_sid, req) => reply(req.highlight_pull_back, req.shadow_pull_back));
   fake.load.mockResolvedValue(null);
   session = await import('./session');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   session.sessionStore.setState({ selection: '/owned/a.ARW', picked: ['/owned/a.ARW'], engineSession: 's1',
     hostState: { phase: 'ready', hello: { methods: ['scene_latitude'] } as HelloResult },
     hello: { methods: ['scene_latitude'] } as HelloResult, gate: ALL_FEATURES,
@@ -57,6 +60,7 @@ describe('Scene Placement lifecycle', () => {
     expect(state().sidecar.params.sceneLatitude).toMatchObject({ active: true, highlightPullBack: lo });
     expect(state().latitude.refusal?.side).toBe('highlight');
     expect(fake.latitude).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
     expect(fake.setParams).toHaveBeenCalledWith('s1', expect.objectContaining({ scene_latitude_active: true }));
     await session.requestPrint();
     session.resetScenePlacement();
@@ -80,11 +84,17 @@ describe('Scene Placement lifecycle', () => {
     const old = session.refreshLatitude();
     const latest = reply(4);
     fake.latitude.mockResolvedValueOnce(latest);
-    await session.refreshLatitude();
-    finish(reply()); await old;
+    // The frame's calls run one at a time on its session (the engine's lock, as the host's one worker):
+    // the newer probe waits behind the old one, and the old reply, landing first, is not adopted.
+    const newer = session.refreshLatitude();
+    await vi.advanceTimersByTimeAsync(0);
+    finish(reply());
+    expect(await old).toBeNull();
+    await newer;
     expect(state().latitude.reply).toBe(latest);
     fake.latitude.mockImplementationOnce(() => new Promise<LatitudeReply>((r) => { finish = r; }));
     const moved = session.refreshLatitude();
+    await vi.advanceTimersByTimeAsync(0); // in flight on the host when the photograph changes
     session.sessionStore.setState({ selection: '/owned/b.ARW', engineSession: 's2' });
     finish(reply()); expect(await moved).toBeNull();
     expect(session.placementReady()).toBe(false);

@@ -24,9 +24,16 @@ Brief: PRD-W2 R10/R11/T5, PRD-W0 §5; WIRE.md and the two crate READMEs are fina
     `tauri::test`). Crate change: `HostEngine::open_editing` / `call_editing` (spk-scheduler).
   - T5a: `src-tauri/tests/t5a_real_host.rs` (shown red: without the session scoping a canvas job after
     a restart renders another file's session).
-- **In progress**: R4 the webview on the scheduler (`src/scheduler/tauriScheduler.ts`, `session.ts`).
-- **Next**: R5 TS (`LibraryClient` over `library_call`); R6 bundle; R7a chip, R7c flag; T5b self-test;
-  composed gate; docs (incl. `docs/WINDOWS-V2-CHECKLIST.md`).
+  - R4: the webview speaks WIRE (`src/scheduler/types.ts`); `TauriScheduler` (the app; keeps the 180 ms
+    settle and the dialog hold), `LocalScheduler` + `MockEngine` (the browser mock and the tests; the
+    Rust engine's session rules over the page's host client). `session.ts` owns no session: the frame
+    opens in the engine's editing session (`frameHost(frame)` → `scheduler_editing_open/_call`); full
+    views, cropped-frame thumbnails and exports are one-shot jobs; the print thumbnail of an uncropped
+    frame is the canvas print drawn down. `wire.test.ts` holds both to WIRE.md's examples.
+    R7c: `FAILED_RENDER_KEEPS_EDITED_CONTROLS` in `session.ts`.
+- **In progress**: R5 TS (`TauriLibrary`), R6 bundle (`package.mjs`, `check-installer.mjs`), T5b
+  (`src-tauri/src/selftest.rs`, `src/app/selftest.ts`, `scripts/selftest-mac.sh`) — written, not committed.
+- **Next**: R7a chip; composed gate; docs (incl. `docs/WINDOWS-V2-CHECKLIST.md`).
 - Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests`,
   `SPKLIB_SRC=<repo>/build/spklib`, `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
   T5a by hand: `SPK_REQUIRE_REAL_HOST=1 SPEKTRALAB_HOST_DIR=<repo>/build/host-mac SPEKTRALAB_RAW_FIXTURES=…

@@ -39,8 +39,8 @@ export function useStatusLine(room: number): { text: string; tone: 'normal' | 'd
   const s = useSession((x) => x);
   const run = useExportRun();
   const [now, setNow] = useState(0);
-  const job = s.job && s.job.job.frameId === (s.selection ?? s.engineSession) ? s.job : null;
-  const running = job?.state.state === 'running';
+  const job = s.job && s.job.frameId === s.selection ? s.job : null;
+  const running = job?.state === 'running';
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => setNow(performance.now()), 100);
@@ -99,7 +99,7 @@ export function Toolbar({ layout }: { layout: Layout }) {
   const k = commands();
   const pct = s.view.fit ? tz('Fit', '适合') : `${Math.round(s.view.zoom * 100)} %`;
   const [zoomMenu, setZoomMenu] = useState(false);
-  const busy = s.job && (s.job.state.state === 'running' || s.job.state.state === 'waiting' || s.job.state.state === 'queued');
+  const busy = s.job && (s.job.state === 'running' || s.job.state === 'waiting' || s.job.state === 'queued');
   const overflowItems = [
     ...(layout.overflow.navCompareTitle ? [k.prevFrame!, k.nextFrame!, k.compare!, k.pasteSettings!, { separator: true } as const] : []),
     ...(layout.overflow.zoomCropOriginal ? [k.zoomFit!, k.zoom100!, k.crop!, { separator: true } as const] : []),

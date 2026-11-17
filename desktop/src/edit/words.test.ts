@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { cardName, fitParts, statusParts, canvasWhat, type StatusInput } from './words';
 import { StockCatalog } from '@shared/stocks';
 import { FILM_PARAMS_DEFAULT } from '@shared/params';
-import type { JobSnapshot } from '../scheduler/types';
+import { verbOf, waitText, type JobSnapshotWire, type JobStateWire, type WaitReason } from '../scheduler/types';
 import { ADJUST_TILES } from './rails';
 
 const catalog = new StockCatalog([
@@ -15,23 +15,29 @@ const catalog = new StockCatalog([
 const params = { ...FILM_PARAMS_DEFAULT, printStock: 'kodak_portra_endura' };
 const base: StatusInput = { engine: 'ready', hasFrame: true, frameName: 'DSC', catalog, params, noFilm: false, edited: [], job: null,
   elapsedMs: 0, printed: true, exporting: null, crop: null, notice: null };
-const job = (kind: JobSnapshot['job']['kind'], state: JobSnapshot['state'], what = 'Gold 200'): JobSnapshot =>
-  ({ id: 'j1', job: { kind, frameId: '/a', what, tier: 'live', submitted: 0 }, state });
+/** WIRE.md's flat snapshot: the state's fields beside the job's. */
+const job = (kind: JobSnapshotWire['kind'], state: JobStateWire, what = 'Gold 200'): JobSnapshotWire =>
+  ({ jobId: '6F1D2C3B-8E2A-4A35-9C8B-2D7E5B1A0C11', frameId: '/a', kind, tier: 'live', canvas: { width: 2560, height: 1707 }, what, verb: verbOf(kind), mode: null, ...state });
+const waiting = (reason: WaitReason): JobStateWire => ({ state: 'waiting', reason, text: waitText(reason) });
+const running: JobStateWire = { state: 'running', stage: 'Film', fraction: 0.35, band: 0, bandCount: 1 };
 
 describe('the status line', () => {
   it('developed, edited, developing (with the elapsed time past a second), printing', () => {
     expect(statusParts(base).parts).toEqual(['Developed', 'Portra 400', 'Portra Endura']);
     expect(statusParts({ ...base, edited: ['Tone', 'Curve'] }).parts).toEqual(['Edited', 'Tone', 'Curve']);
-    expect(statusParts({ ...base, job: job('canvasDevelop', { state: 'waiting', reason: 'settling' }) }).parts).toEqual(['Developing', 'Gold 200']);
-    expect(statusParts({ ...base, elapsedMs: 1400, job: job('canvasDevelop', { state: 'running', stage: null, fraction: null, step: 1, steps: 2 }) }).parts)
+    expect(statusParts({ ...base, job: job('canvasDevelop', waiting('settling')) }).parts).toEqual(['Developing', 'Gold 200']);
+    expect(statusParts({ ...base, elapsedMs: 1400, job: job('canvasDevelop', running) }).parts)
       .toEqual(['Developing', 'Gold 200', '1.4 s']);
-    expect(statusParts({ ...base, elapsedMs: 900, job: job('canvasDevelop', { state: 'running', stage: null, fraction: null, step: 1, steps: 2 }) }).parts)
+    expect(statusParts({ ...base, elapsedMs: 900, job: job('canvasDevelop', running) }).parts)
       .toEqual(['Developing', 'Gold 200']);
     expect(statusParts({ ...base, job: job('canvasReprint', { state: 'queued' }, 'Yellow +0.10') }).parts).toEqual(['Printing', 'Yellow +0.10']);
   });
-  it('a waiting job says why; a superseded one says nothing of its own', () => {
-    expect(statusParts({ ...base, job: job('canvasDevelop', { state: 'waiting', reason: 'dialog' }) }).parts).toEqual(['Developing', 'Gold 200', 'Waiting for the dialog']);
-    expect(statusParts({ ...base, job: { ...job('canvasDevelop', { state: 'running', stage: null, fraction: null, step: 0, steps: 1 }), superseded: true } }).parts[0]).toBe('Developed');
+  it('a waiting job says why (the page’s reasons and the wire’s); an ended one says nothing of its own', () => {
+    expect(statusParts({ ...base, job: job('canvasDevelop', waiting('dialog')) }).parts).toEqual(['Developing', 'Gold 200', 'Waiting for the dialog']);
+    expect(statusParts({ ...base, job: job('canvasDevelop', waiting('memory')) }).parts).toEqual(['Developing', 'Gold 200', 'Waiting for memory']);
+    expect(statusParts({ ...base, job: job('canvasReprint', waiting('queued'), 'Yellow +0.10') }).parts).toEqual(['Printing', 'Yellow +0.10', 'Waiting its turn']);
+    expect(statusParts({ ...base, job: job('canvasDevelop', { state: 'cancelled' }) }).parts[0]).toBe('Developed');
+    expect(statusParts({ ...base, job: job('canvasDevelop', { state: 'failed', message: 'engine_error: x' }) }).parts[0]).toBe('Developed');
   });
   it('the engine, exporting, crop', () => {
     expect(statusParts({ ...base, engine: 'stopped' })).toEqual({ parts: ['Engine stopped'], tone: 'danger' });

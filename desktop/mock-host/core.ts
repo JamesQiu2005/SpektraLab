@@ -215,6 +215,18 @@ export class MockHost {
     }
   }
 
+  /** A session of the call's own, from `source_path` and its params (closed with the call). */
+  private privateSession(p: Record<string, unknown>): Session {
+    const path = String(p.source_path ?? '');
+    if (!path) throw new HostError('bad_request', 'needs source_path or session');
+    if (this.opts.missing?.(path)) throw new HostError('not_found', `${path}: no such file`);
+    const params: Record<string, Value> = {};
+    for (const f of FIELDS) params[f.name] = defaultFor(f);
+    this.checkDecode(path, p.decode);
+    const { width, height } = this.dims(path);
+    return { id: '', path, width, height, params, seed: hash(path), decodeKey: this.decodeKey(p.decode), viewPrints: new Map() };
+  }
+
   private session(params: Record<string, unknown>): Session {
     const s = this.sessions.get(String(params.session ?? ''));
     if (!s) throw new HostError('not_found', `no session ${String(params.session)}`);
@@ -528,8 +540,9 @@ export class MockHost {
         };
       }
       case 'render_proof': {
-        // Synthetic protocol fixture only; not a colour or gamut-stat oracle.
-        const s = this.session(p);
+        // Synthetic protocol fixture only; not a colour or gamut-stat oracle. Like the real host, a proof
+        // with no session opens a private one from source_path (HOST-PROTOCOL.md: render_proof).
+        const s = p.session ? this.session(p) : this.privateSession(p);
         const cineon = p.format === 'di';
         const noFilm = this.noFilm(p, s, cineon);
         if (p.params) this.snapshot(s, p.params as Record<string, Value>);

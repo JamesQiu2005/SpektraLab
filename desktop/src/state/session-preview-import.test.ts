@@ -134,7 +134,8 @@ describe('background import preview integration', () => {
     expect(fake.thumbnail.mock.calls.map(([path, edge, embedded]) => [path, edge, embedded])).toEqual([
       ['/owned/next.ARW', 2048, true], ['/owned/last.NEF', 2048, true],
     ]);
-    expect(fake.open.mock.calls.map(([path]) => path)).toEqual(['/owned/first.jpg']);
+    // Only the foreground frame is ever opened (its editing session, and the one-shot full view the engine opens).
+    expect([...new Set(fake.open.mock.calls.map(([path]) => path))]).toEqual(['/owned/first.jpg']);
     expect(session.importPreviews.getSnapshot()).toMatchObject({ total: 2, completed: 2, failed: 0 });
   });
 
@@ -145,7 +146,8 @@ describe('background import preview integration', () => {
     await vi.advanceTimersByTimeAsync(2500);
     expect(fake.thumbnail).not.toHaveBeenCalled();
     expect(session.importPreviews.getSnapshot().total).toBe(0);
-    expect(fake.open.mock.calls.map(([path]) => path)).toEqual(['/owned/first.jpg']);
+    // Only the foreground frame is ever opened (its editing session, and the one-shot full view the engine opens).
+    expect([...new Set(fake.open.mock.calls.map(([path]) => path))]).toEqual(['/owned/first.jpg']);
   });
 
   it('reuses camera previews already on disk without extracting them again', async () => {
@@ -243,6 +245,7 @@ describe('background import preview integration', () => {
     await vi.advanceTimersByTimeAsync(2500);
     expect(session.importPreviews.getSnapshot()).toMatchObject({ total: 2, completed: 1, failed: 1, pending: 0 });
     expect(session.sessionStore.getState().lastError).toBeNull();
-    expect(fake.open.mock.calls.map(([path]) => path)).toEqual(['/owned/first.jpg']);
+    // Only the foreground frame is ever opened (its editing session, and the one-shot full view the engine opens).
+    expect([...new Set(fake.open.mock.calls.map(([path]) => path))]).toEqual(['/owned/first.jpg']);
   });
 });

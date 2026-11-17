@@ -35,6 +35,9 @@ beforeEach(async () => {
   vi.resetModules();
   vi.stubGlobal('window', { addEventListener: vi.fn() });
   session = await import('./session');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   session.sessionStore.setState({ catalog, hostState: ready, selection: '/owned/a.ARW', picked: ['/owned/a.ARW'],
     engineSession: 's1', nativeSize: { width: 6, height: 4 }, sidecar: newSidecar(), undo: [], redo: [], pair: null });
 });

@@ -1,10 +1,11 @@
-// The scheduler's rules on a virtual clock (no timing assertions on a real
-// one): settle, fold, the order of who asked, waiting reasons, cancel, and a
-// failure that does not stop the queue.
+// The in-page scheduler's rules on a virtual clock (no timing assertions on a
+// real one): settle, fold, the order of who asked, waiting reasons, cancel, a
+// failure that does not stop the queue — and that it speaks WIRE.md's shapes.
 
 import { describe, expect, it } from 'vitest';
-import { LocalScheduler, type Clock, type StepExecutor } from './localScheduler';
-import type { HostStep, JobRequest, JobSnapshot } from './types';
+import { LocalScheduler, type Clock } from './localScheduler';
+import type { Engine, EngineRun } from './mockEngine';
+import type { JobSnapshotWire, JobSpec } from './types';
 
 class VirtualClock implements Clock {
   t = 0;
@@ -30,24 +31,37 @@ class VirtualClock implements Clock {
 }
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
-/** A host whose steps finish only when the test says so. */
-function fakeHost() {
+/** An engine whose jobs finish only when the test says so. */
+function fakeEngine() {
   const calls: string[] = [];
-  const pending: { step: HostStep; resolve: () => void; reject: (e: Error) => void }[] = [];
-  const exec: StepExecutor = (step) => new Promise((resolve, reject) => {
-    calls.push(`${step.method}:${String(step.params.tag ?? '')}`);
-    pending.push({ step, resolve: () => resolve({ result: { tag: step.params.tag } }), reject });
-  });
-  return { calls, pending, exec, finishNext: async () => { pending.shift()!.resolve(); await flush(); }, failNext: async (m: string) => { pending.shift()!.reject(Object.assign(new Error(m), { code: 'internal' })); await flush(); } };
+  const cancels: string[] = [];
+  const pending: { tag: string; resolve: (r: EngineRun) => void; reject: (e: Error) => void }[] = [];
+  const engine: Engine = {
+    run: (job) => new Promise((resolve, reject) => {
+      const tag = String(job.request.params.tag ?? '');
+      calls.push(`${job.request.method}:${tag}`);
+      pending.push({ tag, resolve, reject });
+    }),
+    cancel: (id) => { cancels.push(id); },
+    open: async () => ({ result: {}, payload: new Uint8Array(0) }),
+    call: async () => ({ result: {}, payload: new Uint8Array(0) }),
+    closeEditing: async () => {},
+  };
+  const done = (tag: string): EngineRun => ({ method: 'render_view', result: { tag, image: { width: 4, height: 2 } }, payload: new Uint8Array(32), reprint: false });
+  return { calls, cancels, pending, engine,
+    finishNext: async () => { const p = pending.shift()!; p.resolve(done(p.tag)); await flush(); },
+    failNext: async (m: string) => { pending.shift()!.reject(new Error(m)); await flush(); },
+    cancelNext: async () => { pending.shift()!.reject(Object.assign(new Error('cancelled: operation cancelled'), { code: 'cancelled' })); await flush(); } };
 }
-const job = (kind: JobRequest['kind'], tag: string, frameId = '/a.arw', extra: Partial<JobRequest> = {}): JobRequest =>
-  ({ kind, frameId, what: tag, tier: kind === 'fullView' || kind === 'export' ? 'full' : 'live', steps: [{ method: 'render_view', params: { tag } }], ...extra });
+const job = (kind: JobSpec['kind'], tag: string, frameId = '/a.arw', extra: Partial<JobSpec> = {}): JobSpec =>
+  ({ kind, frameId, what: tag, tier: kind === 'fullView' || kind === 'export' ? 'full' : 'live', canvas: { width: 4, height: 2 },
+    request: { method: 'render_view', params: { tag } }, ...extra });
 
 function setup() {
   const clock = new VirtualClock();
-  const host = fakeHost();
-  const s = new LocalScheduler(host.exec, { clock });
-  const seen: JobSnapshot[] = [];
+  const host = fakeEngine();
+  const s = new LocalScheduler(host.engine, { clock });
+  const seen: JobSnapshotWire[] = [];
   s.onJob((x) => seen.push(x));
   return { clock, host, s, seen };
 }
@@ -58,14 +72,14 @@ describe('LocalScheduler', () => {
     const id = await s.submit(job('canvasDevelop', 'a'));
     await flush();
     expect(host.calls).toEqual([]);
-    expect(s.peek(id)!.state).toEqual({ state: 'waiting', reason: 'settling' });
+    expect(s.peek(id)).toMatchObject({ state: 'waiting', reason: 'settling' });
     await clock.advance(179);
     expect(host.calls).toEqual([]);
     await clock.advance(1);
     expect(host.calls).toEqual(['render_view:a']);
-    expect(s.peek(id)!.state.state).toBe('running');
+    expect(s.peek(id)!.state).toBe('running');
     await host.finishNext();
-    expect((await s.outcome(id)).status).toBe('done');
+    expect((await s.outcome(id)).outcome.outcome).toBe('finished');
   });
 
   it('newer edits fold into the newest job while it waits', async () => {
@@ -75,28 +89,27 @@ describe('LocalScheduler', () => {
     const b = await s.submit(job('canvasDevelop', 'b'));
     await clock.advance(100);
     const c = await s.submit(job('canvasReprint', 'c'));
-    expect(await s.outcome(a)).toMatchObject({ status: 'cancelled', superseded: true, supersededBy: b });
-    expect(await s.outcome(b)).toMatchObject({ status: 'cancelled', supersededBy: c });
+    expect((await s.outcome(a)).outcome.outcome).toBe('cancelled');
+    expect((await s.outcome(b)).outcome.outcome).toBe('cancelled');
     await clock.advance(180);
     expect(host.calls).toEqual(['render_view:c']);
     // A develop folded into a reprint still develops.
-    expect(s.peek(c)!.job.kind).toBe('canvasDevelop');
+    expect(s.peek(c)!.kind).toBe('canvasDevelop');
     await host.finishNext();
-    expect((await s.outcome(c)).status).toBe('done');
+    expect((await s.outcome(c)).outcome.outcome).toBe('finished');
   });
 
-  it('a running render finishes but is marked superseded; the newest renders next', async () => {
+  it('a running render finishes; the newest renders next', async () => {
     const { clock, host, s } = setup();
     const a = await s.submit(job('canvasDevelop', 'a'));
     await clock.advance(180);
     const b = await s.submit(job('canvasDevelop', 'b'));
     await host.finishNext();
-    const oa = await s.outcome(a);
-    expect(oa).toMatchObject({ status: 'done', superseded: true, supersededBy: b });
+    expect((await s.outcome(a)).outcome.outcome).toBe('finished');
     await clock.advance(180);
     expect(host.calls).toEqual(['render_view:a', 'render_view:b']);
     await host.finishNext();
-    expect((await s.outcome(b)).superseded).toBe(false);
+    expect((await s.outcome(b)).outcome.outcome).toBe('finished');
   });
 
   it('runs one render at a time, the canvas before an export before a stock preview', async () => {
@@ -107,7 +120,7 @@ describe('LocalScheduler', () => {
     const e = await s.submit(job('export', 'e'));
     await s.submit(job('stockPreview', 'p', '/c.arw', { slot: 'film:gold' }));
     const c = await s.submit(job('canvasDevelop', 'c'));
-    expect(s.peek(e)!.state).toEqual({ state: 'waiting', reason: 'queued' });
+    expect(s.peek(e)).toMatchObject({ state: 'waiting', reason: 'queued' });
     await host.finishNext(); // f
     // The canvas job is still settling: nothing less urgent starts in front of it.
     expect(host.calls).toEqual(['render_view:f']);
@@ -117,7 +130,7 @@ describe('LocalScheduler', () => {
     await host.finishNext();
     await host.finishNext();
     expect(host.calls).toEqual(['render_view:f', 'render_view:c', 'render_view:e', 'render_view:p']);
-    expect((await s.outcome(c)).status).toBe('done');
+    expect((await s.outcome(c)).outcome.outcome).toBe('finished');
   });
 
   it('thumbnails run beside the renders, two at a time, and never hold an edit back', async () => {
@@ -127,16 +140,16 @@ describe('LocalScheduler', () => {
     const t3 = await s.submit(job('thumbnail', 't3', '/d.arw'));
     await flush();
     expect(host.calls).toEqual(['render_view:t1', 'render_view:t2']);
-    expect(s.peek(t3)!.state).toEqual({ state: 'waiting', reason: 'queued' });
+    expect(s.peek(t3)).toMatchObject({ state: 'waiting', reason: 'queued' });
     const c = await s.submit(job('canvasDevelop', 'c'));
     await clock.advance(180);
     // The edit renders although two thumbnails are still decoding.
     expect(host.calls).toEqual(['render_view:t1', 'render_view:t2', 'render_view:c']);
-    expect(s.peek(c)!.state.state).toBe('running');
+    expect(s.peek(c)!.state).toBe('running');
     await host.finishNext(); // t1
     expect(host.calls.at(-1)).toBe('render_view:t3');
-    expect((await s.outcome(t1)).status).toBe('done');
-    expect((await s.budget()).running).toBe(3);
+    expect((await s.outcome(t1)).outcome.outcome).toBe('finished');
+    expect((await s.budget()).jobs).toBe(3);
   });
 
   it('a failed job reports its reason and the queue goes on', async () => {
@@ -145,26 +158,38 @@ describe('LocalScheduler', () => {
     const a = await s.submit(job('canvasDevelop', 'a'));
     const t = await s.submit(job('thumbnail', 't', '/b.arw'));
     await flush();
-    await host.failNext('The graphics device stopped responding.');
-    expect(await s.outcome(a)).toMatchObject({ status: 'failed', error: { message: 'The graphics device stopped responding.', code: 'internal' } });
-    expect(s.peek(a)!.state).toMatchObject({ state: 'failed', message: 'The graphics device stopped responding.' });
+    await host.failNext('engine_error: The graphics device stopped responding.');
+    expect((await s.outcome(a)).outcome).toEqual({ jobId: a, outcome: 'failed', message: 'engine_error: The graphics device stopped responding.' });
+    expect(s.peek(a)).toMatchObject({ state: 'failed', message: 'engine_error: The graphics device stopped responding.' });
     await host.finishNext();
-    expect((await s.outcome(t)).status).toBe('done');
+    expect((await s.outcome(t)).outcome.outcome).toBe('finished');
   });
 
-  it('cancel takes a waiting job out; a running one ends cancelled after its step', async () => {
-    const { clock, host, s } = setup();
-    const a = await s.submit({ ...job('export', 'a'), steps: [{ method: 'render', params: { tag: '1' } }, { method: 'write', params: { tag: '2' } }] });
+  it('cancel takes a waiting job out; a running one is cancelled on the engine', async () => {
+    const { host, s } = setup();
+    const a = await s.submit(job('export', 'a'));
     const b = await s.submit(job('export', 'b', '/b.arw'));
     await flush();
     await s.cancel(b);
-    expect((await s.outcome(b)).status).toBe('cancelled');
+    expect((await s.outcome(b)).outcome.outcome).toBe('cancelled');
     await s.cancel(a);
+    expect(host.cancels).toEqual([a]);
+    await host.cancelNext();
+    expect((await s.outcome(a)).outcome.outcome).toBe('cancelled');
+    expect(host.calls).toEqual(['render_view:a']);
+  });
+
+  it('pixels are handed over once', async () => {
+    const { host, s } = setup();
+    const a = await s.submit(job('export', 'a'));
+    await flush();
     await host.finishNext();
-    expect(await s.outcome(a)).toMatchObject({ status: 'cancelled', results: [{ result: { tag: '1' } }] });
-    expect(host.calls).toEqual(['render:1']);
-    await clock.advance(1000);
-    expect(host.calls).toEqual(['render:1']);
+    const first = await s.outcome(a);
+    expect(first.payload.byteLength).toBe(32);
+    expect(first.outcome.result).toMatchObject({ payloadBytes: 32, size: { width: 4, height: 2 }, method: 'render_view', hostResult: { tag: 'a' } });
+    const again = await s.outcome(a);
+    expect(again.payload.byteLength).toBe(0);
+    expect(again.outcome.result!.payloadBytes).toBe(0);
   });
 
   it('cancelFrame cancels one frame’s jobs of the kinds named', async () => {
@@ -173,9 +198,9 @@ describe('LocalScheduler', () => {
     const f = await s.submit(job('fullView', 'f'));
     const o = await s.submit(job('fullView', 'o', '/other.arw'));
     await s.cancelFrame('/a.arw', ['canvasDevelop']);
-    expect((await s.outcome(c)).status).toBe('cancelled');
-    expect(s.peek(f)!.state.state).not.toBe('cancelled');
-    expect(s.peek(o)!.state.state).not.toBe('cancelled');
+    expect((await s.outcome(c)).outcome.outcome).toBe('cancelled');
+    expect(s.peek(f)!.state).not.toBe('cancelled');
+    expect(s.peek(o)!.state).not.toBe('cancelled');
   });
 
   it('a file dialog holds canvas jobs with the reason, and they run when it closes', async () => {
@@ -183,7 +208,7 @@ describe('LocalScheduler', () => {
     await s.frontendState({ visiblePage: 'edit', openFrame: '/a.arw', foreground: true, interaction: 'idle', dialogOpen: true });
     const a = await s.submit(job('canvasDevelop', 'a'));
     await clock.advance(500);
-    expect(s.peek(a)!.state).toEqual({ state: 'waiting', reason: 'dialog' });
+    expect(s.peek(a)).toMatchObject({ state: 'waiting', reason: 'dialog' });
     expect(host.calls).toEqual([]);
     await s.frontendState({ visiblePage: 'edit', openFrame: '/a.arw', foreground: true, interaction: 'idle', dialogOpen: false });
     await flush();
@@ -195,17 +220,24 @@ describe('LocalScheduler', () => {
     const a = await s.submit(job('stockPreview', 'a', '/a.arw', { slot: 'film:portra' }));
     const b = await s.submit(job('stockPreview', 'b', '/a.arw', { slot: 'film:gold' }));
     const c = await s.submit(job('stockPreview', 'c', '/a.arw', { slot: 'film:portra' }));
-    // a started at once (nothing else queued), so it is superseded rather than cancelled.
-    expect((await s.peek(a))!.superseded).toBe(true);
-    expect(s.peek(b)!.state.state).not.toBe('cancelled');
-    expect(s.peek(c)!.state.state).not.toBe('cancelled');
+    expect(s.peek(a)!.state).toBe('running');
+    expect(s.peek(b)!.state).not.toBe('cancelled');
+    expect(s.peek(c)!.state).not.toBe('cancelled');
   });
 
-  it('reports a budget reading with what it holds', async () => {
+  it('refuses what the Rust scheduler refuses', async () => {
+    const { s } = setup();
+    await expect(s.submit({ ...job('export', 'e'), frameId: '' })).rejects.toThrow('frameId is empty');
+    await expect(s.submit({ ...job('export', 'e'), canvas: { width: 0, height: 2 } })).rejects.toThrow('not a picture');
+  });
+
+  it('a budget reading in WIRE’s shape, with what it holds', async () => {
     const clock = new VirtualClock();
-    const s = new LocalScheduler(fakeHost().exec, { clock, budget: () => ({ device: 'GPU', backend: 'Vulkan', budgetBytes: null, inUseBytes: null }) });
+    const s = new LocalScheduler(fakeEngine().engine, { clock, engineName: 'mock host' });
     await s.submit(job('export', 'e'));
     await s.submit(job('export', 'f', '/b.arw'));
-    expect(await s.budget()).toEqual({ device: 'GPU', backend: 'Vulkan', budgetBytes: null, inUseBytes: null, running: 1, queued: 1 });
+    const b = await s.budget();
+    expect(b.jobs).toBe(2);
+    expect(b.engine.name).toBe('mock host');
   });
 });

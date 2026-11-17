@@ -20,7 +20,7 @@ import { DiagnosticSettings } from '../windows/DiagnosticSettings';
 import { NewPhotoDefaultsSettings } from '../windows/NewPhotoDefaultsSettings';
 import { DEFAULT_RECIPES, decodeRecipes, recipeSummary, type ExportRecipe } from '../export/recipes';
 import { scheduler } from '../scheduler';
-import type { BudgetReading } from '../scheduler/types';
+import type { BudgetReadingWire } from '../scheduler/types';
 
 type Pane = 'general' | 'recipes' | 'library' | 'rendering' | 'engine' | 'diagnostics';
 const PANES: { id: Pane; label: () => string; glyph: GlyphName }[] = [
@@ -134,10 +134,11 @@ function Engine() {
   const hello = useSession((s) => s.hello);
   const display = useSession((s) => s.displaySpace);
   const unsupported = useSession((s) => s.unsupported);
-  const [budget, setBudget] = useState<BudgetReading | null>(null);
+  const [budget, setBudget] = useState<{ reading: BudgetReadingWire; running: number; waiting: number } | null>(null);
   useEffect(() => {
     let live = true;
-    const read = () => void scheduler().budget().then((b) => live && setBudget(b));
+    const read = () => void Promise.all([scheduler().budget(), scheduler().snapshot()]).then(([reading, jobs]) => live && setBudget({
+      reading, running: jobs.filter((j) => j.state === 'running').length, waiting: jobs.filter((j) => j.state === 'queued' || j.state === 'waiting').length }));
     read();
     const id = setInterval(read, 1000);
     return () => { live = false; clearInterval(id); };
@@ -155,8 +156,8 @@ function Engine() {
     {gated.length > 0 && <p className="v2-set-note" data-testid="gated-note">{tz('Each appears in its place when the engine has it.', '引擎支持后，每一项都会出现在它的位置上。')}{unsupported.includes('contrast_mask') ? tz(' (contrast_mask has no control on any computer yet.)', '（contrast_mask 在任何电脑上都还没有控件。）') : ''}</p>}
     <Group title={tz('SCHEDULER', '调度器')}>
       <Row label={tz('Running', '运行中')} value={budget ? String(budget.running) : '—'} />
-      <Row label={tz('Waiting', '等待中')} value={budget ? String(budget.queued) : '—'} />
-      <Row label={tz('Memory budget', '内存预算')} value={budget?.budgetBytes ? `${(budget.budgetBytes / 2 ** 30).toFixed(1)} GB` : tz('Not reported', '未报告')} />
+      <Row label={tz('Waiting', '等待中')} value={budget ? String(budget.waiting) : '—'} />
+      <Row label={tz('Memory budget', '内存预算')} value={budget?.reading.budget.bytes ? `${(budget.reading.budget.bytes / 2 ** 30).toFixed(1)} GB` : tz('Not reported', '未报告')} />
     </Group>
   </>;
 }

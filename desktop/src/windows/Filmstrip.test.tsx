@@ -34,7 +34,7 @@ beforeEach(() => {
   });
   fake.state = { frames: Array.from({ length: 100 }, (_, i) => ({ path: `/${i}.ARW`, name: `${i}.ARW` })),
     selection: null, picked: [], sidecar: { geometry: GEOMETRY_DEFAULT }, savedGeometry: {}, batchExporting: false };
-  fake.thumbnail.mockResolvedValue({}); fake.url.mockResolvedValue(null);
+  fake.thumbnail.mockResolvedValue({ width: 1, height: 1, data: new Uint8Array(4), colorSpace: 'sRGB' }); fake.url.mockResolvedValue(null);
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });

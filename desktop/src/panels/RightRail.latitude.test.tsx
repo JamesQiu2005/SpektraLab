@@ -15,6 +15,9 @@ vi.mock('../host/client', () => ({ HostCallError: class extends Error {}, host: 
 vi.mock('../platform', () => ({ platform: () => ({ log: vi.fn(), sidecarSave: async () => '' }),
   baseName: (p: string) => p, dirName: (p: string) => p }));
 import { refreshLatitude, sessionStore } from '../state/session';
+import { localScheduler } from '../scheduler';
+// The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
 import { settingsStore } from '../state/settings';
 import { setLanguage } from '../i18n';
 import { RightRail } from './RightRail';

@@ -29,6 +29,9 @@ beforeEach(async () => {
   fake.logs.length = 0;
   fake.renderView.mockReset().mockResolvedValue(frame(200));
   session = await import('./session');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   session.sessionStore.setState({ selection: '/owned/frame.ARW', picked: ['/owned/frame.ARW'], engineSession: 's1',
     hello: { methods: ['render_view'] } as HelloResult, sidecar: newSidecar(), nativeSize: { width: 1, height: 1 },
     imageVersion: 0, displaySpace: 'srgb' });
@@ -96,14 +99,17 @@ describe('processed preview scheduling', () => {
     session.sessionStore.setState({ nativeSize: { width: 7028, height: 4688 }, maxTextureSize: 8192,
       canvasPx: { width: 1600, height: 1000 }, sidecar });
     fake.renderView.mockImplementation(async (_sid: string, tier: string) => ({ ...frame(200), tier }));
+    // A full view and a cropped frame's thumbnail are one-shot jobs: each opens a session of its own (WIRE.md).
+    fake.open.mockResolvedValue({ session: 'one-shot', width: 7028, height: 4688, kind: 'raw', metadata: {}, params: {} });
     await session.requestPrint();
     await vi.advanceTimersByTimeAsync(400);
     const calls = fake.renderView.mock.calls;
     expect(calls).toHaveLength(3);
     expect(calls[0]).toEqual(['s1', 'live', expect.objectContaining({ long_edge: 2560, geometry: sidecar.geometry })]);
-    expect(calls[1]).toEqual(['s1', 'full', expect.objectContaining({ long_edge: 2560, geometry: sidecar.geometry })]);
-    expect(calls[2]).toEqual(['s1', 'full', expect.objectContaining({ long_edge: 320,
+    expect(calls[1]).toEqual(['one-shot', 'full', expect.objectContaining({ long_edge: 2560, geometry: sidecar.geometry })]);
+    expect(calls[2]).toEqual(['one-shot', 'preview', expect.objectContaining({ long_edge: 320,
       geometry: expect.objectContaining({ crop: { x: 0, y: 0, width: 1, height: 1 }, quarterTurns: 0 }) })]);
+    expect(fake.close).toHaveBeenCalledTimes(2);
     expect(session.sessionStore.getState().badge).toBe('full');
   });
 
@@ -152,6 +158,7 @@ describe('processed preview scheduling', () => {
   it('discards the idle full-quality reply when a new grade arrives during it', async () => {
     let release!: (reply: RenderReply) => void;
     session.sessionStore.setState({ nativeSize: { width: 7028, height: 4688 } });
+    fake.open.mockResolvedValue({ session: 'one-shot', width: 7028, height: 4688, kind: 'raw', metadata: {}, params: {} });
     fake.renderView.mockResolvedValueOnce(frame(100))
       .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
     await session.requestPrint();

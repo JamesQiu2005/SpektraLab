@@ -20,6 +20,7 @@ import { isPairPath } from '@shared/pair';
 import { paintOutput } from '../canvas/colorSpace';
 import { type ExportRecipe, editRecipe, recipeSummary, DEFAULT_RECIPES, DEFAULT_RECIPES_V2, NAME_TOKENS, EXPORT_SPACES, type NameToken, decodeRecipes, extensionOf } from './recipes';
 import { captureExportFrames, exportCube, exportFrame, renderProof, hostWrites, outputFor, targetFor, type ExportJob, type ExportOutcome } from './exporter';
+import { scheduler } from '../scheduler';
 import { ExportV2 } from './ExportV2';
 
 const TOKEN_LABEL: Record<NameToken, () => string> = {
@@ -40,11 +41,23 @@ export interface ExportProgress {
 }
 
 const STAGE_LABEL: Record<string, () => string> = {
+  // The scheduler's stages (WIRE.md)…
+  Decode: () => tz('decoding', '解码中'),
+  Film: () => tz('rendering', '渲染中'),
+  Print: () => tz('rendering', '渲染中'),
+  Scan: () => tz('rendering', '渲染中'),
+  Save: () => tz('encoding', '编码中'),
+  // …and the host's own, for a proof on the direct path.
   render: () => tz('rendering', '渲染中'),
   transform: () => tz('encoding', '编码中'),
   encode: () => tz('encoding', '编码中'),
   done: () => tz('done', '完成'),
 };
+
+/** An export job is cancelled through the scheduler; a proof (the direct path) through the host. */
+function cancelJob(job: ExportJob): Promise<unknown> {
+  return job.jobId ? scheduler().cancel(job.jobId) : host().cancel(job.session, job.progressId).catch(() => false);
+}
 
 /** Whole-batch completion in percent: finished frames plus the active one. */
 export function progressPercent(p: ExportProgress): number {
@@ -232,7 +245,7 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
     }, 200);
     return () => {
       obsolete = true; clearTimeout(timer);
-      if (job) void host().cancel(job.session, job.progressId).catch(() => {});
+      if (job) void cancelJob(job);
     };
   }, [open, selection, batch, developing, engineSession, sidecar, native, metadata, pair, pairInfo, proofRecipe, proofNoFilm, bypassRefusal, hello, catalog, gate, display, proofEdge]);
 
@@ -273,17 +286,11 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
     let done = 0;
     let lease: number | null = null;
     const outcomes: ExportOutcome[] = [];
-    // The host reports a private job's progress under its progress id
-    // (HOST-PROTOCOL.md, Events). Only the active job moves the bar.
-    const unsubscribe = host().onEvent((e) => {
+    // The scheduler reports the export job's stage and fraction (WIRE.md). Only the active job moves the bar.
+    const unsubscribe = scheduler().onJob((j) => {
       const job = active.current;
-      if (!job || e.event !== 'progress' || e.progress_id !== job.progressId) return;
-      const fraction = Number(e.fraction);
-      setProgress((p) => p && {
-        ...p,
-        fraction: Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : p.fraction,
-        stage: typeof e.stage === 'string' ? e.stage : p.stage,
-      });
+      if (!job?.jobId || j.jobId !== job.jobId || j.state !== 'running') return;
+      setProgress((p) => p && { ...p, fraction: Math.min(1, Math.max(0, j.fraction)), stage: j.stage });
     });
     try {
       // Keep the native workspace lease between frames as well as during
@@ -326,7 +333,7 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
     stop.current = true;
     exportRun.setState({ stop: null });
     const job = active.current;
-    if (job) void host().cancel(job.session, job.progressId).catch((e) => platform().log('error', `export cancel: ${String(e)}`));
+    if (job) void cancelJob(job).catch((e) => platform().log('error', `export cancel: ${String(e)}`));
   };
 
   stopRef.current = cancel;

@@ -39,6 +39,9 @@ beforeEach(async () => {
   fake.thumb.mockResolvedValue('blob:fixture-thumbnail');
   fake.render.mockImplementation(async (_sid: string, tier: string, options: { no_film?: boolean }) => ({ ...picture(options.no_film ? 'bypass' : 'film'), tier }));
   session = await import('./session'); frames = await import('./frames');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   const sc = structuredClone(newSidecar()); sc.params.filmEdge.seeded = true;
   session.sessionStore.setState({ selection: '/owned/a.ARW', engineSession: 's1', hello,
     hostState: { phase: 'ready', hello }, gate: { ...ALL_FEATURES, noFilm: true },
@@ -111,7 +114,8 @@ describe('per-frame film bypass', () => {
     expect(descriptors.some((d) => (d.configuration as { noFilm?: boolean }).noFilm === false)).toBe(true);
     expect(descriptors.some((d) => (d.configuration as { noFilm?: boolean }).noFilm === true)).toBe(true);
     await vi.advanceTimersByTimeAsync(450);
-    expect(fake.render).toHaveBeenLastCalledWith('s1', 'full', expect.objectContaining({ no_film: true,
+    // The cropped frame's whole-photo thumbnail is a one-shot thumbnail job: a session of its own (WIRE.md).
+    expect(fake.render).toHaveBeenLastCalledWith('s2', 'preview', expect.objectContaining({ no_film: true,
       geometry: GEOMETRY_DEFAULT, source_geometry: GEOMETRY_DEFAULT, long_edge: 320 }));
     expect(fake.thumbnail).toHaveBeenLastCalledWith('/owned/a.ARW', 'blob:fixture-thumbnail', false);
   });
