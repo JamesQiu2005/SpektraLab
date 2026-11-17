@@ -138,7 +138,8 @@ enum Answer {
 }
 
 impl HostEngine {
-    /// Say `hello` and read what this host is.
+    /// Say `hello` and read what this host is. Awaited inside a tokio runtime, whose handle the engine
+    /// keeps: `cancel` (which spawns the host's `cancel` request) may then be called from any thread.
     pub async fn connect(link: Arc<dyn HostLink>) -> Result<HostEngine, EngineError> {
         let (header, _) =
             link.request("hello", json!({}), Vec::new(), Duration::from_secs(45)).await.map_err(|e| link_error(&e))?;

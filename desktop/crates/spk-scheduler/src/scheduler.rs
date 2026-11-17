@@ -1,6 +1,8 @@
 //! The facade a Tauri layer holds (R6): the queue, the wire, the job log and the snapshot events.
-//! `Send + Sync`, no `tauri` dependency. Made inside a tokio runtime (Tauri's), whose handle the queue
-//! keeps for its own tasks.
+//! `Send + Sync`, no `tauri` dependency. **Made inside a tokio runtime** (Tauri's): `new` captures its
+//! handle, and the facade, the queue and the engine spawn on that. Every other entry point may be called
+//! from any thread, inside the runtime or not — Tauri runs a non-async command on a thread outside it
+//! (`tests/facade_threads.rs`).
 
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -39,9 +41,13 @@ pub struct Scheduler {
     sink: SinkSlot,
     frontend: Mutex<FrontendStateMsg>,
     policy: DevicePolicy,
+    /// The runtime `new` was called in: the facade's own tasks are spawned on it, whoever calls.
+    runtime: tokio::runtime::Handle,
 }
 
 impl Scheduler {
+    /// Must be called inside a tokio runtime (it panics outside one): its handle is kept for every task
+    /// the scheduler spawns later, from whatever thread the call that causes it comes.
     pub fn new(engine: Arc<dyn DevelopEngine>, options: SchedulerOptions) -> Self {
         let probe = options.probe.clone();
         let queue =
@@ -64,7 +70,14 @@ impl Scheduler {
                 }));
             });
         }
-        Scheduler { queue, events, sink, frontend: Mutex::new(FrontendStateMsg::default()), policy: options.policy }
+        Scheduler {
+            queue,
+            events,
+            sink,
+            frontend: Mutex::new(FrontendStateMsg::default()),
+            policy: options.policy,
+            runtime: tokio::runtime::Handle::current(),
+        }
     }
 
     /// The queue itself, for what the wire does not cover (its hooks, its configuration, its records).
@@ -140,7 +153,7 @@ impl Scheduler {
         if previous.open_frame.is_some() && previous.open_frame != msg.open_frame {
             let engine = self.queue.engine();
             let frame = previous.open_frame.map(FrameId::new);
-            tokio::runtime::Handle::current().spawn(async move {
+            self.runtime.spawn(async move {
                 engine.close_editing(frame.as_ref()).await;
             });
         }

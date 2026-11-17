@@ -10,7 +10,9 @@
 #    Vulkan-on-Apple build links the Metal factory and fails ("Undefined symbols: Gpu::create_metal").
 #    The build is made from a scratch copy (build/w1-host-src) with that guard widened to the form
 #    pipeline.cpp already uses -- `#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)`. The branch's
-#    sources are not changed: engine/src is not this workstream's to edit.
+#    sources are not changed: engine/src is not this workstream's to edit. Once the tree carries the
+#    fixed guards (the W3 branch fixes them), the sed matches nothing and is a no-op: the script works
+#    on either state of engine.cpp, and the scratch copy stays so it never edits the tree.
 # 2. The Vulkan headers must be the pinned ones in build/deps, not /opt/homebrew/include: that directory
 #    also holds Homebrew's jpeglib.h (libjpeg 8), which then shadows the bundled libjpeg-turbo (6.2) and
 #    every JPEG export fails with "Wrong JPEG library version: library is 62, caller expects 80".

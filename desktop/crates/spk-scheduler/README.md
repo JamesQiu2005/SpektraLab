@@ -46,6 +46,12 @@ an `await` nor while anything outside the queue runs: an operation collects what
 and does it after unlocking, so a hook may call back into the queue. All intervals are tokio time (R4):
 under a paused runtime the rules run in virtual time.
 
+**Threads.** `Scheduler::new` (and `HostEngine::connect`, `ProcessHostLink::spawn`) must be called inside a
+tokio runtime, whose handle is kept; every other entry point — `submit`, `cancel`, `cancel_frame`,
+`snapshot`, `budget`, `set_frontend_state`, `memory_pressure`, `set_job_log`, `set_cache_hooks`, an
+engine's `cancel` — may be called from any thread, including one outside the runtime, as Tauri runs a
+non-async command (`tests/facade_threads.rs`).
+
 ## What was left out, and why
 
 | Swift | why |
@@ -130,6 +136,7 @@ SPEKTRALAB_RAW_FIXTURES=/path/to/RAW_decode_tests desktop/crates/spk-scheduler/g
 | T2 every mutation caught | `selftest::tests::every_mutation_is_caught`, and `scheduler-selftest --self-test` |
 | T3 wire round-trips, WIRE.md's examples, a Swift-shaped `JobRecord` | `tests/wire.rs` |
 | T4 `HostEngine` on a scripted link | `tests/host_engine.rs` |
+| the facade from a thread outside the runtime | `tests/facade_threads.rs` |
 | T5 the real host on a RAW | `tests/real_host.rs` (`SPK_HOST_BIN`, `SPEKTRALAB_RAW_FIXTURES`; `gate.sh` requires both and also shows it fails without its fixture) |
 | T6 Windows | `cargo check --lib --target x86_64-pc-windows-gnu` |
 

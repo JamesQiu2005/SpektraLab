@@ -32,7 +32,7 @@ pub struct ProcessHostLink {
 }
 
 impl ProcessHostLink {
-    /// Start the host. `env` is added to the child's environment (on macOS the MoltenVK build needs
+    /// Start the host, from inside a tokio runtime (its reader tasks are spawned there). `env` is added to the child's environment (on macOS the MoltenVK build needs
     /// `DYLD_FALLBACK_LIBRARY_PATH`, which the caller passes).
     pub fn spawn(program: &Path, resources: &Path, env: &[(String, String)]) -> std::io::Result<Arc<Self>> {
         let mut cmd = Command::new(program);
