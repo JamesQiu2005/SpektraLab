@@ -101,7 +101,8 @@
     "linux": {
       "deb": {
         "section": "graphics",
-        "depends": [],
+        "depends": ["libvulkan1"],
+        "recommends": ["mesa-vulkan-drivers"],
         "desktopTemplate": "linux/spektralab.desktop"
       },
       "appimage": {

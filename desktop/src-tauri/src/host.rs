@@ -423,8 +423,12 @@ fn launch_in_dir(dir: &Path, origin: &str) -> Option<Launch> {
 /// 3. The bundled sidecar: `spektralab-host[.exe]` beside the app's own
 ///    executable (Tauri `externalBin`), resources at `<resource_dir>/host/engine`.
 /// 4. A checkout's `build/host-<os>-x64/` above the executable (a dev build).
+///
+/// 1 and 4 are development aids and exist only in debug builds. A release must run the engine it
+/// was packaged with: an AppImage runs from a mount under /tmp, and walking up from there reaches
+/// /tmp/build/…, where any local user can put a program for the app to start.
 pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> {
-    if std::env::var("SPEKTRALAB_MOCK_HOST").map(|v| v == "1").unwrap_or(false) {
+    if cfg!(debug_assertions) && std::env::var("SPEKTRALAB_MOCK_HOST").map(|v| v == "1").unwrap_or(false) {
         let script = std::env::var("SPEKTRALAB_MOCK_HOST_SCRIPT").map(PathBuf::from).unwrap_or_else(|_| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("mock-host").join("main.ts")
         });
@@ -457,7 +461,7 @@ pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> 
             return Ok(Launch { program, args, mock: false, origin: "bundled sidecar".into() });
         }
         // Development: walk up to a checkout that has staged the host.
-        let mut cur = Some(dir.as_path());
+        let mut cur = if cfg!(debug_assertions) { Some(dir.as_path()) } else { None };
         while let Some(d) = cur {
             if let Some(l) = launch_in_dir(&d.join("build").join(platform_dir()), "checkout build/") {
                 return Ok(l);
