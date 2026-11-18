@@ -1,5 +1,5 @@
 // RightRail.tsx — "Parameters" (`Panels/RightPanel.swift`):
-//   Pre-Dev:  Latitude · Input / Camera · Film Format · Scene Placement
+//   Pre-Dev:  Latitude · Input / Camera · Film Format · Light Leak · Lens · Advanced · Scene Placement
 //   Post-Dev: White Balance · Exposure · Curve · Color Balance (Layer 2)
 
 import { useEffect, useRef, useState } from 'react';
@@ -14,6 +14,17 @@ import {
   type AdvancedParams,
   EFFECTS_DEFAULT,
   EFFECT_RANGES,
+  LEAK_DEFAULT,
+  LEAK_EDGE_REST,
+  LEAK_RANGE,
+  LEAK_SEED_MAX,
+  LENS_CHARACTERS,
+  LENS_DEFAULT,
+  type LeakKind,
+  type LeakSettings,
+  type LensSettings,
+  SOFT_FILTERS,
+  SOFT_FILTER_STRENGTHS,
   FILM_FRAMES,
   FILM_FRAME_CUSTOM,
   SIDE_UNIT_DECIMALS,
@@ -62,6 +73,8 @@ export function RightRail() {
             <LatitudeSection />
             <CameraSection />
             <FilmFormatSection />
+            <LightLeakSection />
+            <LensSection />
             <AdvancedSection />
             <ScenePlacementSection />
           </>
@@ -430,6 +443,186 @@ function AdvancedSection() {
       />
       <ToggleRow label={tz('Scanner White Point', '扫描仪白点校正')} on={a.scannerWhite} onChange={(v) => setA({ scannerWhite: v })} />
       <ToggleRow label={tz('Scanner Black Point', '扫描仪黑点校正')} on={a.scannerBlack} onChange={(v) => setA({ scannerBlack: v })} />
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------- Light Leak
+// SpektraLab 2's 漏光 (LensEdgePanels.swift `LeakControls`): the kind, Shuffle, its strength, and the
+// Edge Burn beside it at its own strength. Light on the film, so every change re-develops.
+
+const LEAK_LABEL: Record<LeakKind, () => string> = {
+  off: () => tz('Off', '关'),
+  auto: () => tz('Auto', '自动'),
+  band: () => tz('Band', '光带'),
+  wash: () => tz('Wash', '漫光'),
+  spot: () => tz('Spot', '光斑'),
+};
+
+function LightLeakSection() {
+  const lk = useSession((s) => s.sidecar.params.leak) ?? LEAK_DEFAULT;
+  const setLeak = (patch: Partial<LeakSettings>) =>
+    setParams((q) => ({ ...q, leak: { ...(q.leak ?? LEAK_DEFAULT), ...patch } }));
+  const kindOn = lk.kind !== 'off';
+  const edgeOn = lk.edge > 0;
+  const shuffle = () => {
+    let next = lk.seed;
+    while (next === lk.seed) next = 1 + Math.floor(Math.random() * LEAK_SEED_MAX);
+    setLeak({ seed: next });
+  };
+  return (
+    <Section
+      id="lightLeak"
+      title={tz('Light Leak', '漏光')}
+      onReset={() => setParams((q) => ({ ...q, leak: LEAK_DEFAULT }))}
+      resetEnabled={kindOn || edgeOn || lk.seed !== 0 || lk.amount !== LEAK_DEFAULT.amount}
+      resetHelp={tz('No light leak.', '无漏光。')}
+      menu={[
+        {
+          label: tz('Camera’s Own Leak', '相机默认漏光'),
+          disabled: lk.seed === 0,
+          onSelect: () => setLeak({ seed: 0 }),
+        },
+      ]}
+    >
+      <PillMenu
+        label={tz('Kind', '类型')}
+        value={(lk.kind as LeakKind) ?? 'off'}
+        options={(Object.keys(LEAK_LABEL) as LeakKind[]).map((k) => ({ value: k, label: LEAK_LABEL[k]() }))}
+        fill
+        onChange={(v) => setLeak({ kind: v })}
+        testId="leak-kind"
+      />
+      <ScrubSlider
+        label={tz('Strength', '强度')}
+        sublabel={tz('1 reaches orange, 4 clips to white', '1 为橙色，4 溢出为白')}
+        value={lk.amount}
+        range={[...LEAK_RANGE] as [number, number]}
+        zero={LEAK_DEFAULT.amount}
+        snap={0.05}
+        format={(v) => v.toFixed(2)}
+        disabled={!kindOn}
+        reason={tz('Choose a kind of leak first', '请先选择漏光类型')}
+        onChange={(v) => setLeak({ amount: v })}
+        testId="leak-amount"
+      />
+      <ToggleRow
+        label={tz('Edge Burn', '边缘漏光')}
+        sublabel={tz('light along the film’s long edges', '沿胶片长边的漏光')}
+        on={edgeOn}
+        onChange={(v) => setLeak({ edge: v ? LEAK_EDGE_REST : 0 })}
+        testId="leak-edge"
+      />
+      <ScrubSlider
+        label={tz('Edge Strength', '边缘强度')}
+        value={lk.edge}
+        range={[0.05, LEAK_RANGE[1]]}
+        zero={LEAK_EDGE_REST}
+        snap={0.05}
+        format={(v) => v.toFixed(2)}
+        disabled={!edgeOn}
+        reason={tz('Switch the Edge Burn on first', '请先打开边缘漏光')}
+        onChange={(v) => setLeak({ edge: v })}
+        testId="leak-edge-amount"
+      />
+      <div className="row" style={{ gap: 8 }}>
+        <button
+          className="btn"
+          disabled={!kindOn && !edgeOn}
+          onClick={shuffle}
+          title={tz('A new place, edge and shape for this leak. The menu (…) gives the camera’s own back.', '为漏光换一个新位置、边缘与形状。菜单（…）可恢复相机默认。')}
+          data-testid="leak-shuffle"
+        >
+          {tz('Shuffle', '随机')}
+        </button>
+        <span className="caption">{lk.seed === 0 ? tz('The camera’s own leak', '相机默认漏光') : tz('Shuffled', '已随机')}</span>
+      </div>
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------- Lens
+// SpektraLab 2's 镜头 (LensEdgePanels.swift `LensControls`): the soft filter in front of the lens at its
+// five grades, and the lens's character at an amount. Both act on the photo before the film.
+
+const SOFT_FILTER_LABEL: Record<string, () => string> = {
+  black_pro_mist: () => tz('Black Mist', '黑柔'),
+  pro_mist: () => tz('White Mist', '白柔'),
+  glimmerglass: () => tz('Glimmer', '闪柔'),
+  cinebloom: () => tz('Bloom', '晕柔'),
+};
+const LENS_CHARACTER_LABEL: Record<string, () => string> = {
+  helios44: () => tz('Swirl', '旋焦'),
+  petzval: () => tz('Petzval', '佩兹伐'),
+  vintage_soft: () => tz('Vintage', '老镜'),
+  plastic: () => tz('Toy', '玩具镜'),
+};
+const strengthText = (s: number) => (s === 0.125 ? '1/8' : s === 0.25 ? '1/4' : s === 0.5 ? '1/2' : String(s));
+
+function LensSection() {
+  const ln = useSession((s) => s.sidecar.params.lens) ?? LENS_DEFAULT;
+  const setLens = (patch: Partial<LensSettings>) =>
+    setParams((q) => ({ ...q, lens: { ...(q.lens ?? LENS_DEFAULT), ...patch } }));
+  const OFF = '__off';
+  // The grade's detents are powers of two, so the slider runs in stops of it: one step is one detent.
+  const stops = Math.log2(Math.max(ln.strength, 0.125));
+  return (
+    <Section
+      id="lens"
+      title={tz('Lens', '镜头')}
+      onReset={() => setParams((q) => ({ ...q, lens: LENS_DEFAULT }))}
+      resetEnabled={ln.filter !== null || ln.character !== null || ln.strength !== LENS_DEFAULT.strength || ln.amount !== LENS_DEFAULT.amount}
+      resetHelp={tz('No soft filter and no lens character.', '无柔光镜，无镜头像差。')}
+    >
+      <PillMenu
+        label={tz('Soft Filter', '柔光镜')}
+        value={ln.filter ?? OFF}
+        options={[{ value: OFF, label: tz('Off', '关') }, ...SOFT_FILTERS.map((f) => ({ value: f as string, label: SOFT_FILTER_LABEL[f]!() }))]}
+        fill
+        onChange={(v) => setLens({ filter: v === OFF ? null : v })}
+        testId="lens-filter"
+      />
+      <ScrubSlider
+        label={tz('Filter Strength', '柔光强度')}
+        sublabel={tz('the filter’s grade', '柔光镜等级')}
+        value={stops}
+        range={[-3, 1]}
+        zero={-1}
+        snap={1}
+        format={(v) => strengthText(Math.pow(2, Math.round(v)))}
+        parse={(txt) => {
+          const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(txt);
+          const v = m ? Number(m[1]) / Number(m[2]) : Number(txt);
+          return Number.isFinite(v) && v > 0 ? Math.log2(v) : null;
+        }}
+        disabled={ln.filter === null}
+        reason={tz('Choose a soft filter first', '请先选择柔光镜')}
+        onChange={(v) => {
+          const s = Math.pow(2, Math.min(1, Math.max(-3, Math.round(v))));
+          if ((SOFT_FILTER_STRENGTHS as readonly number[]).includes(s)) setLens({ strength: s });
+        }}
+        testId="lens-filter-strength"
+      />
+      <PillMenu
+        label={tz('Character', '像差')}
+        value={ln.character ?? OFF}
+        options={[{ value: OFF, label: tz('Off', '关') }, ...LENS_CHARACTERS.map((c) => ({ value: c as string, label: LENS_CHARACTER_LABEL[c]!() }))]}
+        fill
+        onChange={(v) => setLens({ character: v === OFF ? null : v })}
+        testId="lens-character"
+      />
+      <ScrubSlider
+        label={tz('Amount', '程度')}
+        value={ln.amount * 100}
+        range={[0, 100]}
+        zero={100}
+        snap={1}
+        format={(v) => `${v.toFixed(0)} %`}
+        disabled={ln.character === null}
+        reason={tz('Choose a lens character first', '请先选择镜头像差')}
+        onChange={(v) => setLens({ amount: Math.min(1, Math.max(0, v / 100)) })}
+        testId="lens-amount"
+      />
     </Section>
   );
 }

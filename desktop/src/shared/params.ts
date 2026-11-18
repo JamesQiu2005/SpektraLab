@@ -189,6 +189,89 @@ export const ADVANCED_RANGES = {
   headroomEV: [0, 8],
 } as const satisfies Record<string, readonly [number, number]>;
 
+/**
+ * **Light Leak** (API-SPEC §21.1, §21.8, §21.9), SpektraLab 2's `LeakSettings` (LensEdge.swift): light that
+ * reached the film without passing the lens. `kind` off / auto / band / wash / spot at `amount` (0…4, 1 reaches
+ * orange, 4 clips to white); beside it the **Edge Burn** at its own strength (`edge`, 0 is off); `seed` 0 is the
+ * camera's own leak, non-zero Shuffle's. Its colour is the film's own sensitivity: no colour is painted.
+ */
+export const LEAK_KINDS = ['off', 'auto', 'band', 'wash', 'spot'] as const;
+export type LeakKind = (typeof LEAK_KINDS)[number];
+export interface LeakSettings {
+  kind: string;
+  amount: number;
+  edge: number;
+  seed: number;
+}
+export const LEAK_DEFAULT: LeakSettings = { kind: 'off', amount: 1, edge: 0, seed: 0 };
+export const LEAK_RANGE: readonly [number, number] = [0, 4];
+/** The Edge Burn's strength when its switch goes on. */
+export const LEAK_EDGE_REST = 1;
+export const LEAK_SEED_MAX = 2147483647;
+
+/**
+ * **Lens** (API-SPEC §21.5-§21.6), SpektraLab 2's `LensSettings`: a soft filter in front of the lens (the four
+ * families, generic names, at the grade's five detents 1/8 … 2) and the lens's **Character** -- a named lens, the
+ * twelve `lens_*` numbers at Amount 100 % (`LensCharacter.preset`, the app's own tables). Both act on the source
+ * before the film, so either re-develops.
+ */
+export const SOFT_FILTERS = ['black_pro_mist', 'pro_mist', 'glimmerglass', 'cinebloom'] as const;
+export const SOFT_FILTER_STRENGTHS = [0.125, 0.25, 0.5, 1, 2] as const;
+export const LENS_CHARACTERS = ['helios44', 'petzval', 'vintage_soft', 'plastic'] as const;
+export interface LensSettings {
+  /** `diffusion_filter_family`; null is off. */
+  filter: string | null;
+  strength: number;
+  /** A `LENS_CHARACTERS` name; null is off. */
+  character: string | null;
+  /** 0…1. */
+  amount: number;
+}
+export const LENS_DEFAULT: LensSettings = { filter: null, strength: 0.5, character: null, amount: 1 };
+
+interface LensPreset {
+  fieldCurvatureUM?: number;
+  astigmatismUM?: number;
+  fieldExponent?: number;
+  sharpRadius?: number;
+  comaUM?: number;
+  sphericalAmount?: number;
+  sphericalUM?: number;
+  lateralCAR?: number;
+  lateralCAB?: number;
+  locaUM?: number;
+  locaSign?: string;
+}
+/** LensEdge.swift `LensCharacter.preset`, number for number. */
+const LENS_PRESETS: Record<string, LensPreset> = {
+  helios44: { fieldCurvatureUM: 45, astigmatismUM: 70, fieldExponent: 2, comaUM: 25, sphericalAmount: 0.08, sphericalUM: 60 },
+  petzval: { fieldCurvatureUM: 70, astigmatismUM: 100, fieldExponent: 3, sharpRadius: 0.3 },
+  vintage_soft: { fieldCurvatureUM: 25, comaUM: 60, sphericalAmount: 0.2, sphericalUM: 80 },
+  plastic: { fieldCurvatureUM: 35, sphericalAmount: 0.25, sphericalUM: 120, lateralCAR: 1.5, lateralCAB: -1.5, locaUM: 10, locaSign: 'purple' },
+};
+
+/** `LensPreset.wire(amount:)`: the blurs, fringes and glow's share scale with the amount; the field's shape is the lens's. */
+function lensCharacterWire(name: string, amount: number): WireField[] {
+  const q = LENS_PRESETS[name];
+  if (!q) return [];
+  const a = clamp(amount, 0, 1);
+  const L = (n: string, v: WireValue): WireField => ({ name: n, value: v, layer: 'shoot' });
+  return [
+    L('lens_field_curvature_um', clamp((q.fieldCurvatureUM ?? 0) * a, 0, 120)),
+    L('lens_astigmatism_um', clamp((q.astigmatismUM ?? 0) * a, -120, 120)),
+    L('lens_field_exponent', clamp(q.fieldExponent ?? 2, 1, 4)),
+    L('lens_sharp_radius', clamp(q.sharpRadius ?? 0, 0, 0.8)),
+    L('lens_coma_um', clamp((q.comaUM ?? 0) * a, -150, 150)),
+    L('lens_spherical_amount', clamp((q.sphericalAmount ?? 0) * a, 0, 0.6)),
+    L('lens_spherical_um', clamp(q.sphericalUM ?? 60, 10, 400)),
+    L('lens_lateral_ca_r', clamp((q.lateralCAR ?? 0) * a, -3, 3)),
+    L('lens_lateral_ca_b', clamp((q.lateralCAB ?? 0) * a, -3, 3)),
+    L('lens_loca_um', clamp((q.locaUM ?? 0) * a, 0, 30)),
+    L('lens_loca_sign', q.locaSign ?? 'purple'),
+    L('lens_loca_highlight_gate', 1),
+  ];
+}
+
 export const EFFECT_RANGES = {
   grain: [0, 2],
   halation: [0, 4],
@@ -318,6 +401,8 @@ export interface FilmParams {
   pairSplit: number;
   effects: EffectStrengths;
   linuxAdvanced: AdvancedParams;
+  leak: LeakSettings;
+  lens: LensSettings;
   printEffects: boolean;
   filmEdge: FilmEdgeSettings;
   dateBack: DateBackSettings;
@@ -350,6 +435,8 @@ export const FILM_PARAMS_DEFAULT: FilmParams = {
   pairSplit: 0,
   effects: EFFECTS_DEFAULT,
   linuxAdvanced: ADVANCED_DEFAULT,
+  leak: LEAK_DEFAULT,
+  lens: LENS_DEFAULT,
   printEffects: true,
   filmEdge: FILM_EDGE_DEFAULT,
   dateBack: DATE_BACK_DEFAULT,
@@ -406,6 +493,11 @@ export function decodeFilmParams(raw: unknown): FilmParams {
   base.sceneLatitudeOther = decodeShape(o.sceneLatitudeOther, SCENE_LATITUDE_DEFAULT);
   base.effects = decodeShape(o.effects, EFFECTS_DEFAULT);
   base.linuxAdvanced = decodeShape(o.linuxAdvanced, ADVANCED_DEFAULT);
+  base.leak = decodeShape(o.leak, LEAK_DEFAULT);
+  if (!(LEAK_KINDS as readonly string[]).includes(base.leak.kind)) base.leak.kind = 'off';
+  base.lens = decodeShape(o.lens, LENS_DEFAULT);
+  if (base.lens.filter !== null && !(SOFT_FILTERS as readonly string[]).includes(base.lens.filter)) base.lens.filter = null;
+  if (base.lens.character !== null && !(LENS_CHARACTERS as readonly string[]).includes(base.lens.character)) base.lens.character = null;
   base.filmEdge = decodeShape(o.filmEdge, FILM_EDGE_DEFAULT);
   base.dateBack = decodeShape(o.dateBack, DATE_BACK_DEFAULT);
   if (o.filmEdge && !('seeded' in obj(o.filmEdge))) base.filmEdge.seeded = 'frameSeed' in obj(o.filmEdge);
@@ -609,6 +701,41 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
       );
     }
   }
+  // Light Leak (SpektraLab 2's `leakWire`). Its switches are always sent, so turning it off reaches
+  // the engine; `leak_rate` 1, one picture edited alone always shows its camera's leak; `leak_front`
+  // -1, the camera's share of front light.
+  const lk = p.leak ?? LEAK_DEFAULT;
+  const kindOn = lk.kind !== 'off';
+  const edgeOn = lk.edge > 0;
+  f.push(
+    { name: 'leak_kind', value: kindOn ? lk.kind : 'off', layer: 'shoot' },
+    { name: 'leak_amount', value: clamp(lk.amount, LEAK_RANGE[0], LEAK_RANGE[1]), layer: 'shoot' },
+    { name: 'leak_edge', value: edgeOn ? clamp(lk.edge, LEAK_RANGE[0], LEAK_RANGE[1]) : 0, layer: 'shoot' },
+    { name: 'leak_seed', value: clamp(Math.round(lk.seed), 0, LEAK_SEED_MAX), layer: 'shoot' },
+    { name: 'leak_rate', value: 1, layer: 'shoot' },
+    { name: 'leak_front', value: -1, layer: 'shoot' },
+  );
+  // With the film edge off, the leak is laid on a camera's gate: the seeds and format the film edge
+  // would send, so it does not move when the film edge goes on (a date back's camera when it sent one).
+  if ((kindOn || edgeOn) && !(gate.overscan && p.filmEdge.active)) {
+    const fe = p.filmEdge;
+    if (!f.some((x) => x.name === 'overscan_format')) f.push({ name: 'overscan_format', value: '135', layer: 'shoot' });
+    f.push(
+      { name: 'overscan_camera_seed', value: clamp(Math.round(fe.cameraSeed), 0, LEAK_SEED_MAX), layer: 'shoot' },
+      { name: 'overscan_frame_seed', value: clamp(Math.round(fe.frameSeed), 0, LEAK_SEED_MAX), layer: 'shoot' },
+      { name: 'overscan_frame_number', value: clamp(Math.round(fe.frameNumber), 0, 99), layer: 'shoot' },
+    );
+  }
+  // Lens: the soft filter and the lens's character, each switch always sent.
+  const ln = p.lens ?? LENS_DEFAULT;
+  f.push({ name: 'diffusion_filter_active', value: ln.filter !== null, layer: 'shoot' });
+  if (ln.filter !== null)
+    f.push(
+      { name: 'diffusion_filter_family', value: ln.filter, layer: 'shoot' },
+      { name: 'diffusion_filter_strength', value: clamp(ln.strength, 0, 2), layer: 'shoot' },
+    );
+  f.push({ name: 'lens_aberrations_active', value: ln.character !== null, layer: 'shoot' });
+  if (ln.character !== null) f.push(...lensCharacterWire(ln.character, ln.amount));
   // A silver pair's enlarger pack: the engine's table has no row for a silver paper, and a session
   // coming from a colour pair would keep that pair's. Going back, the engine takes the colour pair's
   // own row again when print_stock changes, so nothing is sent for it.

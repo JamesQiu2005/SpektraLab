@@ -88,3 +88,46 @@ describe('the wire', () => {
     expect(filmFormatMM('short', 56, 70 / 56)).toBeCloseTo(70);
   });
 });
+
+describe('light leak and lens (SpektraLab 2 LensEdge.swift)', () => {
+  const names = new Set((schema as { name: string }[]).map((f) => f.name));
+  const on = {
+    ...FILM_PARAMS_DEFAULT,
+    leak: { kind: 'band', amount: 2, edge: 1.5, seed: 77 },
+    lens: { filter: 'cinebloom', strength: 0.25, character: 'plastic', amount: 0.5 },
+  };
+  it('sends only fields the engine has', () => {
+    for (const f of [...Object.keys(fullDelta(FILM_PARAMS_DEFAULT)), ...Object.keys(fullDelta(on))]) expect(names.has(f), f).toBe(true);
+  });
+  it('is off by default, its switches still sent', () => {
+    const d = fullDelta(FILM_PARAMS_DEFAULT);
+    expect(d.leak_kind).toBe('off');
+    expect(d.leak_edge).toBe(0);
+    expect(d.diffusion_filter_active).toBe(false);
+    expect(d.lens_aberrations_active).toBe(false);
+    expect('diffusion_filter_family' in d).toBe(false);
+    expect('lens_coma_um' in d).toBe(false);
+  });
+  it('lays a leak on a 135 gate with the film edge off', () => {
+    const d = fullDelta(on, { ...ALL_FEATURES, overscan: false, dateImprint: false });
+    expect(d).toMatchObject({ leak_kind: 'band', leak_amount: 2, leak_edge: 1.5, leak_seed: 77, overscan_format: '135' });
+    expect(d.overscan_camera_seed).toBe(FILM_PARAMS_DEFAULT.filmEdge.cameraSeed);
+    expect('overscan_active' in d).toBe(false);
+  });
+  it('scales the character by its amount, the field shape is the lens own', () => {
+    const d = fullDelta(on);
+    expect(d).toMatchObject({ diffusion_filter_active: true, diffusion_filter_family: 'cinebloom', diffusion_filter_strength: 0.25 });
+    expect(d).toMatchObject({ lens_aberrations_active: true, lens_field_curvature_um: 17.5, lens_lateral_ca_r: 0.75, lens_lateral_ca_b: -0.75 });
+    expect(d).toMatchObject({ lens_spherical_amount: 0.125, lens_spherical_um: 120, lens_loca_um: 5, lens_loca_sign: 'purple' });
+  });
+  it('decodes unknown names as off', () => {
+    const p = decodeFilmParams({ leak: { kind: 'laser' }, lens: { filter: 'vaseline', character: 'fisheye' } });
+    expect(p.leak.kind).toBe('off');
+    expect(p.lens.filter).toBeNull();
+    expect(p.lens.character).toBeNull();
+  });
+  it('turning a leak off reaches the engine', () => {
+    const { delta: d } = delta(FILM_PARAMS_DEFAULT, on);
+    expect(d).toMatchObject({ leak_kind: 'off', leak_edge: 0, diffusion_filter_active: false, lens_aberrations_active: false });
+  });
+});
