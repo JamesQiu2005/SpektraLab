@@ -144,6 +144,9 @@ input {
   flex: 1;
   scrollbar-width: thin;
   scrollbar-color: #555 transparent;
+  /* Keep the scrollbar's own column: GTK's overlay scrollbar otherwise appears on top of the
+     controls at the rail's right edge and takes their clicks (the curve's top-right point). */
+  scrollbar-gutter: stable;
 }
 .hairline {
   height: 1px;
@@ -700,6 +703,10 @@ input {
   height: 18px;
   object-fit: cover;
   border-radius: 2px;
+}
+/* The generic canister drawn for a film with no cover photo (StockList.tsx). */
+.stock-row svg.cover {
+  flex: none;
 }
 .cine-pill {
   font-size: 6px;

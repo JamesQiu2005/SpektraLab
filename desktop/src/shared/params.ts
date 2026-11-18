@@ -156,6 +156,39 @@ export const EFFECTS_DEFAULT: EffectStrengths = {
   couplers: 1,
   glare: 1,
 };
+/**
+ * Engine settings no SpektraLab interface exposed, offered on Linux at the owner's request
+ * (2026-11-18). Each default is the engine's own (params.cpp), so a frame nobody touched renders
+ * as before; the sidecar key `linuxAdvanced` is this port's, carried through by the Mac.
+ */
+export interface AdvancedParams {
+  /** camera.lens_blur_um: the taking lens's softness, in micrometres on the film. */
+  lensBlurUM: number;
+  /** film_render.density_curve_gamma: development contrast (1 = the data sheet's). */
+  developGamma: number;
+  /** scanner.lens_blur: the scanner lens's softness. */
+  scannerBlur: number;
+  scannerWhite: boolean;
+  scannerBlack: boolean;
+  /** film_render.halation.headroom_ev: highlight headroom for a film with no anti-halation layer. */
+  headroomEV: number;
+}
+export const ADVANCED_DEFAULT: AdvancedParams = {
+  lensBlurUM: 0,
+  developGamma: 1,
+  scannerBlur: 0,
+  scannerWhite: false,
+  scannerBlack: false,
+  headroomEV: 4,
+};
+/** Inside the wire's ranges, narrowed to where a slider is usable. */
+export const ADVANCED_RANGES = {
+  lensBlurUM: [0, 100],
+  developGamma: [0.5, 2],
+  scannerBlur: [0, 10],
+  headroomEV: [0, 8],
+} as const satisfies Record<string, readonly [number, number]>;
+
 export const EFFECT_RANGES = {
   grain: [0, 2],
   halation: [0, 4],
@@ -284,6 +317,7 @@ export interface FilmParams {
   placementIsRight: boolean;
   pairSplit: number;
   effects: EffectStrengths;
+  linuxAdvanced: AdvancedParams;
   printEffects: boolean;
   filmEdge: FilmEdgeSettings;
   dateBack: DateBackSettings;
@@ -315,6 +349,7 @@ export const FILM_PARAMS_DEFAULT: FilmParams = {
   placementIsRight: false,
   pairSplit: 0,
   effects: EFFECTS_DEFAULT,
+  linuxAdvanced: ADVANCED_DEFAULT,
   printEffects: true,
   filmEdge: FILM_EDGE_DEFAULT,
   dateBack: DATE_BACK_DEFAULT,
@@ -370,6 +405,7 @@ export function decodeFilmParams(raw: unknown): FilmParams {
   base.sceneLatitude = decodeShape(o.sceneLatitude, SCENE_LATITUDE_DEFAULT);
   base.sceneLatitudeOther = decodeShape(o.sceneLatitudeOther, SCENE_LATITUDE_DEFAULT);
   base.effects = decodeShape(o.effects, EFFECTS_DEFAULT);
+  base.linuxAdvanced = decodeShape(o.linuxAdvanced, ADVANCED_DEFAULT);
   base.filmEdge = decodeShape(o.filmEdge, FILM_EDGE_DEFAULT);
   base.dateBack = decodeShape(o.dateBack, DATE_BACK_DEFAULT);
   if (o.filmEdge && !('seeded' in obj(o.filmEdge))) base.filmEdge.seeded = 'frameSeed' in obj(o.filmEdge);
@@ -513,6 +549,16 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
     { name: 'glare_amount', value: clamp(e.glare, r.glare[0], r.glare[1]), layer: 'print' },
     { name: 'antihalation_removed', value: e.antihalationRemoved, layer: 'shoot' },
     { name: 'halation_boost_ev', value: clamp(e.highlightBoost, r.highlightBoost[0], r.highlightBoost[1]), layer: 'shoot' },
+  );
+  const a = p.linuxAdvanced ?? ADVANCED_DEFAULT;
+  const ar = ADVANCED_RANGES;
+  f.push(
+    { name: 'lens_blur_um', value: clamp(a.lensBlurUM, ar.lensBlurUM[0], ar.lensBlurUM[1]), layer: 'shoot' },
+    { name: 'density_curve_gamma', value: clamp(a.developGamma, ar.developGamma[0], ar.developGamma[1]), layer: 'shoot' },
+    { name: 'halation_headroom_ev', value: clamp(a.headroomEV, ar.headroomEV[0], ar.headroomEV[1]), layer: 'shoot' },
+    { name: 'scanner_lens_blur', value: clamp(a.scannerBlur, ar.scannerBlur[0], ar.scannerBlur[1]), layer: 'print' },
+    { name: 'scanner_white_correction', value: a.scannerWhite, layer: 'print' },
+    { name: 'scanner_black_correction', value: a.scannerBlack, layer: 'print' },
   );
   if (gate.digitalIntermediate) {
     f.push(

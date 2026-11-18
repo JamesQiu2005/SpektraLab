@@ -9,6 +9,9 @@ import { hostRedecodes, setAdjustments, setDecode, setFilmFrame, setFilmSide, se
 import { settingsStore, useSettings } from '../state/settings';
 import {
   type AEMethod,
+  ADVANCED_DEFAULT,
+  ADVANCED_RANGES,
+  type AdvancedParams,
   EFFECTS_DEFAULT,
   EFFECT_RANGES,
   FILM_FRAMES,
@@ -59,6 +62,7 @@ export function RightRail() {
             <LatitudeSection />
             <CameraSection />
             <FilmFormatSection />
+            <AdvancedSection />
             <ScenePlacementSection />
           </>
         ) : (
@@ -275,12 +279,13 @@ function useWhiteBalance() {
 function FilmFormatSection() {
   const p = useSession((s) => s.sidecar.params);
   const unit = useSettings((s) => s.sideUnit);
-  const decouple = useSettings((s) => s.decoupleEffects);
   const isCustom = p.filmFrame === FILM_FRAME_CUSTOM.id;
   const e = p.effects;
   const setE = (patch: Partial<typeof e>) => setParams((q) => ({ ...q, effects: { ...q.effects, ...patch } }));
-  const strength = (label: string, key: 'grain' | 'halation' | 'scatter' | 'couplers' | 'glare', enabled: boolean) => (
-    <ScrubSlider label={label} value={e[key]} range={[...EFFECT_RANGES[key]] as [number, number]} zero={1} snap={0.25} format={(v) => v.toFixed(2)} disabled={!enabled} reason={t('reasonEffectOff')} onChange={(v) => setE({ [key]: v })} />
+  // Every effect's strength is shown (the owner, 2026-11-18); they were behind Settings' "Decouple
+  // effects". 1 is the engine's own amount; 0.05 steps; double-click puts a slider back to 1.
+  const strength = (label: string, key: 'halation' | 'scatter' | 'couplers' | 'glare', enabled: boolean) => (
+    <ScrubSlider label={label} value={e[key]} range={[...EFFECT_RANGES[key]] as [number, number]} zero={1} snap={0.05} format={(v) => v.toFixed(2)} disabled={!enabled} reason={t('reasonEffectOff')} onChange={(v) => setE({ [key]: v })} />
   );
   return (
     <Section
@@ -334,20 +339,96 @@ function FilmFormatSection() {
         />
       </div>
       <ToggleRow label={t('filmGrain')} on={p.grainActive} onChange={(v) => setParams((q) => ({ ...q, grainActive: v }))} testId="grain-toggle" />
-      {decouple && strength(t('filmGrainStrength'), 'grain', p.grainActive)}
+      {/* Always shown (the owner, 2026-11-18): how much grain is a judgement made photo by photo.
+          1 is the engine's own amount for the film; 0.05 steps; double-click puts it back to 1. */}
+      <ScrubSlider
+        label={t('filmGrainStrength')}
+        value={e.grain}
+        range={[...EFFECT_RANGES.grain] as [number, number]}
+        zero={1}
+        snap={0.05}
+        format={(v) => v.toFixed(2)}
+        disabled={!p.grainActive}
+        reason={t('reasonEffectOff')}
+        onChange={(v) => setE({ grain: v })}
+        testId="grain-strength"
+      />
       <ToggleRow label={t('filmHalation')} on={p.halationActive} onChange={(v) => setParams((q) => ({ ...q, halationActive: v }))} />
       <ToggleRow label={t('filmAntihalationLayer')} on={!e.antihalationRemoved} disabled={!p.halationActive} reason={t('reasonEffectOff')} onChange={(v) => setE({ antihalationRemoved: !v })} />
-      {decouple && (
-        <>
-          {strength(t('filmHalationStrength'), 'halation', p.halationActive)}
-          {strength(t('filmScatterStrength'), 'scatter', p.halationActive)}
-          <ScrubSlider label={t('filmHighlightBoost')} value={e.highlightBoost} range={[0, 8]} snap={0.5} format={(v) => v.toFixed(1)} disabled={!p.halationActive} onChange={(v) => setE({ highlightBoost: v })} />
-          <ToggleRow label={t('filmCouplers')} on={e.couplersActive} onChange={(v) => setE({ couplersActive: v })} />
-          {strength(t('filmCouplersStrength'), 'couplers', e.couplersActive)}
-        </>
-      )}
+      {strength(t('filmHalationStrength'), 'halation', p.halationActive)}
+      {strength(t('filmScatterStrength'), 'scatter', p.halationActive)}
+      <ScrubSlider label={t('filmHighlightBoost')} value={e.highlightBoost} range={[0, 8]} snap={0.25} format={(v) => v.toFixed(2)} disabled={!p.halationActive} reason={t('reasonEffectOff')} onChange={(v) => setE({ highlightBoost: v })} />
+      <ToggleRow label={t('filmCouplers')} on={e.couplersActive} onChange={(v) => setE({ couplersActive: v })} />
+      {strength(t('filmCouplersStrength'), 'couplers', e.couplersActive)}
       <ToggleRow label={t('filmGlare')} on={p.glareActive} disabled={!p.printEffects} reason={t('reasonPrintEffectsOff')} onChange={(v) => setParams((q) => ({ ...q, glareActive: v }))} />
-      {decouple && strength(t('filmGlareStrength'), 'glare', p.glareActive && p.printEffects)}
+      {strength(t('filmGlareStrength'), 'glare', p.glareActive && p.printEffects)}
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------------ Advanced
+//
+// Engine settings no SpektraLab interface exposed before (params.ts `AdvancedParams`), each at the
+// engine's own default until moved; double-click a slider to put it back.
+
+function AdvancedSection() {
+  const p = useSession((s) => s.sidecar.params);
+  const a = p.linuxAdvanced ?? ADVANCED_DEFAULT;
+  const setA = (patch: Partial<AdvancedParams>) =>
+    setParams((q) => ({ ...q, linuxAdvanced: { ...(q.linuxAdvanced ?? ADVANCED_DEFAULT), ...patch } }));
+  const range = (k: keyof typeof ADVANCED_RANGES) => [...ADVANCED_RANGES[k]] as [number, number];
+  // Highlight headroom only acts on a film with no anti-halation layer (CineStill 800T, or the
+  // layer switched off above).
+  const headroomApplies = p.halationActive && (p.effects.antihalationRemoved || p.filmStock === 'cinestill_800t');
+  return (
+    <Section id="advanced" title={tz('Advanced', '高级')} onReset={() => setParams((q) => ({ ...q, linuxAdvanced: ADVANCED_DEFAULT }))} resetHelp={tz('Put every advanced setting back to the engine’s own value.', '将所有高级设置恢复为引擎默认值。')}>
+      <ScrubSlider
+        label={tz('Development Contrast', '冲洗反差')}
+        sublabel={tz('1 = the data sheet’s', '1 = 数据手册')}
+        value={a.developGamma}
+        range={range('developGamma')}
+        zero={1}
+        snap={0.05}
+        format={(v) => v.toFixed(2)}
+        onChange={(v) => setA({ developGamma: v })}
+        testId="adv-develop-gamma"
+      />
+      <ScrubSlider
+        label={tz('Lens Softness', '镜头柔化')}
+        sublabel={tz('µm on the film', '胶片上的微米')}
+        value={a.lensBlurUM}
+        range={range('lensBlurUM')}
+        zero={0}
+        snap={1}
+        format={(v) => v.toFixed(0)}
+        onChange={(v) => setA({ lensBlurUM: v })}
+        testId="adv-lens-blur"
+      />
+      <ScrubSlider
+        label={tz('Scanner Softness', '扫描仪柔化')}
+        value={a.scannerBlur}
+        range={range('scannerBlur')}
+        zero={0}
+        snap={0.25}
+        format={(v) => v.toFixed(2)}
+        onChange={(v) => setA({ scannerBlur: v })}
+        testId="adv-scanner-blur"
+      />
+      <ScrubSlider
+        label={tz('Highlight Headroom', '高光余量')}
+        sublabel={tz('stops, no anti-halation layer', '档，无防光晕层')}
+        value={a.headroomEV}
+        range={range('headroomEV')}
+        zero={4}
+        snap={0.25}
+        format={(v) => v.toFixed(2)}
+        disabled={!headroomApplies}
+        reason={tz('Only for a film with no anti-halation layer (CineStill 800T, or the layer switched off)', '仅适用于无防光晕层的胶片（CineStill 800T，或关闭防光晕层）')}
+        onChange={(v) => setA({ headroomEV: v })}
+        testId="adv-headroom"
+      />
+      <ToggleRow label={tz('Scanner White Point', '扫描仪白点校正')} on={a.scannerWhite} onChange={(v) => setA({ scannerWhite: v })} />
+      <ToggleRow label={tz('Scanner Black Point', '扫描仪黑点校正')} on={a.scannerBlack} onChange={(v) => setA({ scannerBlack: v })} />
     </Section>
   );
 }

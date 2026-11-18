@@ -10,6 +10,10 @@ import { computeHistogram } from '../canvas/histogram';
 import { t } from '../i18n';
 
 const S = 200;
+// A margin round the plot, in the same units: the points at (0,0) and (1,1) sit on its corners, and
+// without it the top-right one was half cut off and lay under the rail's overlay scrollbar, which
+// took the click (reported on Linux, 2026-11-18). The curve's coordinates are unchanged.
+const P = 10;
 const STROKE: Record<CurveChannel, string> = {
   rgb: 'var(--text)',
   luma: 'var(--hist-y)',
@@ -27,7 +31,9 @@ export function CurveEditor({ channel }: { channel: CurveChannel }) {
 
   const at = (e: React.PointerEvent) => {
     const r = ref.current!.getBoundingClientRect();
-    return { x: (e.clientX - r.left) / r.width, y: 1 - (e.clientY - r.top) / r.height };
+    const u = (e.clientX - r.left) / r.width * (S + 2 * P) - P;
+    const v = (e.clientY - r.top) / r.height * (S + 2 * P) - P;
+    return { x: u / S, y: 1 - v / S };
   };
   const set = (fn: (c: typeof curve) => typeof curve) => setAdjustments((a) => ({ ...a, curves: { ...a.curves, [channel]: fn(a.curves[channel]) } }));
 
@@ -61,7 +67,7 @@ export function CurveEditor({ channel }: { channel: CurveChannel }) {
       <svg
         ref={ref}
         className="plot"
-        viewBox={`0 0 ${S} ${S}`}
+        viewBox={`${-P} ${-P} ${S + 2 * P} ${S + 2 * P}`}
         style={{ aspectRatio: '1', cursor: 'crosshair', touchAction: 'none' }}
         data-testid="curve-editor"
         onPointerDown={(e) => {
@@ -95,6 +101,7 @@ export function CurveEditor({ channel }: { channel: CurveChannel }) {
           if (i >= 0) set((c) => removePoint(c, i));
         }}
       >
+        <rect x={0} y={0} width={S} height={S} fill="none" stroke="var(--plot-grid)" strokeWidth={0.5} />
         {[0.25, 0.5, 0.75].map((g) => (
           <g key={g} stroke="var(--plot-grid)" strokeWidth={0.5}>
             <line x1={g * S} y1={0} x2={g * S} y2={S} />

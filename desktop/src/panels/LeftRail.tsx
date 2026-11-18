@@ -185,7 +185,14 @@ function FilmSection() {
   const film = useSession((s) => s.sidecar.params.filmStock);
   const rows = catalog.filmGroups().flatMap((g) => [
     { id: '__g' + g.title, name: g.title === 'Positive' ? t('filmGroupPositive') : t('filmGroupNegative'), header: true },
-    ...g.films.map((f) => ({ id: f.id, name: f.name, cine: f.use === 'cine', cover: catalog.coverURL(f.id) })),
+    ...g.films.map((f) => ({
+      id: f.id,
+      name: f.name,
+      cine: f.use === 'cine',
+      cover: catalog.coverURL(f.id),
+      swatch: f.swatch ?? null,
+      iso: f.iso ?? null,
+    })),
   ]);
   return (
     <Section
