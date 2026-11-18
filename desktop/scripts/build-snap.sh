@@ -29,6 +29,26 @@ DESKTOP=$(ls "$P"/usr/share/applications/*.desktop | head -1)
 sed -e "s|^Exec=.*|Exec=$NAME %F|" -e "s|^Icon=.*|Icon=\${SNAP}/meta/gui/$NAME.png|" \
     -e 's|^MimeType=\(.*[^;]\)$|MimeType=\1;|' "$DESKTOP" > "$P/meta/gui/$NAME.desktop"
 
+# What the .deb takes from its dependencies and neither runtime snap has: lensfun (the lens correction's
+# library and database) and the film edge's fonts (engine/src/pipeline/edge_raster.cpp looks under $SNAP),
+# each with its copyright file. Taken from this system's packages (liblensfun1, liblensfun-data-v1,
+# fonts-urw-base35, fonts-liberation-sans-narrow, fonts-dejavu-core).
+L=/usr/lib/x86_64-linux-gnu
+[ -f "$L/liblensfun.so.0.3.4" ] && [ -d /usr/share/lensfun/version_1 ] || { echo "build-snap: install liblensfun1 and liblensfun-data-v1"; exit 1; }
+install -Dm644 "$L/liblensfun.so.0.3.4" "$P/usr/lib/x86_64-linux-gnu/liblensfun.so.0.3.4"
+ln -sf liblensfun.so.0.3.4 "$P/usr/lib/x86_64-linux-gnu/liblensfun.so.1"
+mkdir -p "$P/usr/share/lensfun"
+cp -r /usr/share/lensfun/version_1 "$P/usr/share/lensfun/"
+for f in /usr/share/fonts/opentype/urw-base35/NimbusSans-Regular.otf /usr/share/fonts/opentype/urw-base35/NimbusSans-Bold.otf \
+         /usr/share/fonts/truetype/liberation/LiberationSansNarrow-Regular.ttf \
+         /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf; do
+    [ -f "$f" ] || { echo "build-snap: missing $f (install fonts-urw-base35, fonts-liberation-sans-narrow, fonts-dejavu-core)"; exit 1; }
+    install -Dm644 "$f" "$P$f"
+done
+for pkg in liblensfun1 liblensfun-data-v1 fonts-urw-base35 fonts-liberation-sans-narrow fonts-dejavu-core; do
+    install -Dm644 "/usr/share/doc/$pkg/copyright" "$P/usr/share/doc/$pkg/copyright"
+done
+
 install -Dm755 packaging/snap/desktop-launch "$P/snap/command-chain/desktop-launch"
 install -Dm755 packaging/snap/gpu-2604-wrapper "$P/snap/command-chain/gpu-2604-wrapper"
 # A fallback launcher, from an installed GNOME runtime snap, for when gnome-core26 is not connected yet

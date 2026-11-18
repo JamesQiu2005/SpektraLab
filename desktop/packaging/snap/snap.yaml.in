@@ -54,6 +54,8 @@ plugs:
     default-provider: gtk-common-themes
 environment:
   SNAP_DESKTOP_RUNTIME: $SNAP/gnome-platform
+  # lensfun, carried in the snap (its database too: the host loads $SNAP/usr/share/lensfun/version_1)
+  LD_LIBRARY_PATH: $SNAP/usr/lib/x86_64-linux-gnu
   GTK_USE_PORTAL: '1'
 layout:
   # WebKitGTK starts its web, network and GPU processes from this compiled-in path

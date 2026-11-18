@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <mutex>
 #include <thread>
 
@@ -40,7 +41,12 @@ lfDatabase* database(std::string& error) {
     if (!tried) {
         tried = true;
         auto* d = new lfDatabase();
-        if (d->Load() != LF_NO_ERROR) {
+        // A snap carries its own database (core26's /usr/share has none); SPEKTRALAB_LENSFUN_DIR overrides.
+        std::string dir;
+        if (const char* env = std::getenv("SPEKTRALAB_LENSFUN_DIR"); env && *env) dir = env;
+        else if (const char* snap = std::getenv("SNAP"); snap && *snap) dir = std::string(snap) + "/usr/share/lensfun/version_1";
+        const bool ok = !dir.empty() ? d->LoadDirectory(dir.c_str()) : d->Load() == LF_NO_ERROR;
+        if (!ok) {
             delete d;
         } else {
             db = d;
