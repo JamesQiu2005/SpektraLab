@@ -477,8 +477,29 @@ function ExposureSection() {
       {row(t('exposureSaturation'), 'saturation', [-100, 100], 0, 5)}
       {row(t('exposureHighlights'), 'highlights', [-100, 100], 0, 5)}
       {row(t('exposureShadows'), 'shadows', [-100, 100], 0, 5)}
-      {row(t('exposureBlackPoint'), 'blackPoint', [0, 50], 0, 1)}
-      {row(t('exposureWhitePoint'), 'whitePoint', [0, 50], 0, 1)}
+      {/* SpektraLab 2's Whites and Blacks (Adjustments.swift `blacks`, `whites`): two-way, -50..+50.
+          Blacks is -blackPoint (+ lifts, - crushes), Whites is whitePoint (+ brightens, - dims); the
+          fields and the Layer 2 formula are unchanged, so a sidecar from either app reads the same. */}
+      <ScrubSlider
+        label={tz('Blacks', '黑色')}
+        value={-a.blackPoint}
+        range={[-50, 50]}
+        zero={0}
+        snap={1}
+        format={signed(0)}
+        onChange={(v) => setAdjustments((q) => ({ ...q, blackPoint: -v }))}
+        testId="adj-blacks"
+      />
+      <ScrubSlider
+        label={tz('Whites', '白色')}
+        value={a.whitePoint}
+        range={[-50, 50]}
+        zero={0}
+        snap={1}
+        format={signed(0)}
+        onChange={(v) => setAdjustments((q) => ({ ...q, whitePoint: v }))}
+        testId="adj-whites"
+      />
     </Section>
   );
 }
