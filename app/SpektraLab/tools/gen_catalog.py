@@ -80,6 +80,28 @@ NAMES = {
     "kodak_ektacolor_edge": ("Kodak Ektacolor Edge", "Ektacolor Edge", "colour paper"),
     "kodak_2393": ("Kodak Vision Premier 2393", "Vision Premier 2393", "cine print film"),
     "ilford_multigrade_iv_rc": ("Ilford Multigrade IV RC", "Multigrade IV RC", "b&w paper"),
+    # the product's own, from FUJIFILM's Professional Data Guide AF3-207U (2005; NOTICE.md)
+    "fujifilm_pro_160s": ("Fujifilm Pro 160S", "Pro 160S", "colour negative"),
+    "fujifilm_pro_160c": ("Fujifilm Pro 160C", "Pro 160C", "colour negative"),
+    "fujifilm_npl_160": ("Fujifilm NPL 160", "NPL 160", "colour negative"),
+    "fujifilm_pro_800z": ("Fujifilm Pro 800Z", "Pro 800Z", "colour negative"),
+    "fujifilm_superia_reala": ("Fujifilm Superia Reala", "Reala 100", "colour negative"),
+    "fujifilm_superia_100": ("Fujifilm Superia 100", "Superia 100", "colour negative"),
+    "fujifilm_superia_200": ("Fujifilm Superia 200", "Superia 200", "colour negative"),
+    "fujifilm_true_definition_400": ("Fujifilm True Definition 400", "True Def. 400", "colour negative"),
+    "fujifilm_superia_xtra_800": ("Fujifilm Superia X-TRA 800", "X-TRA 800", "colour negative"),
+    "fujifilm_superia_1600": ("Fujifilm Superia 1600", "Superia 1600", "colour negative"),
+    "fujifilm_nexia_a200": ("Fujifilm Nexia A200", "Nexia A200", "colour negative"),
+    "fujifilm_nexia_400": ("Fujifilm Nexia 400", "Nexia 400", "colour negative"),
+    "fujifilm_nexia_800": ("Fujifilm Nexia 800", "Nexia 800", "colour negative"),
+    "fujifilm_velvia_50": ("Fujifilm Velvia 50", "Velvia 50", "slide (positive)"),
+    "fujifilm_velvia_100f": ("Fujifilm Velvia 100F", "Velvia 100F", "slide (positive)"),
+    "fujifilm_astia_100f": ("Fujifilm Astia 100F", "Astia 100F", "slide (positive)"),
+    "fujifilm_provia_400f": ("Fujifilm Provia 400F", "Provia 400F", "slide (positive)"),
+    "fujifilm_64t_type_ii": ("Fujifilm 64T Type II", "64T Type II", "slide (positive)"),
+    "fujifilm_sensia_100": ("Fujifilm Sensia 100", "Sensia 100", "slide (positive)"),
+    "fujifilm_sensia_200": ("Fujifilm Sensia 200", "Sensia 200", "slide (positive)"),
+    "fujifilm_sensia_400": ("Fujifilm Sensia 400", "Sensia 400", "slide (positive)"),
 }
 # What a profile's `info` does not say. CineStill 800T is Vision3 500T's emulsion with its
 # remjet off, declared a still colour negative printed on 2383 (the desktop's catalogue).
@@ -126,6 +148,27 @@ ORDER = [
 ORDER[ORDER.index("kodak_portra_endura"):ORDER.index("kodak_portra_endura")] = [
     "kodak_tri_x_400", "kodak_tmax_100", "fujifilm_neopan_acros_100_ii", "ilford_hp5_plus_400"]
 ORDER.append("ilford_multigrade_iv_rc")
+# The product's Fujifilm films (AF3-207U): the negatives after X-Tra 400, the slides after Velvia 100,
+# so no card that was there has moved relative to the others.
+FUJI_NEGATIVES = ["fujifilm_pro_160s", "fujifilm_pro_160c", "fujifilm_npl_160", "fujifilm_pro_800z",
+                  "fujifilm_superia_reala", "fujifilm_superia_100", "fujifilm_superia_200",
+                  "fujifilm_true_definition_400", "fujifilm_superia_xtra_800", "fujifilm_superia_1600",
+                  "fujifilm_nexia_a200", "fujifilm_nexia_400", "fujifilm_nexia_800"]
+FUJI_SLIDES = ["fujifilm_velvia_50", "fujifilm_velvia_100f", "fujifilm_astia_100f", "fujifilm_provia_400f",
+               "fujifilm_64t_type_ii", "fujifilm_sensia_100", "fujifilm_sensia_200", "fujifilm_sensia_400"]
+ORDER[ORDER.index("fujifilm_xtra_400") + 1:ORDER.index("fujifilm_xtra_400") + 1] = FUJI_NEGATIVES
+ORDER[ORDER.index("fujifilm_velvia_100") + 1:ORDER.index("fujifilm_velvia_100") + 1] = FUJI_SLIDES
+# Fujifilm's negatives in the greens of C200 / X-Tra / Pro 400H; its slides beside Provia's blue and Velvia's magenta.
+CHOSEN.update({
+    "fujifilm_pro_160s": "#8fb39a", "fujifilm_pro_160c": "#6f9f86", "fujifilm_npl_160": "#5f8f8a",
+    "fujifilm_pro_800z": "#6c9480", "fujifilm_superia_reala": "#82b07e", "fujifilm_superia_100": "#78ad70",
+    "fujifilm_superia_200": "#69a463", "fujifilm_true_definition_400": "#5e8f6e",
+    "fujifilm_superia_xtra_800": "#4f8a5c", "fujifilm_superia_1600": "#477a52",
+    "fujifilm_nexia_a200": "#9cbf7a", "fujifilm_nexia_400": "#8ab36a", "fujifilm_nexia_800": "#7aa35e",
+    "fujifilm_velvia_50": "#a8467c", "fujifilm_velvia_100f": "#c06a98", "fujifilm_astia_100f": "#d1a0b8",
+    "fujifilm_provia_400f": "#4a7cc4", "fujifilm_64t_type_ii": "#4b5fa8", "fujifilm_sensia_100": "#7aa5e0",
+    "fujifilm_sensia_200": "#6a98d6", "fujifilm_sensia_400": "#5a8acb",
+})
 # One family, so one hue: none. Four greys apart enough to tell on a card and
 # as a library dot; the paper's base a neutral white beside the colour papers' creams.
 CHOSEN.update({
@@ -165,6 +208,20 @@ COLOUR_GRAIN = {
     # ISO, the product's own profiles (2026-11-15; the same probe re-measured Portra 160 / 400 at 0.915 / 1.062):
     # green 7.29 / 8.34 / 7.46 / 8.61 at 1. VC's steeper curves render grainier, so it takes less to reach its speed's.
     "kodak_portra_160nc": 0.79, "kodak_portra_160vc": 0.69, "kodak_portra_400nc": 0.94, "kodak_portra_400vc": 0.81,
+    # The product's Fujifilm films (2026-11-18, AF3-207U). Measured on the Linux engine with a probe rebuilt for
+    # it (engine/tools/fujifilm_data_guide/grain_probe.py: scanned, sub-layers on, 6 um pixels, net D 1.0,
+    # an 8x8 px aperture for the 48 um circle) and scaled by what that probe reads on this table's own rows,
+    # per family: slides x1.023 (Provia 100F, Velvia 100), negatives x0.987 (Pro 400H, C200, Portra 400).
+    # The probe reproduces those rows to within 10 %, so each figure below carries about that.
+    # SHEET: Fujifilm's diffuse RMS granularity (48 um, D 1.0), the slides'.
+    "fujifilm_velvia_50": 0.72, "fujifilm_velvia_100f": 0.78, "fujifilm_astia_100f": 0.56,
+    "fujifilm_provia_400f": 1.61, "fujifilm_64t_type_ii": 0.90, "fujifilm_sensia_100": 0.69,
+    "fujifilm_sensia_200": 1.26, "fujifilm_sensia_400": 1.00,
+    # ISO: the guide footnotes its negatives' RMS (3-7) as not comparable with its reversal scale, so the rule above.
+    "fujifilm_pro_160s": 1.11, "fujifilm_pro_160c": 0.98, "fujifilm_npl_160": 0.86, "fujifilm_pro_800z": 0.96,
+    "fujifilm_superia_reala": 0.47, "fujifilm_superia_100": 0.32, "fujifilm_superia_200": 0.55,
+    "fujifilm_true_definition_400": 0.90, "fujifilm_superia_xtra_800": 0.93, "fujifilm_superia_1600": 1.21,
+    "fujifilm_nexia_a200": 0.83, "fujifilm_nexia_400": 0.87, "fujifilm_nexia_800": 1.18,
 }
 # A silver paper's grades as packs (`engine/resources_product/paper_grades.json`),
 # and the filter new prints are made through.
