@@ -48,7 +48,7 @@ spektrafilm's; SpektraLab is the engine's implementation on Metal and the Mac ap
 
 ## Build
 
-macOS 15 or later on Apple silicon, and **Xcode 27 or later** with its Metal toolchain. Xcode 26
+macOS 14 or later on Apple silicon (the app runs on macOS 14 or later from 2.4.2), and **Xcode 27 or later** with its Metal toolchain. Xcode 26
 cannot type-check parts of the app. Since Xcode 26 the Metal compiler is a separate component:
 `xcodebuild -downloadComponent MetalToolchain`. The app is a Mac Catalyst app.
 
@@ -63,7 +63,7 @@ open build/DerivedData/Build/Products/Debug-maccatalyst/SpektraLab.app
 ```
 
 - `build_engine_mac.sh` compiles `engine/` (C++20, `-O2`, the Metal kernels with safe math for
-  macOS 15) into `build/engine-macosx/libspektralab_engine.a` and lays the baked constants, the
+  macOS 14) into `build/engine-macosx/libspektralab_engine.a` and lays the baked constants, the
   profiles and `spektralab.metallib` into `build/engine-macosx/EngineResources/`, which the app
   copies into its bundle. Run it again after any change under `engine/`.
 - `gen_project.py` generates the project from the files on disk: run it again after adding or
@@ -130,10 +130,22 @@ derived and what was changed.
 | spektrafilm's film and paper profiles, the print LUTs | CC BY-SA 4.0 (`license/SPEKTRAFILM_LICENSE.txt`) |
 | metal-cpp | Apache-2.0 |
 | spklib, the library helper | MIT, shipped as a prebuilt helper binary |
+| LibRaw, the optional RAW decoder (from 2.4.2) | LGPL-2.1 (of LibRaw's LGPL-2.1 / CDDL-1.0), unmodified, in a separate helper binary (`vendor/libraw/`) |
 
 <!-- The spklib link below resolves only once that repository is published. -->
 Capture One catalogs are read by spklib (MIT, https://github.com/JamesQiu2005/SpektraLab_library);
 the app ships its prebuilt helper.
+
+The optional RAW decoder (**Settings › Develop › RAW decoder › LibRaw**, from 2.4.2) is
+[LibRaw](https://github.com/LibRaw/LibRaw), used under the LGPL-2.1 option of its LGPL-2.1 / CDDL-1.0
+dual licence. It is linked, unmodified, into SpektraLab's own helper `spkraw-host`, a separate
+executable in `Contents/Helpers` that the app runs as a process of its own; LibRaw is never linked into
+the app. The exact LibRaw source is upstream commit `42f89c16` (0.23.0-Snapshot202611;
+`engine/third_party/libraw-pin/` has its tree id and checksums). The helper's own source is in
+`engine/raw-helper/` (GPL-3.0-or-later), and `engine/raw-helper/build-mac.sh` fetches and verifies that
+LibRaw and rebuilds the helper, so you can rebuild it against a LibRaw of your own and put it in place
+of the shipped one. LibRaw's licence and copyright notices are in `vendor/libraw/`, in the app
+(`Contents/Resources/Licenses/LibRaw`) and in the disk image's `Licenses` folder.
 
 The Official AtomGit mirror is in this link: [SpektraLab](https://atomgit.com/DomesticDragon05/SpektraLab)
 

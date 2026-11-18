@@ -4753,6 +4753,28 @@
         }
       }
     },
+    "Apple (macOS)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple（macOS）"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple（macOS）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple（macOS）"
+          }
+        }
+      }
+    },
     "Apply Film Emulation" : {
       "localizations" : {
         "ja" : {
@@ -23695,6 +23717,28 @@
         }
       }
     },
+    "RAW decoder" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAW デコーダ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAW 解码器"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAW 解碼器"
+          }
+        }
+      }
+    },
     "RAW files only" : {
       "localizations" : {
         "ja" : {
@@ -33987,6 +34031,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開啟後，裁切會改變顆粒與光暈的尺度，並重新沖洗目前照片。啟用片邊時不適用。"
+          }
+        }
+      }
+    },
+    "Which decoder turns a RAW file into the light the film is exposed to. Apple's is the macOS decoder every earlier version used. LibRaw is an open-source decoder that runs in a process of its own: it reads some cameras macOS does not, and its colour and highlights differ, so the same photograph develops differently. With LibRaw, macOS's own lens correction is not available (the lens database's and a file's own profiles still are), and a file LibRaw cannot read is decoded by Apple's. Switching develops the open pictures again." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAW ファイルをフィルムが受ける光に変換するデコーダ。Apple はこれまでのバージョンが使ってきた macOS のデコーダです。LibRaw は独立したプロセスで動くオープンソースのデコーダで、macOS が読めない一部のカメラにも対応し、色とハイライトが異なるため、同じ写真でも現像結果が変わります。LibRaw では macOS 自体のレンズ補正は使えません（レンズデータベースとファイル内蔵のプロファイルは使えます）。LibRaw が読めないファイルは Apple がデコードします。切り替えると、開いている写真を再現像します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将 RAW 文件转换为胶片所受光线的解码器。Apple 是此前各版本使用的 macOS 解码器。LibRaw 是开源解码器，在独立进程中运行：它能读取部分 macOS 不支持的相机，色彩与高光也不同，因此同一张照片的冲洗结果会不同。使用 LibRaw 时无法使用 macOS 自带的镜头校正（镜头数据库与文件自带的配置文件仍可用）；LibRaw 无法读取的文件由 Apple 解码。切换后会重新冲洗已打开的照片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將 RAW 檔案轉換為底片所受光線的解碼器。Apple 是先前各版本使用的 macOS 解碼器。LibRaw 是開源解碼器，在獨立程序中執行：它能讀取部分 macOS 不支援的相機，色彩與高光也不同，因此同一張照片的沖洗結果會不同。使用 LibRaw 時無法使用 macOS 內建的鏡頭校正（鏡頭資料庫與檔案內建的設定檔仍可用）；LibRaw 無法讀取的檔案由 Apple 解碼。切換後會重新沖洗已開啟的照片。"
+          }
+        }
+      }
+    },
+    "Which decoder turns a RAW file into the light the film is exposed to. LibRaw's helper is not in this copy of the app, so Apple's decodes every RAW." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAW ファイルをフィルムが受ける光に変換するデコーダ。このアプリには LibRaw のヘルパーが含まれていないため、すべての RAW を Apple がデコードします。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将 RAW 文件转换为胶片所受光线的解码器。此 App 副本不含 LibRaw 组件，因此所有 RAW 均由 Apple 解码。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將 RAW 檔案轉換為底片所受光線的解碼器。此 App 副本不含 LibRaw 元件，因此所有 RAW 皆由 Apple 解碼。"
           }
         }
       }

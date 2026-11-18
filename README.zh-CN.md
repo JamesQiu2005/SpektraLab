@@ -27,7 +27,7 @@ Mac 上的胶片暗房。打开一张 RAW，选好胶片和相纸，得到一张
 
 ## 构建
 
-需要 Apple 芯片、macOS 15 或更高版本，以及带 Metal 工具链的 **Xcode 27 或更高版本**（Xcode 26 无法完成部分代码的类型检查；从 Xcode 26 起 Metal 编译器是单独的组件：`xcodebuild -downloadComponent MetalToolchain`）。应用是一个 Mac Catalyst 应用。
+需要 Apple 芯片、macOS 14 或更高版本（自 2.4.2 起应用可在 macOS 14 及以上运行），以及带 Metal 工具链的 **Xcode 27 或更高版本**（Xcode 26 无法完成部分代码的类型检查；从 Xcode 26 起 Metal 编译器是单独的组件：`xcodebuild -downloadComponent MetalToolchain`）。应用是一个 Mac Catalyst 应用。
 
 ```bash
 app/SpektraLab/tools/build_engine_mac.sh      # 为 Mac Catalyst 构建 SpektraLab 引擎、着色器与资源
@@ -39,7 +39,7 @@ xcodebuild -project SpektraLab.xcodeproj -scheme SpektraLab -configuration Debug
 open build/DerivedData/Build/Products/Debug-maccatalyst/SpektraLab.app
 ```
 
-- `build_engine_mac.sh` 把 `engine/`（C++20，`-O2`，着色器以安全数学模式按 macOS 15 编译）编译为 `build/engine-macosx/libspektralab_engine.a`，并把预烘焙常量、配置文件与 `spektralab.metallib` 放进 `build/engine-macosx/EngineResources/`，由应用复制进包内。`engine/` 下有任何改动后请重新运行。
+- `build_engine_mac.sh` 把 `engine/`（C++20，`-O2`，着色器以安全数学模式按 macOS 14 编译）编译为 `build/engine-macosx/libspektralab_engine.a`，并把预烘焙常量、配置文件与 `spektralab.metallib` 放进 `build/engine-macosx/EngineResources/`，由应用复制进包内。`engine/` 下有任何改动后请重新运行。
 - `gen_project.py` 按磁盘上的文件生成工程：增删源文件后请重新运行。除此之外构建不需要 Python，运行时也不需要。
 - 若 Xcode 突然找不到 `metal`，清理构建文件夹（⇧⌘K）即可：Metal 工具链的路径变了，而旧构建缓存了原路径。
 
@@ -85,9 +85,12 @@ SpektraLab Mac 版免费、开源，并将一直如此。如果它在你的创�
 | spektrafilm 的胶片与相纸配置、放大 LUT | CC BY-SA 4.0（`license/SPEKTRAFILM_LICENSE.txt`） |
 | metal-cpp | Apache-2.0 |
 | 图库助手 spklib | MIT，以预编译助手二进制随应用附带 |
+| 可选 RAW 解码器 LibRaw（2.4.2 起） | LGPL-2.1（LibRaw 为 LGPL-2.1 / CDDL-1.0 双许可），未经修改，置于独立的助手二进制中（`vendor/libraw/`） |
 
 <!-- 下方 spklib 链接要等该仓库公开后才能打开。 The spklib link resolves only once that repository is published. -->
 Capture One 目录由 spklib 读取（MIT，https://github.com/JamesQiu2005/SpektraLab_library），应用附带其预编译助手。
+
+可选的 RAW 解码器（**设置 › 冲洗 › RAW 解码器 › LibRaw**，2.4.2 起）使用 [LibRaw](https://github.com/LibRaw/LibRaw)，按其 LGPL-2.1 / CDDL-1.0 双许可中的 LGPL-2.1 使用。它未经修改，链接进 SpektraLab 自己的助手 `spkraw-host`：这是 `Contents/Helpers` 中的独立可执行文件，由应用作为单独进程运行；LibRaw 从不链接进应用本身。所用 LibRaw 源码为上游提交 `42f89c16`（0.23.0-Snapshot202611；树 ID 与校验和见 `engine/third_party/libraw-pin/`）。助手自身的源码在 `engine/raw-helper/`（GPL-3.0-or-later），`engine/raw-helper/build-mac.sh` 会下载并校验该 LibRaw、重新构建助手，因此你可以用自己的 LibRaw 重新构建并替换随附的版本。LibRaw 的许可与版权声明见 `vendor/libraw/`、应用内（`Contents/Resources/Licenses/LibRaw`）以及磁盘映像的 `Licenses` 文件夹。
 
 官方维护的 AtomGit 镜像见此链接 [SpektraLab](https://atomgit.com/DomesticDragon05/SpektraLab)
 

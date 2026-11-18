@@ -888,9 +888,9 @@ private struct MacImportBrowser: View {
                                     }
                                 }
                                 .id(image.id)
-                                .gesture(MacImportCellClick { point, flags in
+                                .macClickAt { point, flags in
                                     if MacImportCheckBox.hit(point, side: layout.side) { session.toggleCheck(image.id) } else { click(image, flags, rows) }
-                                })
+                                }
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel((excluded ? image.fileName + ", " + L("Already Imported") : image.fileName)
                                                     + (checked ? ", " + L("Checked for Import") : ""))
@@ -905,9 +905,9 @@ private struct MacImportBrowser: View {
                     // The space under the last row is the grid's too: a marquee starts there, as in Finder.
                     .frame(minHeight: geo.size.height, alignment: .top)
                     .contentShape(Rectangle())
-                    .gesture(MacMarqueeRecognizer { state, point, flags in
+                    .macMarquee { state, point, flags in
                         _ = MacMarquee.drive(&marquee, state, point, flags, layout: layout, rows: rows, browser: browser)
-                    })
+                    }
                     // A click on the empty space chooses nothing, as the library's grid (2026-10-25).
                     .modifier(MacEmptyClick(layout: layout) { browser.selectNone() })
                     .overlay(alignment: .topLeading) { MacMarquee.drawn(marquee) }
@@ -978,15 +978,6 @@ private struct MacImportCheckBox: View {
     }
 }
 
-/// A click on a cell and where it landed, in the cell's space, with the modifier keys: the check box's corner
-/// is the box's (`MacImportCheckBox.hit`), the rest the cell's (`MacClick`).
-private struct MacImportCellClick: UIGestureRecognizerRepresentable {
-    let action: (CGPoint, UIKeyModifierFlags) -> Void
-    func makeUIGestureRecognizer(context: Context) -> UITapGestureRecognizer { UITapGestureRecognizer() }
-    func handleUIGestureRecognizerAction(_ recognizer: UITapGestureRecognizer, context: Context) {
-        if recognizer.state == .ended { action(context.converter.localLocation, recognizer.modifierFlags) }
-    }
-}
 
 /// A debug build notes where a part of the page is in the window (`MacImportFlow.debugFrames`); nothing in a release.
 private struct MacImportDebugFrame: ViewModifier {

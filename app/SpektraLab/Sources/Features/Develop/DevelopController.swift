@@ -408,11 +408,11 @@ private struct MacStripChoosing: ViewModifier {
         content
             .frame(minWidth: width, alignment: .leading)
             .contentShape(Rectangle())
-            .gesture(MacPointClickRecognizer { p in
+            .macPointClick { p in
                 guard let pad = strip.pad else { return }
                 if strip.index(at: p.x) == nil || !strip.band.contains(p.y) { pad.chosen = [] }
-            })
-            .gesture(MacMarqueeRecognizer { state, point, flags in drive(state, point, flags) })
+            }
+            .macMarquee { state, point, flags in drive(state, point, flags) }
             .overlay(alignment: .topLeading) {
                 if let s = sweep {
                     let lo = min(s.start, s.now), hi = max(s.start, s.now), b = strip.band

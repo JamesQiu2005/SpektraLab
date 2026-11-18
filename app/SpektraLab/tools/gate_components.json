@@ -301,7 +301,12 @@
     "Sources/Services/MemoryRelease.swift",
     "Sources/Services/StorageTidy.swift",
     "Sources/Mac/Render/",
-    "Sources/Services/LibraryPreviews.swift"
+    "Sources/Services/LibraryPreviews.swift",
+    "../../engine/raw-helper/",
+    "../../engine/third_party/libraw-pin/",
+    "../../vendor/libraw/",
+    "tools/libraw_decode_check.sh",
+    "tools/libraw_decode_check.swift"
    ],
    "checks": [
     "edit_refresh",

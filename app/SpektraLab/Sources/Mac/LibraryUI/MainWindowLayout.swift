@@ -729,12 +729,20 @@ extension UIResponder {
 /// A click that lands anywhere but on the field being edited ends its editing — a Mac's fields do, and
 /// Finder's search does. The click itself still reaches what it hit: the recogniser never cancels touches
 /// and recognises beside every other gesture (a cell's, a marquee's).
+///
+/// macOS 15 and later (Mac Catalyst 18): on macOS 14 the recogniser cannot be installed, and a click elsewhere leaves
+/// the field editing; Return, Esc and Tab still end it (`MacGestureCompat`).
 struct MacEndEditingOnClick: ViewModifier {
     func body(content: Content) -> some View {
-        content.gesture(MacEndEditingRecognizer())
+        if #available(iOS 18.0, *), !MacGestureCompat.forcedLegacy {
+            content.gesture(MacEndEditingRecognizer())
+        } else {
+            content
+        }
     }
 }
 
+@available(iOS 18.0, *)
 struct MacEndEditingRecognizer: UIGestureRecognizerRepresentable {
     final class Tap: UITapGestureRecognizer, UIGestureRecognizerDelegate {
         override init(target: Any?, action: Selector?) {

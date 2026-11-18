@@ -91,6 +91,26 @@ enum NeutralPick {
     /// be read or the point is too dark to have a colour.
     static func decodeBalance(url: URL, settings: DecodeSettings, at p: CGPoint,
                               start: (temperature: Double, tint: Double)) -> DecodeBalance? {
+        // LibRaw's decode (Settings' RAW decoder): one decode, and its camera calibration inverted in closed form — eight
+        // Newton steps would be some twenty-five decodes of a second each. A decode that came back Core Image's (a file
+        // LibRaw cannot read) has no calibration, and is balanced as every Core Image decode is, below.
+        if RawDecoderChoice.current == .libraw,
+           let prepared = RawExposure.prepare(url, settings: settings, longEdge: measureEdge),
+           let calibration = prepared.calibration {
+            let image = prepared.image, e = image.extent
+            let x = e.minX + p.x * e.width, y = e.minY + (1 - p.y) * e.height
+            let patch = CGRect(x: (x - 3).rounded(.down), y: (y - 3).rounded(.down), width: 7, height: 7).intersection(e)
+            guard !patch.isEmpty else { return nil }
+            var px = [Float](repeating: 0, count: Int(patch.width) * Int(patch.height) * 4)
+            context.render(image, toBitmap: &px, rowBytes: Int(patch.width) * 16, bounds: patch, format: .RGBAf,
+                           colorSpace: LibRawDecode.linearProPhoto)
+            var sum = SIMD3<Double>(0, 0, 0)
+            for i in stride(from: 0, to: px.count, by: 4) { sum += SIMD3(Double(px[i]), Double(px[i + 1]), Double(px[i + 2])) }
+            let mean = sum / Double(px.count / 4)
+            guard mean.y > 0.002, let wb = LibRawDecode.neutral(mean, calibration: calibration) else { return nil }
+            return DecodeBalance(temperature: wb.temperature.clamped(to: temperatureRange), tint: wb.tint.clamped(to: tintRange),
+                                 residual: 0, steps: 1)
+        }
         func measure(_ temperature: Double, _ tint: Double) -> SIMD2<Double>? {
             var s = settings
             s.setCustom(temperature: temperature, tint: tint)

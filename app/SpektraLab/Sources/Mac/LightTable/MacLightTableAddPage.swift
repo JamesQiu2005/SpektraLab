@@ -271,9 +271,9 @@ struct MacLightTableAddPage: View {
                     .padding(layout.gap)
                     .frame(minHeight: geo.size.height, alignment: .top)
                     .contentShape(Rectangle())
-                    .gesture(MacMarqueeRecognizer { state, point, flags in
+                    .macMarquee { state, point, flags in
                         _ = MacMarquee.drive(&marquee, state, point, flags, layout: layout, rows: rows, browser: browser)
-                    })
+                    }
                     // A click on the empty space chooses nothing, as the library's grid (2026-10-25).
                     .modifier(MacEmptyClick(layout: layout) { browser.selectNone() })
                     .overlay(alignment: .topLeading) { MacMarquee.drawn(marquee) }

@@ -193,6 +193,7 @@
 		27949988DF70FAEDD34B5885 /* MacSettingsWatermarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsWatermarks.swift; sourceTree = "<group>"; };
 		27B2019A7C8009687F3B163E /* MacImportDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImportDrop.swift; sourceTree = "<group>"; };
 		27E074CEB9973C5386D30499 /* MacLibraryMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLibraryMove.swift; sourceTree = "<group>"; };
+		27E7500D8813F741C826D701 /* LibRawDecode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibRawDecode.swift; sourceTree = "<group>"; };
 		27F78D56440AD13EFD1AE51C /* Chips.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2080FFCEBEDFECEA32FF678 /* Chips.swift */; };
 		285269E9F2034AE86071A464 /* HalfFramePair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C15140687B2D483A7B31CD /* HalfFramePair.swift */; };
 		28AADA651E1FAD0527CF9611 /* StockCatalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = StockCatalog.json; path = Resources/StockCatalog.json; sourceTree = "<group>"; };
@@ -482,7 +483,7 @@
 		53797DE442FCF2C62405D6BD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]" = 18.0;
+				"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]" = 17.0;
 				"OTHER_LDFLAGS[sdk=macosx*]" = ("$(inherited)", "-lsqlite3", "$(PROJECT_DIR)/build/engine-macosx/libspektralab_engine.a", "-lc++", "-framework", Metal, "-framework", QuartzCore, "-framework", CoreText, "-framework", CoreGraphics, "-framework", Accelerate);
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "$(inherited) SPK_ENGINE";
 				"TARGETED_DEVICE_FAMILY[sdk=macosx*]" = 2;
@@ -490,7 +491,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202611162056;
+				CURRENT_PROJECT_VERSION = 202611181505;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
@@ -502,7 +503,7 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 2.4.1;
+				MARKETING_VERSION = 2.4.2;
 				OTHER_LDFLAGS = ("$(inherited)", "-lsqlite3");
 				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -530,6 +531,7 @@
 		55FDDF40A78C751E9C0EE4E5 /* SpektraLabApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpektraLabApp.swift; sourceTree = "<group>"; };
 		563E1D4AE762163417201C17 /* GamutProof.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703D18873770C875EAF17CC5 /* GamutProof.swift */; };
 		5667F524E62B2741299C5AF2 /* WatermarkShelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatermarkShelf.swift; sourceTree = "<group>"; };
+		568504A4AC124DF8747D2FD4 /* MacGestureCompat.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDFD6FAA0F0D54758A54DC8 /* MacGestureCompat.swift */; };
 		56E40A1F9429775CF3AC3168 /* DevelopWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49DB28897704CD14F706651 /* DevelopWorkspace.swift */; };
 		57496FB95C89BC99CBDABBBD /* SceneLayerWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneLayerWire.swift; sourceTree = "<group>"; };
 		578514C6C8E56EA89859F86B /* DevelopRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947C954706C56517539C574E /* DevelopRevision.swift */; };
@@ -654,6 +656,7 @@
 				DE3434A83C8AAE19E1CB9A00 /* LensProfile.swift */,
 				745598BA7865F9CE6A9741BA /* LensProfileReader.swift */,
 				B0284227F4F9BBDCC96B3DD5 /* LensResolver.swift */,
+				E2210ECBF2EB77B7AB9E3B95 /* LibRawDecode.swift */,
 				6F3ECC1321C1E394553B807C /* MaskBaker.swift */,
 				04CD4882C5082974E8E26EBD /* MaskLive.swift */,
 				3CA77EB258C7E14801C88247 /* MaskOverlay.swift */,
@@ -873,6 +876,7 @@
 				B0943D86E1AEC6349F66CBA3 /* MacDriver.swift */,
 				6C81384AF42D9F55B4BCD02D /* MacEditCommands.swift */,
 				9F5CBD1524E8DA1827B03413 /* MacFlowBar.swift */,
+				568504A4AC124DF8747D2FD4 /* MacGestureCompat.swift */,
 				F0C576DFA61CFFB44DB72871 /* MacHIDPost.swift */,
 				0A78E61E0EDBD46E1087435C /* MacPageActions.swift */,
 				44F53DF9FD982ECF0C81122E /* MacScrollZoom.swift */,
@@ -1407,7 +1411,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "src=\"$PROJECT_DIR/build/engine-$PLATFORM_NAME/EngineResources\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/EngineResources\"\nif [ -d \"$src\" ]; then mkdir -p \"$dst\" && rsync -a --delete \"$src/\" \"$dst/\"; else rm -rf \"$dst\"; fi\nif [ \"$PLATFORM_NAME\" = macosx ]; then h=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\"; mkdir -p \"$h\" && cp -f \"$PROJECT_DIR/../../vendor/spklib/macos/spklib-host\" \"$h/\" && codesign --force --options runtime --timestamp=none --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$h/spklib-host\"; fi\n";
+			shellScript = "src=\"$PROJECT_DIR/build/engine-$PLATFORM_NAME/EngineResources\"\ndst=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/EngineResources\"\nif [ -d \"$src\" ]; then mkdir -p \"$dst\" && rsync -a --delete \"$src/\" \"$dst/\"; else rm -rf \"$dst\"; fi\nif [ \"$PLATFORM_NAME\" = macosx ]; then h=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\"; mkdir -p \"$h\" && cp -f \"$PROJECT_DIR/../../vendor/spklib/macos/spklib-host\" \"$h/\" && codesign --force --options runtime --timestamp=none --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$h/spklib-host\"; cp -f \"$PROJECT_DIR/../../vendor/libraw/macos/spkraw-host\" \"$h/\" && codesign --force --options runtime --timestamp=none --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" \"$h/spkraw-host\" && l=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Licenses/LibRaw\" && mkdir -p \"$l\" && cp -f \"$PROJECT_DIR/../../vendor/libraw/LICENSE.LGPL\" \"$PROJECT_DIR/../../vendor/libraw/COPYRIGHT\" \"$PROJECT_DIR/../../vendor/libraw/SOURCE.md\" \"$l/\"; fi\n";
 		};
 		984B7FD368E89B25D9E896CF /* DoubleRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubleRules.swift; sourceTree = "<group>"; };
 		985ADFC810E50E49E059720E /* ExportWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CD11C356A2ED4B240AC7231 /* ExportWriter.swift */; };
@@ -1730,7 +1734,7 @@
 		C015BAAA3C846BD82DBAB3CE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]" = 18.0;
+				"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]" = 17.0;
 				"OTHER_LDFLAGS[sdk=macosx*]" = ("$(inherited)", "-lsqlite3", "$(PROJECT_DIR)/build/engine-macosx/libspektralab_engine.a", "-lc++", "-framework", Metal, "-framework", QuartzCore, "-framework", CoreText, "-framework", CoreGraphics, "-framework", Accelerate);
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "$(inherited) SPK_ENGINE";
 				"TARGETED_DEVICE_FAMILY[sdk=macosx*]" = 2;
@@ -1738,7 +1742,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 202611162056;
+				CURRENT_PROJECT_VERSION = 202611181505;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = ("$(PROJECT_DIR)/../../engine/include");
@@ -1750,7 +1754,7 @@
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleLightContent;
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 2.4.1;
+				MARKETING_VERSION = 2.4.2;
 				OTHER_LDFLAGS = ("$(inherited)", "-lsqlite3");
 				PRODUCT_BUNDLE_IDENTIFIER = com.spektralab.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1855,6 +1859,7 @@
 				DADC9850397FEEC96308FE20 /* MacDriver.swift */,
 				C06BE30AD323E4200C411449 /* MacEditCommands.swift */,
 				04171A8BD6053A51486176E9 /* MacFlowBar.swift */,
+				FEDFD6FAA0F0D54758A54DC8 /* MacGestureCompat.swift */,
 				B20BA7C017AA3E37476533EB /* MacHIDPost.swift */,
 				4BEE9D51F0DF78B565FC1FBA /* MacPageActions.swift */,
 				260942587A06E41C0BCDEAE9 /* MacScrollZoom.swift */,
@@ -1956,6 +1961,7 @@
 				2AA929E18A10E0DA6D52691E /* LensProfile.swift */,
 				8C1B96C5D2C355BF1F9D8F4F /* LensProfileReader.swift */,
 				F3DE69F8FBBEEE5CEC0623FA /* LensResolver.swift */,
+				27E7500D8813F741C826D701 /* LibRawDecode.swift */,
 				581187CAA658BDF51A7C3959 /* MaskBaker.swift */,
 				EB483F1FEA5E117BD864415C /* MaskLive.swift */,
 				B6C1B607FA2EAF792F33BAB8 /* MaskOverlay.swift */,
@@ -2045,6 +2051,7 @@
 		E11C0385836F64E8056CD76C /* PairDevelop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairDevelop.swift; sourceTree = "<group>"; };
 		E1A3B1E8C8DFC94D4FBE60AE /* Routes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 778C42EEE84D1B3369862632 /* Routes.swift */; };
 		E1DAC300A7CFC81262C88FAF /* CanvasGamut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC187235EDBBA75D92211A0 /* CanvasGamut.swift */; };
+		E2210ECBF2EB77B7AB9E3B95 /* LibRawDecode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E7500D8813F741C826D701 /* LibRawDecode.swift */; };
 		E23AAFD9BE0F7A57D346DB49 /* RawProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawProxy.swift; sourceTree = "<group>"; };
 		E263AB0072682D11733EDF32 /* HDRLook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRLook.swift; sourceTree = "<group>"; };
 		E34D92693A99940D92DE2E95 /* MacLightTableBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLightTableBar.swift; sourceTree = "<group>"; };
@@ -2252,6 +2259,7 @@
 			path = Frame;
 			sourceTree = "<group>";
 		};
+		FEDFD6FAA0F0D54758A54DC8 /* MacGestureCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacGestureCompat.swift; sourceTree = "<group>"; };
 		FF5305339CCEFF4ABAF2DD20 /* HDRGainMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ED3ECE6B57107D7DC4D6F8F /* HDRGainMap.swift */; };
 		FFE09AB67492BDFF4058EF94 /* HighDynamicRangeGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA503191453842D64286FD0E /* HighDynamicRangeGroup.swift */; };
 	};

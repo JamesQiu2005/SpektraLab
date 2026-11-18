@@ -64,7 +64,7 @@ engine/build.sh bundle       # sync resources into modern_UI/…/Resources/engin
 ```
 
 `build_engine_mac.sh` compiles `engine/` exactly as `engine/build.sh` does (the same sources, `-O2`,
-safe-math kernels for macOS 15) for the Mac Catalyst target, because a Catalyst app cannot link a
+safe-math kernels for macOS 14, the app's floor since 2.4.2) for the Mac Catalyst target, because a Catalyst app cannot link a
 plain macOS object; it leaves `build/engine-macosx/{libspektralab_engine.a, EngineResources/}`, which
 `gen_project.py` links and copies into the app. Build Release as well as Debug before calling a change
 done: a release path that reaches code under `#if DEBUG` compiles in Debug and fails in Release.

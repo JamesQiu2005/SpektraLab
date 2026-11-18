@@ -17,7 +17,7 @@ files=(Model/Format.swift Model/Localization.swift Model/FeatureFlags.swift Mode
        Model/HalfFramePair.swift Model/DoubleExposure.swift Engine/HostCut.swift Engine/PiecePlacer.swift
        Model/DevelopRevision.swift Model/HistoryLabel.swift Model/HistoryFields.swift Model/EditHistory.swift Services/EditHistoryStore.swift
        Model/MaskFrame.swift Engine/MaskBaker.swift Engine/MaskStore.swift Engine/SceneLayerWire.swift Engine/Layer2Kernel.swift Engine/Layer2Local.swift
-       Engine/RawExposure.swift Engine/RawProxy.swift Engine/RawProxyName.swift Engine/SubjectFinder.swift Services/FoundMaskKeeping.swift
+       Engine/RawExposure.swift Engine/LibRawDecode.swift Engine/RawProxy.swift Engine/RawProxyName.swift Engine/SubjectFinder.swift Services/FoundMaskKeeping.swift
        Engine/LensProfile.swift Engine/LensProfileReader.swift Engine/LensCorrection.swift Engine/LensResolver.swift Engine/RawBlack.swift Engine/LCPReader.swift Services/LensDatabase.swift
        Services/WorkingCopies.swift Services/StorageTidy.swift)
 photo="$here/SampleSources/overscan/plain_bund.jpg"

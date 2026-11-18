@@ -59,6 +59,8 @@ enum MacSettingsCoverage {
         "Film": .shown(.develop),
         "Paper": .shown(.develop),
         "Preview size": .shown(.develop),
+        // 2.4.2: Apple's decoder or LibRaw's helper (`AppSettings.rawDecoder`).
+        "RAW decoder": .shown(.develop),
         // Lens Profiles (2.4.0): the lens database 镜头校正 reads, in place of 2.3's Lens Correction checkbox.
         "Lens Profiles": .shown(.develop),
         "Installed from Adobe": .shown(.develop),

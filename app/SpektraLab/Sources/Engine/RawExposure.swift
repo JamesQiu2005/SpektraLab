@@ -15,6 +15,8 @@ enum RawExposure {
         var sourcePixels: Double
         /// The black repair's pedestal as `how` names it (`RawBlack`): "" for every file it does not repair.
         var black = ""
+        /// A LibRaw decode's camera calibration (`LibRawDecode`), which its neutral pick inverts; nil for Core Image's.
+        var calibration: LibRawDecode.Calibration? = nil
         var how: String {
             "RAW \(facts.decoderVersion) [\(facts.treatment.rawValue); baseline=\(facts.baselineExposureEV); shadow=\(facts.appliedShadowBias)\(black)]"
         }
@@ -23,7 +25,14 @@ enum RawExposure {
     /// `lens`: the frame's lens correction as resolved; nil asks the resolver (`LensResolver.current`), as every decode does.
     /// It also says whether the file's black is repaired (`LensResolution.rawBlack`, `RawBlack`): a found file's pedestal
     /// is added to Core Image's linear output, before anything reads the pixels.
+    ///
+    /// Settings' RAW decoder (`RawDecoderChoice.current`, 2.4.2) chooses whose pixels: LibRaw's, in its helper
+    /// (`LibRawDecode`), where it is chosen and reads the file; Core Image's otherwise — every release's before 2.4.2.
     static func prepare(_ url: URL, settings: DecodeSettings, longEdge: Int?, lens: LensResolution? = nil) -> Prepared? {
+        if RawDecoderChoice.current == .libraw,
+           let prepared = LibRawDecode.prepare(url, settings: settings, longEdge: longEdge, lens: lens) {
+            return prepared
+        }
         guard let filter = CIRAWFilter(imageURL: url) else { return nil }
         let asShot = (Double(filter.neutralTemperature), Double(filter.neutralTint))
         let baseline = filter.baselineExposure
