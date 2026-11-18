@@ -9,7 +9,8 @@
 #   SpektraLab, GPL-3.0-or-later            license/LICENSE
 #   spektrafilm (upstream engine), GPL-3.0  license/SPEKTRAFILM_LICENSE.txt
 #   profiles and LUTs, CC BY-SA 4.0         engine/resources/profiles, print LUTs
-#   LibRaw 0.22.2, LGPL-2.1 (of its LGPL/CDDL dual licence), statically linked
+#   LibRaw 0.23.0-Snapshot202611 (master 42f89c16), LGPL-2.1 (of its LGPL/CDDL
+#   dual licence), statically linked
 #   stb (public domain / MIT), volk (MIT), Vulkan-Headers (Apache-2.0 OR MIT,
 #   compile time only)
 set -euo pipefail
@@ -38,8 +39,11 @@ cp "$here/resources_product/NOTICE.md" "$lic/Product-profiles-NOTICE.md"
 cp "$here/resources_product/fonts/LICENSE" "$lic/Imprint-fonts-LICENSE.txt"
 cp "$here/resources_product/fonts/DejaVu-LICENSE" "$lic/Imprint-mono-font-DejaVu-LICENSE.txt"
 cp "$here/third_party/stb/LICENSE" "$lic/stb-LICENSE.txt"
-cp "$deps/LibRaw-0.22.2/LICENSE.LGPL" "$lic/LibRaw-LGPL-2.1.txt"
-cp "$deps/LibRaw-0.22.2/COPYRIGHT" "$lic/LibRaw-COPYRIGHT.txt"
+# The LibRaw notices come from the tree this build compiled (cmake/LibRaw.cmake
+# copies them, with the pin, out of the verified source).
+for notice in LICENSE.LGPL:LibRaw-LGPL-2.1.txt COPYRIGHT:LibRaw-COPYRIGHT.txt SOURCE.txt:LibRaw-SOURCE.txt; do
+  cp "$build/engine/third-party/LibRaw/${notice%%:*}" "$lic/${notice#*:}"
+done
 cp "$here/third_party/stb/LICENSE" "$lic/stb-LICENSE.txt"
 cp "$here/third_party/volk/LICENSE.md" "$lic/volk-LICENSE.txt"
 cp "$deps/Vulkan-Headers/LICENSE.md" "$lic/Vulkan-Headers-LICENSE.txt"
@@ -53,8 +57,9 @@ The full corresponding source is the SpektraLab repository at the commit
 this build was made from.
 
 Bundled third-party components:
-  LibRaw 0.22.2        LGPL-2.1, statically linked; source: libraw.org, and
-                       engine/setup-libraw.sh fetches the exact pinned tree.
+  LibRaw 0.23.0-Snapshot202611 (upstream master 42f89c16, unmodified)
+                       LGPL-2.1, statically linked; source and pin in
+                       LibRaw-SOURCE.txt; engine/setup-libraw.sh fetches it.
   stb_image, stb_image_write, stb_truetype   public domain / MIT (stb-LICENSE.txt)
   volk                 MIT (volk-LICENSE.txt)
   Vulkan-Headers       Apache-2.0 OR MIT, compile time only

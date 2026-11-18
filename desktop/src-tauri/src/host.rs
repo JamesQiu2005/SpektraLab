@@ -28,7 +28,7 @@ use std::pin::Pin;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{broadcast, oneshot, watch};
 
 use crate::framing;
 
@@ -119,8 +119,13 @@ async fn write_frame<W: AsyncWrite + Unpin>(writer: &mut W, frame: &[u8], deadli
     }).await.unwrap_or_else(|_| Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "engine host stopped accepting requests")))
 }
 
-pub struct HostManager {
-    app: AppHandle<Wry>,
+/// How many host events a slow subscriber (the scheduler's progress forwarder) may fall behind.
+const EVENT_BACKLOG: usize = 1024;
+
+/// Generic over the Tauri runtime so the Rust layer runs without a window (T5a, `tauri::test`); the
+/// app itself is `HostManager<Wry>`.
+pub struct HostManager<R: Runtime = Wry> {
+    app: AppHandle<R>,
     conn: tokio::sync::Mutex<Option<Conn>>,
     pending: Mutex<Requests>,
     transition: tokio::sync::Mutex<()>,
@@ -132,10 +137,14 @@ pub struct HostManager {
     restarts: Mutex<Vec<Instant>>,
     state_tx: watch::Sender<Value>,
     launch: Mutex<Option<Launch>>,
+    /// Every unsolicited frame of the current host (`progress`, `log`), for the scheduler's link.
+    events: broadcast::Sender<Value>,
+    /// The running host's process id (0: none).
+    pid: AtomicU32,
 }
 
-impl HostManager {
-    pub fn new(app: AppHandle<Wry>) -> Arc<Self> {
+impl<R: Runtime> HostManager<R> {
+    pub fn new(app: AppHandle<R>) -> Arc<Self> {
         let (state_tx, _) = watch::channel(json!({"phase": "starting"}));
         Arc::new(Self {
             app,
@@ -150,7 +159,24 @@ impl HostManager {
             restarts: Mutex::new(Vec::new()),
             state_tx,
             launch: Mutex::new(None),
+            events: broadcast::channel(EVENT_BACKLOG).0,
+            pid: AtomicU32::new(0),
         })
+    }
+
+    /// The host process the next request is written to is this generation's (each start adds one).
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    /// The running host's process id, for the memory probe.
+    pub fn pid(&self) -> Option<u32> {
+        Some(self.pid.load(Ordering::SeqCst)).filter(|p| *p != 0)
+    }
+
+    /// The host's unsolicited frames, as they arrive.
+    pub fn subscribe(&self) -> broadcast::Receiver<Value> {
+        self.events.subscribe()
     }
 
     pub fn state(&self) -> Value {
@@ -236,6 +262,7 @@ impl HostManager {
                 return;
             }
         };
+        self.pid.store(child.id().unwrap_or(0), Ordering::SeqCst);
         let stdin = child.stdin.take().expect("piped stdin");
         let mut stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
@@ -292,7 +319,7 @@ impl HostManager {
                 // must be registered before this generation is drained, and
                 // no new request may attach to the already exited child.
                 let mut connection = me.conn.lock().await;
-                if connection.as_ref().is_some_and(|c| c.generation == generation) { *connection = None; }
+                if connection.as_ref().is_some_and(|c| c.generation == generation) { *connection = None; me.pid.store(0, Ordering::SeqCst); }
                 drop(connection);
                 me.pending.lock().unwrap().exited(generation, &format!("the engine host exited ({status})"));
                 let _ = exited.send(());
@@ -301,7 +328,7 @@ impl HostManager {
         }
 
         // hello
-        match self.request_inner("hello", json!({}), Vec::new(), HELLO_TIMEOUT, None).await {
+        match self.request_inner("hello", json!({}), Vec::new(), HELLO_TIMEOUT, None, None).await.0 {
             Ok((header, _)) if header["ok"] == json!(true) => {
                 let mut hello = header["result"].clone();
                 if launch.mock {
@@ -345,6 +372,7 @@ impl HostManager {
                     _ => log::info!(target: "host", "{msg}"),
                 }
             }
+            let _ = self.events.send(header.clone());
             let _ = self.app.emit("host-event", header);
         } else {
             log::warn!(target: "host", "frame with neither id nor event");
@@ -422,7 +450,7 @@ impl HostManager {
         self.shutting_down.store(true, Ordering::SeqCst);
         let _ = tokio::time::timeout(
             Duration::from_secs(2),
-            self.request_inner("shutdown", json!({}), Vec::new(), Duration::from_secs(2), None),
+            self.request_inner("shutdown", json!({}), Vec::new(), Duration::from_secs(2), None, None),
         )
         .await;
         self.stop_child().await;
@@ -432,6 +460,14 @@ impl HostManager {
     /// call made during a restart lands on the new host instead of failing.
     pub async fn request(&self, method: &str, params: Value, payload: Vec<u8>, timeout: Duration,
                          lease: Option<crate::workspace::Guard>) -> Reply {
+        self.request_on(method, params, payload, timeout, lease, None).await.0
+    }
+
+    /// `request`, for a caller that scopes sessions to the host process that made them (the
+    /// scheduler's link): `require` refuses to write to any other generation's host (the reply is
+    /// `not_found`, unsent), and the generation the request was written to comes back with the reply.
+    pub async fn request_on(&self, method: &str, params: Value, payload: Vec<u8>, timeout: Duration,
+                            lease: Option<crate::workspace::Guard>, require: Option<u64>) -> (Reply, Option<u64>) {
         let lease = lease.map(Arc::new);
         let mut rx = self.state_tx.subscribe();
         let ready = tokio::time::timeout(Duration::from_secs(60), async {
@@ -449,11 +485,11 @@ impl HostManager {
         })
         .await
         .unwrap_or_else(|_| Err(HostError::new("timeout", "the engine host did not become ready")));
-        ready?;
+        if let Err(e) = ready { return (Err(e), None); }
         let job = matches!(method, "export_frame" | "export_cineon") && crate::diagnostics::configuration(&self.app).export_job_log;
         let snapshot = if job { Some(params.clone()) } else { None };
         let started = Instant::now();
-        let reply = self.request_inner(method, params, payload, timeout, lease.clone()).await;
+        let (reply, generation) = self.request_inner(method, params, payload, timeout, lease.clone(), require).await;
         if let (Some(snapshot), Ok((header, _))) = (snapshot, &reply) {
             if header["ok"] == json!(true) {
                 let result = header["result"].clone();
@@ -464,11 +500,11 @@ impl HostManager {
                 if !matches!(log_result, Ok(Ok(()))) { log::warn!(target:"export", "Export succeeded but writing its job log failed: {log_result:?}"); }
             }
         }
-        reply
+        (reply, generation)
     }
 
     async fn request_inner(&self, method: &str, params: Value, payload: Vec<u8>, timeout: Duration,
-                           lease: Option<Arc<crate::workspace::Guard>>) -> Reply {
+                           lease: Option<Arc<crate::workspace::Guard>>, require: Option<u64>) -> (Reply, Option<u64>) {
         let started = tokio::time::Instant::now();
         let deadline = started + timeout;
         let write_deadline = started + timeout.min(WRITE_TIMEOUT);
@@ -480,11 +516,15 @@ impl HostManager {
             let mut guard = match tokio::time::timeout_at(write_deadline, self.conn.lock()).await {
                 Ok(guard) => guard,
                 // No bytes or pending operation exist yet for this request.
-                Err(_) => return Err(HostError::new("timeout", "waiting to write to the engine host timed out")),
+                Err(_) => return (Err(HostError::new("timeout", "waiting to write to the engine host timed out")), None),
             };
             let Some(conn) = guard.as_mut() else {
-                return Err(HostError::new("not_running", "the engine host is not running"));
+                return (Err(HostError::new("not_running", "the engine host is not running")), None);
             };
+            if require.is_some_and(|g| g != conn.generation) {
+                let message = format!("{method}: the session belonged to an engine host that has exited");
+                return (Ok((json!({"ok": false, "error": {"code": "not_found", "message": message}}), Vec::new())), None);
+            }
             generation = conn.generation;
             // Capture the connection generation under the same lock as its
             // write. A restart cannot attach an old request to a new child.
@@ -496,17 +536,18 @@ impl HostManager {
             // reap this generation; do not accidentally stop a new host.
             self.stop_generation(Some(generation)).await;
             let code = if e.kind() == std::io::ErrorKind::TimedOut { "timeout" } else { "host_exited" };
-            return Err(HostError::new(code, format!("writing to the engine host failed: {e}")));
+            return (Err(HostError::new(code, format!("writing to the engine host failed: {e}"))), Some(generation));
         }
         // Writing consumes the caller's original budget; it never starts a
         // second full timeout after a slow/large upload.
-        match tokio::time::timeout_at(deadline, rx).await {
+        let reply = match tokio::time::timeout_at(deadline, rx).await {
             Ok(Ok(reply)) => reply,
             Ok(Err(_)) => Err(HostError::new("host_exited", "the engine host went away")),
             Err(_) => {
                 Err(HostError::new("timeout", format!("{method} took longer than {} s", timeout.as_secs())))
             }
-        }
+        };
+        (reply, Some(generation))
     }
 }
 
@@ -609,6 +650,7 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_keeps_os_lease_until_native_completion() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let (tx, rx) = oneshot::channel();
         let mut requests = Requests::default();
@@ -626,6 +668,7 @@ mod tests {
 
     #[tokio::test]
     async fn partial_write_times_out_without_releasing_the_operation() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let (tx, rx) = oneshot::channel();
         drop(rx);
@@ -649,6 +692,7 @@ mod tests {
 
     #[tokio::test]
     async fn old_generation_exit_does_not_release_new_host_work() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let mut requests = Requests::default();
         let (old_tx, old_rx) = oneshot::channel();
@@ -676,6 +720,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_reaps_child_before_releasing_leases() {
+        let _serial = agent_files::SERIAL.lock().await;
         let (root, workspace) = workspace();
         let (tx, rx) = oneshot::channel();
         drop(rx);

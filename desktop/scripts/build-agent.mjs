@@ -12,7 +12,9 @@ const out=join(app,'agents');mkdirSync(out,{recursive:true});
 await build({entryPoints:[join(desktop,'agent/main.ts')],outfile:join(out,'agent.mjs'),bundle:true,platform:'node',format:'esm',target:'node22',
   tsconfig:join(desktop,'tsconfig.base.json'),plugins:[{name:'headless-adapters',setup(b){
     b.onResolve({filter:/^(\.\.\/platform|\.\.\/host\/client)$/},args=>{
-      if(!args.importer.replaceAll('\\','/').includes('/src/export/'))return;
+      const from=args.importer.replaceAll('\\','/');
+      // The exporter's jobs go through the scheduler (v2), which reaches the host the same way.
+      if(!from.includes('/src/export/')&&!from.includes('/src/scheduler/'))return;
       return{path:join(desktop,'agent',args.path.endsWith('client')?'host.ts':'platform.ts')};
     });
   }}]});

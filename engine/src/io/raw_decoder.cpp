@@ -87,20 +87,6 @@ bool libraw_ok(int status, const char* stage, std::string& error) {
     return false;
 }
 
-bool supported_compression(LibRaw& raw, std::string& error) {
-    const char* decoder = raw.unpack_function_name();
-    if (decoder && std::strstr(decoder, "nikon_he_load_raw") != nullptr) {
-        const auto& model = raw.imgdata.idata.model;
-        error = "RAW unpack (" +
-            std::string(std::begin(model), std::find(std::begin(model), std::end(model), '\0')) +
-            "): Nikon HE/HE* compression is not supported by bundled LibRaw " +
-            LibRaw::version() +
-            "; use a lossless-compressed NEF or externally converted RAW DNG";
-        return false;
-    }
-    return true;
-}
-
 void configure_compatible(libraw_output_params_t& params) {
     params.user_qual = 3;  // AHD (LibRaw still selects its native X-Trans path).
     params.half_size = 0;
@@ -327,7 +313,6 @@ bool decode_raw_compatible(const std::filesystem::path& source, const std::array
         const int open_status = raw->open_file(source.c_str());
         decoded.timings.open_ms = elapsed_ms(start);
         if (!libraw_ok(open_status, "RAW open", error)) return false;
-        if (!supported_compression(*raw, error)) return false;
 
         start = Clock::now();
         const int unpack_status = raw->unpack();
@@ -457,7 +442,6 @@ bool decode_raw_headroom(const std::filesystem::path& source, const std::array<f
         const int open_status = raw->open_file(source.c_str());
         decoded.timings.open_ms = elapsed_ms(start);
         if (!libraw_ok(open_status, "RAW open", error)) return false;
-        if (!supported_compression(*raw, error)) return false;
 
         start = Clock::now();
         const int unpack_status = raw->unpack();

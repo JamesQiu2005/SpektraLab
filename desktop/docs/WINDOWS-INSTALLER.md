@@ -22,10 +22,25 @@ finds is not rustup's.
 
 ```bash
 cd desktop
+npm run package:win
+# builds the host from this tree first (engine/build-windows-cross.sh: the pinned LibRaw, the host's
+# `trim`) into ../build/host-win-x64, then the app and the installer
 node scripts/package.mjs windows --host-dir <dir with spektralab-host.exe + engine/>
-# or: SPEKTRALAB_HOST_DIR=<dir> npm run package:windows
-# with no host argument it reads ../build/host-win-x64 (engine/build-windows-cross.sh output)
+# or: SPEKTRALAB_HOST_DIR=<dir> npm run package:windows — package a host staged elsewhere, unbuilt
 ```
+
+**The two helpers (SpektraLab 2, phase 2).** The installer carries two console programs beside
+`spektralab.exe`, both as Tauri sidecars (`externalBin`):
+
+- `spektralab-host.exe`, the engine host, built from this tree (above), with `host/engine/**` and
+  `host/licenses/` (GPL-3.0, CC BY-SA for the profiles, LibRaw's LGPL-2.1, COPYRIGHT and SOURCE,
+  staged by `engine/stage-host.sh`);
+- `spklib-host.exe`, the library helper, **not built here**: the vendored, reproducible build in
+  `vendor/spklib/windows-x64/` (spklib 0.4.0, llvm-mingw UCRT). `package.mjs` checks its SHA-256
+  against `spklib-host.exe.sha256` before staging it and refuses a mismatch; its MIT licence
+  (`desktop/licenses/spklib-LICENSE.txt`) and its `VERSION` go to `host/licenses/`.
+
+The app starts both with `CREATE_NO_WINDOW`; the library helper starts on the first library call.
 
 The output is `desktop/release/windows/SpektraLab_<version>_x64-setup.exe`.
 The script refuses to run without `spektralab-host.exe` and its `engine/`
@@ -84,6 +99,23 @@ file $I                                  # PE32 ... Nullsoft Installer self-extr
 7zz x -oout $I && file out/spektralab.exe            # PE32+ executable (GUI) x86-64
 x86_64-w64-mingw32-objdump -p out/spektralab.exe | grep 'DLL Name'   # system DLLs + WebView2Loader.dll
 ```
+
+`npm run check:installer` (`scripts/check-installer.mjs`) does all of this as
+one assertion list and fails on a missing member or a wrong file type; it is
+T6 of the Mac gate (`scripts/gate-mac.sh`). Since phase 2 it also requires
+`spklib-host.exe`, checks that it and the host are PE32+ x86-64 console
+programs, that the bundled helper is byte for byte the vendored one, that the
+host carries the pinned LibRaw's version string (`engine/setup-libraw.sh`) and
+not the old pin's, and that the LibRaw and spklib licence files are there.
+
+**Run of 2026-11-17 (SpektraLab 2.0.0-alpha.1, phase 1, on the Mac mini):**
+`engine/build-windows-cross.sh` (Homebrew mingw-w64, GCC 16; LibRaw without
+OpenMP; v1's engine, unchanged) staged `build/host-win-x64/`, then
+`npm run package:win` with no extra environment wrote
+`release/windows/SpektraLab_2.0.0-alpha.1_x64-setup.exe` (42.3 MB, 217
+members, 49 `.spv` kernels, 34 profiles). The window is frameless
+(`decorations: false`); the capability file grants the caption buttons'
+window calls.
 
 This only checks the installer's contents. Neither the installer nor the app
 has been run here: there is no Windows machine and no wine. CI's

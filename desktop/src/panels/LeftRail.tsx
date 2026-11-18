@@ -78,7 +78,7 @@ export function LeftRail() {
 
 // ---------------------------------------------------------------- Navigator
 
-function NavigatorSection() {
+export function NavigatorSection() {
   const out = useOutput();
   const view = useSession((s) => s.view);
   const canvasPx = useSession((s) => s.canvasPx);
@@ -162,7 +162,7 @@ const GROUP_LABEL: Record<ClipboardGroup, () => string> = {
   scenePlacement: () => t('clipScenePlacement'),
 };
 
-function ClipboardSection() {
+export function ClipboardSection() {
   const groups = useSession((s) => s.clipboardGroups);
   const clip = useSession((s) => s.clipboard);
   const picked = useSession((s) => s.picked);
@@ -196,7 +196,7 @@ function ClipboardSection() {
 
 // --------------------------------------------------------------------- Film
 
-function FilmSection() {
+export function FilmSection() {
   const catalog = useSession((s) => s.catalog);
   const film = useSession((s) => s.sidecar.params.filmStock);
   const noFilm = useSession((s) => s.sidecar.noFilm);
@@ -238,7 +238,7 @@ function FilmSection() {
 
 // ----------------------------------------------------- Film Edge, Date Back
 
-function FilmEdgeSection() {
+export function FilmEdgeSection() {
   const gate = useSession((s) => s.gate);
   const fe = useSession((s) => s.sidecar.params.filmEdge);
   const stock = useSession((s) => s.catalog.stock(s.sidecar.params.filmStock));
@@ -287,7 +287,7 @@ function FilmEdgeSection() {
   );
 }
 
-function DateBackSection() {
+export function DateBackSection() {
   const gate = useSession((s) => s.gate);
   const d = useSession((s) => s.sidecar.params.dateBack);
   const edge = useSession((s) => s.sidecar.params.filmEdge);
@@ -332,7 +332,7 @@ function DateBackSection() {
 const POSITIVE_ID = '__positive';
 const DIGITAL_ID = '__digital';
 
-function PrintSection() {
+export function PrintSection() {
   const catalog = useSession((s) => s.catalog);
   const p = useSession((s) => s.sidecar.params);
   const gate = useSession((s) => s.gate);
@@ -387,7 +387,7 @@ function PrintSection() {
 
 // --------------------------------------------------------------------- Crop
 
-function CropSection() {
+export function CropSection() {
   const g = useSession((s) => s.sidecar.geometry);
   const gateHeld = useSession((s) => edgeEffective(s.sidecar.params.filmEdge, s.gate));
   const pair = useSession((s) => s.pair);
@@ -461,7 +461,7 @@ function CropSection() {
 
 // ----------------------------------------------------------------- Enlarger
 
-function EnlargerSection() {
+export function EnlargerSection() {
   const state = useSession((s) => s), p = enlargerParams(state);
   const side = state.pair && state.pairLayer !== 'film' ? state.pairLayer : null;
   const hole = side ? state.pair?.[side] : null;

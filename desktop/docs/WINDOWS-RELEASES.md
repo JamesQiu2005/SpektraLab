@@ -10,6 +10,13 @@ Keep the title short. Put changes, validation and limitations in
 `desktop/docs/releases/beta.3.md`, not in the title. Never attach a new
 Windows build to a macOS release just because the numeric version matches.
 
+**SpektraLab 2 (2.0.0-alpha.1 and later)** is a separate line: its installer carries two helpers
+(`spektralab-host.exe`, built from the tree by `npm run package:win`, and the vendored
+`spklib-host.exe`, checked against its `.sha256`; `docs/WINDOWS-INSTALLER.md`). Before publishing one:
+the Mac gate (`SPEKTRALAB_GATE_PHASE=2 … scripts/gate-mac.sh`) green, `check-installer` green on the
+exact installer to publish, and `docs/WINDOWS-V2-CHECKLIST.md` walked on a real Windows PC — nothing in
+the 2.0 line has run on Windows before that.
+
 ## Prepare and check
 
 1. Start from reviewed `Windows_Linux` sources. Update the version in

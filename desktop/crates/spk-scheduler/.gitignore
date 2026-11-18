@@ -1,0 +1,3 @@
+# A standalone package in phase 1: its lock file and build output are not committed (PRD-W0 §4).
+/target/
+/Cargo.lock

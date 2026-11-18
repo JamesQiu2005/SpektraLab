@@ -40,6 +40,19 @@ export const DEFAULT_RECIPES: ExportRecipe[] = [
   { id: 'di', name: 'Digital Intermediate', format: 'di', bitDepth: 16, colorSpace: 'display-p3', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: '_prints', existing: 'addSuffix', naming: naming() },
 ];
 
+/**
+ * The v2 window's built-in recipes (PC-O1, README §8 decision 8): 2.0 for
+ * Windows exports sRGB, as Win-Qt does — JPEG, a 16-bit TIFF, a PNG, and the
+ * Digital Intermediate where the engine writes one. Display P3 and ProPhoto
+ * stay choosable where the host reports them; they are not the defaults.
+ */
+export const DEFAULT_RECIPES_V2: ExportRecipe[] = [
+  { id: 'jpeg-srgb', name: 'JPEG — sRGB', format: 'jpeg', bitDepth: 8, colorSpace: 'sRGB', quality: 95, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'SpektraLab', existing: 'addSuffix', naming: naming() },
+  { id: 'tiff-srgb', name: 'TIFF 16-bit — sRGB', format: 'tiff', bitDepth: 16, colorSpace: 'sRGB', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'SpektraLab', existing: 'addSuffix', naming: naming() },
+  { id: 'png-srgb', name: 'PNG 8-bit — sRGB', format: 'png', bitDepth: 8, colorSpace: 'sRGB', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'SpektraLab', existing: 'addSuffix', naming: naming() },
+  { id: 'di', name: 'Digital Intermediate', format: 'di', bitDepth: 16, colorSpace: 'display-p3', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: '_prints', existing: 'addSuffix', naming: naming() },
+];
+
 export const extensionOf = (r: ExportRecipe) => (r.format === 'jpeg' ? 'jpg' : r.format === 'png' ? 'png' : 'tif');
 
 /** The host's `format` for a recipe. PNG is 8-bit only on this host. */

@@ -75,7 +75,7 @@ export function RightRail() {
 
 // ------------------------------------------------------------------ Latitude
 
-function LatitudeSection() {
+export function LatitudeSection() {
   const noFilm = useSession((s) => s.sidecar.noFilm);
   const film = useSession((s) => s.sidecar.params.filmStock);
   const paper = useSession((s) => s.sidecar.params.printStock);
@@ -125,7 +125,10 @@ function LatitudePlot({ reply }: { reply: LatitudeReply | null }) {
 
 // -------------------------------------------------------------------- Camera
 
-function CameraSection() {
+/** `parts` (v2): Film Exposure lives under the films (Develop), the decode's
+ * white balance and lens in Darkroom › Decode (Edit); v1's rail shows both. */
+export function CameraSection({ parts = 'all' }: { parts?: 'all' | 'exposure' | 'decode' } = {}) {
+  const ex = parts !== 'decode', de = parts !== 'exposure';
   const tool = useSession((s) => s.tool);
   const pickerReady = useSession(() => canPickNeutral());
   const state = useSession((s) => s);
@@ -176,11 +179,11 @@ function CameraSection() {
         })),
       ]}
     >
-      <PillMenu label={tz('Exposure preset', '曝光预设')} value={ae} options={options} fill onChange={(method) => { if (method === 'as_shot') void applyAsShot(true); else void setCameraMetering(method); }} testId="metering" />
-      {hole && focus && <PillMenu label={tz('Exposure scope', '曝光范围')} value={hole.exposureScope}
+      {ex && <PillMenu label={tz('Exposure preset', '曝光预设')} value={ae} options={options} fill onChange={(method) => { if (method === 'as_shot') void applyAsShot(true); else void setCameraMetering(method); }} testId="metering" />}
+      {ex && hole && focus && <PillMenu label={tz('Exposure scope', '曝光范围')} value={hole.exposureScope}
         options={[{ value: 'frame', label: tz('Frame', '这一格') }, { value: 'film', label: tz('+ Film', '+ 胶片') }]}
         onChange={(v) => updatePair((p) => ({ ...p, [focus]: { ...p[focus]!, exposureScope: v } }))} />}
-      <ScrubSlider
+      {ex && <ScrubSlider
         label={t('cameraFilmExposure')}
         sublabel={
           <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }} title={!rawCamera
@@ -199,11 +202,11 @@ function CameraSection() {
         format={signed(1)}
         onChange={setCameraExposureTotal}
         testId="film-exposure"
-      />
-      {p.autoExposure && <div className="caption num" data-testid="automatic-exposure">
+      />}
+      {ex && p.autoExposure && <div className="caption num" data-testid="automatic-exposure">
         {baseline === null ? tz('Metering…', '正在测光…') : tz(`Auto ${signed(2)(baseline)} EV · slider shows total`, `自动补偿 ${signed(2)(baseline)} EV · 滑条显示总曝光`)}
       </div>}
-      <ScrubSlider
+      {de && <><ScrubSlider
         label={t('cameraTemperature')}
         sublabel={<AsShotLine on={wb.boxes.temp} enabled={!!wb.asShot && !wb.reason} onChange={(v) => setDecode((d) => applyBoxes(d, wb.asShot, { temp: v }))} />}
         value={wb.shown.temperature}
@@ -234,9 +237,9 @@ function CameraSection() {
       <button className="pill" disabled={!pickerReady} onClick={startNeutralPick} aria-pressed={tool === 'neutral'} data-testid="pick-neutral">
         {tool === 'neutral' ? tz('Cancel neutral picker', '取消中性灰取样') : tz('Pick neutral white balance', '吸取中性灰白平衡')}
       </button>
-      <ScrubSlider label={t('cameraVignetting')} value={vignette} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setAdjustments((a) => ({ ...a, vignette: { ...a.vignette, amount: v } }))} />
+      {parts === 'all' && <ScrubSlider label={t('cameraVignetting')} value={vignette} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setAdjustments((a) => ({ ...a, vignette: { ...a.vignette, amount: v } }))} />}
       <ToggleRow label={t('cameraLensCorrection')} on={selectedDecode(state).lensCorrection} onChange={(v) => setDecode((d) => ({ ...d, lensCorrection: v }))} disabled={!lensReady} reason={!lensReady ? lensReason : undefined} testId="lens-correction" />
-      <p className="caption" data-testid="lens-profile">{lensReady ? `${lens?.profile ?? ''}${lensParts ? ` · ${lensParts}` : ''}` : lensReason}</p>
+      <p className="caption" data-testid="lens-profile">{lensReady ? `${lens?.profile ?? ''}${lensParts ? ` · ${lensParts}` : ''}` : lensReason}</p></>}
     </Section>
   );
 }
@@ -272,7 +275,7 @@ function useWhiteBalance() {
 
 // --------------------------------------------------------------- Film Format
 
-function FilmFormatSection() {
+export function FilmFormatSection() {
   const p = useSession((s) => s.sidecar.params);
   const gate = useSession((s) => s.gate);
   const monochrome = useSession((s) => s.catalog.isMonochrome(s.sidecar.params.filmStock));
@@ -388,7 +391,7 @@ function FilmFormatSection() {
 
 // ----------------------------------------------------------- Scene Placement
 
-function ScenePlacementSection() {
+export function ScenePlacementSection() {
   const s = useSession((s) => s);
   const sl = s.sidecar.params.sceneLatitude, l = s.latitude;
   const unsupported = unsupportedReason('scene_latitude_mapping', s.gate.sceneLatitude);
@@ -417,7 +420,7 @@ function ScenePlacementSection() {
 
 // ---------------------------------------------------------------- Post-Dev
 
-function WhiteBalanceSection() {
+export function WhiteBalanceSection() {
   const a = useSession(shownAdjustments);
   return (
     <Section id="wb2" title={t('sectionWhiteBalance')} trailing={t('statusRightRailWBScope')} onReset={() => setAdjustments((q) => ({ ...q, temperature: 0, tint: 0 }))} resetHelp={t('helpReset')}>
@@ -427,7 +430,7 @@ function WhiteBalanceSection() {
   );
 }
 
-function ExposureSection() {
+export function ExposureSection() {
   const a = useSession(shownAdjustments);
   const row = (label: string, key: 'exposure' | 'contrast' | 'brightness' | 'saturation' | 'highlights' | 'shadows' | 'blackPoint' | 'whitePoint', range: [number, number], digits: number, snap: number) => (
     <ScrubSlider key={key} label={label} value={a[key]} range={range} snap={snap} format={signed(digits)} onChange={(v) => setAdjustments((q) => ({ ...q, [key]: v }))} testId={'adj-' + key} />
@@ -459,7 +462,7 @@ const CHANNEL_LABEL: Record<CurveChannel, () => string> = {
   blue: () => t('curveBlue'),
 };
 
-function CurveSection() {
+export function CurveSection() {
   const [ch, setCh] = useState<CurveChannel>('rgb');
   return (
     <Section
@@ -488,7 +491,7 @@ const ZONES: { key: 'master' | 'shadows' | 'midtones' | 'highlights'; label: () 
   { key: 'highlights', label: () => t('exposureHighlights') },
 ];
 
-function ColorBalanceSection() {
+export function ColorBalanceSection() {
   const cb = useSession((s) => shownAdjustments(s).colorBalance);
   const [zone, setZone] = useState<(typeof ZONES)[number]['key']>('master');
   const z = cb[zone];

@@ -112,7 +112,7 @@ try {
         $configureArguments += "-DSPEKTRALAB_LENS_PREFIX=$($LensPrefix.Replace('\', '/'))"
     }
     if ($NativeRaw) {
-        if (-not $LibRawSourceDirectory) { $LibRawSourceDirectory = Join-Path $dependencyDirectory 'LibRaw-0.22.2' }
+        if (-not $LibRawSourceDirectory) { $LibRawSourceDirectory = Join-Path $dependencyDirectory 'LibRaw-42f89c165763272a5482a254c446337f8048e0df' }
         if (-not (Test-Path -LiteralPath (Join-Path $LibRawSourceDirectory 'libraw\libraw.h'))) {
             throw 'LibRaw is missing; run engine/setup-libraw.ps1 first.'
         }

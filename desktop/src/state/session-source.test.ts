@@ -29,6 +29,9 @@ beforeEach(async () => {
   fake.redecode.mockResolvedValue({ width: 6, height: 4 });
   fake.thumbnail.mockResolvedValue(image());
   session = await import('./session'); frames = await import('./frames');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   session.sessionStore.setState({ selection: '/owned/a.ARW', picked: ['/owned/a.ARW'], engineSession: 's1', hello,
     hostState: { phase: 'ready', hello }, nativeSize: { width: 6000, height: 4000 },
     frameKind: 'raw', sidecar: structuredClone(newSidecar()) });
@@ -91,6 +94,7 @@ describe('neutral RAW white balance', () => {
     let finish!: (wb: { temperature_k: number; tint: number }) => void;
     fake.pick.mockImplementationOnce(() => new Promise((r) => { finish = r; }));
     session.startNeutralPick(); const pending = session.pickNeutralAt(.5, .5);
+    await vi.advanceTimersByTimeAsync(0); // the pick reaches the frame's session (the engine's lock)
     session.setTool('select'); finish({ temperature_k: 8000, tint: 0 }); await pending;
     expect(state().sidecar.decode.whiteBalance).toBe('As Shot');
     session.sessionStore.setState({ frameKind: 'tiff' }); session.startNeutralPick();

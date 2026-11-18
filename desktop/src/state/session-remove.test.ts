@@ -53,6 +53,9 @@ beforeEach(async () => {
   fake.load.mockResolvedValue(null);
   fake.loadCatalog.mockResolvedValue(catalog);
   session = await import('./session');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   session.sessionStore.setState({
     catalog, hostState: ready, folder: '/owned', frames: roll(), selection: '/owned/b.ARW', picked: ['/owned/b.ARW'],
     engineSession: 's1', nativeSize: { width: 6, height: 4 }, sidecar: newSidecar(), undo: [], redo: [], batchExporting: false,
@@ -89,7 +92,8 @@ describe('removeFrames', () => {
     expect(s.selection).toBeNull();
     expect(s.picked).toEqual([]);
     expect(fake.open).not.toHaveBeenCalled();
-    expect(fake.close).toHaveBeenCalledOnce();
+    // The session is the engine's: it goes when `openFrame` moves (the window's frontend state), not by the page.
+    expect(fake.close).not.toHaveBeenCalled();
     expect([s.nativeSize, s.metadata, s.frameKind, s.badge, frameImages.print, frameImages.original]).toEqual([null, null, null, null, null, null]);
     expect(s.imageVersion).toBe(8);
     expect(s.status).toMatch(/roll is empty|工作台已清空/);

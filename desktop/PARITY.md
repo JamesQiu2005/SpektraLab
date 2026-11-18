@@ -1,5 +1,153 @@
 # PARITY — the macOS app (`modern_UI/Spektrafilm`) → `desktop/`
 
+## SpektraLab 2 for Windows, phase 3 — the Mac's one window (PRD-W5), 2026-11-17
+
+PRD-W2 R2 drew the 2026-10-23 HIG's two rails; the Mac has shipped Capture One's one window since
+2026-10-26, and that is what this window is now. The drawings stay the source for how a piece looks;
+the Mac as built (`Sources/Mac/LibraryUI/`) is the source for where it stands. Built on the mock
+backends and against the real host and helper on this Mac (T5b); **unverified on Windows**. This
+section supersedes phase 1's rows below on the rails, the filmstrip, the Library | Edit workspaces,
+the Info rail and F7/F8/Ctrl+B/Ctrl+Shift+F.
+
+| Mac v2 (2.4.1) | here | status | why / notes |
+|---|---|---|---|
+| `MacModeSwitch`: one mode row, Library · Develop · Edit, in the left column's head in every mode; a mode that cannot be entered says why in place | `app/Shell.tsx` `ModeRow`, `app/modes.ts` | built | drawn as the HIG's workspace switch capsule, three ways; Develop/Edit stand down only with no picture to open, and a press says why under the row |
+| `MainWindowLayout`: the left column is the mode's tools | `app/AppWindow.tsx` `Column` | built | Library: the source well, rows, filters. Develop: the Latitude meter, the Navigator, then Film & Paper and Format **as the Windows rail's two sections** (the Mac's Film & Paper \| Format tab pair is not redrawn: the drawings' sections are the look). Edit: the meter, then Adjust, Darkroom, Crop, no second tab row. Every mode's tools stay mounted (their scroll is kept) |
+| `MacDevelopBrowser`, `MacLibraryBrowser`: the library's browser at the right in every mode — one grid, query, sort and selection; a row opens its picture in Develop/Edit; Export takes the chosen frames; ← → walk the rows | `library/Browser.tsx`, `library/browser.ts` | built | with no library open (a file from Explorer, a dropped folder) the browser is that folder's frames, as the filmstrip was; a library row the editor's roll does not hold brings the library's rows in first (Develop ↵'s path) |
+| `MacBrowserSplit`: the browser's width dragged 240–900 and kept | `app/Shell.tsx` `Wall`, settings `browserWidth` | built | the Mac's 430 by default; a drag cannot take the picture under 480 epx; double-click puts back 430 |
+| `MacSharedControls`: one shared bar — column toggle · viewer \| browser split · full grid · loupe · Crop · sort · direction | `app/Shell.tsx` `SharedBar`, at the picture bar's leading edge | built | the sort is spklib's `images.list` sort (Capture Date, Import Date, File Name, Rating, Date Added); Crop pressed in the Library opens the picture on Develop with the crop; the v1 engine has one crop, so "the mode's own crop" is that one in every mode |
+| `MacLibraryBrowser.fullGrid` | `ui.fullGrid`, G | built | pressed in Develop/Edit it goes to the Library with the grid taking the window |
+| no page transition; no filmstrip, no "‹ Library", no "1 of N" | the shell mounted once | built | the frame's name and the status line are the info strip under the picture |
+| full-window pages (the Light Table, the contact sheet) above the shell | `LibraryWorkspace.tsx` `FullWindowPage` | built | Esc or Done puts them away |
+| the Library's viewer (the chosen picture beside the browser) | `LibraryWorkspace.tsx` `Viewer` | built (simplified) | a library row's picture is still its stand-in tone (the helper serves no previews, phase 1's row); a folder frame shows its thumbnail; the old Info rail's facts are one line in the viewer's info strip |
+| narrow windows | `app/layout.ts` | built | the picture keeps 480 epx: the browser shrinks to 240, then folds; then the column folds; a folded pane comes over the picture (F7 the column, F8 the browser), one at a time |
+| keys and menus | `app/commands.ts`, `app/keys.ts` | built | View: Left Column (Ctrl+B, F7), Browser (F8, Ctrl+Alt+V), Grid (G), Light Table (Ctrl+Shift+L). Go: Library / Develop / Edit (Ctrl+Alt+1/2/3), ← → on the browser's rows. The filmstrip's Ctrl+Shift+F is gone |
+| the Mac's later additions with no v1 engine support (layers, the import page, double exposures …) | — | absent | PRD-W5 §5 |
+
+**The design pages drawn in the old layout** (T2's `SUPERSEDED` in `tests/e2e/design.spec.ts`). Position is
+asserted from PRD-W5 §2's rule table there, each row citing its rule; controls, glyphs, fills and fit still
+come from the SVGs (T2b, its passes in `tests/design/fidelity.ts`). Never silently passed:
+
+- PC-E1 — layout superseded by the Mac's one window (PRD-W5): two rails and a filmstrip drawn; Develop's tools are the column in Develop, Edit's the column in Edit (T2b claims them there, moved left by the drawn right rail's x), the right is the browser.
+- PC-E2 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E3 — layout superseded by the Mac's one window (PRD-W5): as PC-E1; the case opens the Edit mode to open the tiles.
+- PC-E4 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E6 — layout superseded by the Mac's one window (PRD-W5): as PC-E3, Edit's tools claimed below the meter.
+- PC-E7 — layout superseded by the Mac's one window (PRD-W5): as PC-E3.
+- PC-E8 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E9 — layout superseded by the Mac's one window (PRD-W5): as PC-E6; Crop is the shared bar's.
+- PC-E10 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E11 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E12 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-E13 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-X1 — layout superseded by the Mac's one window (PRD-W5): as PC-E1; ··· keeps its menu.
+- PC-X2 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-X3 — layout superseded by the Mac's one window (PRD-W5): as PC-E1.
+- PC-O1 — layout superseded by the Mac's one window (PRD-W5): the window under the dialog; the Export dialog itself is drawn whole and held to its drawn places.
+- PC-N1 — layout superseded by the Mac's one window (PRD-W5): the HIG's fold rule drawn (the left rail folds under 1180); the one window folds the browser first, then the column, so at 768 both are folded and nothing of the drawn rail is claimed.
+- PC-N2 — layout superseded by the Mac's one window (PRD-W5): as PC-N1; the column over the picture (F7) is claimed.
+- PC-N3 — layout superseded by the Mac's one window (PRD-W5): as PC-N1; at 1280 × 672 the column and the browser both stay.
+- PC-L0 — layout superseded by the Mac's one window (PRD-W5): the grid drawn in the middle and an Info rail at the right; the first-run card is the middle, the browser the right.
+- PC-L1 — layout superseded by the Mac's one window (PRD-W5): as PC-L0; the Info rail's rows are the viewer's info strip.
+- PC-L2 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-L3 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-L4 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-L6 — layout superseded by the Mac's one window (PRD-W5): as PC-L1.
+- PC-T1 — layout superseded by the Mac's one window (PRD-W5): drawn in the Library's middle; a full-window page now, nothing of the drawing claimed (its sheet tools are not built: the library has no sheet layout).
+- PC-K1 — layout superseded by the Mac's one window (PRD-W5): as PC-T1.
+
+Not superseded: PC-G1, PC-G2, PC-G3 (Settings is a window drawn whole and stands as drawn).
+
+Phase 1b's T2b table below is history from here; `tests/design/fidelity.ts` is current. Changed by the
+re-base: entries for regions no longer claimed are gone (PC-L3's read-only capsule over the grid and the
+Info rail's lock; PC-O1's, PC-N1's and PC-N2's Adjust tiles; PC-T1's and PC-K1's sheet tools, still not
+built); PC-E10's split handle is found built (its pass is placed at the one window's picture middle);
+PC-N2 lists the filmstrip's chip (no filmstrip, PRD-W5 §2 rule 8).
+
+## SpektraLab 2 for Windows, phase 2 — 2026-11-17
+
+Phase 2 wires what phase 1 drew against mocks to the real backends. **Built** below means: on the
+real engine host and the real library helper on this Mac (T5a, T5b), and cross-built for Windows;
+**unverified on Windows** throughout (`docs/WINDOWS-V2-CHECKLIST.md`).
+
+| Mac v2 | here | status | why / notes |
+|---|---|---|---|
+| `RenderQueue` / `SpkEngine` (RFC-036): one queue owns every render, its memory budget and its sessions | `crates/spk-scheduler` behind `src-tauri/src/scheduler.rs`; the webview's `TauriScheduler` | built | the webview queues nothing and opens no session: canvas jobs run on the engine's editing session; exports, thumbnails and other frames' full views and stock previews are one-shot, and the editing frame's full view and stock previews borrow its session (WIRE.md). The 180 ms settle and the file-dialog hold stay in the page (WIRE has neither). The v1 host renders whole frames: a banded plan runs whole and is recorded `ran: "whole"` |
+| the Mac's budget numbers | `DevicePolicy::mac()` on macOS, `desktop_pc(installed RAM, GPU)` on Windows/Linux | built, **unmeasured on Windows** | every PC number is a named placeholder listed in `scheduler_budget().policy.unmeasured`; the v1 host reports no GPU memory, so VRAM is not in the budget |
+| the job log (`scheduler-log.jsonl`), the cost model's corrections | the app's log folder; `<app data>/scheduler-corrections.json` | built | the Mac's line, keys sorted |
+| a full view on the editing session | `HostEngine::place` (`crates/spk-scheduler/src/host/engine.rs`), `MockEngine.place`, `session.ts` `renderFull` | built (phase 3) | a full view of the frame being edited, from the canvas's own source (`path`, `decode`, `pair`), **borrows the editing session**: no `open`, no `close`, the file is not decoded again, and it is priced as opening nothing (no `decodesOriginal`, `original` or `opens`). It carries the edit the session has not had yet as its `setParams`. A full view of any other frame (or this frame from other pixels) stays one-shot, as do exports and thumbnails. The Mac's rule makes the full tier one-shot; this departs from it on purpose (the second decode per settled edit). Measured on the Mac host (`tests/real_host.rs` step 3b, A7 III RAW): the host keeps a negative per size on the session (`negatives: 2` after the full view), and the next print-side reprint prints in ~25 ms against the develop's ~230 ms, i.e. from the canvas's cached negative. Unmeasured on Windows |
+| the print thumbnail from the cached print | the canvas print drawn down | changed | an uncropped, unturned frame's thumbnail is drawn from the print the canvas shows (no render); a cropped or turned one is a one-shot `thumbnail` job, as WIRE prices it |
+| a failed render returns the controls to the shown print (HIG §7) | `FAILED_RENDER_KEEPS_EDITED_CONTROLS` (`state/session.ts`) | deviation, one switch | kept as phase 1 built it (the controls keep the failed edit so Try Again renders it); setting the constant to `false` puts them back to the last print |
+| `LibraryModel` over spklib | `library_call` / `library_state` over `spk_library::LibraryHost`; `TauriLibrary` | built | the helper is `spklib-host.exe` beside the engine host (bundled), the Mac's dev helper on macOS; a folder source's library lives in the helper's store, not in the folder; Capture One is read through a mirror and never written (T5a and T5b hold a catalog's every byte) |
+| the soft proof (`render_proof`) | the direct path | kept | not a job (a proof waits for nothing and is cancelled with the dialog); it no longer names the frame's session: the host opens a private one from `source_path` |
+
+## SpektraLab 2 (Mac v2 2.4.1 → Windows 2.0.0-alpha.1), phase 1 — 2026-11-17
+
+The interface is v2's (NOTES.md, "SpektraLab 2 for Windows"); the engine is v1's.
+**Built** = on screen and working on the mock backends and, for the editor,
+against the v1 host. **Absent** = not on screen on purpose (R7: the v1 engine
+cannot do it, or the HIG gates it), with the reason. **Not built** = the v2
+app has it and the v1 engine could, but this phase did not build it.
+
+| Mac v2 / Windows HIG | here | status | why / notes |
+|---|---|---|---|
+| one window, app-drawn 32 epx title bar, menu bar with access keys, caption buttons | `app/AppWindow`, `TitleBar` | built | Snap layouts on Maximise hover need `HTMAXBUTTON` from `WM_NCHITTEST`, which the webview cannot answer: not done; unverified on Windows |
+| rails 320 (280–440, double-click 320, remembered), walls, filmstrip 80, toolbar 48, folding by width/height, F7/F8/Ctrl+B/Ctrl+Shift+F/F11 | `app/layout.ts`, `AppWindow` | built | full screen is the window's own `setFullscreen` |
+| Library \| Edit workspaces, Go › Back (Alt+←) | `app/ui.ts` | built | state is kept across the switch |
+| Develop rail: Navigator (Fit · 100 % · 200 %), Film & Paper cards (filter capsules, crop-to-card), Film Exposure ruler, Format | `edit/rails.tsx` | built | the cards' small renders (README §8.6) wait for a second preview worker: a card with no cover shows its family's swatch; Custom size is not offered on the cards (the v1 control remains in the data) |
+| Edit rail: Latitude meter pinned, Adjust tiles, Darkroom tiles (Enlarger, Decode, Effects), Crop | `edit/rails.tsx` | built | Adjust: Brightness, Contrast, Tone, Colour Wheels, Saturation, Temperature, Curve, Vignette |
+| Adjust: HSL, Channels, Vibrance | — | absent | v1's Layer 2 (`shared/adjustments.ts`, the host's `render_view`) has no maths for them |
+| Film Edge, Date Back, Half-Frame Pair | v1 sections in their v2 places | gated | shown only when the host does not list `overscan` / `date_imprint`; the v1 Windows host's mock lists both; not redrawn as PC-E5 |
+| Scene Placement, Digital Intermediate | Copy Settings, Recipes | gated | absent when the host lists `scene_latitude_mapping` / `digital_intermediate` |
+| layers / doubles, masks, HDR / gain maps, history and variants, lens profiles beyond v1's Lensfun | — | absent | no v1 engine support (PRD-W2 R7) |
+| Presets (··· › Presets ▸, Save as Preset…), Undo History, "Undo *Tone*" step names | — | not built | v1 has no presets or named undo steps |
+| status line from the scheduler (waiting · running with elapsed · done · failed), last print stays, InfoBar + Try Again, engine card | `edit/EditWorkspace.tsx`, `edit/words.ts` | built | the controls keep the failed edit (so Try Again renders it); the HIG returns them to the shown print — a deviation, one constant since phase 2 (`FAILED_RENDER_KEEPS_EDITED_CONTROLS`) |
+| the embedded preview while a frame opens | `EmbeddedCapsule` | built | the capsule shows until the first print lands |
+| Compare, the Original (hold Space / \\, latch by a short click) | v1 canvas | built | |
+| right-click command bar flyout, ···, Copy Settings flyout | `EditWorkspace.tsx` | built | Copy Settings groups are v1's six (Scene Placement gated) |
+| Library: first run, source well and menu, catalog / Capture One catalog / session / folder, grid by capture date, Info rail, picked frames (Paste to N, Favourite), Develop ↵ | `library/*` | built on the mock | a tile's film dot comes from the FILMS smart albums (`criteria.film`): spklib's image row carries no film; list view is drawn and disabled; the tiles' pictures wait for the helper's previews (a tone per frame meanwhile); | phase 1's `MockLibrary` answers spklib's method table; Capture One is read-only (rating keys say so); "Open in Capture One" is drawn and disabled; drive relink (Locate…), Recycle Bin, drag-out to File Explorer are not built |
+| Light Table, Contact Sheet 135 | `LibraryWorkspace.tsx` | built (simplified) | the sheet's scale is not the display's; Actual Size has no display size in a webview (no 1:1 is claimed) |
+| Export ContentDialog, exporting ring and flyout, Stop after this frame | `export/ExportV2.tsx` over v1's export model | built | drawn to `win_export.svg` (phase 1b); the v2 window's built-in recipes are sRGB (README §8 decision 8); Subfolder, TIFF compression and the preview page are kept in the recipe but not on the dialog |
+| Settings: General, Recipes, Library, Rendering, Engine, Diagnostics | `settings/SettingsWindow.tsx` | built | drawn in the window (not a second Tauri window); Library pane shows fixed words |
+| languages | `tz()` / i18n | English, 简体中文 | 繁體中文 and 日本語 are not built |
+| contrast themes, Narrator names | — | partial | roles and names on the controls; no contrast-theme colours |
+
+### Phase 1b — what T2b finds drawn and not built (mirrors `tests/design/fidelity.ts`)
+
+T2b (`tests/e2e/design.spec.ts`) fails on any glyph or control shape a page draws
+in its claimed regions that is not built at its place, unless the page lists it
+here with the reason. PC-E6 and PC-E9 claim the Edit rail only below the pinned
+meter (the drawing scrolls the tiles under it). Pages not listed have no entry.
+
+| page | drawn, not built as drawn — and why |
+|---|---|
+| PC-E1 Develop and Edit both on screen | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-E2 A film chosen: the last print stays | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-E3 Darkroom · Enlarger, printing | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance<br>`control "Colour"`, `control "Brightness" @1338,638`, `control "Pre-flash"` — the Enlarger tile's body is v1's Enlarger section (its rows of sliders) inside the v2 tile; the drawing's Colour / Brightness / Pre-flash capsule row is not redrawn |
+| PC-E4 Zoomed to 100 %: every pixel is already there | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-E6 Adjust · Curve; Darkroom · Decode | `control "RGB"`, `control "Luma"`, `control "Red"`, `control "As Shot"` — the Decode tile's body is v1's Decode section inside the v2 tile; the drawing's RGB / Luma / Red capsules and the As Shot pill are not redrawn |
+| PC-E7 Adjust · Colour Wheels; Darkroom · Effects | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-E8 A frame just opened: developing | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-E9 Crop | `glyph @544,139`, `glyph @992,139`, `glyph @544,758`, `glyph @992,758` — the crop frame's corner handles are v1's canvas overlay (painted in the picture), not separate graphics<br>`control @1508,390`, `glyph @1507,387` — the thirds grid's toggle: v1's crop overlay has no grid to switch |
+| PC-E10 Compare | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance<br>`control @752,408` — built (a 26 epx white disc with ‹ ›) at the split, which sits at the middle of the shown frame; the mock frame is wider than the drawing's, so the split is 16 epx right of the drawn one |
+| PC-E11 Hold for the Original | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-E12 A develop failed: the last print stays | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-E13 The engine cannot start | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-X1 ··· (More) | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance<br>`glyph @1158,167` — ··· › Presets ▸: v1 has no presets (PARITY: Presets not built) |
+| PC-X2 Copy Settings | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance<br>`control "Film & Paper"` — Copy Settings is v1's six clipboard groups as check rows (shared/clipboard.ts); the drawing's Develop / Edit cards of switches with per-tile rows (Adjust, Darkroom › Enlarger, Pre-flash, White Balance, Effects, Crop) need the Mac's clipboard groups<br>`control @1002,186`, `control @1002,226`, `control @1002,266`, `control @1002,340`, `control @1002,380`, `control @1002,420`, `control @1002,460`, `control @1002,540` — a switch of the drawn Develop / Edit cards: as "Film & Paper"<br>`control "Save as Preset…"` — v1 has no presets |
+| PC-X3 Right-click on the picture | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-O1 Export | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-N1 Snapped to half the screen: the left rail folded | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-N2 Snapped: the left rail over the picture | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-N3 1080p at 150 %: both rails, the Navigator folded | `control "HSL"`, `glyph "HSL"` — R7: the v1 Layer 2 has no HSL set (ADJUST_TILES); a tile that does nothing is not shipped<br>`control "Channels"`, `glyph "Channels"` — R7: the v1 Layer 2 has no channel mixer<br>`control "Vibrance"`, `glyph "Vibrance"` — R7: the v1 Layer 2 has no vibrance |
+| PC-L3 Library · a Capture One catalog, read-only | `control "Ratings are set in Capture One"` — the read-only notice stands in the grid's head (the soft InfoBar), not as the drawn capsule over the grid<br>`control "Archive"` — built 76 tall: the drawing's card is mid-read (Reading · 4,210 of 9,660); the mock reads at once<br>`glyph @107,442`, `glyph @43,502`, `glyph @27,558` — Capture One's project and group glyphs: the mock's catalog gives its collections no Capture One kind (spklib 0.4 reports albums and folders only)<br>`control "Search"`, `glyph @30,737` — FILTERS › Search is the plain text field, not the drawn 26 epx capsule with its glyph<br>`glyph @1341,481` — the Capture One section's lock beside its head: the Info rail's heads carry no glyph<br>`glyph @60,193` — the Reading · 4,210 of 9,660 line's spinner: the mock helper reads a catalog at once, so there is no reading line<br>`glyph @42,322` — Recent Imports' dated children: the mock catalog has no import sessions under Recent Imports<br>`glyph @22,668` — a third folder, offline (Travel SSD): the mock Capture One catalog has two folders |
+| PC-L4 Library · a Capture One session | `glyph @111,250` — a session folder's glyph: the mock session's Capture / Selects / Output / Trash rows have the album glyph<br>`glyph @30,399` — FILTERS › Search's glyph: the plain text field<br>`glyph @1341,481` — the Capture One section's lock beside its head: the Info rail's heads carry no glyph |
+| PC-T1 Light Table | `control @851,784`, `glyph @846,784`, `control @897,784`, `glyph @897,785`, `control @943,784`, `glyph @936,781`, `control @1081,784`, `control @1127,784`, `glyph @1123,781` — the sheet's tools (add a roll, zoom, fit, orientation, export the sheet) need the light table's layout from the library (spklib has no light-table layout API yet)<br>`control "1:1"`, `control "A4"` — built as v1's segment (1:1 | A4) at the foot's right, not as the drawn discs |
+| PC-K1 Contact Sheet · 135 | `control @851,784`, `glyph @846,784`, `control @897,784`, `glyph @897,785`, `control @943,784`, `glyph @936,781`, `control @1081,784`, `control @1127,784`, `glyph @1123,781` — the contact sheet's tools (add, zoom, fit, orientation, export) need the sheet's layout from the library (spklib has none yet)<br>`control "1:1"` — not built for the contact sheet (no display size in a webview)<br>`control "Roll"` — the sheet's roll picker: one roll (Roll 4) in the mock |
+| PC-G1 Settings · Recipes | `glyph @740,16` — Settings is a dialog inside the window in phase 1 (an owned top-level window waits for phase 2): Close only, no Minimise<br>`glyph @812,145`, `glyph @812,189`, `glyph @812,233`, `glyph @809,332`, `glyph @809,364`, `glyph @809,428`, `glyph @809,460`, `glyph @809,492`, `glyph @809,524` — Settings' rows hold v1's pill menus, whose ⌄ sits at the pill's end, not at the row's right edge |
+| PC-G2 Settings · General | `glyph @740,16` — Settings is a dialog inside the window in phase 1: Close only, no Minimise<br>`glyph @809,224` — Settings' rows hold v1's pill menus, whose ⌄ sits at the pill's end |
+| PC-G3 Settings · Engine: what is not on Windows yet | `glyph @740,16` — Settings is a dialog inside the window in phase 1: Close only, no Minimise |
+
 What of the SwiftUI/Metal app this TypeScript (Tauri 2) port carries, area by
 area. **ported** = the behaviour is here; **partial** = present with a stated
 gap; **stub** = the controls are drawn and disabled with the reason;

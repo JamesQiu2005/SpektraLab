@@ -7,7 +7,7 @@ Brief: phases 0 (coverage) -> 1 (Linux build + `spektralab-host`) ->
 ## Build recipe (Linux)
 
 ```
-engine/setup-deps.sh                      # LibRaw 0.22.2 + Vulkan-Headers into build/deps (verified pins)
+engine/setup-deps.sh                      # LibRaw (master 42f89c16) + Vulkan-Headers into build/deps (verified pins)
 cmake -S . -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DSPEKTRALAB_BUILD_NATIVE_RAW=ON -DSPEKTRALAB_REQUIRE_VULKAN=ON
 ninja -C build/linux && (cd build/linux && ctest)

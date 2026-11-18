@@ -3,6 +3,324 @@
 Running log for whoever picks this up next (a restarted worker or a human).
 Newest state first in each list. Read with `git log --oneline -20 -- desktop`.
 
+## Phase 3 — status (W2 phase 3; a restart picks up from here)
+
+Brief: the coordinator's phase 3 (2026-11-17) — part 1 PRD-W5 (the Mac's one window), part 2 the
+borrowed full view. The section below says what was built and decided; phase 2's notes still hold.
+
+- **Done.** Part 2 (eaf2babe): the borrowed full view. Part 1: the shell (59fc95ab); T2 re-based, T5b's
+  second frame, README R7 note, PARITY and NOTES (bb929b58).
+- **The composed gate is green** (2026-11-17, at bb929b58, `SPEKTRALAB_GATE_PHASE=2 … gate-mac.sh`, exit 0):
+  T1 vitest 554 (+1 skipped), typecheck, eslint; Playwright 206/206 (6.5 min); T4 cargo test 24 + Windows
+  check; T5a 1/1 and fails without its RAW; T5b passed (develop, export, the second frame from the browser
+  in Develop, the Library on the real helper, the Capture One package unchanged); R11 package:win; T6
+  check-installer ok; spk-scheduler gate (fmt, clippy ×2, tests 11+1+8+1+7, selftest 301/301, T5 fails
+  without fixture, Windows check); spk-library gate (670 spklib tests, T-B2…B5); raw gate (CTests 46/46,
+  T-A1 542, T-A2 354, T-A3 18, T-A4).
+- Review screenshots: `build/review-phase3/{develop,edit,library}-{en,zh}.png` (1536 × 816, mock backends).
+- Fixtures: `SPEKTRALAB_RAW_FIXTURES=/Volumes/Hanze_Qiu/Dev/Private/RAW_decode_tests` (now also needs
+  `A7m3/DSC03733.ARW`), `SPKLIB_SRC=<repo>/build/spklib`,
+  `LLVM_MINGW=/Volumes/Hanze_Qiu/DevEnv/toolchains/llvm-mingw-20261020-ucrt-macos-universal`.
+
+## SpektraLab 2 for Windows, phase 3 (2026-11-17, W2): the Mac's one window, the borrowed full view
+
+**The window (PRD-W5).** The Mac's `MainWindowLayout`, with every piece's look kept from the Windows drawings:
+- `app/AppWindow.tsx` is the shell, mounted once: the title bar; the LEFT COLUMN (`Column`: the mode row in its
+  head, then the mode's tools — `LibraryColumn`; or the Latitude meter, then `DevelopTools` / `EditTools`);
+  the picture (`Toolbar` = the shared bar + the mode's half; `Picture` + `InfoStrip`, or `LibraryCentre`);
+  the BROWSER (`library/Browser.tsx`) in a slot that is mounted in every mode (hidden when folded), so its
+  scroll is kept. Every column page stays mounted too (`hidden`), for the same reason.
+- `app/modes.ts` is the mode row's logic (`chooseMode`, `modeUnavailable`); `app/Shell.tsx` its view
+  (`ModeRow`), the `SharedBar` and the `Wall`s. `ui.workspace` is `'library' | 'develop' | 'edit'`.
+- `library/browser.ts` is the browser's model: rows = the library's (`libraryStore.images`) or, with none
+  open, the folder's frames (`sessionStore.frames`); `pressRow` (in Develop/Edit a press opens the picture:
+  `click(path)` if it is in the editor's roll, else the browser's rows become the roll first, then
+  `select`), `stepRow` (← →), `exportPaths` (the chosen rows, or the open picture), `modePicture`.
+- Export takes the browser's chosen rows: `exportFromBrowser` sets the session's `picked` to them (those in
+  the roll) before the dialog opens; the dialog and the exporter are unchanged.
+
+**The fold rule (R4), as `app/layout.ts` computes it and `layout.test.ts` holds it.** The picture keeps at
+least 480 epx (`MIN_PICTURE`). With the column at 320 and the browser at its kept width (430 by default):
+the browser first gives up width down to 240; a window narrower than column + 240 + 480 + walls (1042 at
+the defaults) folds the browser; one narrower than column + 480 (801) folds the column as well (a snapped
+half of a 1536 screen, 768, folds both). A pane hidden by hand stays hidden at any width; a folded pane
+comes back over the picture (F7 the column, F8 the browser), one at a time; Esc or a press on the picture
+puts it away. The full grid (G) gives the browser everything right of the column. The picture bar's
+overflow follows the picture's width: under 640 the zoom and Original go into ···, under 520 Compare and
+Paste too. A drag of the browser's wall never takes the picture under 480.
+
+**Decisions.**
+- The Mac's Develop column is "the meter, then Film & Paper | Format" as a tab pair; here they stay the
+  Windows rail's two section heads, in that order (the drawings are the source for the look). The Navigator
+  stays, under the meter. Edit's tools follow the meter directly; the mode row is the column's only tab row.
+- A mode that cannot be entered (Develop/Edit with no picture anywhere) is dimmed (`aria-disabled`, not
+  `disabled`), so a press can say why under the row (`modeNote`); Esc clears it.
+- The mode row's "Develop" from the Library opens the browser's focus, else the open picture, else the
+  first row, and leaves the chosen rows chosen (`openPicture`, not `pressRow`).
+- The v1 engine has one crop, so the shared bar's Crop is that crop in every mode (pressed in the Library
+  it opens the picture on Develop with the crop on).
+- The sort is spklib's (`images.list` `sort`/`descending`), one order for every mode; the mock sorts too.
+- Settings: `browserWidth` (240–900, default 430) is new; `leftCollapsed` now means the column hidden and
+  `rightCollapsed` the split off (the browser hidden); `filmstripCollapsed` is no longer read.
+
+**T2 re-based (R6).** `tests/e2e/design.spec.ts`: position comes from the `SHELL` rule table (each row cites
+PRD-W5 §2); texts keep their drawn place only in the title bar and in windows/dialogs drawn whole
+(Settings, the Export dialog: `drawnPlaces`), elsewhere they must be on screen (in Develop or Edit). The
+superseded pages are `SUPERSEDED` there and in PARITY.md (a test holds the two together). T2b runs in
+passes (`tests/design/fidelity.ts` `PASSES`): the picture's overlays where they are; Develop's rail in the
+Develop mode; Edit's rail in the Edit mode moved left by the drawn right rail's x; Library pages their
+sidebar. The toolbar's and filmstrip's bands, the Info rail and the grid are not claimed (the SHELL table
+holds where things stand instead). `moved` names an unlabelled drawn item built elsewhere on purpose (the
+Navigator's well, under the meter), with the shift and the reason; like `notBuilt`, an unused entry fails.
+
+**The borrowed full view (part 2).** `HostEngine::place`: a `fullView` `render_view` of the editing frame
+from the editing source borrows the editing session (no open/close); MockEngine mirrors it; the page sends
+the edit the session lacks as its `setParams` and prices the job as opening nothing. Measured on the Mac
+host (real_host step 3b): the host keeps a negative per size on the session (`memory_report` `negatives: 2`
+after the full view) and the next print-side reprint prints in ~25 ms against the develop's ~230 ms — the
+canvas's negative survives the full view.
+
+## SpektraLab 2 for Windows, phase 2 (2026-11-17, W2)
+
+The Rust layer now owns what phase 1 mocked: the scheduler (`crates/spk-scheduler`) and the library
+helper's client (`crates/spk-library`), in one Cargo workspace rooted at `src-tauri/` (one `Cargo.lock`,
+one `target/`; the crates name it with `package.workspace`, and their own `gate.sh` run unchanged).
+
+**Where things are.**
+
+| | |
+|---|---|
+| `src-tauri/src/scheduler.rs` | `AppHostLink` (`spk_scheduler::HostLink` over `HostManager`: one host process), `SchedulerHub` (the facade, made inside the runtime on first use), the WIRE commands' bodies |
+| `src-tauri/src/library.rs` | `LibraryState` over `spk_library::LibraryHost`: the helper resolved beside the host, the store at `default_store()` (`SPEKTRALAB_LIBRARY_STORE` replaces it for a test) |
+| `src-tauri/src/selftest.rs`, `src/app/selftest.ts`, `scripts/selftest-mac.sh` | T5b (debug / `selftest` feature only) |
+| `src-tauri/tests/t5a_real_host.rs` | T5a |
+| `src/scheduler/` | `types.ts` (WIRE.md in TypeScript), `tauriScheduler.ts` (the app), `localScheduler.ts` + `mockEngine.ts` + `typedCaller.ts` (the browser mock and the tests), `frame.ts` (the frame's session calls), `wire.test.ts` (both held to WIRE.md's examples) |
+| `src/library/tauriLibrary.ts` | `LibraryClient` over `library_call` / `library_state` |
+| `scripts/build-host-mac.sh` | the one MoltenVK host for T5a/T5b/the scheduler gate |
+
+**How session ownership moved.** Phase 1's webview opened a host session per frame and ran its
+renders, full views, exports and thumbnails on it (or opened its own). Now:
+
+- The webview submits jobs (WIRE's `JobSpec`: `request {source, setParams, method, params}`, the canvas,
+  the pricing fields, `opens` = the decoded size below Full) and never names a session. The Rust
+  `HostEngine` keeps one *editing* session per open frame for canvas jobs and opens a one-shot session
+  for every full view, export (none: the host's private session from `source_path`), thumbnail (none)
+  and stock preview, closing it however the job ends.
+- What the page does on a frame that is not a job but needs its session goes to that same editing
+  session through two commands added for it, `scheduler_editing_open(frameId, source)` (the frame's
+  `open` / `open_pair` reply: parameters, size, metadata, pair readings) and
+  `scheduler_editing_call(frameId, session, method, params)` for `set_params`, `get_params`, `solve`,
+  `scene_latitude`, `overscan_geometry`, `pick_neutral`, `render_source`, `redecode`, `update_pair`. They
+  run under the lock the engine's jobs take (a call never lands between a job's `set_params` and its
+  render). The `session` the page holds is the engine's handle; a stale one is answered `not_found`. A
+  successful `redecode` / `update_pair` moves the editing session's source, so the next canvas job from
+  that decode reuses it instead of decoding again. (Crate change: `HostEngine::open_editing` /
+  `call_editing`, ~90 lines, with a test in `tests/host_engine.rs`.) The page has no `close`: the
+  session goes when another frame's canvas job or open comes, or when `scheduler_frontend_state`'s
+  `openFrame` moves.
+- Session ids are scoped to the host process that made them (`"<generation>:<sid>"` in
+  `AppHostLink`): after a restart, a session of the old host is `not_found` without being sent, so the
+  engine reopens the frame instead of reaching a session the new host gave the same id (T5a shows the
+  wrong-picture failure without it).
+- **What `session.ts` still sends the host directly** (`host_request`, no session): `hello` and the
+  host state, `probe` (sizes of frames not open), `params_schema`, `memory_report` and diagnostics,
+  `render_proof` (the soft proof: a private session from `source_path`) and its `cancel`, `export_cube`.
+  Nothing on the direct path opens or closes a session any more.
+- The 180 ms settle and the file-dialog hold stay in the page (`TauriScheduler`): WIRE has neither.
+
+**Decisions (and why).**
+- A full view is one-shot (WIRE's rule, the Mac's): it opens the frame afresh with the whole parameters
+  instead of rendering the editing session's cached negative. The print thumbnail of an uncropped,
+  unturned frame is the canvas's print drawn down; a cropped one is a one-shot thumbnail job. A second
+  decode per settled edit is the cost, unmeasured on Windows (PARITY.md).
+- The in-page mock lets two thumbnails run beside a render (phase 1's decode lane); the Rust engine
+  takes its lock for every job. Only the browser mock and the tests run the mock.
+- `FAILED_RENDER_KEEPS_EDITED_CONTROLS` (`state/session.ts`) is the review's one switch.
+- A folder source's library lives in the helper's store (`Folders/<name>-<fnv>.spkcatalog`), never in
+  the person's folder.
+- `--selftest` exists only in a debug or `selftest`-feature build (`cfg`), so no package carries it.
+
+**Phase 2 — the gate** (`SPEKTRALAB_GATE_PHASE=2 SPEKTRALAB_RAW_FIXTURES=… SPKLIB_SRC=<repo>/build/spklib
+LLVM_MINGW=… desktop/scripts/gate-mac.sh`, 2026-11-17, exit 0):
+
+| step | result |
+|---|---|
+| T1 `npm run check` | typecheck, eslint 0 warnings, vitest 544 passed, 1 skipped |
+| T2/T2b/T3 Playwright | 199 passed (design 123 incl. the loading-filmstrip chip case in both languages) |
+| T4 | `cargo test --lib --bins` 24 passed, 1 ignored (the child fixture); `cargo check --target x86_64-pc-windows-gnu` clean |
+| the Mac host / helper | `scripts/build-host-mac.sh` (incremental), `$SPKLIB_SRC/build.sh` |
+| T5a | 1 passed; and fails with an empty RAW folder |
+| T5b | the app exited 0, nothing left running; canvas.png 1788×1312; "Developed · Portra 400 · Supra Endura"; export JPEG 1200×802; a linked folder (1) and a Capture One catalog read-only (2), its bytes unchanged |
+| package:win + T6 | `release/windows/SpektraLab_2.0.0-alpha.1_x64-setup.exe`, 43.6 MB, 221 members (49 .spv, 34 profiles, 48 licence files); spklib-host.exe = the vendored c2904dc6…; host LibRaw 0.23.0-Snapshot202611 |
+| spk-scheduler gate | green (fmt, clippy both targets, unit 11 incl. every selftest check and mutation, facade 1, host_engine 8, real host 1, wire 7; T5 fails without its fixture; Windows check) |
+| spk-library gate | T-B1 670 passed; T-B2 both exes PE32+, vendored = rebuild of 0.4.0+85d52813e2e8; T-B3 18 tests (10 on the helper); T-B4 5; T-B5 clean |
+| RAW gate | CTests 46/46; T-A1 542 checks; T-A2 354; T-A3 18; T-A4 the exe and its LibRaw notices |
+
+**Gotchas found.**
+- A child forked by one test inherits another test's `workspace.lock` descriptor until it execs, and
+  with it the flock: the "partial write" flake (46 of 300 runs). Lease tests hold `agent_files::SERIAL`.
+- A listener that throws inside the in-page scheduler's event loop stopped the queue (a Playwright spec
+  still reading phase 1's nested snapshot): listeners are isolated now.
+- vitest's worker died, and the JSON reporter still said "0 failed", when a test deep-compared a 17 MB
+  payload: compare lengths and a byte rule instead.
+- WKWebView in a window behind others stopped the self-test's timers: T5b turns App Nap off in its own
+  home's preferences.
+- The v2 Export dialog shows a recipe's words, not its name (the name is the `title`), and reads its
+  recipes when it opens: wait for them before clicking Export.
+
+
+## SpektraLab 2 for Windows, phase 1 (2026-11-17, W2)
+
+`desktop/` is now the v2 interface: the Mac v2 app's structure, drawn as the
+Windows design draws it (`design/windows/`: the HIG `README.md`, `INDEX.md`
+and the 34 page SVGs, copied unchanged). Phase 2 wires the Rust scheduler
+and library crates; see "Phase 2" below.
+
+**Where things are.**
+
+| | |
+|---|---|
+| `src/app/` | the one window: `AppWindow` (title bar, workspaces, rails, walls), `TitleBar` (the in-window menu bar, access keys, caption buttons, drag region), `commands.ts` (every command once: menus, ···, the picture flyout and the keys read it), `layout.ts` (the window rule as arithmetic), `ui.ts` (what is on screen), `keys.ts` (the keyboard; trap 32's guard first), `windowChrome.ts` |
+| `src/edit/` | `rails.tsx` (Develop and Edit: Navigator, Film & Paper cards, the Film Exposure ruler, Format, the Latitude meter, Adjust tiles, Darkroom tiles, Crop; v1 section bodies reused inside), `EditWorkspace.tsx` (toolbar, status line, picture, InfoBar, engine card, ···, Copy Settings, the right-click flyout, the 80 epx filmstrip), `words.ts` (the status line's words) |
+| `src/scheduler/` | `types.ts` (the `SchedulerClient` interface and the job words), `localScheduler.ts` (phase 1's in-page scheduler), `index.ts` (the one scheduler, the host steps, `runJob`) |
+| `src/library/` | `client.ts` (`LibraryClient` over spklib's method table), `mock.ts` (an in-page spklib with the design's libraries), `store.ts`, `LibraryWorkspace.tsx` |
+| `src/export/ExportDialog.tsx`, `ExportV2.tsx` | Export as a ContentDialog, drawn to `win_export.svg` over v1's export model (`ExportPage`); the batch's ring and flyout |
+| `src/theme/Glyph.tsx`, `glyphs.generated.ts` | the design's glyphs, cut out of the page SVGs by `scripts/gen-glyphs.ts` (phase 1b) |
+| `src/settings/SettingsWindow.tsx` | Settings' six panes |
+| `src/theme/tokens.ts` | every colour and size of the drawing, in one place, held to the SVGs by `tests/design/tokens.test.ts` |
+| `tests/design/` | the SVG reader (`svg.ts`), the drawing items (`items.ts`: glyphs and control shapes), T2b's claims and NOT_BUILT lists (`fidelity.ts`), the token test, `dump.ts` (print a region of a page) |
+| `tests/e2e/design.spec.ts` | T2: each implemented INDEX.md page against its SVG (rectangles, named texts, fills); the implemented/not-implemented lists are held to INDEX.md |
+| `tests/e2e/v2-behaviour.spec.ts` | T3 |
+| `scripts/gate-mac.sh` | the whole Mac gate; `scripts/check-installer.mjs` is T6 |
+
+**Decisions (and why).**
+- **The title bar is the app's own** (`decorations: false`), as the HIG asks
+  (§1.1: the menu bar lives in it, so it costs no height). This reverses v1's
+  "native decorations" decision. What it costs, and is not verified on
+  Windows: Snap layouts on hover over Maximise need `WM_NCHITTEST` →
+  `HTMAXBUTTON`, which a webview cannot answer; resize borders rely on Tauri's
+  undecorated-window resize support. Drag and double-click-to-maximise use
+  `data-tauri-drag-region`.
+- **The native menu (v1's `menus.ts`) is no longer installed**: it would add a
+  second menu row under the frameless window's title bar. Every chord is the
+  webview's now (`app/keys.ts`); trap 32's guard still runs first. `menus.ts`
+  and its tests stay for the Linux build's history; nothing calls it.
+- **Settings and Export are drawn in the window**, not as a second Tauri
+  window: one webview, one session store (v1's reason). Settings is 860 × 600
+  with its own title bar; Export is the 800 × 560 ContentDialog over a smoke
+  layer, centred under the title bar.
+- **Renders are scheduler jobs** (R5). Phase 1's `LocalScheduler` is a serial
+  queue with the HIG's rules (180 ms settle, newer edits fold into the newest
+  job, a waiting job says why, cancel), in two lanes: renders one at a time,
+  thumbnails two at a time beside them (v1's thumbnail queue ran two, and its
+  tests hold that a thumbnail never waits on an edit). The session's request loop still
+  computes each edit's delta; it submits `set_params` + `render_view` as one
+  job, withdraws a canvas job that has not started when a newer edit comes,
+  and the full view after the rest is a `fullView` job. Exports
+  (`export_frame`) are `export` jobs; the filmstrip's thumbnails, the import
+  previews and the open frame's print thumbnail are `thumbnail` jobs (each its
+  own `slot`, so they never fold into each other). v1's `PreviewQueue` still
+  decides *which* import previews to prepare; its work runs as jobs. There is
+  no `stockPreview` job yet: the film and paper cards show covers, not renders
+  (README §8.2 (6) leaves the card renders open). The proof
+  (`render_proof`), the original (`render_source`), latitude and neutral-pick
+  requests are not renders of the frame and keep the direct path. Unit tests run with a 0 ms settle (`import.meta.env.MODE ===
+  'test'`); the settle itself is held by `localScheduler.test.ts` on a virtual
+  clock.
+- **Gates are absence** (R7): Film Edge, Date Back and the pair render only
+  when the host supports `overscan` / `date_imprint`; Scene Placement leaves
+  Copy Settings; the DI recipe leaves Settings › Recipes. HSL, Channels and
+  Vibrance are not shipped: v1's Layer 2 has no maths for them.
+- **Crop is a stage**: the filmstrip steps away while it is open (PC-E9).
+- **Glyphs** are v1's own SVG strokes; Segoe Fluent Icons / Fluent System Icons
+  are not bundled (no network licence check was done here).
+
+**Gate** (`scripts/gate-mac.sh`): see the commit messages for the counts of
+each run. The first T2 run against the first build had 18 of 30 pages red;
+the scheduler and token tests were shown red on deliberately broken code.
+
+**Phase 2** (not done): bind `scheduler()` to `scheduler_*` (WIRE.md) and the
+library store to `library_call` / `library_state`; move thumbnails and stock
+previews into scheduler jobs; the workspace in `src-tauri` with both crates;
+`spklib-host.exe` in the bundle (`SPEKTRALAB_INSTALLER_REQUIRE=spklib-host.exe
+npm run check:installer`); T5; `SPEKTRALAB_GATE_PHASE=2 scripts/gate-mac.sh`.
+
+### Phase 1b — fidelity (2026-11-17)
+
+A screenshot review found what T2's text anchors cannot see: blank tiles,
+capsules drawn as plain words, names running out of their cards, v1's page in
+a box for Export. Phase 1b redrew those and made T2 able to catch the class.
+
+**Glyphs come from the design.** `scripts/gen-glyphs.ts` cuts every icon the
+app draws out of the page SVGs (`tests/design/items.ts` reads a page into its
+drawing items, translations applied) and writes `src/theme/glyphs.generated.ts`;
+`theme/Glyph.tsx` draws one in `currentColor`. Nothing is hand-drawn: run
+`npx tsx scripts/gen-glyphs.ts` again when the design changes, and
+`npx tsx scripts/gen-glyphs.ts --list <page.svg> x0 y0 x1 y1` to find a new
+one. The README's Segoe Fluent names stay the reference; the drawings
+approximate them and so do these.
+
+**T2b** (`tests/e2e/design.spec.ts`, after T2) — three checks per implemented page:
+- *glyphs and controls*: every glyph and control shape the page draws in its
+  claimed regions (`tests/design/fidelity.ts`; default: the whole page) has a
+  built `<svg>`/`<img>` with inked, non-empty geometry at its place, or a built
+  element of its box within tolerance. A place is taken against the item's
+  owner — the label inside it or under its tile, else the nearest text on its
+  row in its column, else a caption just above — so a section that moved as a
+  whole is still found; a tile whose label is nowhere on screen is not built,
+  whatever stands at its place. Anything drawn and not built fails unless the
+  page's `notBuilt` names it with a reason; an entry the page does not draw, or
+  one that is built after all, fails too.
+- *fits*, in English and 简体中文 (switched live through the settings store, as
+  Settings › General › Language does): no text clipped by an ancestor,
+  ellipsised or wider than its box, and no two labels of one row overlapping,
+  measured on line boxes (a glyph's ascender over a tight line height is not a
+  collision). A scale under a ruler's window is `data-fit="scale"`: cut on
+  purpose, not a label.
+- Deterministic: no pixels, no fonts in thresholds, no timings. The Edit pages
+  wait for the Latitude meter's measurement (`data-state`) before reading.
+- Red first, on d7012902 (before any fix): 75 of 90 failed — every Adjust and
+  Darkroom tile ("glyph "Brightness" is not built"), the filter capsules, the
+  toolbar's zoom pill, the Latitude well, the Tone head, the size cards; in
+  简体中文 the frame title over the status line. The paper card that ran to three
+  lines ("Vision Premier 2393") went red once a card's name box was held to
+  the drawn two lines, and green with the card's own short name.
+
+**What changed on screen** (the coordinator's 13 items): tiles carry their
+glyphs; section heads have the thin chevron, ↺ and ··· at the right edge, the
+summary when closed; Film · All / Paper · All are capsules with ⌄ and a menu
+(the families), with the crop-to-card button; cards are named on two lines over
+a dark strip and show the stock's swatch where there is no render; Tone's rows
+have a gutter, the fixed track with its detent tick and knob, values dim at
+rest, and the open tile's bar (trash, undo, its name, the white ✓); the Latitude
+meter is a well with ⌄ (scene as placed / as shot) and says *Measuring* rather
+than drawing an empty plot; Crop starts closed with "Freeform · +0.0°" at the
+right and its body is the drawing's (flip and turn, Reset, the size, Straighten,
+orientation, the ratio chips, Cancel / Done in the crop stage); the picture keeps
+18 epx of black round it; the filmstrip is centred under a chip naming where its
+frames came from; every toolbar glyph is the drawing's. The Library's sidebar
+rows, source card, toolbar (◧, crumb, Import, Capture Date ⌄, size slider, grid
+| list, ◨) and tiles (edge to edge, a film dot at the foot) are the drawing's;
+Info's sections fold like the rails'. Export is redrawn to `win_export.svg`
+(`export/ExportV2.tsx` over ExportPage's model; the v2 window's built-in
+recipes are sRGB, README §8 decision 8).
+
+**Rules this round wrote down.**
+- `:where(.v2-window) button { font: inherit }`: a control's own class sets its
+  type. The plain `.v2-window button` rule out-ranked every class and put the
+  menu bar, capsules and chips at 14 epx.
+- The language switches live: `settingsStore.set('language', 'simplifiedChinese')`
+  (Settings › General › Language); every string is looked up at render.
+- `src-tauri` is warning-free on the Mac and on the Windows target: the
+  single-instance hand-off's `Emitter` and its `builder` rebinding are
+  `cfg(windows | linux)`.
+- `check-installer.mjs` also reads the app's version resource: ProductName
+  `SpektraLab`, ProductVersion package.json's.
+- A flake to know about: v1's `host::tests::partial_write_times_out_without_releasing_the_operation`
+  fails about one `cargo test` in four on this Mac ("An application batch or agent
+  operation is running"): it shares a process-wide workspace lease with the tests
+  running beside it. Untouched here; rerun before believing it.
+
 ## Startup state ordering (2026-10-11)
 
 A user reported waiting for the engine in the negative-return release. Its

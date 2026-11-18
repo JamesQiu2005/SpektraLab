@@ -138,6 +138,14 @@ pub fn serve() -> i32 {
     0
 }
 
+/// Tests that take the workspace lease (an flock on `Agents/workspace.lock`) and tests that spawn a
+/// process run one at a time. A child forked while another test holds a lease file inherits that
+/// descriptor until it execs, and with it the lock, so the other test's "released" check fails:
+/// measured 46 of 300 runs of the lib tests (2026-11-17), in five lease tests. Hold this for the
+/// whole test: `SERIAL.lock().await` in a tokio test, `SERIAL.blocking_lock()` in a plain one.
+#[cfg(test)]
+pub(crate) static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;

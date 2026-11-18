@@ -61,6 +61,9 @@ beforeEach(async () => {
   fake.load.mockResolvedValue(null);
   fake.loadCatalog.mockResolvedValue(catalog);
   session = await import('./session');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   session.sessionStore.setState({
     catalog, hostState: ready, selection: '/owned/a.ARW', picked: ['/owned/a.ARW'], engineSession: 's1',
     nativeSize: { width: 6, height: 4 }, sidecar: newSidecar(), undo: [], redo: [],
@@ -137,6 +140,8 @@ describe('black-and-white settings through the editor and persistence doors', ()
     session.selectFilmStock(filmStock);
     expect(session.sessionStore.getState().sidecar.params).toMatchObject({ filmStock, printStock: silverPaper,
       scanFilm: false, extendedDynamicRange: true, effects: { grainLayered: true }, exposureCompensationEV: 1.25 });
+    // The job reaches the engine a few turns after the edit (the scheduler's queue, then its session lock).
+    await vi.advanceTimersByTimeAsync(0);
     expect(fake.setParams).toHaveBeenCalledWith('s1', expect.objectContaining({ film_stock: filmStock,
       print_stock: silverPaper, grain_sublayers_active: false, extended_dynamic_range: false, y_filter_neutral: 68 }));
     await session.flushSave();
@@ -202,6 +207,8 @@ describe('positive film uses direct scanning at every session door', () => {
     // The film picker's real callback enters here.
     session.setParams((p) => ({ ...p, filmStock }));
     expect(session.sessionStore.getState().sidecar.params).toMatchObject({ filmStock, printStock, scanFilm: true });
+    // The job reaches the engine a few turns after the edit (the scheduler's queue, then its session lock).
+    await vi.advanceTimersByTimeAsync(0);
     expect(fake.setParams).toHaveBeenCalledWith('s1', expect.objectContaining({ film_stock: filmStock, scan_film: true }));
     await session.flushSave();
     expect(decodeSidecar(fake.save.mock.calls.at(-1)?.[1]).params).toMatchObject({ filmStock, printStock, scanFilm: true });

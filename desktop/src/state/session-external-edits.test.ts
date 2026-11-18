@@ -23,6 +23,9 @@ beforeEach(async () => {
   fake.load.mockResolvedValue(encodeSidecar(saved())); fake.close.mockResolvedValue(undefined);
   fake.open.mockResolvedValue({ session: 'new', width: 20, height: 10, kind: 'raw', metadata: {} });
   session = await import('./session');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   session.sessionStore.setState({ selection: path, sidecar: saved(), engineSession: 'old', frameKind: 'raw',
     frames: [path, other].map((p) => ({ path: p, name: p, size: 1, mtime_ms: 0 })),
     hello, hostState: { phase: 'ready', hello }, nativeSize: { width: 20, height: 10 } });

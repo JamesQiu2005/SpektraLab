@@ -64,6 +64,7 @@ fn revision(value:&Option<Value>)->String{
 #[cfg(test)] mod tests {
     use super::*;use serde_json::json;
     #[test] fn overlapping_gui_and_batch_exclude_agents_and_release_on_drop(){
+        let _serial=agent_files::SERIAL.blocking_lock();
         let root=std::env::temp_dir().join(format!("spk-workspace-{}",std::process::id()));
         let w=Workspace::new(root.clone());let g=w.enter().unwrap();let h=w.enter().unwrap();
         assert!(agent_files::acquire(&root).is_err());drop(g);assert!(agent_files::acquire(&root).is_err());

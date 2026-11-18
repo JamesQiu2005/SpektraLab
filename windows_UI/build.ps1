@@ -19,7 +19,7 @@ $qt = Join-Path $DependencyDirectory 'qt-6.11.3/mingw_64'
 $compiler = Join-Path $DependencyDirectory 'qt-6.11.3/Tools/mingw1310_64/bin'
 $cmake = Join-Path $DependencyDirectory 'cmake-3.25.0-windows-x86_64/bin/cmake.exe'
 $ctest = Join-Path $DependencyDirectory 'cmake-3.25.0-windows-x86_64/bin/ctest.exe'
-$libraw = Join-Path $DependencyDirectory 'LibRaw-0.22.2'
+$libraw = Join-Path $DependencyDirectory 'LibRaw-42f89c165763272a5482a254c446337f8048e0df'
 $licenseSource = Join-Path $DependencyDirectory 'qt-6.11.3/licenses'
 foreach ($file in @($cmake, "$compiler/g++.exe", "$compiler/mingw32-make.exe", "$qt/bin/windeployqt.exe", "$libraw/libraw/libraw.h", "$licenseSource/manifest.json")) {
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing local dependency: $file" }

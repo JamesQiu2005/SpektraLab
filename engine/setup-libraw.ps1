@@ -1,31 +1,34 @@
-# Download the fixed official LibRaw 0.22.2 release, verify it, and apply the
-# tracked Sony ARW 6 / A7 V overlay. No Python needed.
+# Download the one LibRaw source tree the native RAW path is validated against
+# and verify it. No Python needed.
+#
+# The pin is an upstream master checkout, not a release: LibRaw's tags stop at
+# 0.22.3, and only master decodes the modern bodies this product needs (Sony
+# ARW 6 / A7 V, Canon EOS R6 Mark III, Nikon HE/HE*, Fujifilm GFX 100RF):
+#   commit 42f89c165763272a5482a254c446337f8048e0df (0.23.0-Snapshot202611)
+#   tree   865b3ac461d5b734e5bc54683e914ff8dd82b7da
+#   zip    SHA-256 95a5c092fd12c16359b8a13afac58bf1b4aaad50e27d2c9221f275c496b79ca2
+# The archive's SHA-256 is checked before anything is extracted. That SHA-256
+# is the same one setup-libraw.sh checks, and setup-libraw.sh also recomputes
+# the git tree id from the archive's entries, so this zip is that tree.
+#
+# An existing tree is verified file by file against the archive and refused --
+# never "fixed" -- if any file was added, removed or edited. There is no
+# overlay any more (RAW-SUPPORT-20261117.md, "The LibRaw pin").
 [CmdletBinding()]
 param([string]$DependencyDirectory = (Join-Path $PSScriptRoot '..\..\deps'))
 $ErrorActionPreference = 'Stop'
 $DependencyDirectory = [IO.Path]::GetFullPath($DependencyDirectory)
 New-Item -ItemType Directory -Path $DependencyDirectory -Force | Out-Null
-$archive = Join-Path $DependencyDirectory 'LibRaw-0.22.2.zip'
-$source = Join-Path $DependencyDirectory 'LibRaw-0.22.2'
-$overlay = Join-Path $PSScriptRoot 'third_party\libraw-arw6\files'
-$url = 'https://codeload.github.com/LibRaw/LibRaw/zip/refs/tags/0.22.2'
-$expected = '02275a04cf0d1477ab9fd7ee231ddea59e7b14497458da6e3ba957517d6655c7'
-# Exact copies of the previous ARW 6 colour table, with LF or CRLF.
-$previousColorTableHashes = @(
-    'db2c5648071a3076d771d6eb7fa7324d5b4399e631858d24d3485635544f90eb',
-    '7b4bc930b7e0dc8af6f907d8014c1c8c5b0cab1b426f54b38fa596846b426ec2'
-)
 
-if (-not (Test-Path -LiteralPath $overlay -PathType Container)) {
-    throw "Missing tracked LibRaw ARW 6 overlay: $overlay"
-}
-
-$overlayFiles = @{}
-foreach ($file in Get-ChildItem -LiteralPath $overlay -File -Recurse) {
-    $relative = $file.FullName.Substring($overlay.Length + 1)
-    $overlayFiles[$relative] = $file.FullName
-}
-if ($overlayFiles.Count -eq 0) { throw "The LibRaw ARW 6 overlay is empty: $overlay" }
+# The pin. engine/cmake/LibRaw.cmake and engine/setup-libraw.sh carry the same
+# values; engine/tests/raw_pin_guard.sh fails if they drift apart.
+$commit = '42f89c165763272a5482a254c446337f8048e0df'
+$tree = '865b3ac461d5b734e5bc54683e914ff8dd82b7da'
+$expected = '95a5c092fd12c16359b8a13afac58bf1b4aaad50e27d2c9221f275c496b79ca2'
+$name = "LibRaw-$commit"
+$url = "https://codeload.github.com/LibRaw/LibRaw/zip/$commit"
+$archive = Join-Path $DependencyDirectory "$name.zip"
+$source = Join-Path $DependencyDirectory $name
 
 function Get-FileSha256([string]$Path) {
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -42,106 +45,53 @@ function Get-ZipEntrySha256($Entry) {
     }
 }
 
-function Get-ZipRelativePath($Entry) {
-    $name = $Entry.FullName.Replace('\', '/')
-    $slash = $name.IndexOf('/')
-    if ($slash -lt 0 -or $slash -eq $name.Length - 1) { return $null }
-    $relative = $name.Substring($slash + 1)
-    $parts = $relative.Split('/')
-    if ($parts -contains '..' -or $relative.StartsWith('/')) {
-        throw "Unsafe LibRaw archive path: $($Entry.FullName)"
-    }
-    return $relative.Replace('/', '\')
+if (-not (Test-Path -LiteralPath $archive)) {
+    $partial = "$archive.partial"
+    Invoke-WebRequest -Uri $url -OutFile $partial
+    Move-Item -LiteralPath $partial -Destination $archive
 }
-
-if (-not (Test-Path -LiteralPath $archive)) { Invoke-WebRequest -Uri $url -OutFile $archive }
-if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
-    throw 'LibRaw archive checksum mismatch; existing files were not extracted or changed.'
+$actualArchive = Get-FileSha256 $archive
+if ($actualArchive -ne $expected) {
+    throw "LibRaw archive checksum mismatch ($actualArchive); nothing was extracted or changed."
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::OpenRead($archive)
 try {
-    # Refuse an existing tree unless every file is either the pinned archive
-    # content or the exact tracked overlay. A local LibRaw patch is never
-    # silently accepted as the pinned, supported source.
-    if (Test-Path -LiteralPath $source) {
-        $expectedPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        $archivePaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        foreach ($entry in $zip.Entries) {
-            if (-not $entry.Name) { continue }
-            $target = [IO.Path]::GetFullPath((Join-Path $DependencyDirectory $entry.FullName))
-            if (-not $target.StartsWith($source + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -and $target.TrimEnd('\') -ne $source) {
-                throw 'Unsafe LibRaw archive path'
-            }
-            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Incomplete LibRaw source tree: $target" }
-            [void]$expectedPaths.Add($target)
-            $relative = Get-ZipRelativePath $entry
-            if ($null -ne $relative) { [void]$archivePaths.Add($relative) }
-            $actual = Get-FileSha256 $target
-            $archiveDigest = Get-ZipEntrySha256 $entry
-            $overlayTarget = if ($null -ne $relative -and $overlayFiles.ContainsKey($relative)) { $overlayFiles[$relative] } else { $null }
-            $previousColorTable = $relative -eq 'src\tables\colordata.cpp' -and $actual -in $previousColorTableHashes
-            if ($actual -ne $archiveDigest -and -not $previousColorTable -and
-                ($null -eq $overlayTarget -or $actual -ne (Get-FileSha256 $overlayTarget))) {
-                throw "Modified LibRaw source file: $target. Existing files were not overwritten."
-            }
+    # Every entry must sit under the one top-level folder the pin names.
+    foreach ($entry in $zip.Entries) {
+        $entryName = $entry.FullName.Replace('\', '/')
+        $parts = $entryName.TrimEnd('/').Split('/')
+        if ($parts[0] -ne $name -or $parts -contains '..' -or $entryName.StartsWith('/')) {
+            throw "Unsafe LibRaw archive path: $($entry.FullName)"
         }
-        foreach ($relative in $overlayFiles.Keys) {
-            $target = Join-Path $source $relative
-            [void]$expectedPaths.Add($target)
-            # Files that also exist in the archive were checked above, allowing
-            # either pristine archive content or this exact overlay.
-            if ($archivePaths.Contains($relative)) { continue }
-            if (Test-Path -LiteralPath $target -PathType Leaf) {
-                if ((Get-FileSha256 $target) -ne (Get-FileSha256 $overlayFiles[$relative])) {
-                    throw "Modified LibRaw overlay file: $target. Existing files were not overwritten."
-                }
-            } elseif (Test-Path -LiteralPath $target) {
-                throw "Unexpected non-file at LibRaw overlay path: $target"
-            }
-        }
-        foreach ($file in Get-ChildItem -LiteralPath $source -File -Recurse) {
-            if (-not $expectedPaths.Contains($file.FullName)) { throw "Unexpected file in pinned LibRaw source: $($file.FullName)" }
-        }
-    } else {
+    }
+
+    $extracted = $false
+    if (-not (Test-Path -LiteralPath $source)) {
         [IO.Compression.ZipFile]::ExtractToDirectory($archive, $DependencyDirectory)
+        $extracted = $true
     }
 
-    # Apply the overlay every run: it is idempotent and also upgrades a tree
-    # that was extracted before this fix existed.
-    foreach ($relative in $overlayFiles.Keys) {
-        $target = Join-Path $source $relative
-        New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
-        Copy-Item -LiteralPath $overlayFiles[$relative] -Destination $target -Force
-    }
-
-    # Verify the complete tree after the overlay, including files that only
-    # exist in the overlay.
-    $finalPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    # The tree on disk is the archive, byte for byte, and nothing else.
+    $expectedPaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($entry in $zip.Entries) {
         if (-not $entry.Name) { continue }
         $target = [IO.Path]::GetFullPath((Join-Path $DependencyDirectory $entry.FullName))
-        [void]$finalPaths.Add($target)
-        $relative = Get-ZipRelativePath $entry
-        $wanted = if ($null -ne $relative -and $overlayFiles.ContainsKey($relative)) {
-            Get-FileSha256 $overlayFiles[$relative]
-        } else {
-            Get-ZipEntrySha256 $entry
+        if (-not $target.StartsWith($source + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Unsafe LibRaw archive path: $($entry.FullName)"
         }
-        if ((Get-FileSha256 $target) -ne $wanted) { throw "LibRaw overlay was not applied correctly: $target" }
-    }
-    foreach ($relative in $overlayFiles.Keys) {
-        $target = Join-Path $source $relative
-        [void]$finalPaths.Add($target)
-        if (-not (Test-Path -LiteralPath $target -PathType Leaf) -or
-            (Get-FileSha256 $target) -ne (Get-FileSha256 $overlayFiles[$relative])) {
-            throw "LibRaw overlay was not applied correctly: $target"
+        if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Incomplete LibRaw source tree: $target" }
+        [void]$expectedPaths.Add($target)
+        if ((Get-FileSha256 $target) -ne (Get-ZipEntrySha256 $entry)) {
+            throw "Modified LibRaw source file: $target. Existing files were not overwritten."
         }
     }
-    foreach ($file in Get-ChildItem -LiteralPath $source -File -Recurse) {
-        if (-not $finalPaths.Contains($file.FullName)) { throw "Unexpected file in pinned LibRaw source: $($file.FullName)" }
+    foreach ($file in Get-ChildItem -LiteralPath $source -File -Recurse -Force) {
+        if (-not $expectedPaths.Contains($file.FullName)) { throw "Unexpected file in pinned LibRaw source: $($file.FullName)" }
     }
 } finally { $zip.Dispose() }
 
-Write-Output "LibRaw 0.22.2 + Sony ARW 6 overlay: $source (archive and source verified)."
+$how = if ($extracted) { 'archive SHA-256 verified, extracted' } else { 'existing source verified file by file' }
+Write-Host "LibRaw $commit (tree $tree): $how."
+Write-Output $source

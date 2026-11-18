@@ -18,6 +18,9 @@ beforeEach(async () => {
   vi.spyOn(performance, 'now').mockReturnValue(10000);
   fake.solve.mockResolvedValue({ solved_params: { exposure_compensation_ev: 1.25 } });
   session = await import('./session');
+  const { localScheduler } = await import('../scheduler');
+  // The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+  session.sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
   const hello = { methods: ['solve'] } as HelloResult;
   session.sessionStore.setState({ engineSession: 'one', selection: '/owned/a.RAF', hello,
     hostState: { phase: 'ready', hello }, gate: ALL_FEATURES, nativeSize: { width: 6, height: 4 }, sidecar: newSidecar() });

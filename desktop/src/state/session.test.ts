@@ -31,6 +31,9 @@ vi.mock('../platform', () => ({
 }));
 
 import { recomputeFilmFormat, sessionStore, setDecode, setGeometry, setParams, undo } from './session';
+import { localScheduler } from '../scheduler';
+// The frame the store says is open is open in the mock engine too (the scheduler owns sessions).
+sessionStore.subscribe((st, prev) => { if (st.engineSession && st.selection && (st.engineSession !== prev.engineSession || st.selection !== prev.selection)) localScheduler()?.adoptEditing(st.selection, st.engineSession); });
 import type { HelloResult } from '@shared/protocol';
 import { settingsStore } from './settings';
 import { newSidecar } from '@shared/sidecar';

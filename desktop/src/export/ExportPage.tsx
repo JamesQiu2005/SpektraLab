@@ -6,6 +6,7 @@
 // on the same photograph. The host opens private frames one at a time.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createStore } from 'zustand/vanilla';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { platform, baseName, dirName } from '../platform';
@@ -17,8 +18,10 @@ import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { isPairPath } from '@shared/pair';
 import { paintOutput } from '../canvas/colorSpace';
-import { type ExportRecipe, editRecipe, recipeSummary, DEFAULT_RECIPES, NAME_TOKENS, EXPORT_SPACES, type NameToken, decodeRecipes, extensionOf } from './recipes';
+import { type ExportRecipe, editRecipe, recipeSummary, DEFAULT_RECIPES, DEFAULT_RECIPES_V2, NAME_TOKENS, EXPORT_SPACES, type NameToken, decodeRecipes, extensionOf } from './recipes';
 import { captureExportFrames, exportCube, exportFrame, renderProof, hostWrites, outputFor, targetFor, type ExportJob, type ExportOutcome } from './exporter';
+import { scheduler } from '../scheduler';
+import { ExportV2 } from './ExportV2';
 
 const TOKEN_LABEL: Record<NameToken, () => string> = {
   originalName: () => tz('Org. Name', '原文件名'),
@@ -38,11 +41,23 @@ export interface ExportProgress {
 }
 
 const STAGE_LABEL: Record<string, () => string> = {
+  // The scheduler's stages (WIRE.md)…
+  Decode: () => tz('decoding', '解码中'),
+  Film: () => tz('rendering', '渲染中'),
+  Print: () => tz('rendering', '渲染中'),
+  Scan: () => tz('rendering', '渲染中'),
+  Save: () => tz('encoding', '编码中'),
+  // …and the host's own, for a proof on the direct path.
   render: () => tz('rendering', '渲染中'),
   transform: () => tz('encoding', '编码中'),
   encode: () => tz('encoding', '编码中'),
   done: () => tz('done', '完成'),
 };
+
+/** An export job is cancelled through the scheduler; a proof (the direct path) through the host. */
+function cancelJob(job: ExportJob): Promise<unknown> {
+  return job.jobId ? scheduler().cancel(job.jobId) : host().cancel(job.session, job.progressId).catch(() => false);
+}
 
 /** Whole-batch completion in percent: finished frames plus the active one. */
 export function progressPercent(p: ExportProgress): number {
@@ -81,15 +96,20 @@ export async function reportFinished(outcomes: readonly ExportOutcome[]): Promis
   if (show) await platform().reveal(written[0].path);
 }
 
-async function loadRecipes(): Promise<ExportRecipe[]> {
+async function loadRecipes(defaults: ExportRecipe[]): Promise<ExportRecipe[]> {
   try {
-    return decodeRecipes(await platform().storeRead('Export', 'recipes.json'));
+    const raw = await platform().storeRead('Export', 'recipes.json');
+    return Array.isArray(raw) ? decodeRecipes(raw) : defaults;
   } catch {
-    return DEFAULT_RECIPES;
+    return defaults;
   }
 }
 
-export function ExportPage() {
+/** v2: the running batch, for the toolbar's ring and its flyout (README §6.6, PC-O2). */
+export const exportRun = createStore<{ progress: ExportProgress | null; file: string | null; format: string; colour: string; stop: (() => void) | null }>(() => ({ progress: null, file: null, format: '', colour: '', stop: null }));
+
+/** v1's page; with `v2`, the same model drawn as the v2 window's Export dialog (PC-O1, ExportV2.tsx). */
+export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
   const open = useSession((s) => s.exportOpen);
   const picked = useSession((s) => s.picked);
   const selection = useSession((s) => s.selection);
@@ -112,7 +132,8 @@ export function ExportPage() {
   const [proofBusy, setProofBusy] = useState(false);
   const [proofEdge, setProofEdge] = useState(2048);
   const proofGeneration = useRef(0);
-  const [recipes, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
+  const defaults = v2 ? DEFAULT_RECIPES_V2 : DEFAULT_RECIPES;
+  const [recipes, setRecipes] = useState<ExportRecipe[]>(defaults);
   const [current, setCurrent] = useState(0);
   const [log, setLog] = useState<{ name: string; outcome: ExportOutcome }[]>([]);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
@@ -122,8 +143,8 @@ export function ExportPage() {
   const proof = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (open) void loadRecipes().then(setRecipes);
-  }, [open]);
+    if (open) void loadRecipes(defaults).then(setRecipes);
+  }, [open, defaults]);
 
   // A page opened anew starts clean: the previous batch's bar text and log
   // belong to that batch. (The page cannot be closed while one runs.)
@@ -131,7 +152,7 @@ export function ExportPage() {
     if (open && !sessionStore.getState().batchExporting) { setProgress(null); setLog([]); }
   }, [open]);
 
-  const r = recipes[Math.min(current, recipes.length - 1)] ?? DEFAULT_RECIPES[0]!;
+  const r = recipes[Math.min(current, recipes.length - 1)] ?? defaults[0]!;
   // These are the recipe fields consumed by renderProof. Names, destination,
   // collision policy and lossless packing cannot change its pixels; JPEG
   // compression is deliberately not simulated by the proof service.
@@ -224,10 +245,16 @@ export function ExportPage() {
     }, 200);
     return () => {
       obsolete = true; clearTimeout(timer);
-      if (job) void host().cancel(job.session, job.progressId).catch(() => {});
+      if (job) void cancelJob(job);
     };
   }, [open, selection, batch, developing, engineSession, sidecar, native, metadata, pair, pairInfo, proofRecipe, proofNoFilm, bypassRefusal, hello, catalog, gate, display, proofEdge]);
 
+  const stopRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const files = picked.length ? picked : selection ? [selection] : [];
+    exportRun.setState({ progress, file: batch && files.length ? baseName(files[Math.min(log.length, files.length - 1)]!) : null,
+      format: r.format.toUpperCase(), colour: r.colorSpace, stop: batch ? () => stopRef.current?.() : null });
+  }, [progress, log.length, batch, picked, selection, r.format, r.colorSpace]);
   if (!open) return null;
   const frames = picked.length ? picked : selection ? [selection] : [];
   const writesEdits = hostWrites(hello?.methods as string[] | undefined);
@@ -259,17 +286,11 @@ export function ExportPage() {
     let done = 0;
     let lease: number | null = null;
     const outcomes: ExportOutcome[] = [];
-    // The host reports a private job's progress under its progress id
-    // (HOST-PROTOCOL.md, Events). Only the active job moves the bar.
-    const unsubscribe = host().onEvent((e) => {
+    // The scheduler reports the export job's stage and fraction (WIRE.md). Only the active job moves the bar.
+    const unsubscribe = scheduler().onJob((j) => {
       const job = active.current;
-      if (!job || e.event !== 'progress' || e.progress_id !== job.progressId) return;
-      const fraction = Number(e.fraction);
-      setProgress((p) => p && {
-        ...p,
-        fraction: Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : p.fraction,
-        stage: typeof e.stage === 'string' ? e.stage : p.stage,
-      });
+      if (!job?.jobId || j.jobId !== job.jobId || j.state !== 'running') return;
+      setProgress((p) => p && { ...p, fraction: Math.min(1, Math.max(0, j.fraction)), stage: j.stage });
     });
     try {
       // Keep the native workspace lease between frames as well as during
@@ -310,12 +331,31 @@ export function ExportPage() {
 
   const cancel = () => {
     stop.current = true;
+    exportRun.setState({ stop: null });
     const job = active.current;
-    if (job) void host().cancel(job.session, job.progressId).catch((e) => platform().log('error', `export cancel: ${String(e)}`));
+    if (job) void cancelJob(job).catch((e) => platform().log('error', `export cancel: ${String(e)}`));
   };
 
+  stopRef.current = cancel;
+  if (v2) {
+    const spaces = ['sRGB', 'display-p3', 'prophoto', ...(hello?.export_spaces ?? [])];
+    return (
+      <ExportV2 recipes={recipes} current={Math.min(current, recipes.length - 1)} recipe={r} frames={frames} selection={selection} sample={sample}
+        proofRef={proof} proofShown={!!proofImage} proofMessage={proofMessage}
+        proofSize={proofImage ? { width: proofImage.proof.file_width, height: proofImage.proof.file_height, space: proofImage.proof.color_space } : null}
+        frameSize={size} supported={supported} spaces={spaces} digitalIntermediate={gate.digitalIntermediate && !!hello?.methods?.includes('export_cineon')}
+        status={progress ? progressText(progress) : ''} log={log} tokenLabel={TOKEN_LABEL}
+        choose={setCurrent} edit={edit}
+        add={() => save([...recipes, { ...r, id: 'r' + Date.now(), name: r.name + ' ' + tz('copy', '副本') }])}
+        remove={() => { save(recipes.filter((_, i) => i !== current)); setCurrent(0); }}
+        restore={() => { save(DEFAULT_RECIPES_V2); setCurrent(0); }}
+        exportCube={() => void exportCube(params.printStock, `${params.printStock}.cube`).catch((e) => platform().message('SpektraLab', String(e), 'error'))}
+        pickFolder={() => void platform().pickFolder(tz('Export to…', '导出到…')).then((path) => { if (path) edit({ folder: { kind: 'fixed', path } }); })}
+        run={() => void run()} cancel={batch ? cancel : () => setPages({ exportOpen: false })} />
+    );
+  }
   return (
-    <div className="export-page" data-testid="export-page">
+    <div className="export-page" data-testid="export-page" data-batch={batch || undefined}>
       <div className="topbar">
         <span style={{ fontWeight: 700, fontSize: 'var(--fs-rail-title)' }}>{t('helpExport')}</span>
         <span className="bar-status" data-testid="export-status">
@@ -331,7 +371,7 @@ export function ExportPage() {
         ) : (
           <>
             <button className="btn" onClick={() => setPages({ exportOpen: false })} style={{ marginRight: 8 }}>
-              {tz('Close', '关闭')}
+              {tz('Cancel', '取消')}
             </button>
             <button className="btn primary" disabled={!frames.length || !supported} onClick={() => void run()} data-testid="export-run">
               {tz('Export', '导出')}

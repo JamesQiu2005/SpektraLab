@@ -7,6 +7,7 @@
 // *native* pixels per device pixel, so "100 %" is the frame's own pixels
 // whatever tier is on the canvas (§7.3: zoom selects no tier).
 
+import { Glyph } from '../theme/Glyph';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { openDialog, openFilesDialog } from '../windows/actions';
 import {
@@ -65,7 +66,8 @@ import { inTauri } from '../host/transport';
 import { onFrameDrop } from '../windows/frameDrag';
 import { clampZoom } from './zoom';
 
-const SURROUND = 0x5f / 255;
+// v2: the picture is "fitted whole on black" (README §1.1; the tokens' ground).
+const SURROUND = 0;
 
 export interface Layout {
   viewport: { width: number; height: number };
@@ -105,7 +107,8 @@ export function computeLayout(
   return { viewport, offset: { x: ox, y: oy }, outSize, out, zoom, fitZoom, display, native };
 }
 
-export function Canvas() {
+/** `fitMargin`: the black kept round a fitted picture (v2: 18 epx, PC-E1; v1: none). */
+export function Canvas({ fitMargin = 0 }: { fitMargin?: number } = {}) {
   const { tz } = useI18n();
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -217,7 +220,7 @@ export function Canvas() {
           canvasGeometry,
           cropping,
           view,
-          cropping ? 24 * size.dpr : 0,
+          (cropping ? Math.max(24, fitMargin) : fitMargin) * size.dpr,
         )
       : null;
   useEffect(() => {
@@ -568,7 +571,7 @@ export function Canvas() {
         >
           <span className="compare-label left">{tz('Before', '之前')}</span>
           <span className="compare-label right">{tz('After', '之后')}</span>
-          <span className="compare-handle" />
+          <span className="compare-handle"><Glyph name="split" /></span>
         </div>
       )}
       <div className="canvas-corner">

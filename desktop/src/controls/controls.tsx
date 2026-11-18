@@ -132,7 +132,8 @@ export function ScrubSlider(p: ScrubSliderProps) {
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
-    const k = e.altKey ? 0.25 : 1;
+    // Ctrl (README §6.3: Alt alone opens the menu bar's access keys); Alt kept for v1 habits.
+    const k = e.ctrlKey || e.altKey ? 0.25 : 1;
     const v = d.v + ((e.clientX - d.x) / d.w) * (hi - lo) * k;
     onChange(snapTo(v, e.shiftKey));
   };
@@ -156,7 +157,7 @@ export function ScrubSlider(p: ScrubSliderProps) {
   };
 
   return (
-    <div className={'row' + (disabled ? ' disabled' : '')} title={disabled ? reason : undefined} data-testid={p.testId}>
+    <div className={'row' + (disabled ? ' disabled' : '') + (Math.abs(value - zero) < 1e-9 ? ' rest' : '')} title={disabled ? reason : undefined} data-testid={p.testId}>
       <span className="row-label">
         {label}
         {sublabel && <span className="sub">{sublabel}</span>}
@@ -184,6 +185,8 @@ export function ScrubSlider(p: ScrubSliderProps) {
         <div className="track" style={gradient ? { background: gradient, height: 2 } : undefined} />
         {blocked && <div className="blocked" style={{ left: `${frac(blocked[0]) * 100}%`, width: `${(frac(blocked[1]) - frac(blocked[0])) * 100}%` }} />}
         {p.usable?.map(([from, to], i) => <div key={i} className="usable" style={{ left: `${frac(from) * 100}%`, width: `${(frac(to) - frac(from)) * 100}%` }} />)}
+        {/* The v2 row's fill from rest to the knob (styled by v2.css only). */}
+        <div className="fill" style={{ left: `${Math.min(frac(zero), frac(value)) * 100}%`, width: `${Math.abs(frac(value) - frac(zero)) * 100}%` }} />
         {zero > lo && zero < hi && <div className="zero" style={{ left: `${frac(zero) * 100}%` }} />}
         <div className="knob" style={{ left: `${frac(value) * 100}%` }} />
       </div>

@@ -33,7 +33,7 @@ import {
   clamp,
 } from '@shared/params';
 import { type Adjustments, ADJUSTMENTS_DEFAULT } from '@shared/adjustments';
-import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
+import { type Geometry, GEOMETRY_DEFAULT, isIdentity, outputSize } from '@shared/geometry';
 import { canvasGeometryFor, edgeEffective, gateFramed, geometryInNegative, resolveFilmEdgeParams, sourceGeometryFor } from '@shared/filmEdge';
 import { type HalfFramePair, type PairHole, type PairLayer, type PairPlacement, type PairSide, PAIR_SIDES,
   decodePair, encodePair, isPairPath, newHole, newPair, pairFilmFormat, pairRects, pairFitRegion, pairSnapshotFor, pairWithMeterReadings, printTrim, resolvePairParams } from '@shared/pair';
@@ -53,12 +53,28 @@ import { frameOrder } from './frameOrder';
 import { displayCacheKey, forgetDisplayMemoryCache, peekDisplayCache, readDisplayCache, writeDisplayCache, type DisplayCacheDescriptor } from './displayCache';
 import { PreviewQueue } from './previewQueue';
 import { tz } from '../i18n';
+import { JobEnded, canvasOf, runJob, scheduler } from '../scheduler';
+import { frameHost } from '../scheduler/frame';
+import { isCanvas, type JobKind, type JobRequest, type JobSnapshotWire, type SourceSpec } from '../scheduler/types';
+import { imageReply, renderReply, renderViewReply, type RenderReply, type RgbaImage } from '../host/replies';
+import { canvasWhat } from '../edit/words';
 import { hostMessage } from '../host/messages';
 import { clampZoom, steppedZoom } from '../canvas/zoom';
 import { cameraExposureEV } from '@shared/cameraExposure';
 import { chooseFolderImport, finishFolderImport } from './folderImport';
 
 export type Tool = 'select' | 'hand' | 'crop' | 'neutral';
+
+/** A job snapshot (WIRE.md) and when the page saw it submitted and start running (WIRE carries no clock). */
+export type PageJob = JobSnapshotWire & { submittedAt: number; startedAt?: number };
+
+/**
+ * A render that fails keeps the edited controls where the person left them
+ * (the picture keeps the last print, the status line says why, Try Again
+ * renders them again) rather than putting the controls back to what was last
+ * printed. One switch, so the other choice is a one-line change (review, 2026-11-17).
+ */
+export const FAILED_RENDER_KEEPS_EDITED_CONTROLS = true;
 
 export interface ViewState {
   /** Fit the output to the canvas; when false, `zoom` is native px → device px. */
@@ -149,6 +165,11 @@ export interface SessionState {
   settingsOpen: boolean;
   aboutOpen: boolean;
   batchExporting: boolean;
+  /** v2: the open frame's newest canvas or full-view job, as the scheduler reports it (R5). */
+  /** The open frame's newest canvas or full-view job, as the scheduler reports it (WIRE.md), with the page's own clock. */
+  job: PageJob | null;
+  /** v2: the last render of the open frame failed; the last print stays (PC-E12). */
+  renderFailure: string | null;
 }
 
 const INITIAL: SessionState = {
@@ -198,6 +219,8 @@ const INITIAL: SessionState = {
   settingsOpen: false,
   aboutOpen: false,
   batchExporting: false,
+  job: null,
+  renderFailure: null,
 };
 
 export const sessionStore = createStore<SessionState>(() => INITIAL);
@@ -213,6 +236,8 @@ const set = (p: Partial<SessionState>) => sessionStore.setState(p);
 // 400 ms after the last edit and is dropped if anything moved meanwhile.
 
 let sentParams: FilmParams | null = null;
+/** The parameters of the last print that landed (what FAILED_RENDER_KEEPS_EDITED_CONTROLS = false would put back). */
+let lastPrintedParams: FilmParams | null = null;
 let sentPair: string | null = null;
 let savedPair: { path: string; value: string } | null = null;
 const pairHoleGeneration = { left: 0, right: 0 };
@@ -256,7 +281,8 @@ export const importPreviews = new PreviewQueue(async ({ path }, signal) => {
   const found = await readDisplayCache(key, { retain });
   if (signal.aborted) return;
   if (!found) {
-    const image = await host().thumbnail(path, 2048, true);
+    // v2: an import preview is a thumbnail job; it waits behind the canvas in the scheduler.
+    const image = await thumbnailJob(path, 2048, true, 'camera');
     if (signal.aborted) return;
     if (!await writeDisplayCache(key, image, { retain })) return 'skipped';
   }
@@ -284,6 +310,55 @@ function queueImportPreviews() {
 }
 let wantedGen = 0;
 let inFlight = false;
+/** The canvas job the loop below is waiting on, and whether it has started. */
+let canvasJob: { id: string; running: boolean } | null = null;
+let jobWatch: (() => void) | null = null;
+/** When the page submitted each job it watches, and when it saw it run (the page's clock). */
+const jobClock = new Map<string, { submittedAt: number; startedAt?: number }>();
+let jobSerial = 0;
+function clockOf(id: string) {
+  let c = jobClock.get(id);
+  if (!c) { c = { submittedAt: ++jobSerial }; jobClock.set(id, c); if (jobClock.size > 200) jobClock.delete(jobClock.keys().next().value!); }
+  return c;
+}
+/** The page follows the scheduler (R5): the open frame's canvas and full-view jobs. */
+function watchJobs() {
+  if (jobWatch) return;
+  jobWatch = scheduler().onJob((j) => {
+    if (canvasJob && j.jobId === canvasJob.id && j.state === 'running') canvasJob.running = true;
+    const s = get();
+    if (!isCanvas(j.kind) && j.kind !== 'fullView') return;
+    if (j.frameId !== s.selection) return;
+    const c = clockOf(j.jobId);
+    if (j.state === 'running') c.startedAt ??= performance.now();
+    const cur = s.job;
+    // A job folded into a newer one, or cancelled under it, says nothing of its own.
+    if (cur && cur.jobId !== j.jobId && (c.submittedAt < cur.submittedAt || j.state === 'cancelled')) return;
+    set({ job: { ...j, ...c }, ...(j.state === 'done' ? { renderFailure: null } : {}),
+      ...(j.state === 'failed' ? { renderFailure: j.message.replace(/^[a-z_]+: /, '') } : {}) });
+  });
+}
+
+// ------------------------------------------------------------ jobs (WIRE.md)
+
+/** What the frame's sessions are opened from (WIRE.md, `source`): the path, the decode and the pair the
+ * frame was opened with (so a canvas job lands on the editing session), and the whole parameters (so a
+ * one-shot session — a full view, a print thumbnail — opens as the frame stands). */
+let openedDecode: Record<string, unknown> | null = null;
+let openedPair: unknown = null;
+function sourceOf(s: SessionState, want = s.sidecar.params): SourceSpec {
+  return { path: s.selection!, ...(openedDecode ? { decode: openedDecode } : {}), ...(openedPair ? { pair: openedPair } : {}),
+    params: wireParams(want) as Record<string, unknown> };
+}
+const viewFormat = (s: SessionState) => (s.hello?.view_formats?.includes('rgba16') ? 'rgba16' : 'rgba8');
+
+/** A thumbnail job (no session): an embedded preview, or a fast decode. */
+async function thumbnailJob(path: string, longEdge: number, embeddedOnly: boolean, slot: string): Promise<RgbaImage> {
+  const r = await runJob({ kind: 'thumbnail', frameId: path, slot, what: baseName(path), tier: 'preview', canvas: { width: longEdge, height: longEdge },
+    request: { method: 'thumbnail', params: { path, long_edge: longEdge, ...(embeddedOnly ? { embedded_only: true } : {}) } } });
+  return imageReply(r.result, r.payload);
+}
+const jobWords = (s: SessionState, d: { delta: Record<string, unknown> }, reprint: boolean) => canvasWhat(s.catalog, s.sidecar.params, d.delta, reprint);
 let fullTimer: ReturnType<typeof setTimeout> | null = null;
 let latitudeTimer: ReturnType<typeof setTimeout> | null = null;
 let latitudeGeneration = 0;
@@ -455,11 +530,35 @@ export function noteDisplaySpace(displaySpace: 'srgb' | 'display-p3') {
   void refreshOriginal();
 }
 
-async function renderForView(sid: string, tier: 'live' | 'full', gen: number, reprint = false) {
+/** The open frame's render, as a scheduler job (R5): `pre` are the steps that
+ * must run in the same job before it (the edit's set_params). */
+async function renderJob(tier: 'live' | 'full', reprint: boolean, request: JobRequest, what: string, longEdge: number,
+  decode: (result: Record<string, unknown>, payload: Uint8Array, ms: number) => RenderReply): Promise<RenderReply> {
+  watchJobs();
+  const s = get();
+  const kind: JobKind = tier === 'full' ? 'fullView' : reprint ? 'canvasReprint' : 'canvasDevelop';
+  const native = s.nativeSize ?? undefined;
+  const t0 = performance.now();
+  try {
+    // Below Full the v1 host's open decodes the whole frame: the job says so (WIRE.md's pricing tip).
+    // The full view is of the frame being edited, from the canvas's own source, so it borrows the
+    // editing session and opens nothing: it is priced as the render alone (WIRE.md, "Sessions").
+    const r = await runJob({ kind, frameId: s.selection!, what, tier, canvas: canvasOf(native, tier === 'full' ? 0 : longEdge),
+      ...(reprint ? { layers: ['print'] } : {}), ...(native && tier !== 'full' ? { opens: native } : {}), request },
+    (id) => { clockOf(id); if (tier === 'live') canvasJob = { id, running: false }; });
+    return decode(r.result, r.payload, performance.now() - t0);
+  } finally {
+    if (tier === 'live') canvasJob = null;
+  }
+}
+
+async function renderForView(sid: string, tier: 'live' | 'full', gen: number, reprint = false, delta: Record<string, unknown> | null = null, what = '') {
   const s = get();
   if (s.sidecar.noFilm && (s.pair || !s.gate.noFilm || !hostViews()))
     throw new Error(tz('This engine or half-frame pair cannot bypass film simulation.', '此引擎或半格拼接不支持不应用胶片模拟。'));
-  if (!hostViews()) return host().render(sid, tier, { reprint });
+  const setParams = delta && Object.keys(delta).length ? { setParams: delta } : {};
+  if (!hostViews()) return renderJob(tier, reprint, { source: sourceOf(s), ...setParams, method: 'render', params: { tier, reprint, format: 'rgba8', display: 'srgb' } },
+    what, previewEdge(), (r, p, ms) => renderReply(r, p, tier, ms));
   if (tier === 'full' && s.pair) await flushSave();
   const descriptor = cachedDisplayDescriptor('print', s, tier);
   const keyTask = descriptor ? displayCacheKey(descriptor) : Promise.resolve(null);
@@ -468,11 +567,13 @@ async function renderForView(sid: string, tier: 'live' | 'full', gen: number, re
     fullDescriptor ? displayCacheKey(fullDescriptor) : keyTask,
     tier === 'full' && !s.pair && s.selection ? displayCacheKey(cameraDescriptor(s.selection)) : null]);
   if (gen !== wantedGen || get().engineSession !== sid) throw new Error('Superseded display request');
-  const image = await host().renderView(sid, tier, { adjustments: s.sidecar.adjustments,
-    ...(s.sidecar.noFilm ? { no_film: true } : {}),
-    geometry: s.tool === 'crop' ? GEOMETRY_DEFAULT : canvasGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm),
+  const geometry = s.tool === 'crop' ? GEOMETRY_DEFAULT : canvasGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm);
+  const longEdge = viewLongEdge(s);
+  const view = { tier, adjustments: s.sidecar.adjustments, ...(s.sidecar.noFilm ? { no_film: true } : {}), geometry,
     source_geometry: sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm) ?? GEOMETRY_DEFAULT,
-    display: s.displaySpace, generation: gen, long_edge: viewLongEdge(s) });
+    display: s.displaySpace, generation: gen, long_edge: longEdge, format: viewFormat(s) };
+  const image = await renderJob(tier, reprint, { source: sourceOf(s), ...setParams, method: 'render_view', params: structuredClone(view) }, what,
+    longEdge || Math.max(s.nativeSize?.width ?? 0, s.nativeSize?.height ?? 0), (r, p, ms) => renderViewReply(r, p, { generation: gen, geometry, tier }, ms));
   if (gen === wantedGen && get().engineSession === sid && image.pairInfo) set({ pairInfo: image.pairInfo });
   if (gen === wantedGen && get().engineSession === sid) {
     if (tier === 'full' && liveDisplayKey?.session === sid) { forgetDisplayMemoryCache(liveDisplayKey.key); liveDisplayKey = null; }
@@ -502,6 +603,9 @@ function noteAsShot() {
 export async function requestPrint(): Promise<void> {
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
+  // Newer edits fold into the newest job (README §7): a canvas job that has
+  // not started yet is withdrawn, and the loop below submits the newest one.
+  if (canvasJob && !canvasJob.running) void scheduler().cancel(canvasJob.id);
   if (get().tool === 'crop' && geometryInNegative(get().sidecar.params, get().gate, get().sidecar.noFilm)) return;
   if (inFlight) return;
   const sid = get().engineSession;
@@ -520,7 +624,8 @@ export async function requestPrint(): Promise<void> {
       const want = s.sidecar.params;
       if (s.pair && JSON.stringify(pairSnapshotFor(s.pair, want)) !== sentPair) {
         const snapshot = pairSnapshotFor(s.pair, want);
-        const result = await host().updatePair(sid, snapshot, wireParams(want));
+        const result = await frameHost(s.selection!).updatePair(sid, snapshot, wireParams(want));
+        openedPair = snapshot;
         if (get().engineSession !== sid) return;
         sentPair = JSON.stringify(pairWithMeterReadings(snapshot, snapshot, result.pair_info, want.autoExposureMethod));
         adoptPairMeterReadings(snapshot, result.pair_info, want.autoExposureMethod);
@@ -531,12 +636,21 @@ export async function requestPrint(): Promise<void> {
         void refreshOriginal();
       }
       const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog) : { delta: wireParams(want), layers: new Set(['shoot']) };
-      if (Object.keys(d.delta).length) {
-        await host().setParams(sid, d.delta);
-        sentParams = want;
-      }
+      const pre = Object.keys(d.delta).length ? d.delta as Record<string, unknown> : null;
       const reprint = d.layers.size === 1 && d.layers.has('print');
-      const r = await renderForView(sid, 'live', gen, reprint);
+      let r: RenderReply;
+      try {
+        r = await renderForView(sid, 'live', gen, reprint, pre, jobWords(s, d, reprint));
+      } catch (e) {
+        // Folded into a newer edit (or cancelled under it): go round with the newest edit.
+        if (e instanceof JobEnded && e.cancelled) { if (gen !== wantedGen) continue; return; }
+        // The edit's set_params may have landed without its render: send everything next time.
+        if (pre) sentParams = null;
+        if (!FAILED_RENDER_KEEPS_EDITED_CONTROLS && lastPrintedParams) set({ sidecar: { ...get().sidecar, params: lastPrintedParams } });
+        throw e;
+      }
+      if (pre) sentParams = want;
+      lastPrintedParams = want;
       if (get().engineSession !== sid) return;
       if (gen === wantedGen) {
         frameImages.print = r;
@@ -585,7 +699,20 @@ async function renderFull(gen: number) {
   foregroundWork();
   try {
     const t0 = performance.now();
-    const r = await renderForView(sid, 'full', gen);
+    // It runs on the editing session (it borrows it): whatever of the edit has not reached that session
+    // yet goes with it, as the canvas's next job would send it.
+    const want = s.sidecar.params;
+    const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog).delta : wireParams(want);
+    const pending = Object.keys(d).length ? d as Record<string, unknown> : null;
+    let r: RenderReply;
+    try {
+      r = await renderForView(sid, 'full', gen, false, pending);
+    } catch (e) {
+      // Its set_params may have landed without its render: the next canvas job sends everything.
+      if (pending) sentParams = null;
+      throw e;
+    }
+    if (pending) sentParams = want;
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
     if (gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;
@@ -610,12 +737,17 @@ async function refreshThumb() {
   // and the crop mask once. A displayed render_view has already baked them.
   // Request a small uncropped view from the same GPU print cache instead of
   // copying/encoding a full-resolution image in the browser.
-  const img = hostViews() && s.engineSession ? await host().renderView(s.engineSession, frameImages.print.tier, {
-    ...(s.sidecar.noFilm ? { no_film: true } : {}),
-    adjustments: s.sidecar.adjustments, geometry: GEOMETRY_DEFAULT,
-    source_geometry: sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm) ?? GEOMETRY_DEFAULT,
-    display: 'srgb', generation: gen, long_edge: THUMB_EDGE,
-  }) : frameImages.print;
+  // v2: a thumbnail is a scheduler job (R5), after the canvas's own.
+  // The print on the canvas is already the whole photograph when nothing crops or turns it: drawn down
+  // here. Otherwise a small uncropped view, as a thumbnail job (the engine opens its own session).
+  const sourceGeometry = sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm);
+  const whole = !sourceGeometry && isIdentity(frameImages.print.processedGeometry ?? GEOMETRY_DEFAULT);
+  const img = hostViews() && s.engineSession && !whole ? await runJob({ kind: 'thumbnail', frameId: s.selection, slot: 'print', what: baseName(s.selection), tier: 'preview',
+    canvas: canvasOf(s.nativeSize, THUMB_EDGE), request: { source: sourceOf(s), method: 'render_view', params: {
+      tier: 'preview', ...(s.sidecar.noFilm ? { no_film: true } : {}),
+      adjustments: s.sidecar.adjustments, geometry: GEOMETRY_DEFAULT, source_geometry: sourceGeometry ?? GEOMETRY_DEFAULT,
+      display: 'srgb', generation: gen, long_edge: THUMB_EDGE, format: 'rgba8',
+    } } }).then((r) => renderViewReply(r.result, r.payload, { generation: gen, geometry: GEOMETRY_DEFAULT, tier: 'preview' })) : frameImages.print;
   if (gen !== wantedGen || get().selection !== s.selection) return;
   const url = await makeThumbFromPrint(img);
   if (url && gen === wantedGen && get().selection === s.selection) {
@@ -984,9 +1116,10 @@ async function redecodeNow() {
   set({ redecoding: true, status: tz('Decoding with the new white balance…', '正在以新的白平衡解码…') });
   clearLatitude();
   try {
-    const r = await host().redecode(sid, wire);
+    const r = await frameHost(s.selection).redecode(sid, wire);
     if (get().engineSession !== sid) return;
     sentDecode = key;
+    openedDecode = wire as unknown as Record<string, unknown>;
     set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, status: '' });
     lastOriginalKey = null;
     void requestPrint();
@@ -1091,7 +1224,7 @@ export async function refreshLatitude(): Promise<LatitudeReply | null> {
   const current = () => gen === latitudeGeneration && get().engineSession === sid && get().selection === frame
     && JSON.stringify(get().sidecar.params) === params && latitudeStamp(get().sidecar.params) === stamp;
   try {
-    const reply = await host().sceneLatitude(sid, { ...latitudeRequest(s.sidecar.params.sceneLatitude),
+    const reply = await frameHost(frame).sceneLatitude(sid, { ...latitudeRequest(s.sidecar.params.sceneLatitude),
       ...(s.pair ? { region: pairFitRegion(s.pair, s.sidecar.params.placementIsRight) } : {}),
     }, {
       params: wireParams(s.sidecar.params),
@@ -1346,7 +1479,7 @@ async function refreshExposureReading(gen: number) {
   if (!s.engineSession || !s.sidecar.params.autoExposure || s.sidecar.noFilm || s.pair
     || !s.hello?.methods?.includes('solve') || s.exposureReadings.some((r) => r.key === key)) return;
   try {
-    const result = await host().solve(s.engineSession, 'exposure');
+    const result = await frameHost(s.selection!).solve(s.engineSession, 'exposure');
     if (gen !== wantedGen || exposureKey(get()) !== key || get().redecoding) return;
     const solved = result.solved_params as Record<string, unknown> | undefined;
     rememberExposure(key, solved?.exposure_compensation_ev);
@@ -1434,9 +1567,9 @@ export async function applyCameraExposureAsShot(): Promise<void> {
     if (!s.hello?.methods?.includes('render_source') || !s.hello.thumbnail_options?.includes('embedded-only'))
       throw new Error(tz('Camera brightness matching is unavailable with this engine.', '当前引擎无法匹配相机预览亮度。'));
     // No cached film picture, Layer 2 edit, or display-P3 image may enter this measurement.
-    const camera = await host().thumbnail(path, 720, true);
+    const camera = await thumbnailJob(path, 720, true, 'camera-exposure');
     if (!current()) return;
-    const source = await host().renderSource(sid, { long_edge: 720, display: 'srgb', generation: 0 });
+    const source = await frameHost(path).renderSource(sid, { long_edge: 720, display: 'srgb', generation: 0 });
     if (!current()) return;
     const ev = cameraExposureEV(source, camera);
     if (ev === null) throw new Error(tz('This camera preview does not provide a reliable brightness reference. The exposure was kept.', '无法从此相机预览可靠估计亮度，已保留原曝光。'));
@@ -1858,7 +1991,10 @@ async function closeEngineSession() {
   if (fullTimer) clearTimeout(fullTimer);
   if (decodeTimer) clearTimeout(decodeTimer);
   decodeTimer = null;
-  if (sid) await host().close(sid).catch(() => {});
+  openedDecode = null;
+  openedPair = null;
+  // The session is the engine's: it goes when another frame opens, or when `openFrame` moves (WIRE.md).
+  void sid;
 }
 
 /** A plain click: picks exactly this frame and opens it (`Session.click`). */
@@ -2024,7 +2160,7 @@ async function loadOriginal(path: string, gen: number) {
     const img = await readDisplayCache(key, { retain: false });
     if (gen !== openGen || lastOriginalKey !== null || frameImages.original || frameImages.print) return;
     if (img) publish(img);
-    else void host().thumbnail(path, 2048, isRawPath(path) && !!get().hello?.thumbnail_options?.includes('embedded-only'))
+    else void thumbnailJob(path, 2048, isRawPath(path) && !!get().hello?.thumbnail_options?.includes('embedded-only'), 'original')
       .then((image) => { if (gen === openGen) { void writeDisplayCache(key, image, { retain: false }); publish(image); } }).catch(() => {});
   } catch {
     if (openTrace?.generation === gen) openTrace.originalMs = elapsed(started);
@@ -2054,7 +2190,7 @@ export async function refreshOriginal(): Promise<void> {
         const descriptor = cachedDisplayDescriptor('original', s);
         const cacheKey = descriptor ? await displayCacheKey(descriptor) : null;
         if (gen !== originalGeneration || !current()) continue;
-        const image = await host().renderSource(sid, { long_edge: edge, display: s.displaySpace, generation: gen });
+        const image = await frameHost(frame).renderSource(sid, { long_edge: edge, display: s.displaySpace, generation: gen });
         if (gen === originalGeneration && current()) {
           frameImages.original = image;
           lastOriginalKey = key;
@@ -2106,7 +2242,7 @@ export async function pickNeutralAt(x: number, y: number): Promise<void> {
     && get().tool === 'neutral' && JSON.stringify(get().sidecar.decode) === decode && JSON.stringify(get().pair) === pair && neutralPairSide === side;
   set({ status: tz('Measuring neutral white balance…', '正在测量中性白平衡…') });
   try {
-    const wb = side ? await host().pickNeutral(sid, x, y, side) : await host().pickNeutral(sid, x, y);
+    const wb = side ? await frameHost(frame!).pickNeutral(sid, x, y, side) : await frameHost(frame!).pickNeutral(sid, x, y);
     if (!current()) return;
     if (!Number.isFinite(wb.temperature_k) || !Number.isFinite(wb.tint)
       || wb.temperature_k < 2000 || wb.temperature_k > 50000 || Math.abs(wb.tint) > 150)
@@ -2142,20 +2278,25 @@ async function develop(path: string, gen: number) {
     const decode = decodeWire(get().sidecar.decode, isRawPath(path));
     const openStarted = performance.now();
     let r;
+    // The frame opens in the engine's editing session (WIRE.md): the page names the frame, the engine
+    // owns the session, and the next canvas job from the same source runs on it.
+    const frame = frameHost(path);
+    let opened: Record<string, unknown> | null = decode ? decode as unknown as Record<string, unknown> : null;
     try {
       if (openingPair) {
         if (!get().hello?.methods?.includes('open_pair')) throw new Error(tz('This engine does not support half-frame pairs.', '此引擎不支持半格拼接。'));
-        r = await host().openPair(path, wireParams(params), openingPair);
-      } else r = await host().open(path, wireParams(params), decode);
+        r = await frame.openPair(path, wireParams(params), openingPair);
+      } else r = await frame.open(path, wireParams(params), decode);
     } catch (e) {
       // A host without R2 refuses the decode key: open with the camera's own.
       if (!(decode && e instanceof HostCallError && e.code === 'unsupported')) throw e;
-      r = await host().open(path, wireParams(params));
+      r = await frame.open(path, wireParams(params));
+      opened = null;
     }
-    if (gen !== openGen) {
-      await host().close(r.session).catch(() => {});
-      return;
-    }
+    // Superseded by another frame: its open closes this session in the engine.
+    if (gen !== openGen) return;
+    openedDecode = opened;
+    openedPair = openingPair;
     sentParams = params;
     sentPair = openingPair ? JSON.stringify(pairWithMeterReadings(openingPair, openingPair, r.pair_info, params.autoExposureMethod)) : null;
     if (openingPair) adoptPairMeterReadings(openingPair, r.pair_info, params.autoExposureMethod);
@@ -2200,7 +2341,7 @@ export async function solveNow() {
   if (!s.engineSession || s.developing) return;
   set({ developing: true, status: tz('Solving…', '正在配光…') });
   try {
-    await host().solve(s.engineSession, 'both');
+    await frameHost(s.selection!).solve(s.engineSession, 'both');
     // The pack is the engine's now; the user's shifts return to neutral.
     sentParams = null;
     setParams((p) => ({ ...p, yFilterShift: 0, mFilterShift: 0 }));

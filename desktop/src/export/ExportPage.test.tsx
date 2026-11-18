@@ -54,6 +54,8 @@ async function mount() {
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 async function click(button: HTMLButtonElement) {
   await act(async () => { button.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  // An export reaches the host a few turns later: through the scheduler's queue and its engine.
+  await act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); });
 }
 async function type(input: HTMLInputElement, value: string) {
   await act(async () => {
@@ -130,7 +132,8 @@ describe('export page batch integration', () => {
     expect(fake.workspaceBegin).toHaveBeenCalledOnce();
     expect(fake.workspaceEnd).not.toHaveBeenCalled();
     expect(fake.request.mock.calls[0]![0]).toBe('export_frame');
-    expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_path: 'D:/photos/b.NEF', session: undefined });
+    expect(fake.request.mock.calls[0]![1]).toMatchObject({ source_path: 'D:/photos/b.NEF' });
+    expect(fake.request.mock.calls[0]![1].session).toBeUndefined();
     expect(sessionStore.getState().selection).toBe(before.selection);
     expect(sessionStore.getState().sidecar).toBe(before.sidecar);
     // Even an external mutation after the first job started cannot change
@@ -138,8 +141,9 @@ describe('export page batch integration', () => {
     sessionStore.getState().sidecar.adjustments.exposure = 9;
     await act(async () => { pending.resolve(reply()); });
     expect(fake.request).toHaveBeenCalledTimes(2);
-    expect(fake.request.mock.calls[1]![1]).toMatchObject({ session: 'editor',
-      source_path: 'D:/photos/a.NEF', adjustments: { exposure: 1.5 } });
+    // No session: an export is a one-shot job the engine runs from source_path (WIRE.md).
+    expect(fake.request.mock.calls[1]![1]).toMatchObject({ source_path: 'D:/photos/a.NEF', adjustments: { exposure: 1.5 } });
+    expect(fake.request.mock.calls[1]![1].session).toBeUndefined();
     expect(fake.select).not.toHaveBeenCalled();
     expect(sessionStore.getState().engineSession).toBe('editor');
     expect(sessionStore.getState().batchExporting).toBe(false);
@@ -194,8 +198,10 @@ describe('export page batch integration', () => {
 describe('export progress and completion', () => {
   const run = () => div.querySelector('[data-testid=export-run]') as HTMLButtonElement;
   const bar = () => div.querySelector('[data-testid=export-progress]')!;
+  // The host's progress event, as the engine's forwarder hears it; the bar follows the scheduler's
+  // snapshot of the job (WIRE.md: stage, and a fraction across the job, 0.15 + 0.8 of the host's).
   const progress = (fields: Record<string, unknown>) => act(async () => {
-    (fake.onEvent.mock.calls[0]![0] as (e: Record<string, unknown>) => void)({ event: 'progress', session: '', ...fields });
+    (fake.onEvent.mock.calls.at(-1)![0] as (e: Record<string, unknown>) => void)({ event: 'progress', session: '', ...fields });
   });
   it('moves the bar with the active job’s progress events and ignores other jobs', async () => {
     const unsubscribe = vi.fn();
@@ -204,22 +210,26 @@ describe('export progress and completion', () => {
     fake.request.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(reply());
     await mount(); await click(run());
     const job = fake.request.mock.calls[0]![1] as { progress_id: string };
-    expect(bar().getAttribute('aria-valuenow')).toBe('0');
+    // The scheduler has already said where the job is (its session placed, the call sent).
+    const placed = bar().getAttribute('aria-valuenow');
+    expect(Number(placed)).toBeLessThan(10);
     await progress({ progress_id: 'another-job', fraction: 0.9, stage: 'render' });
-    expect(bar().getAttribute('aria-valuenow')).toBe('0');
+    expect(bar().getAttribute('aria-valuenow')).toBe(placed);
     await progress({ progress_id: job.progress_id, fraction: 0.5, stage: 'render' });
-    expect(bar().getAttribute('aria-valuenow')).toBe('25');
-    expect(div.textContent).toContain('0 of 2 processed · rendering 50%');
-    await progress({ progress_id: job.progress_id, fraction: 1, stage: 'done' });
-    expect(bar().getAttribute('aria-valuenow')).toBe('50');
+    expect(bar().getAttribute('aria-valuenow')).toBe('28');
+    expect(div.textContent).toContain('0 of 2 processed · rendering 55%');
+    await progress({ progress_id: job.progress_id, fraction: 1, stage: 'encode' });
+    expect(bar().getAttribute('aria-valuenow')).toBe('48');
+    expect(div.textContent).toContain('0 of 2 processed · encoding 95%');
     expect(unsubscribe).not.toHaveBeenCalled();
     await act(async () => { pending.resolve(reply()); });
     await settle();
     expect(bar().getAttribute('aria-valuenow')).toBe('100');
     expect(div.textContent).toContain('2 of 2 processed');
     expect(div.textContent).not.toContain('%');
-    expect(fake.onEvent).toHaveBeenCalledOnce();
-    expect(unsubscribe).toHaveBeenCalledOnce();
+    // The forwarder listens while each frame's call runs, and stops with it.
+    expect(fake.onEvent).toHaveBeenCalledTimes(2);
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
   it('a frame that fails mid-stage leaves no stage behind either', async () => {
     const pending = deferred<ReturnType<typeof reply>>();
@@ -227,7 +237,7 @@ describe('export progress and completion', () => {
     await mount(); await click(run());
     const job = fake.request.mock.calls[0]![1] as { progress_id: string };
     await progress({ progress_id: job.progress_id, fraction: 0.4, stage: 'render' });
-    expect(div.textContent).toContain('rendering 40%');
+    expect(div.textContent).toContain('rendering 47%');
     await act(async () => { pending.reject(new Error('disk full')); });
     await settle();
     expect(div.querySelector('[data-testid=export-status]')!.textContent).toBe('2 of 2 processed');
@@ -241,7 +251,7 @@ describe('export progress and completion', () => {
     await mount(); await click(run());
     const job = fake.request.mock.calls[0]![1] as { progress_id: string };
     await progress({ progress_id: job.progress_id, fraction: 0.6, stage: 'encode' });
-    expect(div.textContent).toContain('0 of 2 processed · encoding 60%');
+    expect(div.textContent).toContain('0 of 2 processed · encoding 63%');
     await click([...div.querySelectorAll('button')].find((b) => b.textContent === 'Stop')!);
     await settle();
     expect(div.querySelector('[data-testid=export-status]')!.textContent).toBe('0 of 2 processed · stopped');
@@ -387,10 +397,13 @@ describe('export recipe proof', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(210); });
     expect(fake.renderProof).toHaveBeenCalledOnce();
     const before = fake.renderProof.mock.calls[0]![0];
-    expect(before).toMatchObject({ session: 'editor', format: 'jpeg', color_space: 'display-p3', display: 'display-p3', long_edge: 0 });
+    // A proof is not a job: it keeps the direct path, and has the host open a private session from
+    // source_path rather than borrowing the frame's (which is the engine's, and scoped to it).
+    expect(before).toMatchObject({ source_path: 'D:/photos/a.NEF', format: 'jpeg', color_space: 'display-p3', display: 'display-p3', long_edge: 0 });
+    expect(before.session).toBeUndefined();
     expect(before).not.toHaveProperty('path');
     await act(async () => { div.querySelectorAll('.recipe-list .stock-row')[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(fake.cancel).toHaveBeenCalledWith('editor', before.progress_id);
+    expect(fake.cancel).toHaveBeenCalledWith('', before.progress_id);
     await act(async () => { await vi.advanceTimersByTimeAsync(210); });
     const latest = fake.renderProof.mock.calls[1]![0];
     expect(latest).toMatchObject({ format: 'tiff16', color_space: 'prophoto' });
@@ -410,7 +423,7 @@ describe('export recipe proof', () => {
     await mount(); await act(async () => { await vi.advanceTimersByTimeAsync(210); });
     const request = fake.renderProof.mock.calls[0]![0];
     await act(async () => { sessionStore.setState({ exportOpen: false }); });
-    expect(fake.cancel).toHaveBeenCalledWith('editor', request.progress_id);
+    expect(fake.cancel).toHaveBeenCalledWith('', request.progress_id);
     await act(async () => { pending.resolve(proofReply(request.generation)); });
     expect(fake.paint).not.toHaveBeenCalled();
   });

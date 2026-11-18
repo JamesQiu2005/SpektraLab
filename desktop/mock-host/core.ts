@@ -42,6 +42,8 @@ export interface MockOptions {
   nativeHeight?: number;
   /** A fixed delay per render, ms (to exercise the tiers). */
   renderDelayMs?: number;
+  /** A fixed delay per thumbnail, ms (to hold the filmstrip on its placeholders). */
+  thumbnailDelayMs?: number;
   /** Paths `probe`/`open` treat as missing (tests). */
   missing?: (path: string) => boolean;
 }
@@ -177,6 +179,7 @@ export class MockHost {
       nativeWidth: opts.nativeWidth ?? 3000,
       nativeHeight: opts.nativeHeight ?? 2000,
       renderDelayMs: opts.renderDelayMs ?? 0,
+      thumbnailDelayMs: opts.thumbnailDelayMs ?? 0,
       missing: opts.missing,
     };
   }
@@ -213,6 +216,18 @@ export class MockHost {
       const err = e instanceof HostError ? e : new HostError('internal', String((e as Error)?.message ?? e));
       return { header: { id: req.id, ok: false, error: { code: err.code, message: err.message } } };
     }
+  }
+
+  /** A session of the call's own, from `source_path` and its params (closed with the call). */
+  private privateSession(p: Record<string, unknown>): Session {
+    const path = String(p.source_path ?? '');
+    if (!path) throw new HostError('bad_request', 'needs source_path or session');
+    if (this.opts.missing?.(path)) throw new HostError('not_found', `${path}: no such file`);
+    const params: Record<string, Value> = {};
+    for (const f of FIELDS) params[f.name] = defaultFor(f);
+    this.checkDecode(path, p.decode);
+    const { width, height } = this.dims(path);
+    return { id: '', path, width, height, params, seed: hash(path), decodeKey: this.decodeKey(p.decode), viewPrints: new Map() };
   }
 
   private session(params: Record<string, unknown>): Session {
@@ -378,6 +393,7 @@ export class MockHost {
         return { result: { kind: this.kind(path), ...this.dims(path), metadata: this.metadata(path) } };
       }
       case 'thumbnail': {
+        if (this.opts.thumbnailDelayMs) await sleep(this.opts.thumbnailDelayMs);
         const path = String(p.path ?? '');
         if ('embedded_only' in p && typeof p.embedded_only !== 'boolean')
           throw new HostError('bad_request', 'embedded_only must be boolean');
@@ -528,8 +544,9 @@ export class MockHost {
         };
       }
       case 'render_proof': {
-        // Synthetic protocol fixture only; not a colour or gamut-stat oracle.
-        const s = this.session(p);
+        // Synthetic protocol fixture only; not a colour or gamut-stat oracle. Like the real host, a proof
+        // with no session opens a private one from source_path (HOST-PROTOCOL.md: render_proof).
+        const s = p.session ? this.session(p) : this.privateSession(p);
         const cineon = p.format === 'di';
         const noFilm = this.noFilm(p, s, cineon);
         if (p.params) this.snapshot(s, p.params as Record<string, Value>);

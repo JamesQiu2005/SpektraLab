@@ -9,7 +9,6 @@ import type {
   HostState,
   ImageInfo,
   OpenResult,
-  PairInfo,
   ParamsSchema,
   ProbeResult,
   RenderProofResult,
@@ -19,49 +18,18 @@ import type {
 import { browserTransport } from './browserShim';
 import { tauriTransport } from './tauriTransport';
 import { HostCallError, inTauri, type Transport } from './transport';
+import { displayImage, renderReply, renderViewReply, sourceReply, type RenderReply, type RgbaImage } from './replies';
 import type { Adjustments } from '@shared/adjustments';
 import type { Geometry } from '@shared/geometry';
 import type { HalfFramePair } from '@shared/pair';
 
 export { HostCallError };
 
-/** Display-encoded top-first pixels. RGBA16 is little-endian UNORM16. */
-export interface RgbaImage {
-  width: number;
-  height: number;
-  data: Uint8Array;
-  format?: 'rgba8' | 'rgba16';
-  colorSpace: string;
-  /** Geometry already committed by render_view; undefined for legacy/raw previews. */
-  processedGeometry?: Geometry;
-  nativeSize?: { width: number; height: number };
-  pairInfo?: PairInfo;
-}
-
-export interface RenderReply extends RgbaImage {
-  tier: Tier;
-  reprinted: boolean;
-  ms: number;
-}
+export type { RgbaImage, RenderReply };
+export { displayImage };
 
 export interface ProofReply extends RgbaImage {
   proof: RenderProofResult;
-}
-
-export function displayImage(info: ImageInfo, payload: Uint8Array): RgbaImage {
-  if (!info || (info.format !== 'rgba8' && info.format !== 'rgba16'))
-    throw new HostCallError('render', 'bad_request', 'unsupported display pixel format');
-  const bytes = info.format === 'rgba16' ? 8 : 4;
-  const tight = info.width * bytes, stride = info.row_bytes || tight;
-  if (!Number.isSafeInteger(info.width) || !Number.isSafeInteger(info.height) || info.width <= 0 || info.height <= 0 ||
-      !Number.isSafeInteger(stride) || stride < tight || payload.byteLength !== stride * info.height)
-    throw new HostCallError('render', 'internal', 'invalid display pixel dimensions or payload');
-  let data = payload;
-  if (stride !== tight) {
-    data = new Uint8Array(tight * info.height);
-    for (let y = 0; y < info.height; y++) data.set(payload.subarray(y * stride, y * stride + tight), y * tight);
-  }
-  return { width: info.width, height: info.height, data, format: info.format, colorSpace: info.color_space };
 }
 
 export class Host {
@@ -126,12 +94,8 @@ export class Host {
     return (await this.call<OpenResult>('redecode', { session, decode }, 300_000)).result;
   }
   async renderSource(session: string, opts: { long_edge: number; display: 'srgb' | 'display-p3'; generation: number }): Promise<RgbaImage> {
-    const r = await this.call<{ image: ImageInfo; generation: number }>('render_source', { session, ...opts }, 180_000);
-    const i = r.result.image;
-    if (r.result.generation !== opts.generation || !i || i.width <= 0 || i.height <= 0 ||
-        i.row_bytes !== i.width * 4 || r.payload.byteLength !== i.width * i.height * 4)
-      throw new HostCallError('render_source', 'internal', 'invalid or outdated decoded source response');
-    return displayImage(i, r.payload);
+    const r = await this.call<Record<string, unknown>>('render_source', { session, ...opts }, 180_000);
+    return sourceReply(r.result, r.payload, opts.generation);
   }
   async pickNeutral(session: string, x: number, y: number, side?: 'left' | 'right'): Promise<{ temperature_k: number; tint: number }> {
     return (await this.call<{ temperature_k: number; tint: number }>('pick_neutral', { session, x, y, ...(side ? { side } : {}) }, 30_000)).result;
@@ -147,12 +111,12 @@ export class Host {
   }
   async render(session: string, tier: Tier, opts: { reprint?: boolean; progressId?: string } = {}): Promise<RenderReply> {
     const t0 = performance.now();
-    const r = await this.call<{ image: ImageInfo; tier: Tier; reprinted: boolean }>(
+    const r = await this.call<Record<string, unknown>>(
       'render',
       { session, tier, reprint: opts.reprint ?? false, format: 'rgba8', display: 'srgb', progress_id: opts.progressId },
       tier === 'full' ? 900_000 : 180_000,
     );
-    return { ...displayImage(r.result.image, r.payload), tier: r.result.tier ?? tier, reprinted: !!r.result.reprinted, ms: performance.now() - t0 };
+    return renderReply(r.result, r.payload, tier, performance.now() - t0);
   }
   async sceneLatitude(session: string, request: Record<string, unknown>, snapshot?: { params?: WireParams; source_geometry?: Geometry }): Promise<Record<string, unknown>> {
     return (await this.call<Record<string, unknown>>('scene_latitude', { session, request, ...snapshot })).result;
@@ -169,15 +133,8 @@ export class Host {
       throw new HostCallError('render_view', 'unsupported', 'This engine does not support no_film viewing.');
     const format = state.phase === 'ready' && state.hello.view_formats?.includes('rgba16') ? 'rgba16' : 'rgba8';
     const t0 = performance.now();
-    const r = await this.call<{ image: ImageInfo; tier: Tier; print_cached: boolean; generation: number; pair_info?: PairInfo }>(
-      'render_view', { session, tier, ...snapshot, format }, tier === 'full' ? 900_000 : 180_000,
-    );
-    if (r.result.generation !== snapshot.generation) throw new HostCallError('render_view', 'internal', 'view generation mismatch');
-      const image = r.result.image;
-      return { ...displayImage(image, r.payload), processedGeometry: snapshot.geometry,
-        pairInfo: r.result.pair_info,
-        nativeSize: image.source_width && image.source_height ? { width: image.source_width, height: image.source_height } : undefined,
-      tier: r.result.tier, reprinted: r.result.print_cached, ms: performance.now() - t0 };
+    const r = await this.call<Record<string, unknown>>('render_view', { session, tier, ...snapshot, format }, tier === 'full' ? 900_000 : 180_000);
+    return renderViewReply(r.result, r.payload, { ...snapshot, tier }, performance.now() - t0);
   }
   async renderProof(params: Record<string, unknown> & { generation: number }): Promise<ProofReply> {
     const snapshot = structuredClone(params);
