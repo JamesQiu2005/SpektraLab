@@ -336,7 +336,8 @@ bool Pipeline::build(const Params& params, std::string& error) {
     di_active_ = params_.io.digital_intermediate && !params_.io.scan_film && !film.info.is_positive();
     minilab_active_ = false;
     minilab_table_ = {};
-#ifdef __APPLE__
+    // On every backend since spk_minilab was ported to Vulkan (spk_minilab.comp,
+    // tests/gpu_vulkan_minilab.cpp): the catalogued pairs print through their table as on the Mac.
     if (!std::getenv("SPK_V2_REFERENCE_OPTICAL") && !di_active_ && !params_.io.scan_film &&
         !film.info.is_positive() && film.info.channel_model != "monochrome") {
         MinilabTable table;
@@ -350,7 +351,6 @@ bool Pipeline::build(const Params& params, std::string& error) {
             minilab_active_ = true;
         }
     }
-#endif
     if (di_active_ || minilab_active_) {
         if (!di_constants(*colour_, *blob_, params_, tc_lut_host_, baked_.tc_lut_side, tc_b_host_,
                           film_sensitivity_, di_, error, minilab_active_ && !di_active_)) return false;

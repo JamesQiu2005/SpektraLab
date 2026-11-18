@@ -83,6 +83,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_boost", 4, kWorkgroup},
     {"spk_highlight_headroom", 4, kWorkgroup},
     {"spk_negative_hue", 8, kWorkgroup},
+    {"spk_minilab", 13, kWorkgroup},
     {"spk_bw_correct", 4, kWorkgroup},
     {"spk_edr", 5, kWorkgroup},
     {"spk_cctf_decode", 3, kWorkgroup},
@@ -200,10 +201,13 @@ public:
         }
         if (!physical_) { error = "no Vulkan compute queue"; return false; }
         storage_range_limit_ = properties_.limits.maxStorageBufferRange;
+        // The widest kernel's binding count (spk_minilab's 13 since it was ported), not a fixed 8.
+        uint32_t widest = 0;
+        for (const auto& spec : kKernels) widest = std::max(widest, spec.bindings);
         if (properties_.limits.maxComputeWorkGroupInvocations < kWorkgroup ||
             properties_.limits.maxComputeWorkGroupSize[0] < kWorkgroup ||
-            properties_.limits.maxPerStageDescriptorStorageBuffers < 8 ||
-            properties_.limits.maxDescriptorSetStorageBuffers < 8) {
+            properties_.limits.maxPerStageDescriptorStorageBuffers < widest ||
+            properties_.limits.maxDescriptorSetStorageBuffers < widest) {
             error = "Vulkan device limits are below the current shader layout";
             return false;
         }
