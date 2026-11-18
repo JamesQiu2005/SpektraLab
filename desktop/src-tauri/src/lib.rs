@@ -5,6 +5,7 @@
 pub mod files;
 pub mod framing;
 pub mod host;
+pub mod no_network;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -173,6 +174,20 @@ fn app_paths(app: AppHandle, state: State<'_, AppState>) -> Value {
     })
 }
 
+/// The app's own origin: `tauri://localhost` on Linux, `http(s)://tauri.localhost` on Windows, and
+/// the Vite dev server in a debug build. Everything else is another site.
+fn navigation_allowed(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost"),
+        "http" | "https" => {
+            let host = url.host_str();
+            host == Some("tauri.localhost")
+                || (cfg!(debug_assertions) && host == Some("127.0.0.1") && url.port() == Some(5173))
+        }
+        _ => false,
+    }
+}
+
 fn file_args(argv: &[String]) -> Vec<String> {
     argv.iter()
         .skip(1)
@@ -213,6 +228,20 @@ pub fn run() {
                 .max_file_size(4 * 1024 * 1024)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
                 .level(log::LevelFilter::Info)
+                .build(),
+        )
+        // The window shows the app's own bundled pages and nothing else: any navigation to another
+        // origin is refused (no_network.rs keeps the processes off the network; this keeps the
+        // webview from even trying).
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("no-navigation")
+                .on_navigation(|_webview, url| {
+                    let ok = navigation_allowed(url);
+                    if !ok {
+                        log::warn!("refused navigation to {url}");
+                    }
+                    ok
+                })
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())

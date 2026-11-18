@@ -40,7 +40,7 @@ export interface Platform {
   pickFiles(title: string): Promise<string[]>;
   pickSave(title: string, defaultPath: string, ext: string): Promise<string | null>;
   reveal(path: string): Promise<void>;
-  openUrl(url: string): Promise<void>;
+  // No openUrl: the app has no network capability and opens no web address (see main.rs).
   message(title: string, text: string, kind?: 'info' | 'warning' | 'error'): Promise<void>;
   confirm(title: string, text: string): Promise<boolean>;
   onOpenPaths(cb: (paths: string[]) => void): () => void;

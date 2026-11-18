@@ -31,7 +31,11 @@
         "style-src": "'self' 'unsafe-inline'",
         "font-src": "'self' data:",
         "worker-src": "'self' blob:",
-        "script-src": "'self'"
+        "script-src": "'self'",
+        "object-src": "'none'",
+        "frame-src": "'none'",
+        "form-action": "'none'",
+        "base-uri": "'none'"
       },
       "freezePrototype": false
     }
