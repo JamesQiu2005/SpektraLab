@@ -82,6 +82,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_reduce_max", 3, kWorkgroup},
     {"spk_boost", 4, kWorkgroup},
     {"spk_highlight_headroom", 4, kWorkgroup},
+    {"spk_negative_hue", 8, kWorkgroup},
     {"spk_bw_correct", 4, kWorkgroup},
     {"spk_edr", 5, kWorkgroup},
     {"spk_cctf_decode", 3, kWorkgroup},

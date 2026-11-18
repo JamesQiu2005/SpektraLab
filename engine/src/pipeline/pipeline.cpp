@@ -440,7 +440,9 @@ bool Pipeline::build(const Params& params, std::string& error) {
         // `SPK_NEGATIVE_HUE=0` is the same for this node alone, and `=force`
         // puts it in a catalogued pair's place (the comparison with its table).
         negative_hue_active_ = false;
-#ifdef __APPLE__
+        // On every backend since spk_negative_hue was ported to Vulkan (spk_negative_hue.comp,
+        // tests/gpu_vulkan_negative_hue.cpp); off Apple it runs as its own node after the unfused
+        // optical print (`print_spectral`), on the Mac inside `spk_print_fused`.
         {
             const char* sw = std::getenv("SPK_NEGATIVE_HUE");
             const bool off = std::getenv("SPK_V2_REFERENCE_OPTICAL") || (sw && std::string(sw) == "0");
@@ -464,7 +466,6 @@ bool Pipeline::build(const Params& params, std::string& error) {
                 negative_hue_active_ = true;
             }
         }
-#endif
     }
 
     // --- the output transfer function's near-identity matrix ---------------

@@ -1,0 +1,149 @@
+#version 450
+
+// negative_hue.metal's `spk_negative_hue`, expression for expression: the print's hue taken from
+// the negative (core/negative_hue.hpp). Lightness and chroma stay the optical print's own; the
+// hue turns toward the negative's reading by a weight that is zero for a near-neutral and falls
+// where a layer has left the straight part of its curve; chroma is then held inside the paper's
+// gamut. A pixel whose weight is zero is copied, so greys are the optical print to the bit.
+//
+// Bindings in the Metal kernel's buffer order: cmy (the negative's densities), xyz (the scanned
+// optical print), layers, p, gamut, map, meta {pixels, layer samples, hues, levels, map side}, out.
+// p's layout is above `spk_negative_hue_pixel` in negative_hue.metal (Pipeline::negative_hue_params).
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Cmy { float value[]; } cmy;
+layout(set = 0, binding = 1, std430) readonly buffer Xyz { float value[]; } xyz;
+layout(set = 0, binding = 2, std430) readonly buffer Layers { float value[]; } layers;
+layout(set = 0, binding = 3, std430) readonly buffer Params { float value[]; } p;
+layout(set = 0, binding = 4, std430) readonly buffer Gamut { float value[]; } gamut;
+layout(set = 0, binding = 5, std430) readonly buffer Map { float value[]; } map_;
+layout(set = 0, binding = 6, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 7, std430) writeonly buffer Output { float value[]; } output_data;
+
+// vulkan_gpu.cpp folds a dispatch past maxComputeWorkGroupCount[0] (65535 on
+// lavapipe and Intel) into rows of workgroups; this is the 1D index it means.
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+// One layer: density -> (log10 exposure, unreliability), by index into the even table
+// (samples, 3, 2). `read_layer` in core/negative_hue.cpp.
+vec2 spk_read_layer(uint N, uint c, float lo, float scale, float v) {
+    float f = clamp((v - lo) * scale, 0.0, float(N - 1u));
+    uint j = min(uint(f), N - 2u);
+    float t = f - float(j);
+    uint a = (j * 3u + c) * 2u, b = a + 6u;
+    return vec2(layers.value[a] + t * (layers.value[b] - layers.value[a]),
+                layers.value[a + 1u] + t * (layers.value[b + 1u] - layers.value[a + 1u]));
+}
+
+float spk_cbrt(float v) { return pow(max(v, 0.0), 1.0 / 3.0); }
+
+vec3 spk_oklab_from_xyz(vec3 xyz_) {
+    float l = 0.8189330101 * xyz_.x + 0.3618667424 * xyz_.y - 0.1288597137 * xyz_.z;
+    float m = 0.0329845436 * xyz_.x + 0.9293118715 * xyz_.y + 0.0361456387 * xyz_.z;
+    float s = 0.0482003018 * xyz_.x + 0.2643662691 * xyz_.y + 0.6338517070 * xyz_.z;
+    l = spk_cbrt(l); m = spk_cbrt(m); s = spk_cbrt(s);
+    return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
+}
+
+vec3 spk_xyz_from_oklab(vec3 lab) {
+    float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+    float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+    float s = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
+    l = l * l * l; m = m * m * m; s = s * s * s;
+    return vec3(1.2270138511 * l - 0.5577999807 * m + 0.2812561490 * s,
+                -0.0405801784 * l + 1.1122568696 * m - 0.0716766787 * s,
+                -0.0763812845 * l - 0.4214819784 * m + 1.5861632204 * s);
+}
+
+vec3 spk_mul3(uint o, vec3 v) {
+    return vec3(p.value[o + 0u] * v.x + p.value[o + 1u] * v.y + p.value[o + 2u] * v.z,
+                p.value[o + 3u] * v.x + p.value[o + 4u] * v.y + p.value[o + 5u] * v.z,
+                p.value[o + 6u] * v.x + p.value[o + 7u] * v.y + p.value[o + 8u] * v.z);
+}
+
+float spk_exp10(float x) { return pow(10.0, x); }
+
+vec3 spk_negative_hue_pixel(uint i, vec3 negative, vec3 optical, uint N, uint nh, uint nl, uint S) {
+    if (p.value[40] != 0.0) {
+        // A film-edge canvas: outside the picture's gate the print is the optical one.
+        uint cw = uint(p.value[41]);
+        float u = (float(i % cw) + 0.5) * p.value[43] - p.value[50];
+        float v = (float(i / cw) + p.value[42] + 0.5) * p.value[43] - p.value[51];
+        float s = p.value[44] * u + p.value[45] * v + p.value[48], t = p.value[46] * u + p.value[47] * v + p.value[49];
+        bool inside = t >= p.value[53] && t <= p.value[53] + p.value[55] &&
+                      ((s >= p.value[52] && s <= p.value[52] + p.value[54]) ||
+                       (p.value[56] > 0.0 && s >= p.value[52] + p.value[56] && s <= p.value[52] + p.value[56] + p.value[54]));
+        if (!inside) return optical;
+    }
+    vec2 r0 = spk_read_layer(N, 0u, p.value[4], p.value[36], negative.x);
+    vec2 r1 = spk_read_layer(N, 1u, p.value[5], p.value[37], negative.y);
+    vec2 r2 = spk_read_layer(N, 2u, p.value[6], p.value[38], negative.z);
+    vec3 e = vec3(spk_exp10(r0.x + p.value[27]) * p.value[0], spk_exp10(r1.x + p.value[28]) * p.value[1],
+                  spk_exp10(r2.x + p.value[29]) * p.value[2]);
+    float esum = e.x + e.y + e.z;
+    vec3 x65 = spk_mul3(9u, optical);
+    vec3 lab_o = spk_oklab_from_xyz(x65);
+    if (!(esum > 0.0)) return optical;
+
+    // The film's exposure map, inverted: (red share, green share) -> the colour's Oklab (a, b).
+    float fx = clamp(e.x / esum, 0.0, 1.0) * float(S - 1u), fy = clamp(e.y / esum, 0.0, 1.0) * float(S - 1u);
+    uint mx = min(uint(fx), S - 2u), my = min(uint(fy), S - 2u);
+    float tx = fx - float(mx), ty = fy - float(my);
+    uint m00 = (mx * S + my) * 2u, m10 = ((mx + 1u) * S + my) * 2u;
+    vec2 q00 = vec2(map_.value[m00], map_.value[m00 + 1u]), q01 = vec2(map_.value[m00 + 2u], map_.value[m00 + 3u]);
+    vec2 q10 = vec2(map_.value[m10], map_.value[m10 + 1u]), q11 = vec2(map_.value[m10 + 2u], map_.value[m10 + 3u]);
+    vec2 qa = q00 + (q01 - q00) * ty, qb = q10 + (q11 - q10) * ty;
+    vec2 lab_r = qa + (qb - qa) * tx;
+    float c_o = length(lab_o.yz), c_r = length(lab_r);
+    if (!(c_o > 1e-7) || !(c_r > 1e-9)) return optical;
+
+    float c_at_print = c_r * lab_o.x * p.value[3];
+    float t = clamp((c_at_print - p.value[30]) * p.value[31], 0.0, 1.0);
+    float ubar = (e.x * r0.y + e.y * r1.y + e.z * r2.y) / esum;
+    float ku = p.value[32] * ubar;
+    float w = (t * t * (3.0 - 2.0 * t) / (1.0 + ku * ku) - p.value[7]) / (1.0 - p.value[7]);
+    if (!(w > 0.0)) return optical;
+
+    // The turn toward the reading: a blend of the two directions, renormalised.
+    vec2 od = lab_o.yz / c_o;
+    vec2 vd = od + w * (lab_r / c_r - od);
+    float vlen = length(vd);
+    if (!(vlen > 1e-6)) return optical;
+    float a = c_o * vd.x / vlen, b = c_o * vd.y / vlen;
+
+    // The paper's gamut at this lightness and hue, bilinear, hue wrapping.
+    float fl = clamp((lab_o.x - p.value[34]) * p.value[35], 0.0, float(nl - 1u));
+    uint l0 = min(uint(fl), nl - 2u);
+    float tl = fl - float(l0);
+    float fh = atan(b, a) * (float(nh) / 6.283185307179586);
+    fh -= floor(fh / float(nh)) * float(nh);
+    uint h0 = uint(fh) % nh, h1 = (h0 + 1u) % nh;
+    float th = fh - floor(fh);
+    float g00 = gamut.value[l0 * nh + h0], g01 = gamut.value[l0 * nh + h1];
+    float g10 = gamut.value[(l0 + 1u) * nh + h0], g11 = gamut.value[(l0 + 1u) * nh + h1];
+    float ga = g00 + (g01 - g00) * th, gb = g10 + (g11 - g10) * th;
+    float cmax = max(ga + (gb - ga) * tl, 1e-4);
+    float un = c_o / cmax, knee = p.value[33];
+    if (un > knee) {
+        float x = (un - knee) / (1.0 - knee);
+        float kn = knee + (1.0 - knee) * x / sqrt(1.0 + x * x);
+        float scale = 1.0 - w * (1.0 - kn / un);
+        a *= scale; b *= scale;
+    }
+    return max(spk_mul3(18u, spk_xyz_from_oklab(vec3(lab_o.x, a, b))), vec3(1e-10));
+}
+
+void main() {
+    uint i = spk_global_index();
+    uint n = meta.value[0];
+    if (i >= n) return;
+    vec3 o = spk_negative_hue_pixel(i, vec3(cmy.value[3u * i], cmy.value[3u * i + 1u], cmy.value[3u * i + 2u]),
+                                    vec3(xyz.value[3u * i], xyz.value[3u * i + 1u], xyz.value[3u * i + 2u]),
+                                    meta.value[1], meta.value[2], meta.value[3], meta.value[4]);
+    output_data.value[3u * i] = o.x;
+    output_data.value[3u * i + 1u] = o.y;
+    output_data.value[3u * i + 2u] = o.z;
+}
