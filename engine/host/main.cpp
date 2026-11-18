@@ -17,6 +17,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <bit>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -270,6 +271,17 @@ struct Result {
 };
 
 // Engine pixels -> the requested wire format. Fills `image` and `payload`.
+// 16-bit samples as little-endian bytes (desktop/HOST-PROTOCOL.md): on a little-endian machine that is
+// the memory itself, so one copy instead of a byte at a time (~0.5 s on a 24 MP frame, single-threaded).
+void put_le16(const uint16_t* src, size_t count, std::vector<uint8_t>& out, size_t at = 0) {
+    if (out.size() < at + count * 2) out.resize(at + count * 2);
+    if constexpr (std::endian::native == std::endian::little) {
+        std::memcpy(out.data() + at, src, count * 2);
+    } else {
+        for (size_t i = 0; i < count; ++i) { out[at + 2 * i] = uint8_t(src[i]); out[at + 2 * i + 1] = uint8_t(src[i] >> 8); }
+    }
+}
+
 void package_pixels(const spk_result& r, const std::string& source_space, const Json& params, Json& image,
                     std::vector<uint8_t>& payload) {
     const std::string format = optional_string(params, "format", "rgba8");
@@ -283,11 +295,8 @@ void package_pixels(const spk_result& r, const std::string& source_space, const 
     image.set("format", str(format));
     if (format == "rgba16" && display.empty()) {
         payload.resize(size_t(w) * h * 8);
-        for (uint32_t y = 0; y < h; ++y) {
-            const uint16_t* row = r.rgba16 + size_t(y) * stride * 4;
-            uint8_t* out = &payload[size_t(y) * w * 8];
-            for (size_t i = 0; i < size_t(w) * 4; ++i) { out[2 * i] = uint8_t(row[i]); out[2 * i + 1] = uint8_t(row[i] >> 8); }
-        }
+        for (uint32_t y = 0; y < h; ++y)
+            put_le16(r.rgba16 + size_t(y) * stride * 4, size_t(w) * 4, payload, size_t(y) * w * 8);
         image.set("color_space", str(source_space));
         image.set("row_bytes", number(double(w) * 8));
         return;
@@ -303,8 +312,7 @@ void package_pixels(const spk_result& r, const std::string& source_space, const 
     } else {
         std::vector<uint16_t> px;
         t.encode_rgba16(lin, px);
-        payload.resize(px.size() * 2);
-        for (size_t i = 0; i < px.size(); ++i) { payload[2 * i] = uint8_t(px[i]); payload[2 * i + 1] = uint8_t(px[i] >> 8); }
+        put_le16(px.data(), px.size(), payload);
         image.set("row_bytes", number(double(w) * 8));
     }
     image.set("color_space", str(target));
