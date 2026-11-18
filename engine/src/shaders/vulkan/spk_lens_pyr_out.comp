@@ -1,0 +1,103 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_pyr_out: out = c_id E + sum_t f_t S(p + t) + up(A_1) --
+// the identity on E (fp32), the core FIR on the scatter source (a (2 R + 1)^2
+// window, R <= 5, edges replicated) and the pyramid. Rows [row0, row0 + n) of
+// the frame into out's rows 0 .. n - 1. 32 x 8 tiles walked by workgroup with
+// a grid stride; the tile's scatter source (fp16-rounded, as Metal's half
+// tile) with its border and the coarse level's samples it needs in shared
+// memory. c: {c_id[3], f[(R+1)^2][3]}; meta: {H, W, H1, W1, R, row0, n}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+// E and out are the same buffer for the glow's pointwise combine (R = 0, row0
+// = 0): no readonly/writeonly, so the two bindings may alias. Each invocation
+// reads its own pixel before it writes it, and a tile's loads finish at the
+// barrier before any of its writes.
+layout(std430, binding = 0) buffer Ebuf { float E[]; };
+layout(std430, binding = 1) readonly buffer A1buf { float A1[]; };
+layout(std430, binding = 2) readonly buffer Cbuf { float c[]; };
+layout(std430, binding = 3) readonly buffer Bp { float bp[]; };
+layout(std430, binding = 4) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 5) buffer Out { float dst[]; };
+
+SPK_SCATTER_SOURCE_FN(scatter_source, bp)
+
+const uint kCoreTW = 32u, kCoreTH = 8u, kCoreRMax = 5u;
+const uint kCoarseW = kCoreTW / 2u + 2u, kCoarseH = kCoreTH / 2u + 2u;
+const uint SWM = kCoreTW + 2u * kCoreRMax, SHM = kCoreTH + 2u * kCoreRMax;
+shared vec3 ts[SWM * SHM];
+shared vec3 tc[kCoarseW * kCoarseH];
+
+void main() {
+    const uint lid = gl_LocalInvocationID.x, group_size = gl_WorkGroupSize.x;
+    const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    const uint groups = gl_NumWorkGroups.x * gl_NumWorkGroups.y;
+    const uint H = meta[0], W = meta[1], Hc = meta[2], Wc = meta[3], R = meta[4], row0 = meta[5], n = meta[6];
+    const uint SW = kCoreTW + 2u * R, SH = kCoreTH + 2u * R, Q = R + 1u;
+    const uint tiles_x = (W + kCoreTW - 1u) / kCoreTW;
+    const uint n_tiles = tiles_x * ((n + kCoreTH - 1u) / kCoreTH);
+    const vec3 cid = vec3(c[0], c[1], c[2]);
+    const float ev[3] = float[3](5.0 / 16.0, 10.0 / 16.0, 1.0 / 16.0);
+    const float od[3] = float[3](1.0 / 16.0, 10.0 / 16.0, 5.0 / 16.0);
+    for (uint tile = group; tile < n_tiles; tile += groups) {
+        const int tx0 = int((tile % tiles_x) * kCoreTW), ty0 = int(row0 + (tile / tiles_x) * kCoreTH);
+        for (uint e = lid; e < SW * SH; e += group_size) {
+            uint r = e / SW, q = e % SW;
+            uint gy = uint(clamp(ty0 + int(r) - int(R), 0, int(H) - 1));
+            uint gx = uint(clamp(tx0 + int(q) - int(R), 0, int(W) - 1));
+            ts[e] = spk_q16v(scatter_source(SPK_LD3(E, gy * W + gx)));
+        }
+        const int cy0 = ty0 / 2 - 1, cx0 = tx0 / 2 - 1;
+        for (uint e = lid; e < kCoarseW * kCoarseH; e += group_size) {
+            uint r = e / kCoarseW, q = e % kCoarseW;
+            uint gy = uint(clamp(cy0 + int(r), 0, int(Hc) - 1)), gx = uint(clamp(cx0 + int(q), 0, int(Wc) - 1));
+            tc[e] = SPK_LD3(A1, gy * Wc + gx);
+        }
+        memoryBarrierShared();
+        barrier();
+        for (uint e = lid; e < kCoreTW * kCoreTH; e += group_size) {
+            uint r = e / kCoreTW, q = e % kCoreTW;
+            uint gy = uint(ty0) + r, gx = uint(tx0) + q;
+            if (gy >= row0 + n || gx >= W) continue;
+            // the pyramid: pyr_up from the tile's coarse samples
+            const uint br = r / 2u, bq = q / 2u;
+            const bool ox = (gx & 1u) != 0u, oy = (gy & 1u) != 0u;
+            vec3 up = vec3(0.0);
+            for (uint a = 0u; a < 3u; ++a) {
+                float wy = oy ? od[a] : ev[a];
+                uint row = (br + a) * kCoarseW + bq;
+                vec3 acc = (ox ? od[0] : ev[0]) * tc[row] + (ox ? od[1] : ev[1]) * tc[row + 1u] +
+                           (ox ? od[2] : ev[2]) * tc[row + 2u];
+                up += wy * acc;
+            }
+            // the core over the eight samples (+-dx, +-dy), (+-dy, +-dx); the
+            // centre tap from E itself in fp32, the others from the tile
+            const int ci = int((r + R) * SW + (q + R)), sw = int(SW);
+            const vec3 e0 = SPK_LD3(E, gy * W + gx);
+            vec3 core = vec3(c[3], c[4], c[5]) * scatter_source(e0);
+            for (uint dy = 0u; dy <= R; ++dy) {
+                for (uint dx = max(dy, 1u); dx <= R; ++dx) {
+                    const int x = int(dx), y = int(dy);
+                    vec3 s = ts[ci + y * sw + x];
+                    if (x != 0) s += ts[ci + y * sw - x];
+                    if (y != 0) {
+                        s += ts[ci - y * sw + x];
+                        if (x != 0) s += ts[ci - y * sw - x];
+                    }
+                    if (x != y) {   // the swap
+                        s += ts[ci + x * sw + y] + ts[ci - x * sw + y];
+                        if (y != 0) s += ts[ci + x * sw - y] + ts[ci - x * sw - y];
+                    }
+                    const uint w = 3u + 3u * (dy * Q + dx);
+                    core += vec3(c[w], c[w + 1u], c[w + 2u]) * s;
+                }
+            }
+            const uint oi = (gy - row0) * W + gx;
+            vec3 o = cid * e0 + core + up;
+            SPK_ST3(dst, oi, o);
+        }
+        // Before the next tile overwrites what this one's threads may still read.
+        memoryBarrierShared();
+        barrier();
+    }
+}

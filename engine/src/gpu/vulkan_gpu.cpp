@@ -96,6 +96,23 @@ constexpr KernelSpec kKernels[] = {
     {"spk_geometry_resample_df", 4, kWorkgroup},
     {"spk_lut3d_trilinear", 6, kWorkgroup},
     {"spk_di_normalise", 5, kWorkgroup},
+    // the lens (lens.metal): the diffusion filter's pyramid, the glow, the aberrations
+    {"spk_lens_splat", 3, kWorkgroup},
+    {"spk_lens_mix", 7, kWorkgroup},
+    {"spk_lens_tca", 4, kWorkgroup},
+    {"spk_lens_loca_share", 4, kWorkgroup},
+    {"spk_lens_loca_mix", 5, kWorkgroup},
+    {"spk_lens_down2", 3, kWorkgroup},
+    {"spk_lens_line", 9, kWorkgroup},
+    {"spk_lens_pyr_down0", 4, kWorkgroup},
+    {"spk_lens_pyr_down", 3, kWorkgroup},
+    {"spk_lens_pyr_up", 4, kWorkgroup},
+    {"spk_lens_pyr_out", 6, kWorkgroup},
+    {"spk_lens_gauss_1d", 4, kWorkgroup},
+    {"spk_lens_rows_put", 3, kWorkgroup},
+    {"spk_lens_cctf_encode", 2, kWorkgroup},
+    // a light leak with the film edge off (overscan.metal)
+    {"spk_leak_frame", 4, kWorkgroup},
 };
 
 const KernelSpec* find_kernel(const char* name) {

@@ -1,0 +1,37 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_splat: a tent splat down to a plane-anchored grid.
+// meta: {H, W, row0, PH, LW, I0, nI, f, outI0}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Img { float img[]; };
+layout(std430, binding = 1) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 2) writeonly buffer Out { float dst[]; };
+
+void main() {
+    uint i = spk_global_index();
+    uint H = meta[0], W = meta[1], row0 = meta[2], PH = meta[3], LW = meta[4];
+    uint I0 = meta[5], nI = meta[6], f = meta[7], outI0 = meta[8];
+    if (i >= nI * LW) return;
+    uint I = I0 + i / LW, J = i % LW;
+    float ff = float(f), c = 0.5 * float(f - 1u);
+    float cy = float(f * I) + c, cx = float(f * J) + c;
+    int y0 = int(floor(cy - ff)) + 1, y1 = int(ceil(cy + ff)) - 1;
+    int x0 = int(floor(cx - ff)) + 1, x1 = int(ceil(cx + ff)) - 1;
+    vec3 acc = vec3(0.0);
+    for (int y = y0; y <= y1; ++y) {
+        float wy = max(0.0, 1.0 - abs(float(y) - cy) / ff);
+        int yp = clamp(y, 0, int(PH) - 1);
+        uint yy = uint(clamp(yp - int(row0), 0, int(H) - 1));
+        vec3 row = vec3(0.0);
+        for (int x = x0; x <= x1; ++x) {
+            float wx = max(0.0, 1.0 - abs(float(x) - cx) / ff);
+            uint xx = uint(clamp(x, 0, int(W) - 1));
+            row += wx * SPK_LD3(img, yy * W + xx);
+        }
+        acc += wy * row;
+    }
+    acc /= ff * ff;
+    uint o = (I - outI0) * LW + J;
+    SPK_ST3(dst, o, acc);
+}

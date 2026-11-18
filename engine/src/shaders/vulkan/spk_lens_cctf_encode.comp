@@ -1,0 +1,27 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_cctf_encode: the input's transfer function put back after
+// the lens (spk_cctf_decode's inverse), in place. meta: {n, mode}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) buffer X { float x[]; };
+layout(std430, binding = 1) readonly buffer Meta { uint meta[]; };
+
+float lens_cctf_encode(float v, uint mode) {
+    // Exponents as float operations, as Metal evaluates them (spk_cctf_decode.comp).
+    float one = 1.0;
+    switch (mode) {
+        case 0u: return (v <= 0.0031308) ? 12.92 * v : 1.055 * pow(v, one / 2.4) - 0.055;
+        case 1u: return (v < one / 512.0) ? v * 16.0 : pow(v, one / 1.8);
+        // Metal's pow of a negative base is NaN; GLSL leaves it undefined.
+        case 2u: return v < 0.0 ? uintBitsToFloat(0x7fc00000u) : pow(v, 256.0 / 563.0);
+        case 3u: return (0.018 > v) ? v * 4.5 : 1.099 * pow(v, 0.45) - 0.099;
+        default: return v;
+    }
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta[0]) return;
+    x[i] = lens_cctf_encode(x[i], meta[1]);
+}

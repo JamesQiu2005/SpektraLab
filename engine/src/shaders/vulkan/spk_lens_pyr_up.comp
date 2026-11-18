@@ -1,0 +1,45 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_pyr_up: A_k = a_k L_k + up(A_{k+1}), in place over L_k,
+// stored fp16-rounded (spk_lens.glsl). The up filter is the down filter's
+// transpose x 2 per axis: an even fine sample takes (5, 10, 1) / 16 of coarse
+// b - 1, b, b + 1, an odd one (1, 10, 5) / 16.
+// meta: {Hf, Wf, Hc, Wc, has_coarse}; a: a_k[3]
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+// No readonly/writeonly: a level with no coarser one is bound as both (its
+// coarse is then never read).
+layout(std430, binding = 0) buffer Fine { float fine[]; };
+layout(std430, binding = 1) buffer Coarse { float coarse[]; };
+layout(std430, binding = 2) readonly buffer A { float a[]; };
+layout(std430, binding = 3) readonly buffer Meta { uint meta[]; };
+
+vec3 pyr_up(uint Hc, uint Wc, uint x, uint y) {
+    const float ev[3] = float[3](5.0 / 16.0, 10.0 / 16.0, 1.0 / 16.0);
+    const float od[3] = float[3](1.0 / 16.0, 10.0 / 16.0, 5.0 / 16.0);
+    int bx = int(x / 2u), by = int(y / 2u);
+    uint cs[3];
+    float wx[3], wy[3];
+    for (int t = 0; t < 3; ++t) {
+        cs[t] = uint(clamp(bx - 1 + t, 0, int(Wc) - 1));
+        wx[t] = (x & 1u) != 0u ? od[t] : ev[t];
+        wy[t] = (y & 1u) != 0u ? od[t] : ev[t];
+    }
+    vec3 s = vec3(0.0);
+    for (int q = 0; q < 3; ++q) {
+        uint row = uint(clamp(by - 1 + q, 0, int(Hc) - 1)) * Wc;
+        vec3 acc = wx[0] * SPK_LD3(coarse, row + cs[0]) + wx[1] * SPK_LD3(coarse, row + cs[1]) +
+                   wx[2] * SPK_LD3(coarse, row + cs[2]);
+        s += wy[q] * acc;
+    }
+    return s;
+}
+
+void main() {
+    uint i = spk_global_index();
+    uint Hf = meta[0], Wf = meta[1];
+    if (i >= Hf * Wf) return;
+    vec3 v = vec3(a[0], a[1], a[2]) * SPK_LD3(fine, i);
+    if (meta[4] != 0u) v += pyr_up(meta[2], meta[3], i % Wf, i / Wf);
+    SPK_ST3(fine, i, spk_q16v(v));
+}

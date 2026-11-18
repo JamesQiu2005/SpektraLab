@@ -55,11 +55,14 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/scene_latitude.cpp
     # every backend since the contrast mask's kernels were ported to Vulkan
     src/pipeline/contrast_mask.cpp
+    # and the lens (diffusion filter, aberrations) since spk_lens_*.comp
+    src/pipeline/lens.cpp
+    # and the overscan node for the light leaks (spk_leak_frame.comp)
+    src/pipeline/overscan.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(APPLE)
     target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/lens.cpp src/pipeline/overscan.cpp
         src/pipeline/scene_layers.cpp)
 else()
     target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
@@ -126,6 +129,10 @@ if(NOT APPLE)
             spk_reduce_max spk_boost spk_highlight_headroom spk_negative_hue spk_minilab spk_di_encode spk_scene_latitude spk_scene_curve spk_mask_reduce spk_mask_epilogue spk_bw_correct spk_edr spk_cctf_decode
             spk_zoom_bilinear_mirror spk_geometry_resample_df
             spk_lut3d_trilinear spk_di_normalise
+            spk_lens_splat spk_lens_mix spk_lens_tca spk_lens_loca_share spk_lens_loca_mix
+            spk_lens_down2 spk_lens_line spk_lens_pyr_down0 spk_lens_pyr_down spk_lens_pyr_up
+            spk_lens_pyr_out spk_lens_gauss_1d spk_lens_rows_put spk_lens_cctf_encode
+            spk_leak_frame
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")

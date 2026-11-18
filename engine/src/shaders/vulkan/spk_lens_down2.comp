@@ -1,0 +1,30 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_down2: one mip level of the gathers' pyramid from the one
+// below, plane-anchored, the tent [1 3 3 1] / 8 per axis.
+// meta: {Hin, Win, I0in, Hout, Wout, I0out}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Img { float img[]; };
+layout(std430, binding = 1) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 2) writeonly buffer Out { float dst[]; };
+
+void main() {
+    uint i = spk_global_index();
+    uint Hin = meta[0], Win = meta[1], I0in = meta[2], Hout = meta[3], Wout = meta[4], I0out = meta[5];
+    if (i >= Hout * Wout) return;
+    uint r = i / Wout, j = i % Wout;
+    const float c[4] = float[4](0.125, 0.375, 0.375, 0.125);
+    int fy = 2 * int(I0out + r) - 1 - int(I0in), fx = 2 * int(j) - 1;
+    vec3 s = vec3(0.0);
+    for (int a = 0; a < 4; ++a) {
+        uint yy = uint(clamp(fy + a, 0, int(Hin) - 1));
+        vec3 row = vec3(0.0);
+        for (int b = 0; b < 4; ++b) {
+            uint xx = uint(clamp(fx + b, 0, int(Win) - 1));
+            row += c[b] * SPK_LD3(img, yy * Win + xx);
+        }
+        s += c[a] * row;
+    }
+    SPK_ST3(dst, i, s);
+}

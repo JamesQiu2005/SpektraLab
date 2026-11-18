@@ -20,9 +20,11 @@
 //                 and (on 120, which is not sprocket-locked) where the edge
 //                 numbers land.
 // Text is rasterised with CoreText/CoreGraphics.
+#ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -1440,6 +1442,7 @@ void film_to_canvas_px(const OverscanLayout& L, double s, double t, double& x, d
     y = v / L.px;
 }
 
+#ifdef __APPLE__
 CFAttributedStringRef make_text(const Op& op, CTFontRef font, double gain) {
     CFStringRef str = CFStringCreateWithCString(nullptr, op.text.c_str(), kCFStringEncodingUTF8);
     CGFloat white[] = {CGFloat(std::clamp(gain, 0.0, 1.0)), 1.0};
@@ -1580,6 +1583,17 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
     for (size_t i = 0; i < cov.size(); ++i) cov[i] = wc * cov[i] + wt * tail[i];
     return true;
 }
+
+#else
+// Off Apple the imprints' rasteriser (CoreText, CoreGraphics, vImage) has no
+// replacement yet: the film edge and the date are refused before a render
+// (windows_unported.hpp), so no group reaches this. A light leak, which shares
+// this node, draws no imprint.
+bool rasterise(const OverscanLayout&, const Group&, std::vector<float>& cov, int& x0, int& y0, int& w, int& h) {
+    cov.clear(); x0 = y0 = w = h = 0;
+    return false;
+}
+#endif  // __APPLE__
 
 // A 5x7 dot-matrix face (rows top to bottom, bit 4 = left column): the
 // data backs that print shooting data (645N, F5/F6) and the dot-matrix date
@@ -1970,6 +1984,7 @@ double dot_text(const std::string& text, const DotFace& f, double ps, double pt,
     return std::max(0.0, x - (f.advance - f.ncol + 1) * ps + d);
 }
 
+#ifdef __APPLE__
 // A Helvetica-family string's advance in film mm, as CoreText lays it out.
 double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
     Op op;
@@ -1983,6 +1998,12 @@ double text_width(const char* font, double size_mm, const std::string& text, dou
     CFRelease(line); CFRelease(as); CFRelease(f);
     return w * hscale;
 }
+
+#else
+// Off Apple: no CoreText to measure with (see `rasterise`); unreachable while the
+// film edge and the date are refused.
+double text_width(const char*, double, const std::string&, double, double) { return 0.0; }
+#endif  // __APPLE__
 
 // --- the Pentax MZ-S data line (API-SPEC §21.2) -----------------------
 // One field per gap between perforations. The face is the 5x7 matrix made
