@@ -1,79 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Develop: a film canister with its strip unrolled. Monotone, original artwork. -->
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2a2a2a"/>
-      <stop offset="1" stop-color="#0e0e0e"/>
-    </linearGradient>
-    <linearGradient id="can" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#8c8c8c"/>
-      <stop offset="0.35" stop-color="#f2f2f2"/>
-      <stop offset="0.7" stop-color="#cfcfcf"/>
-      <stop offset="1" stop-color="#7a7a7a"/>
-    </linearGradient>
-    <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#5e5e5e"/>
-      <stop offset="0.4" stop-color="#bdbdbd"/>
-      <stop offset="1" stop-color="#4f4f4f"/>
-    </linearGradient>
-    <linearGradient id="strip" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#d9d9d9"/>
-      <stop offset="1" stop-color="#f7f7f7"/>
-    </linearGradient>
-    <clipPath id="round"><rect width="512" height="512" rx="112"/></clipPath>
-  </defs>
-
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-
-  <g clip-path="url(#round)">
-    <g transform="translate(4,-52)">
-    <!-- the strip, unrolled from the canister and curving up to the right -->
-    <path d="M150 300 C 250 300, 330 250, 470 150 L 520 210 C 380 318, 280 372, 150 372 Z" fill="url(#strip)"/>
-    <!-- frames on the strip -->
-    <g fill="#1c1c1c">
-      <path d="M200 318 C 225 318, 245 316, 262 312 L 268 350 C 248 354, 226 356, 200 356 Z"/>
-      <path d="M284 305 C 306 298, 326 289, 344 279 L 362 313 C 342 324, 320 334, 296 342 Z"/>
-      <path d="M364 266 C 383 254, 400 242, 417 229 L 440 261 C 422 275, 404 288, 384 301 Z"/>
-    </g>
-    <!-- sprocket holes, both edges -->
-    <g fill="#141414">
-      <rect x="164" y="304" width="10" height="7" rx="2"/>
-      <rect x="188" y="304" width="10" height="7" rx="2"/>
-      <rect x="212" y="303" width="10" height="7" rx="2"/>
-      <rect x="236" y="301" width="10" height="7" rx="2" transform="rotate(-6 241 304)"/>
-      <rect x="260" y="297" width="10" height="7" rx="2" transform="rotate(-12 265 300)"/>
-      <rect x="283" y="290" width="10" height="7" rx="2" transform="rotate(-18 288 293)"/>
-      <rect x="305" y="281" width="10" height="7" rx="2" transform="rotate(-24 310 284)"/>
-      <rect x="326" y="270" width="10" height="7" rx="2" transform="rotate(-28 331 273)"/>
-      <rect x="347" y="257" width="10" height="7" rx="2" transform="rotate(-32 352 260)"/>
-      <rect x="367" y="243" width="10" height="7" rx="2" transform="rotate(-34 372 246)"/>
-      <rect x="387" y="229" width="10" height="7" rx="2" transform="rotate(-35 392 232)"/>
-      <rect x="407" y="215" width="10" height="7" rx="2" transform="rotate(-36 412 218)"/>
-      <rect x="427" y="200" width="10" height="7" rx="2" transform="rotate(-36 432 203)"/>
-      <rect x="447" y="186" width="10" height="7" rx="2" transform="rotate(-36 452 189)"/>
-      <rect x="164" y="362" width="10" height="7" rx="2"/>
-      <rect x="188" y="362" width="10" height="7" rx="2"/>
-      <rect x="212" y="361" width="10" height="7" rx="2"/>
-      <rect x="236" y="359" width="10" height="7" rx="2" transform="rotate(-6 241 362)"/>
-      <rect x="261" y="355" width="10" height="7" rx="2" transform="rotate(-12 266 358)"/>
-      <rect x="286" y="348" width="10" height="7" rx="2" transform="rotate(-18 291 351)"/>
-      <rect x="310" y="338" width="10" height="7" rx="2" transform="rotate(-24 315 341)"/>
-      <rect x="333" y="326" width="10" height="7" rx="2" transform="rotate(-28 338 329)"/>
-      <rect x="355" y="312" width="10" height="7" rx="2" transform="rotate(-32 360 315)"/>
-      <rect x="376" y="298" width="10" height="7" rx="2" transform="rotate(-34 381 301)"/>
-      <rect x="397" y="283" width="10" height="7" rx="2" transform="rotate(-35 402 286)"/>
-      <rect x="418" y="268" width="10" height="7" rx="2" transform="rotate(-36 423 271)"/>
-      <rect x="439" y="253" width="10" height="7" rx="2" transform="rotate(-36 444 256)"/>
-      <rect x="460" y="238" width="10" height="7" rx="2" transform="rotate(-36 465 241)"/>
-    </g>
-
-    <!-- the canister -->
-    <rect x="66" y="232" width="96" height="208" rx="14" fill="url(#can)"/>
-    <rect x="58" y="222" width="112" height="24" rx="8" fill="url(#cap)"/>
-    <rect x="58" y="426" width="112" height="24" rx="8" fill="url(#cap)"/>
-    <rect x="98" y="198" width="32" height="28" rx="6" fill="url(#cap)"/>
-    <!-- the light-trap slit the strip leaves through -->
-    <rect x="156" y="294" width="10" height="84" rx="3" fill="#2b2b2b"/>
-    </g>
+  <!-- Develop: red, green and blue light overlapping. Original artwork. -->
+  <defs><radialGradient id="dark" cx="0.5" cy="0.4" r="0.8"><stop offset="0" stop-color="#1e1e1e"/><stop offset="1" stop-color="#050505"/></radialGradient></defs>
+  <rect width="512" height="512" rx="112" fill="url(#dark)"/>
+  <g style="isolation:isolate">
+    <circle cx="256.0" cy="196.0" r="112" fill="#ff2a2a" style="mix-blend-mode:screen"/>
+    <circle cx="316.6" cy="301.0" r="112" fill="#22e04a" style="mix-blend-mode:screen"/>
+    <circle cx="195.4" cy="301.0" r="112" fill="#2a5cff" style="mix-blend-mode:screen"/>
   </g>
 </svg>
