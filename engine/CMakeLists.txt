@@ -121,7 +121,7 @@ if(NOT APPLE)
             spk_cctf_encode_matrix spk_to_rgba16
             spk_grain_layers spk_grain_layer_one spk_grain_simple
             spk_lognormal_field spk_rng_probe spk_mul spk_glare_add
-            spk_reduce_max spk_boost spk_bw_correct spk_edr spk_cctf_decode
+            spk_reduce_max spk_boost spk_highlight_headroom spk_bw_correct spk_edr spk_cctf_decode
             spk_zoom_bilinear_mirror spk_geometry_resample_df
             spk_lut3d_trilinear spk_di_normalise
             CACHE INTERNAL "")
