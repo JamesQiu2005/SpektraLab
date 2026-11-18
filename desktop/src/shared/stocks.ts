@@ -88,7 +88,16 @@ export class StockCatalog {
   }
   /** Still first, then cine, as the Mac picker orders them; then by polarity. */
   filmGroups(): { title: 'Positive' | 'Negative'; films: Stock[] }[] {
-    const ordered = [...this.films.filter((s) => s.use !== 'cine'), ...this.films.filter((s) => s.use === 'cine')];
+    // Develop (the owner, 2026-11-19): by brand, then by name (numbers in order, so 50 before 100),
+    // cine stocks after the still ones as before. The brand is the name's first word: the
+    // catalogue has no maker field, and every name starts with its maker.
+    const brand = (s: Stock) => s.name.split(' ')[0] ?? '';
+    const ordered = [...this.films].sort(
+      (a, b) =>
+        Number(a.use === 'cine') - Number(b.use === 'cine') ||
+        brand(a).localeCompare(brand(b)) ||
+        a.name.localeCompare(b.name, undefined, { numeric: true }),
+    );
     return [
       { title: 'Positive', films: ordered.filter((s) => s.type === 'positive') },
       { title: 'Negative', films: ordered.filter((s) => s.type !== 'positive') },
