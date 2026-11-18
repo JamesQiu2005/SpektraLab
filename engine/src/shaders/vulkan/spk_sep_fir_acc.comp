@@ -57,10 +57,18 @@ void main() {
                            weights.value[2 * taps + tap]);
         sum += sample_value * weight;
     }
-    if (accumulate != 0u)
+    // accumulate: 0 plain, 1 `acc + wt * conv` (the mixture's multiply-add), 2 the same with acc = 0
+    // (a mixture's first component, Blur::mixture since 2.4.0; the accumulator binding then holds
+    // the input image, which must not be read). Metal's spk_sep_fir_acc, branch for branch: before
+    // this, 2 read as 1 and added the unblurred input to every first component (the red cast of
+    // 2.4.0 on Vulkan, through the DIR couplers' correction).
+    vec3 wt = vec3(mix_weights.value[0], mix_weights.value[1], mix_weights.value[2]);
+    if (accumulate == 1u)
         sum = vec3(accumulator.value[3 * pixel], accumulator.value[3 * pixel + 1],
                    accumulator.value[3 * pixel + 2])
-              + sum * vec3(mix_weights.value[0], mix_weights.value[1], mix_weights.value[2]);
+              + sum * wt;
+    else if (accumulate == 2u)
+        sum = sum * wt;
     output_data.value[3 * pixel] = sum.x;
     output_data.value[3 * pixel + 1] = sum.y;
     output_data.value[3 * pixel + 2] = sum.z;
