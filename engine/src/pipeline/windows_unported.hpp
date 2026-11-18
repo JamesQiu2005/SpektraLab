@@ -7,7 +7,9 @@ namespace spk {
 
 inline const char* windows_unported_error(bool di, bool latitude, bool mask,
                                          bool overscan, bool date, bool scan_hdr = false) {
-    if (di) return "digital intermediate is not implemented by the Windows Vulkan backend yet";
+    // The Digital Intermediate renders on Vulkan since spk_di_encode was ported (spk_di_encode.comp,
+    // tests/gpu_vulkan_di_encode.cpp); the flag stays in the signature for its callers.
+    (void)di;
     if (latitude) return "scene latitude mapping is not implemented by the Windows Vulkan backend yet";
     if (mask) return "contrast mask is not implemented by the Windows Vulkan backend yet";
     if (overscan) return "overscan is not implemented by the Windows Vulkan backend yet";

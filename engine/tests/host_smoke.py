@@ -231,12 +231,19 @@ def extras(host, sid, path, tmp, label, raw, probe):
     check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (refused feature -> invalid)")
     h, _ = host.call("progress", {"session": sid})
     check(h["ok"] and "pct" in h["result"], f"{label}: progress", h.get("error"))
-    # The five refused features are refused by name, and leave the session usable.
-    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active",
-                  "digital_intermediate"):
+    # The features still refused are refused by name, and leave the session usable.
+    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active"):
         h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
         check(not h["ok"] and h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
               f"{label}: {field} refused", h.get("error", {}).get("message", "accepted?!"))
+    # The Digital Intermediate is ported (spk_di_encode): accepted, rendered, and switched off again.
+    h, _ = host.call("set_params", {"session": sid, "delta": {"digital_intermediate": True}})
+    if check(h["ok"], f"{label}: digital_intermediate accepted", h.get("error")):
+        h, px = host.call("render", {"session": sid, "tier": "live", "format": "rgba16"})
+        check(h["ok"] and len(px) == h["result"]["image"]["width"] * h["result"]["image"]["height"] * 8,
+              f"{label}: digital_intermediate renders", h.get("error"))
+        h, _ = host.call("set_params", {"session": sid, "delta": {"digital_intermediate": False}})
+        check(h["ok"], f"{label}: digital_intermediate off again", h.get("error"))
     h, _ = host.call("print_lut_catalog")
     stock = sorted(h["result"].keys())[0]
     h, px = host.call("preview_stock_lut", {"session": sid, "print_stock": stock, "tier": "live",

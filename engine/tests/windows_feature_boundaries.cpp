@@ -54,8 +54,8 @@ int main(int argc, char** argv) {
         const std::string before = params(session.get());
 
         struct Feature { const char* key; const char* label; };
-        const std::array<Feature, 5> features{{
-            {"digital_intermediate", "digital intermediate"},
+        // The Digital Intermediate is ported (spk_di_encode.comp): it is checked below to render.
+        const std::array<Feature, 4> features{{
             {"scene_latitude_active", "scene latitude mapping"},
             {"contrast_mask_active", "contrast mask"},
             {"overscan_active", "overscan"},
@@ -85,13 +85,11 @@ int main(int argc, char** argv) {
         char* di_json = nullptr;
         const spk_status di_status = spk_render_digital_intermediate(session.get(), &di, &di_json);
         const std::string di_error = spk_last_error(engine.get());
-        const bool empty = !di.texture && !di.rgba16 && !di_json;
+        const bool rendered = di.rgba16 && di.width == 32 && di.height == 16;
         spk_result_free(&di);
         spk_string_free(di_json);
-        require(di_status == SPK_ERR_USER && empty &&
-                di_error.find("digital intermediate") != std::string::npos,
-                "DI API did not return a clear refusal and empty result");
-        require(params(session.get()) == before, "DI refusal mutated the session");
+        require(di_status == SPK_OK && rendered, "DI did not render on Vulkan: " + di_error);
+        require(params(session.get()) == before, "a DI render mutated the session");
         render(engine.get(), session.get());
 
         const float* mask = nullptr;
@@ -111,7 +109,7 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == before, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (5 flags, DI refusal, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (4 flags, DI renders, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

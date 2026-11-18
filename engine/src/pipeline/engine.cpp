@@ -360,7 +360,7 @@ struct spk_engine {
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
-        for (const char* feature : {"digital_intermediate", "scene_latitude_mapping",
+        for (const char* feature : {"scene_latitude_mapping",
                                     "contrast_mask", "overscan", "date_imprint", "scan_hdr"})
             unported.push(Json(std::string(feature)));
         backend.set("unsupported_features", std::move(unported));
@@ -1907,11 +1907,7 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     std::lock_guard<std::mutex> guard(session->lock);
     g_error.clear();
     std::memset(out, 0, sizeof *out);
-#ifndef __APPLE__
     if (out_json) *out_json = nullptr;
-    g_error = windows_unported_error(true, false, false, false, false);
-    return SPK_ERR_USER;
-#endif
     if (session->params.film.info.is_positive()) {
         g_error = "a slide film has no orange mask and no negative to reverse, so it has no "
                   "Digital Intermediate";
