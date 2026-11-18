@@ -10,6 +10,7 @@
 import { type Adjustments, ADJUSTMENTS_DEFAULT, decodeAdjustments } from './adjustments';
 import { type Geometry, GEOMETRY_DEFAULT, decodeGeometry, encodeGeometry } from './geometry';
 import { type FilmParams, FILM_PARAMS_DEFAULT, decodeFilmParams } from './params';
+import { type LensPick, decodeLensPick } from './lens';
 
 export type FrameState = 'unprocessed' | 'processed' | 'stale';
 
@@ -18,12 +19,15 @@ export interface DecodeSettings {
   temperature: number;
   tint: number;
   lensCorrection: boolean;
+  /** Develop: the lens chosen for correction (lens.ts); null = the file's own lens. */
+  lens: LensPick | null;
 }
 export const DECODE_DEFAULT: DecodeSettings = {
   whiteBalance: 'As Shot',
   temperature: 5500,
   tint: 0,
   lensCorrection: false,
+  lens: null,
 };
 
 export interface Sidecar {
@@ -79,6 +83,7 @@ export function decodeSidecar(raw: unknown): Sidecar {
       temperature: typeof d.temperature === 'number' ? d.temperature : DECODE_DEFAULT.temperature,
       tint: typeof d.tint === 'number' ? d.tint : DECODE_DEFAULT.tint,
       lensCorrection: d.lensCorrection === true,
+      lens: decodeLensPick(d.lens),
     },
     params: o.params ? decodeFilmParams(o.params) : FILM_PARAMS_DEFAULT,
     adjustments: o.adjustments ? decodeAdjustments(o.adjustments) : ADJUSTMENTS_DEFAULT,

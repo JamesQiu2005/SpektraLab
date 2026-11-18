@@ -40,6 +40,7 @@ import { settingsStore } from './settings';
 import { frameImages, makeThumbFromPrint } from './frames';
 import { thumbs } from './thumbs';
 import { tz } from '../i18n';
+import type { LensCorrectionReply } from '@shared/lens';
 
 export type Tool = 'select' | 'hand' | 'crop';
 
@@ -78,6 +79,8 @@ export interface SessionState {
   engineSession: string | null;
   nativeSize: { width: number; height: number } | null;
   metadata: FileMetadata | null;
+  /** Develop: what lens correction did at the last decode, or why not (null: not asked). */
+  lensStatus: LensCorrectionReply | null;
   /** The open frame's kind as the host decoded it (`raw`, `tiff`, …); null until it lands. */
   frameKind: string | null;
   /** A decode-setting change (white balance) is being re-decoded. */
@@ -126,6 +129,7 @@ const INITIAL: SessionState = {
   engineSession: null,
   nativeSize: null,
   metadata: null,
+  lensStatus: null,
   frameKind: null,
   redecoding: false,
   imageVersion: 0,
@@ -438,15 +442,15 @@ async function redecodeNow() {
     void requestPrint();
     return;
   }
-  set({ redecoding: true, status: tz('Decoding with the new white balance…', '正在以新的白平衡解码…') });
+  set({ redecoding: true, status: tz('Decoding the photo again…', '正在重新解码照片…') });
   try {
     const r = await host().redecode(sid, wire);
     if (get().engineSession !== sid) return;
     sentDecode = key;
-    set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, status: '' });
+    set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, lensStatus: r.lens_correction ?? null, status: '' });
     void requestPrint();
   } catch (e) {
-    noteError(tz('White balance', '白平衡'), e);
+    noteError(tz('Decode', '解码'), e);
   } finally {
     set({ redecoding: false });
   }
@@ -685,6 +689,7 @@ export async function select(path: string): Promise<void> {
     sidecar,
     nativeSize: null,
     metadata: null,
+    lensStatus: null,
     frameKind: null,
     badge: null,
     undo: [],
@@ -733,7 +738,7 @@ async function develop(path: string, gen: number) {
     }
     sentParams = params;
     sentDecode = JSON.stringify(decode);
-    set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
+    set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, lensStatus: r.lens_correction ?? null, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
     noteAsShot();
     platform().log(
       'info',

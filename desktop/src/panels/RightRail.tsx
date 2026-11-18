@@ -49,6 +49,7 @@ import {
   withTint,
 } from '@shared/whiteBalance';
 import { CurveEditor } from './CurveEditor';
+import { LensCorrectionPart } from './LensPicker';
 import { unsupportedReason } from './gate';
 import { host, HostCallError } from '../host/client';
 
@@ -178,10 +179,6 @@ function CameraSection() {
   const p = useSession((s) => s.sidecar.params);
   const vignette = useSession((s) => s.sidecar.adjustments.vignette.amount);
   const ae = aeMethodOf(p);
-  const lensReason = tz(
-    'Lens correction is not available on Linux and Windows: the RAW decoder carries no lens profiles.',
-    'Linux 与 Windows 版不提供镜头校正：RAW 解码器不含镜头配置文件。',
-  );
   const wb = useWhiteBalance();
   const options: { value: AEMethod; label: string }[] = [
     { value: 'custom', label: t('meteringCustom') },
@@ -254,7 +251,7 @@ function CameraSection() {
         testId="wb-tint"
       />
       <ScrubSlider label={t('cameraVignetting')} value={vignette} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setAdjustments((a) => ({ ...a, vignette: { ...a.vignette, amount: v } }))} />
-      <ToggleRow label={t('cameraLensCorrection')} on={false} onChange={() => {}} disabled reason={lensReason} />
+      <LensCorrectionPart />
     </Section>
   );
 }

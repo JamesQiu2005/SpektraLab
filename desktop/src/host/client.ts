@@ -17,6 +17,7 @@ import type {
 import { browserTransport } from './browserShim';
 import { tauriTransport } from './tauriTransport';
 import { HostCallError, inTauri, type Transport } from './transport';
+import type { LensList } from '@shared/lens';
 
 export { HostCallError };
 
@@ -87,6 +88,10 @@ export class Host {
   }
   async probe(path: string): Promise<ProbeResult> {
     return (await this.call<ProbeResult>('probe', { path })).result;
+  }
+  /** Develop: lensfun's lens list for the picker; the camera gives its crop factor. */
+  async lenses(make?: string, model?: string): Promise<LensList> {
+    return (await this.call<LensList>('lenses', { make: make ?? '', model: model ?? '' }, 60_000)).result;
   }
   async thumbnail(path: string, longEdge: number): Promise<RgbaImage> {
     const r = await this.call<{ image: ImageInfo; orientation?: number }>('thumbnail', { path, long_edge: longEdge }, 60_000);

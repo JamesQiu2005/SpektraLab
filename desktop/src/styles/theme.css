@@ -967,3 +967,14 @@ input {
   background: var(--export-chip);
   color: var(--text);
 }
+
+/* Develop: Lens Correction's picker (panels/LensPicker.tsx) */
+.lens-part { display: flex; flex-direction: column; gap: 6px; }
+.lens-choose { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.lens-picker { display: flex; flex-direction: column; gap: 6px; }
+.lens-search { width: 100%; box-sizing: border-box; }
+.lens-results { max-height: 240px; overflow-y: auto; border-radius: 6px; }
+.lens-row { display: flex; flex-direction: column; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+.lens-row:hover { background: var(--hover, rgba(127, 127, 127, 0.15)); }
+.lens-row .name { font-size: 12px; }
+.lens-row .sub { font-size: 10.5px; opacity: 0.6; }

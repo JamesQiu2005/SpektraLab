@@ -289,7 +289,13 @@ def extras(host, sid, path, tmp, label, raw, probe):
                 check(w[0] - w[2] > b[0] - b[2], f"{label}: a higher Kelvin renders warmer",
                       f"R-B {b[0] - b[2]:.1f} -> {w[0] - w[2]:.1f}")
         h, _ = host.call("redecode", {"session": sid, "decode": {"lens_correction": True}})
-        check(not h["ok"] and h["error"]["code"] == "unsupported", f"{label}: lens correction unsupported")
+        # Develop (Linux): lensfun corrects at decode where the host was built with it; a file with no
+        # lens recorded still opens, and the reply says why it was not corrected. Elsewhere: refused.
+        if h["ok"]:
+            lc = h["result"].get("lens_correction") or {}
+            check("applied" in lc, f"{label}: lens correction reported", lc)
+        else:
+            check(h["error"]["code"] == "unsupported", f"{label}: lens correction unsupported")
     else:
         h, _ = host.call("redecode", {"session": sid, "decode": {"white_balance": {"mode": "custom",
                                                                                   "temperature_k": 5000}}})

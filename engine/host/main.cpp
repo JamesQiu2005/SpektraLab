@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "image_io.hpp"
+#include "lens_correct.hpp"
 #include "json.hpp"
 #include "output.hpp"
 #include "platform.hpp"
@@ -373,7 +374,7 @@ Json m_hello(const Request&) {
     r.set("capabilities", std::move(caps));
     Json methods = Json::array();
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
-                          "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
+                          "probe", "thumbnail", "lenses", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
                           "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress",
                           "export_image", "export_cube", "export_di", "write_image"})
         methods.push(str(m));
@@ -401,6 +402,42 @@ Json m_probe(const Request& q) {
     return r;
 }
 
+// The lens database for Develop's picker (lens_correct.cpp): every lens, and the camera's crop factor.
+// params: {make?, model?} (the camera, for its crop factor). No database: available false.
+Json m_lenses(const Request& q) {
+    Json r = Json::object();
+    r.set("available", Json(lens_correction_available()));
+    Json list = Json::array();
+    if (lens_correction_available()) {
+        std::vector<LensEntry> lenses;
+        double crop = 1;
+        bool known = false;
+        std::string error;
+        if (!lens_list(optional_string(q.params, "make", ""), optional_string(q.params, "model", ""), lenses, crop,
+                       known, error))
+            throw HostError{"unsupported", error};
+        for (const LensEntry& e : lenses) {
+            Json o = Json::object();
+            o.set("maker", str(e.maker));
+            o.set("model", str(e.model));
+            o.set("min_focal", number(e.min_focal));
+            o.set("max_focal", number(e.max_focal));
+            if (e.min_aperture > 0) o.set("min_aperture", number(e.min_aperture));
+            Json mounts = Json::array();
+            for (const std::string& m : e.mounts) mounts.push(str(m));
+            o.set("mounts", std::move(mounts));
+            o.set("distortion", Json(e.distortion));
+            o.set("tca", Json(e.tca));
+            o.set("vignetting", Json(e.vignetting));
+            list.push(std::move(o));
+        }
+        r.set("crop_factor", number(crop));
+        r.set("camera_known", Json(known));
+    }
+    r.set("lenses", std::move(list));
+    return r;
+}
+
 Json m_thumbnail(const Request& q, std::vector<uint8_t>& payload) {
     const fs::path path = utf8_path(require_string(q.params, "path"));
     const uint32_t long_edge = uint32_t(std::max(1, q.params.at("long_edge").as_int(256)));
@@ -423,8 +460,22 @@ Json m_thumbnail(const Request& q, std::vector<uint8_t>& payload) {
     return r;
 }
 
-DecodeOptions decode_options(const Json& decode) {
-    DecodeOptions options;
+// The decode request: LibRaw's options, and lens correction after it (lens_correct.cpp).
+struct HostDecode : DecodeOptions {
+    bool lens_correction = false;
+    LensChoice lens;
+};
+
+double optional_number(const Json& o, const char* key, double fallback, double lo, double hi, const char* what) {
+    const Json& v = o.at(key);
+    if (v.is_null()) return fallback;
+    const double x = v.as_double(fallback);
+    if (!(x >= lo && x <= hi)) throw HostError{"bad_request", std::string(what) + " is out of range"};
+    return x;
+}
+
+HostDecode decode_options(const Json& decode) {
+    HostDecode options;
     if (decode.is_null()) return options;
     if (!decode.is_object()) throw HostError{"bad_request", "decode must be an object"};
     options.raw_mode = optional_string(decode, "raw_mode", "compatible16");
@@ -444,10 +495,31 @@ DecodeOptions decode_options(const Json& decode) {
             options.temperature_k = t;
             options.tint = tint;
         } else if (kv.first == "lens_correction") {
-            // LibRaw carries no lens profiles (Core Image reads the maker's
-            // own correction data; nothing portable here does).
-            if (kv.second.as_bool(false))
+            // LibRaw carries no lens profiles; lensfun's database does (lens_correct.cpp).
+            options.lens_correction = kv.second.as_bool(false);
+            if (options.lens_correction && !lens_correction_available())
                 throw HostError{"unsupported", "lens correction at decode is not available in this host"};
+        } else if (kv.first == "lens") {
+            // Which lens (Develop's picker): a database lens by maker and model, or a custom one by its
+            // numbers; focal length and f-number when the file has none. Absent: the EXIF lens.
+            const Json& l = kv.second;
+            if (l.is_null()) continue;
+            if (!l.is_object()) throw HostError{"bad_request", "decode.lens must be an object"};
+            options.lens.maker = optional_string(l, "maker", "");
+            options.lens.model = optional_string(l, "model", "");
+            options.lens.focal_mm = optional_number(l, "focal_mm", 0, 0, 5000, "decode.lens.focal_mm");
+            options.lens.aperture = optional_number(l, "aperture", 0, 0, 128, "decode.lens.aperture");
+            options.lens.distance_m = optional_number(l, "distance_m", 10, 0.01, 100000, "decode.lens.distance_m");
+            const Json& c = l.at("custom");
+            if (c.is_object()) {
+                options.lens.custom = true;
+                options.lens.numbers.distortion = optional_number(c, "distortion", 0, -0.2, 0.2, "decode.lens.custom.distortion");
+                options.lens.numbers.vignetting = optional_number(c, "vignetting", 0, -0.95, 0.95, "decode.lens.custom.vignetting");
+                options.lens.numbers.tca_r = optional_number(c, "tca_r", 1, 0.99, 1.01, "decode.lens.custom.tca_r");
+                options.lens.numbers.tca_b = optional_number(c, "tca_b", 1, 0.99, 1.01, "decode.lens.custom.tca_b");
+            } else if (!c.is_null()) {
+                throw HostError{"bad_request", "decode.lens.custom must be an object"};
+            }
         } else {
             throw HostError{"unsupported", "decode." + kv.first + " is not supported by this host"};
         }
@@ -459,9 +531,10 @@ struct Decoded {
     FloatImage frame;
     Probe probe;
     double decode_ms = 0;
+    Json lens = Json();   // what lens correction did, or why it did not (null: not asked)
 };
 
-Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
+Decoded decode_frame(const fs::path& path, const HostDecode& options) {
     std::error_code ec;
     if (!fs::exists(path, ec)) throw HostError{"not_found", "not found: " + path_utf8(path)};
     const auto t0 = Clock::now();
@@ -471,6 +544,29 @@ Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
         const std::string prefix = kUnsupportedPrefix;
         if (error.rfind(prefix, 0) == 0) throw HostError{"unsupported", error.substr(prefix.size())};
         throw HostError{"decode_failed", error};
+    }
+    if (options.lens_correction) {
+        // A photo that cannot be corrected still opens, uncorrected; the reply says why.
+        const Metadata& m = d.probe.metadata;
+        LensApplied a;
+        std::string why;
+        Json lens = Json::object();
+        if (lens_correct(d.frame, m.make, m.model, options.lens, m.lens, m.focal_mm.value_or(0),
+                         m.aperture.value_or(0), a, why)) {
+            lens.set("applied", Json(true));
+            lens.set("maker", str(a.maker));
+            lens.set("model", str(a.model));
+            lens.set("focal_mm", number(a.focal_mm));
+            if (a.aperture > 0) lens.set("aperture", number(a.aperture));
+            lens.set("crop_factor", number(a.crop_factor));
+            lens.set("distortion", Json(a.distortion));
+            lens.set("tca", Json(a.tca));
+            lens.set("vignetting", Json(a.vignetting));
+        } else {
+            lens.set("applied", Json(false));
+            lens.set("error", str(why));
+        }
+        d.lens = std::move(lens);
     }
     d.decode_ms = ms_since(t0);
     return d;
@@ -503,6 +599,7 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
     Json timings = Json::object();
     timings.set("decode", number(d.decode_ms));
     timings.set("open", number(open_ms));
+    if (!d.lens.is_null()) r.set("lens_correction", d.lens);
     r.set("timings_ms", std::move(timings));
     return r;
 }
@@ -510,7 +607,7 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
 Json m_open(const Request& q) {
     need_engine();
     const fs::path path = utf8_path(require_string(q.params, "path"));
-    const DecodeOptions options = decode_options(q.params.at("decode"));
+    const HostDecode options = decode_options(q.params.at("decode"));
     Decoded d = decode_frame(path, options);
     std::string delta;
     const Json& params = q.params.at("params");
@@ -542,7 +639,7 @@ Json m_open(const Request& q) {
 // negative); on any failure the old one is untouched.
 Json m_redecode(const Request& q) {
     auto s = find_session(q.params);
-    const DecodeOptions options = decode_options(q.params.at("decode"));
+    const HostDecode options = decode_options(q.params.at("decode"));
     Decoded d = decode_frame(utf8_path(s->path), options);
     char* current = nullptr;
     const spk_status st = spk_get_params(s->handle, &current);
@@ -907,6 +1004,7 @@ void dispatch(const Request& q) {
     else if (m == "memory_report") result = m_memory_report(q);
     else if (m == "probe") result = m_probe(q);
     else if (m == "thumbnail") result = m_thumbnail(q, payload);
+    else if (m == "lenses") result = m_lenses(q);
     else if (m == "open") result = m_open(q);
     else if (m == "close") result = m_close(q);
     else if (m == "redecode") result = m_redecode(q);
