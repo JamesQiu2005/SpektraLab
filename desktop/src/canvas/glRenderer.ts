@@ -40,6 +40,8 @@ uniform vec2 uOffset;        // device px, top-left of the output
 uniform vec2 uOutSize;       // device px of the output on screen
 uniform bool uOffscreen;     // render the output itself (navigator, histogram)
 uniform float uSurround;
+uniform vec4 uBorder;        // device px round the output: left, top, right, bottom (0 = none)
+uniform float uBorderTone;   // its grey, 0 black .. 1 white
 
 // geometry (display) — GeometryUniform
 uniform vec2 gCentre;
@@ -161,7 +163,10 @@ void main() {
     vec2 px = vUv * uViewport;
     ouv = (px - uOffset) / uOutSize;
     if (ouv.x < 0.0 || ouv.y < 0.0 || ouv.x > 1.0 || ouv.y > 1.0) {
-      outColor = vec4(vec3(uSurround), 1.0);
+      // The border (Adjustments.border) round the picture, then the surround.
+      vec2 lo = uOffset - uBorder.xy, hi = uOffset + uOutSize + uBorder.zw;
+      bool inBorder = px.x >= lo.x && px.y >= lo.y && px.x <= hi.x && px.y <= hi.y;
+      outColor = vec4(vec3(inBorder ? uBorderTone : uSurround), 1.0);
       return;
     }
   }
@@ -199,6 +204,9 @@ export interface DrawState {
   compare: 0 | 1 | 2;
   split: number;
   surround: number;
+  /** The border round the output on screen, device px; none when absent. */
+  border?: { left: number; top: number; right: number; bottom: number };
+  borderTone?: number;
 }
 
 export class GLRenderer {
@@ -327,6 +335,9 @@ export class GLRenderer {
     gl.uniform2f(this.u('uOutSize'), s.outSize.width, s.outSize.height);
     gl.uniform1i(this.u('uOffscreen'), offscreen ? 1 : 0);
     gl.uniform1f(this.u('uSurround'), s.surround);
+    const b = offscreen ? undefined : s.border;
+    gl.uniform4f(this.u('uBorder'), b?.left ?? 0, b?.top ?? 0, b?.right ?? 0, b?.bottom ?? 0);
+    gl.uniform1f(this.u('uBorderTone'), s.borderTone ?? 1);
     this.setGeometry('g', uniform(s.display, s.sourceSize));
     const crop = s.editingCrop ? uniform(s.editingCrop, s.sourceSize) : uniform(GEOMETRY_DEFAULT, s.sourceSize);
     gl.uniform1i(this.u('uEditingCrop'), s.editingCrop && !offscreen ? 1 : 0);

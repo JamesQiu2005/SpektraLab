@@ -8,7 +8,17 @@
 // the file whole. Without it, `export_image` writes the engine's print and the
 // page says that the crop and the grade are not in the file.
 
-import { type Adjustments, PROPHOTO_MID_GREY, SRGB_MID_GREY, curveTables, isNeutral, layer2Pixel, layer2Uniforms } from '@shared/adjustments';
+import {
+  type Adjustments,
+  PROPHOTO_MID_GREY,
+  SRGB_MID_GREY,
+  borderCode,
+  borderPixels,
+  curveTables,
+  isNeutral,
+  layer2Pixel,
+  layer2Uniforms,
+} from '@shared/adjustments';
 import { type Geometry, isIdentity, outputSize, sourcePoint } from '@shared/geometry';
 import type { FilmParams } from '@shared/params';
 import type { StockCatalog } from '@shared/stocks';
@@ -93,6 +103,33 @@ export function filePixels(
   return res;
 }
 
+/**
+ * The picture inside its border (Adjustments.border): a new plane, the border's grey round the
+ * picture's pixels, which are copied unchanged. Returns the input when there is no border.
+ */
+export function withBorder(
+  px: Uint16Array,
+  size: { width: number; height: number },
+  a: Adjustments,
+  space: 'sRGB' | 'display-p3' | 'prophoto',
+): { px: Uint16Array; width: number; height: number } {
+  const b = borderPixels(a.enabled ? a.border : undefined, size.width, size.height);
+  if (!b.left && !b.top && !b.right && !b.bottom) return { px, ...size };
+  const W = size.width + b.left + b.right;
+  const H = size.height + b.top + b.bottom;
+  const out = new Uint16Array(W * H * 4);
+  const v = Math.round(borderCode(a.border.tone, space) * 65535);
+  for (let i = 0; i < W * H; i++) {
+    out[4 * i] = v;
+    out[4 * i + 1] = v;
+    out[4 * i + 2] = v;
+    out[4 * i + 3] = 65535;
+  }
+  for (let y = 0; y < size.height; y++)
+    out.set(px.subarray(y * size.width * 4, (y + 1) * size.width * 4), ((y + b.top) * W + b.left) * 4);
+  return { px: out, width: W, height: H };
+}
+
 export function outputFor(r: ExportRecipe, g: Geometry, native: { width: number; height: number }) {
   const o = outputSize(g, native);
   if (!r.longEdge || r.longEdge >= Math.max(o.width, o.height)) return o;
@@ -122,7 +159,8 @@ export async function exportFrame(r: ExportRecipe, f: FrameToExport, catalog: St
       const src = new Uint16Array(rr.payload.buffer.slice(rr.payload.byteOffset, rr.payload.byteOffset + info.width * info.height * 8));
       const out = outputFor(r, f.geometry, { width: info.width, height: info.height });
       const midGrey = r.colorSpace === 'prophoto' ? PROPHOTO_MID_GREY : SRGB_MID_GREY;
-      const px = filePixels(src, { width: info.width, height: info.height }, f.geometry, f.adjustments, out, midGrey);
+      const picture = filePixels(src, { width: info.width, height: info.height }, f.geometry, f.adjustments, out, midGrey);
+      const framed = withBorder(picture, out, f.adjustments, r.colorSpace);
       const w = await host().transport.request(
         'write_image',
         {
@@ -130,14 +168,14 @@ export async function exportFrame(r: ExportRecipe, f: FrameToExport, catalog: St
           format: hostFormat(r),
           quality: r.format === 'jpeg' ? r.quality : undefined,
           color_space: r.colorSpace,
-          width: out.width,
-          height: out.height,
+          width: framed.width,
+          height: framed.height,
           overwrite: target.overwrite,
           source_path: f.path,
         },
-        { payload: new Uint8Array(px.buffer), timeoutMs: 600_000 },
+        { payload: new Uint8Array(framed.px.buffer), timeoutMs: 600_000 },
       );
-      return { kind: 'written', path: String(w.result.path), width: out.width, height: out.height, carriesEdits: true };
+      return { kind: 'written', path: String(w.result.path), width: framed.width, height: framed.height, carriesEdits: true };
     }
     const res = await host().exportImage({
       session: f.session,

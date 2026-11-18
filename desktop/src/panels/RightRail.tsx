@@ -22,7 +22,7 @@ import {
   aeMethodOf,
   applyAEMethod,
 } from '@shared/params';
-import { type ColorZone, type CurveChannel, CURVE_CHANNELS, isNeutral } from '@shared/adjustments';
+import { type ColorZone, type CurveChannel, BORDER_DEFAULT, BORDER_RANGES, CURVE_CHANNELS, isNeutral } from '@shared/adjustments';
 import {
   type AsShot,
   TEMPERATURE_RANGE,
@@ -71,6 +71,7 @@ export function RightRail() {
             <ExposureSection />
             <CurveSection />
             <ColorBalanceSection />
+            <BorderSection />
           </>
         )}
       </div>
@@ -540,6 +541,69 @@ const ZONES: { key: 'master' | 'shadows' | 'midtones' | 'highlights'; label: () 
   { key: 'midtones', label: () => t('balanceMidtones') },
   { key: 'highlights', label: () => t('exposureHighlights') },
 ];
+
+// -------------------------------------------------------------------- Border
+//
+// A plain frame round the finished picture (Adjustments.border): shown on the canvas, written into
+// every exported file. White, black or any grey; each side a share of the picture's long edge, the
+// bottom optionally deeper.
+
+function BorderSection() {
+  const b = useSession((s) => s.sidecar.adjustments.border) ?? BORDER_DEFAULT;
+  const set = (patch: Partial<typeof b>) => setAdjustments((q) => ({ ...q, border: { ...(q.border ?? BORDER_DEFAULT), ...patch } }));
+  const preset = b.tone >= 0.999 ? 'white' : b.tone <= 0.001 ? 'black' : 'grey';
+  return (
+    <Section id="border" title={tz('Border', '边框')} onReset={() => setAdjustments((q) => ({ ...q, border: BORDER_DEFAULT }))} resetHelp={tz('No border.', '无边框。')}>
+      <ToggleRow label={tz('Border', '边框')} on={b.enabled} onChange={(v) => set({ enabled: v })} testId="border-toggle" />
+      <PillMenu
+        label={tz('Colour', '颜色')}
+        value={preset}
+        options={[
+          { value: 'white', label: tz('White', '白色') },
+          { value: 'black', label: tz('Black', '黑色') },
+          { value: 'grey', label: tz('Grey', '灰色') },
+        ]}
+        onChange={(v) => set({ enabled: true, tone: v === 'white' ? 1 : v === 'black' ? 0 : 0.5 })}
+      />
+      <ScrubSlider
+        label={tz('Tone', '明度')}
+        sublabel={tz('0 black, 100 white', '0 黑，100 白')}
+        value={Math.round(b.tone * 100)}
+        range={[0, 100]}
+        zero={100}
+        snap={1}
+        format={(v) => v.toFixed(0)}
+        disabled={!b.enabled}
+        onChange={(v) => set({ tone: v / 100 })}
+        testId="border-tone"
+      />
+      <ScrubSlider
+        label={tz('Size', '宽度')}
+        sublabel={tz('% of the long edge', '长边的 %')}
+        value={b.size}
+        range={[...BORDER_RANGES.size] as [number, number]}
+        zero={BORDER_DEFAULT.size}
+        snap={0.25}
+        format={(v) => v.toFixed(2) + ' %'}
+        disabled={!b.enabled}
+        onChange={(v) => set({ size: v })}
+        testId="border-size"
+      />
+      <ScrubSlider
+        label={tz('Deeper Bottom', '底边加宽')}
+        sublabel={tz('gallery / instant print', '画廊 / 拍立得')}
+        value={b.bottomExtra}
+        range={[...BORDER_RANGES.bottomExtra] as [number, number]}
+        zero={0}
+        snap={0.25}
+        format={(v) => v.toFixed(2) + ' %'}
+        disabled={!b.enabled}
+        onChange={(v) => set({ bottomExtra: v })}
+        testId="border-bottom"
+      />
+    </Section>
+  );
+}
 
 function ColorBalanceSection() {
   const cb = useSession((s) => s.sidecar.adjustments.colorBalance);

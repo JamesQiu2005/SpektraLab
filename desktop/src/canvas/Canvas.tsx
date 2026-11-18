@@ -26,6 +26,7 @@ import {
   rotated,
 } from '@shared/geometry';
 import { clamp } from '@shared/params';
+import { type Border, borderPixels } from '@shared/adjustments';
 import { GLRenderer, type DrawState } from './glRenderer';
 import { frameImages } from '../state/frames';
 import {
@@ -54,6 +55,8 @@ export interface Layout {
   fitZoom: number;
   display: Geometry;
   native: { width: number; height: number };
+  /** The border's widths on screen, device px (zero without one). */
+  borderPx: { left: number; top: number; right: number; bottom: number };
 }
 
 export function displayGeometry(g: Geometry, cropping: boolean): Geometry {
@@ -67,20 +70,26 @@ export function computeLayout(
   cropping: boolean,
   view: { fit: boolean; zoom: number; cx: number; cy: number },
   margin: number,
+  border?: Border,
 ): Layout {
   const display = displayGeometry(g, cropping);
   const out = outputSize(display, native);
-  const fitZoom = Math.min((viewport.width - 2 * margin) / out.width, (viewport.height - 2 * margin) / out.height);
+  // The border (Adjustments.border) is fitted with the picture, so Fit shows the whole framed
+  // print; not while cropping, which is about the picture alone.
+  const b = borderPixels(cropping ? undefined : border, out.width, out.height);
+  const total = { width: out.width + b.left + b.right, height: out.height + b.top + b.bottom };
+  const fitZoom = Math.min((viewport.width - 2 * margin) / total.width, (viewport.height - 2 * margin) / total.height);
   const zoom = view.fit || cropping ? fitZoom : view.zoom;
   const outSize = { width: out.width * zoom, height: out.height * zoom };
   const cx = view.fit || cropping ? 0.5 : view.cx;
   const cy = view.fit || cropping ? 0.5 : view.cy;
   let ox = viewport.width / 2 - cx * outSize.width;
   let oy = viewport.height / 2 - cy * outSize.height;
-  // Smaller than the canvas: centred on that axis.
-  if (outSize.width <= viewport.width) ox = (viewport.width - outSize.width) / 2;
-  if (outSize.height <= viewport.height) oy = (viewport.height - outSize.height) / 2;
-  return { viewport, offset: { x: ox, y: oy }, outSize, out, zoom, fitZoom, display, native };
+  // Smaller than the canvas: the framed print centred on that axis.
+  if (total.width * zoom <= viewport.width) ox = (viewport.width - total.width * zoom) / 2 + b.left * zoom;
+  if (total.height * zoom <= viewport.height) oy = (viewport.height - total.height * zoom) / 2 + b.top * zoom;
+  const borderPx = { left: b.left * zoom, top: b.top * zoom, right: b.right * zoom, bottom: b.bottom * zoom };
+  return { viewport, offset: { x: ox, y: oy }, outSize, out, zoom, fitZoom, display, native, borderPx };
 }
 
 export function Canvas() {
@@ -139,6 +148,7 @@ export function Canvas() {
           cropping,
           view,
           cropping ? 24 * size.dpr : 0,
+          adjustments.enabled ? adjustments.border : undefined,
         )
       : null;
   useEffect(() => {
@@ -193,6 +203,8 @@ export function Canvas() {
       compare: showingOriginal ? 2 : comparing ? 1 : 0,
       split: comparePosition,
       surround: SURROUND,
+      border: layout.borderPx,
+      borderTone: adjustments.border?.tone ?? 1,
     };
     r.draw(state);
   }, [imageVersion, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, comparing, comparePosition, showingOriginal, layout]);
@@ -243,6 +255,8 @@ export function Canvas() {
           compare: showingOriginal ? 2 : comparing ? 1 : 0,
           split: comparePosition,
           surround: SURROUND,
+          border: layout.borderPx,
+          borderTone: adjustments.border?.tone ?? 1,
         });
     }, 60);
     return () => clearTimeout(t);

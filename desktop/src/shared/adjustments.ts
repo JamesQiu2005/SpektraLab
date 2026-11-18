@@ -51,6 +51,46 @@ export interface Adjustments {
   curves: CurveSet;
   colorBalance: ColorBalance;
   vignette: Vignette;
+  /** A plain frame round the finished picture (Develop's own; the Mac sidecar has no such key). */
+  border: Border;
+}
+
+/**
+ * A plain border round the finished picture, on the canvas and in every exported file: white, black
+ * or any grey, its width a share of the picture's long edge, the bottom optionally deeper (a gallery
+ * or instant-print look). Neutral only, so it means the same in every export colour space.
+ */
+export interface Border {
+  enabled: boolean;
+  /** 0 black .. 1 white, as encoded on an sRGB display. */
+  tone: number;
+  /** Each side, in % of the picture's long edge. */
+  size: number;
+  /** Added to the bottom only, in % of the long edge. */
+  bottomExtra: number;
+}
+export const BORDER_DEFAULT: Border = { enabled: false, tone: 1, size: 4, bottomExtra: 0 };
+export const BORDER_RANGES = { size: [0, 25], bottomExtra: [0, 30] } as const;
+
+/** The border's four widths in pixels for a picture of `w` x `h`; all zero when it is off. */
+export function borderPixels(b: Border | undefined, w: number, h: number) {
+  if (!b || !b.enabled) return { left: 0, right: 0, top: 0, bottom: 0 };
+  const long = Math.max(w, h);
+  const side = Math.round((long * Math.min(Math.max(b.size, 0), BORDER_RANGES.size[1])) / 100);
+  const extra = Math.round((long * Math.min(Math.max(b.bottomExtra, 0), BORDER_RANGES.bottomExtra[1])) / 100);
+  return { left: side, right: side, top: side, bottom: side + extra };
+}
+
+/**
+ * The border's code value (0..1) in an export's colour space. A grey is the same light in every RGB
+ * space here, so only the transfer curve differs: sRGB and Display P3 share sRGB's; ProPhoto (ROMM)
+ * has its own 1.8 with a linear toe below 1/512.
+ */
+export function borderCode(tone: number, space: 'sRGB' | 'display-p3' | 'prophoto'): number {
+  const t = Math.min(Math.max(tone, 0), 1);
+  if (space !== 'prophoto') return t;
+  const lin = t <= 0.04045 ? t / 12.92 : Math.pow((t + 0.055) / 1.055, 2.4);
+  return lin < 1 / 512 ? lin * 16 : Math.pow(lin, 1 / 1.8);
 }
 
 const ZONE: ColorZone = { hue: 0, saturation: 0, luminance: 0 };
@@ -82,6 +122,7 @@ export const ADJUSTMENTS_DEFAULT: Adjustments = {
   curves: CURVES_IDENTITY,
   colorBalance: { master: ZONE, shadows: ZONE, midtones: ZONE, highlights: ZONE },
   vignette: { amount: 0, midpoint: 50 },
+  border: BORDER_DEFAULT,
 };
 
 export const curveIsIdentity = (c: Curve) =>
@@ -106,7 +147,8 @@ export function isNeutral(a: Adjustments): boolean {
     zoneNeutral(a.colorBalance.shadows) &&
     zoneNeutral(a.colorBalance.midtones) &&
     zoneNeutral(a.colorBalance.highlights) &&
-    a.vignette.amount === 0
+    a.vignette.amount === 0 &&
+    !a.border?.enabled
   );
 }
 
@@ -457,5 +499,14 @@ export function decodeAdjustments(raw: unknown): Adjustments {
       highlights: decodeZone(cb.highlights),
     },
     vignette: { amount: num(v.amount, 0), midpoint: num(v.midpoint, 50) },
+    border: (() => {
+      const b = obj(o.border);
+      return {
+        enabled: typeof b.enabled === 'boolean' ? b.enabled : BORDER_DEFAULT.enabled,
+        tone: num(b.tone, BORDER_DEFAULT.tone),
+        size: num(b.size, BORDER_DEFAULT.size),
+        bottomExtra: num(b.bottomExtra, BORDER_DEFAULT.bottomExtra),
+      };
+    })(),
   };
 }
