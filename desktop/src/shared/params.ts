@@ -272,6 +272,19 @@ function lensCharacterWire(name: string, amount: number): WireField[] {
   ];
 }
 
+/**
+ * A photo's own leak (SpektraLab 2: every frame has its own `frameSeed`, drawn once and kept in its
+ * edit; the camera's seed is the body's). The first time a leak is on in a photo whose film-edge seeds
+ * were never drawn, its frame seed is drawn and kept, so two photos show two leaks of the same camera
+ * and a photo keeps its leak from then on. Anything else is returned as it is.
+ */
+export function withFrameSeed(p: FilmParams, random: () => number = Math.random): FilmParams {
+  const lk = p.leak ?? LEAK_DEFAULT;
+  if ((lk.kind === 'off' && !(lk.edge > 0)) || p.filmEdge.seeded) return p;
+  const frameSeed = 1 + Math.floor(random() * (LEAK_SEED_MAX - 1));
+  return { ...p, filmEdge: { ...p.filmEdge, frameSeed, seeded: true } };
+}
+
 export const EFFECT_RANGES = {
   grain: [0, 2],
   halation: [0, 4],

@@ -26,6 +26,7 @@ import {
   fullDelta,
   jsonEqual,
   clamp,
+  withFrameSeed,
 } from '@shared/params';
 import { type Adjustments, ADJUSTMENTS_DEFAULT } from '@shared/adjustments';
 import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
@@ -362,7 +363,8 @@ function pushUndo() {
 export function setParams(fn: (p: FilmParams) => FilmParams) {
   const s = get();
   if (s.batchExporting) return;
-  const next = fn(s.sidecar.params);
+  // A leak's first switch-on in this photo draws its own frame seed (`withFrameSeed`).
+  const next = withFrameSeed(fn(s.sidecar.params));
   if (jsonEqual(next, s.sidecar.params)) return;
   pushUndo();
   set({ sidecar: { ...get().sidecar, params: next, state: get().sidecar.state === 'processed' ? 'stale' : get().sidecar.state } });

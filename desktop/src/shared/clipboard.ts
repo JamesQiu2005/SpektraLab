@@ -6,7 +6,7 @@
 // exposure and fits its own Scene Placement (`placementNeedsFit`).
 
 import type { Sidecar } from './sidecar';
-import { jsonEqual } from './params';
+import { jsonEqual, withFrameSeed } from './params';
 
 export const CLIPBOARD_GROUPS = [
   'filmAndPaper',
@@ -31,6 +31,11 @@ export const GROUP_PATHS: Record<ClipboardGroup, string[]> = {
     'params.halationActive',
     'params.glareActive',
     'params.effects',
+    // Develop's own panels: Advanced, Light Leak and Lens (the leak's Shuffle seed travels with it, as on
+    // SpektraLab 2; the photo's own frame seed does not, so each keeps a leak of its own).
+    'params.linuxAdvanced',
+    'params.leak',
+    'params.lens',
   ],
   printEffects: ['params.printEffects', 'params.preflashExposure'],
   scenePlacement: ['params.sceneLatitude', 'placementNeedsFit'],
@@ -70,7 +75,9 @@ export function applyClip(clip: SettingsClip, target: Sidecar): Sidecar {
       out = setPath(out, 'placementNeedsFit', active);
     }
   }
-  return out as unknown as Sidecar;
+  const pasted = out as unknown as Sidecar;
+  // A leak pasted onto a photo that never had one draws that photo's own frame seed.
+  return { ...pasted, params: withFrameSeed(pasted.params) };
 }
 
 export function clipChanges(clip: SettingsClip, target: Sidecar): boolean {

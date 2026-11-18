@@ -17,4 +17,20 @@ describe('settings clipboard', () => {
     expect(clipChanges({ groups: ['printEffects'], settings: src, sourceName: 'a' }, newSidecar())).toBe(false);
     expect(clipChanges({ groups: ['exposure'], settings: src, sourceName: 'a' }, newSidecar())).toBe(true);
   });
+  it('carries Light Leak, Lens and Advanced; each photo keeps a leak of its own', () => {
+    const a = newSidecar();
+    a.params = {
+      ...a.params,
+      leak: { kind: 'band', amount: 2, edge: 0, seed: 0 },
+      lens: { filter: 'pro_mist', strength: 1, character: null, amount: 1 },
+      linuxAdvanced: { ...a.params.linuxAdvanced, developGamma: 1.2 },
+      filmEdge: { ...a.params.filmEdge, frameSeed: 4242, seeded: true },
+    };
+    const out = applyClip({ groups: ['filmEffects'], settings: a, sourceName: 'a' }, newSidecar());
+    expect(out.params.leak.kind).toBe('band');
+    expect(out.params.lens.filter).toBe('pro_mist');
+    expect(out.params.linuxAdvanced.developGamma).toBe(1.2);
+    expect(out.params.filmEdge.seeded).toBe(true);
+    expect(out.params.filmEdge.frameSeed).not.toBe(4242);
+  });
 });

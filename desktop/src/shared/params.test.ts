@@ -10,6 +10,7 @@ import {
   featureGate,
   filmFormatMM,
   fullDelta,
+  withFrameSeed,
   printExposure,
   wire,
 } from './params';
@@ -129,5 +130,19 @@ describe('light leak and lens (SpektraLab 2 LensEdge.swift)', () => {
   it('turning a leak off reaches the engine', () => {
     const { delta: d } = delta(FILM_PARAMS_DEFAULT, on);
     expect(d).toMatchObject({ leak_kind: 'off', leak_edge: 0, diffusion_filter_active: false, lens_aberrations_active: false });
+  });
+});
+
+describe('each photo its own leak (withFrameSeed)', () => {
+  it('draws a frame seed once, the first time a leak is on', () => {
+    const off = FILM_PARAMS_DEFAULT;
+    expect(withFrameSeed(off, () => 0.5)).toBe(off);
+    const on = { ...off, leak: { ...off.leak, kind: 'band' } };
+    const a = withFrameSeed(on, () => 0.5);
+    expect(a.filmEdge.seeded).toBe(true);
+    expect(a.filmEdge.frameSeed).not.toBe(off.filmEdge.frameSeed);
+    expect(withFrameSeed(a, () => 0.9)).toBe(a);
+    const edge = withFrameSeed({ ...off, leak: { ...off.leak, edge: 1 } }, () => 0.25);
+    expect(edge.filmEdge.seeded).toBe(true);
   });
 });
