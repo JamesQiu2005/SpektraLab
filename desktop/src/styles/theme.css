@@ -278,6 +278,41 @@ input {
 .tier-badge.preview {
   color: var(--dim);
 }
+/* An edit waiting for its preview (a film change is a second or more on a laptop GPU). */
+.rendering-pill {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: var(--text);
+  font-size: var(--fs-small);
+  pointer-events: none;
+  z-index: 3;
+}
+.rendering-pill .spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: rendering-spin 0.8s linear infinite;
+}
+@keyframes rendering-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rendering-pill .spinner {
+    animation-duration: 2.4s;
+  }
+}
 .crop-overlay {
   position: absolute;
   inset: 0;

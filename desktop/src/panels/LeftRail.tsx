@@ -202,7 +202,22 @@ function FilmSection() {
         },
       ]}
     >
-      <StockList rows={rows} selected={film} onSelect={(id) => setParams((p) => ({ ...p, filmStock: id }))} testId="film-list" />
+      <StockList
+        rows={rows}
+        selected={film}
+        // Selecting a film brings its recommended paper and is scanned if it is a slide
+        // (Stock.swift `FilmParams.load(film:)`); a later explicit paper choice is kept.
+        onSelect={(id) =>
+          setParams((p) => ({
+            ...p,
+            filmStock: id,
+            scanFilm: catalog.isSlide(id),
+            printStock: catalog.ownPaper(id) ?? catalog.paperPrinting(id, p.printStock),
+            digitalIntermediate: false,
+          }))
+        }
+        testId="film-list"
+      />
     </Section>
   );
 }
@@ -284,7 +299,11 @@ function PrintSection() {
       g.papers.length
         ? [
             { id: '__g' + g.title, name: g.title === 'Still' ? t('printGroupStill') : t('printGroupCine'), header: true },
-            ...g.papers.map((s) => ({ id: s.id, name: s.name, cine: s.use === 'cine', disabled: positive, reason: positiveReason })),
+            ...g.papers.map((s) => {
+              // Silver on silver, colour on colour (Stock.swift `canPrint`): the other kind waits.
+              const why = catalog.whyNotPrinted(p.filmStock, s.id);
+              return { id: s.id, name: s.name, cine: s.use === 'cine', disabled: positive || !!why, reason: why ?? positiveReason };
+            }),
           ]
         : [],
     ),
@@ -303,7 +322,8 @@ function PrintSection() {
         onSelect={(id) => {
           if (id === POSITIVE_ID) setParams((q) => ({ ...q, scanFilm: true, digitalIntermediate: false }));
           else if (id === DIGITAL_ID) setParams((q) => ({ ...q, scanFilm: false, digitalIntermediate: true }));
-          else if (!positive) setParams((q) => ({ ...q, printStock: id, scanFilm: false, digitalIntermediate: false }));
+          else if (!positive && catalog.canPrint(p.filmStock, id))
+            setParams((q) => ({ ...q, printStock: id, scanFilm: false, digitalIntermediate: false }));
         }}
       />
       <ToggleRow label={t('printEffects')} on={p.printEffects} onChange={(v) => setParams((q) => ({ ...q, printEffects: v }))} />

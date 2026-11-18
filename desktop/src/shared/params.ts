@@ -11,6 +11,8 @@
 // The JSON keys of `FilmParams` are the Swift `Codable` keys, so a sidecar
 // written by the macOS app opens here and the other way round.
 
+import { activeCatalog, type StockCatalog } from './stocks';
+
 export type ParamLayer = 'shoot' | 'print';
 export type WireValue = number | boolean | string;
 export interface WireField {
@@ -423,7 +425,26 @@ export function digitalIntermediateActive(p: FilmParams, filmIsPositive: boolean
  * from the Mac never makes the host refuse the whole delta; the setting itself
  * stays in the sidecar.
  */
-export function wire(p: FilmParams, gate: FeatureGate = ALL_FEATURES): WireField[] {
+/**
+ * These settings with the catalogue's rules applied (Stock.swift `heldToItsFilm`): a slide is
+ * scanned, and a paper that cannot print the film gives way to the film's own.
+ */
+export function heldToItsFilm(p: FilmParams, cat: StockCatalog = activeCatalog()): FilmParams {
+  const scan = p.scanFilm || cat.isSlide(p.filmStock);
+  const paper = cat.paperPrinting(p.filmStock, p.printStock);
+  if (scan === p.scanFilm && paper === p.printStock) return p;
+  return { ...p, scanFilm: scan, printStock: paper };
+}
+
+export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireField[] {
+  // SpektraLab 2's rules (Stock.swift `wire` and `silver`), which only the catalogue can apply:
+  // the settings held to their film, and what a black-and-white film on its paper needs that no
+  // edit holds. With the empty catalogue (tests) nothing changes.
+  const cat = activeCatalog();
+  const p = heldToItsFilm(p0, cat);
+  const monoFilm = cat.isMonochrome(p.filmStock);
+  const monoPaper = cat.isMonochrome(p.printStock);
+  const filmGrain = cat.stock(p.filmStock)?.grain ?? 1;
   const di = gate.digitalIntermediate && p.digitalIntermediate;
   const placement = p.placementIsRight ? p.sceneLatitudeOther : p.sceneLatitude;
   const f: WireField[] = [
@@ -436,7 +457,8 @@ export function wire(p: FilmParams, gate: FeatureGate = ALL_FEATURES): WireField
     { name: 'auto_exposure', value: p.autoExposure, layer: 'shoot' },
     { name: 'film_format_mm', value: clamp(p.filmFormatMM, 4, 200), layer: 'shoot' },
     { name: 'grain_active', value: p.grainActive, layer: 'shoot' },
-    { name: 'grain_sublayers_active', value: p.grainActive && p.effects.grainLayered, layer: 'shoot' },
+    // A black-and-white film's grain is one layer, whatever the setting: sub-layers are the colour model.
+    { name: 'grain_sublayers_active', value: p.grainActive && p.effects.grainLayered && !monoFilm, layer: 'shoot' },
     { name: 'halation_active', value: p.halationActive, layer: 'shoot' },
     { name: 'print_exposure', value: printExposure(p.printBrightnessStops), layer: 'print' },
     { name: 'y_filter_shift', value: clamp(p.yFilterShift, -1, 1), layer: 'print' },
@@ -444,7 +466,8 @@ export function wire(p: FilmParams, gate: FeatureGate = ALL_FEATURES): WireField
     { name: 'filter_shift_scale', value: FILTER_SHIFT_CC, layer: 'print' },
     { name: 'glare_active', value: p.glareActive && p.printEffects, layer: 'print' },
     { name: 'scan_film', value: p.scanFilm, layer: 'print' },
-    { name: 'extended_dynamic_range', value: effectiveEDR(p), layer: 'print' },
+    // A silver paper has no EDR calibration: the engine refuses the open by name.
+    { name: 'extended_dynamic_range', value: effectiveEDR(p) && !monoPaper, layer: 'print' },
     { name: 'preflash_exposure', value: p.printEffects ? clamp(p.preflashExposure, 0, 1) : 0, layer: 'print' },
   );
   if (gate.contrastMask) {
@@ -482,7 +505,8 @@ export function wire(p: FilmParams, gate: FeatureGate = ALL_FEATURES): WireField
   f.push(
     { name: 'halation_amount', value: clamp(e.halation, r.halation[0], r.halation[1]), layer: 'shoot' },
     { name: 'halation_scatter_amount', value: clamp(e.scatter, r.scatter[0], r.scatter[1]), layer: 'shoot' },
-    { name: 'grain_amount', value: clamp(e.grain, r.grain[0], r.grain[1]), layer: 'shoot' },
+    // The Grain strength's 1 is the film's own grain (the catalogue's `grain`, SpektraLab 2).
+    { name: 'grain_amount', value: clamp(e.grain * filmGrain, r.grain[0], r.grain[1]), layer: 'shoot' },
     { name: 'dir_couplers_active', value: e.couplersActive, layer: 'shoot' },
     { name: 'dir_couplers_amount', value: clamp(e.couplers, r.couplers[0], r.couplers[1]), layer: 'shoot' },
     { name: 'glare_amount', value: clamp(e.glare, r.glare[0], r.glare[1]), layer: 'print' },
@@ -537,6 +561,18 @@ export function wire(p: FilmParams, gate: FeatureGate = ALL_FEATURES): WireField
         { name: 'date_imprint_data_text', value: d.withData ? d.dataText : '', layer: 'shoot' },
       );
     }
+  }
+  // A silver pair's enlarger pack: the engine's table has no row for a silver paper, and a session
+  // coming from a colour pair would keep that pair's. Going back, the engine takes the colour pair's
+  // own row again when print_stock changes, so nothing is sent for it.
+  const pack = cat.stock(p.printStock)?.neutralPack;
+  if (monoFilm && monoPaper && pack && pack.length === 3) {
+    const [c, m, y] = pack as [number, number, number];
+    f.push(
+      { name: 'c_filter_neutral', value: c, layer: 'print' },
+      { name: 'm_filter_neutral', value: m, layer: 'print' },
+      { name: 'y_filter_neutral', value: y, layer: 'print' },
+    );
   }
   return f;
 }

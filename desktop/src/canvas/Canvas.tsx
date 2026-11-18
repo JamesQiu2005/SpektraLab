@@ -103,6 +103,7 @@ export function Canvas() {
   const comparePosition = useSession((s) => s.comparePosition);
   const showingOriginal = useSession((s) => s.showingOriginal);
   const badge = useSession((s) => s.badge);
+  const rendering = useSession((s) => s.rendering);
   const selection = useSession((s) => s.selection);
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
@@ -386,6 +387,12 @@ export function Canvas() {
           <span className="compare-label left">{tz('Before', '之前')}</span>
           <span className="compare-label right">{tz('After', '之后')}</span>
           <span className="compare-handle" />
+        </div>
+      )}
+      {rendering && selection && (
+        <div className="rendering-pill" data-testid="rendering-pill" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          {tz('Developing…', '正在冲洗…')}
         </div>
       )}
       <div className="canvas-corner">

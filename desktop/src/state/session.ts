@@ -84,6 +84,8 @@ export interface SessionState {
   imageVersion: number;
   badge: Tier | null;
   developing: boolean;
+  /** An edit is waiting for its preview: shown on the canvas, a film change takes a second or more. */
+  rendering: boolean;
   status: string;
   lastError: string | null;
   // view
@@ -128,6 +130,7 @@ const INITIAL: SessionState = {
   imageVersion: 0,
   badge: null,
   developing: false,
+  rendering: false,
   status: '',
   lastError: null,
   tool: 'select',
@@ -163,6 +166,9 @@ let sentParams: FilmParams | null = null;
 let wantedGen = 0;
 let inFlight = false;
 let fullTimer: ReturnType<typeof setTimeout> | null = null;
+/** The progress id of the full render in flight, so an edit can cancel it. */
+let fullProgressId: string | null = null;
+let fullSeq = 0;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUndoAt = 0;
 let openGen = 0;
@@ -199,15 +205,34 @@ function noteAsShot() {
 export async function requestPrint(): Promise<void> {
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
-  if (inFlight) return;
+  if (get().engineSession && !get().rendering) set({ rendering: true });
+  if (inFlight) {
+    // A full render of the state before this edit holds the engine for 10 s and more on a laptop
+    // GPU (24 MP on an Intel UHD 620), and the edit waited for it: a film clicked during it seemed to
+    // do nothing. Its result would be dropped anyway (`gen !== wantedGen`), so stop it; its
+    // `finally` calls back here as soon as the engine lets go (at its next node, ~1-3 s at worst).
+    const sid = get().engineSession;
+    const id = fullProgressId;
+    if (sid && id) {
+      fullProgressId = null;
+      host().cancel(sid, id).catch(() => {});
+    }
+    return;
+  }
   const sid = get().engineSession;
-  if (!sid) return;
+  if (!sid) {
+    set({ rendering: false });
+    return;
+  }
   inFlight = true;
   try {
     for (;;) {
       const gen = wantedGen;
       const s = get();
-      if (s.engineSession !== sid) return;
+      if (s.engineSession !== sid) {
+        set({ rendering: false });
+        return;
+      }
       const want = s.sidecar.params;
       const d = sentParams ? paramsDelta(want, sentParams, s.gate) : { delta: wireParams(want), layers: new Set(['shoot']) };
       if (Object.keys(d.delta).length) {
@@ -216,12 +241,17 @@ export async function requestPrint(): Promise<void> {
       }
       const reprint = d.layers.size === 1 && d.layers.has('print');
       const r = await host().render(sid, 'live', { reprint });
-      if (get().engineSession !== sid) return;
+      if (get().engineSession !== sid) {
+        set({ rendering: false });
+        return;
+      }
       frameImages.print = r;
-      set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '' });
-      if (gen === wantedGen) break;
+      const caughtUp = gen === wantedGen;
+      set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '', ...(caughtUp ? { rendering: false } : {}) });
+      if (caughtUp) break;
     }
   } catch (e) {
+    set({ rendering: false });
     noteError(tz('Render', '渲染'), e);
   } finally {
     inFlight = false;
@@ -249,9 +279,11 @@ async function renderFull(gen: number) {
     return;
   }
   inFlight = true;
+  const progressId = `full-${++fullSeq}`;
+  fullProgressId = progressId;
   try {
     const t0 = performance.now();
-    const r = await host().render(sid, 'full');
+    const r = await host().render(sid, 'full', { progressId });
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
     if (gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;
@@ -259,8 +291,10 @@ async function renderFull(gen: number) {
     set({ imageVersion: get().imageVersion + 1, badge: 'full' });
     await refreshThumb();
   } catch (e) {
-    noteError(tz('Full render', '全尺寸渲染'), e);
+    // Cancelled by an edit (requestPrint): not a failure, the edit's own render follows.
+    if (!(e instanceof HostCallError && e.code === 'cancelled')) noteError(tz('Full render', '全尺寸渲染'), e);
   } finally {
+    if (fullProgressId === progressId) fullProgressId = null;
     inFlight = false;
     if (gen !== wantedGen) void requestPrint();
   }
@@ -563,13 +597,17 @@ async function setLibrary(folder: string, files: FileEntry[]) {
 
 async function closeEngineSession() {
   const sid = get().engineSession;
-  set({ engineSession: null });
+  set({ engineSession: null, rendering: false });
   sentParams = null;
   sentDecode = null;
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
   if (decodeTimer) clearTimeout(decodeTimer);
   decodeTimer = null;
+  // The next frame's open queues behind a full render of this one: stop it first.
+  const fullId = fullProgressId;
+  fullProgressId = null;
+  if (sid && fullId) await host().cancel(sid, fullId).catch(() => {});
   if (sid) await host().close(sid).catch(() => {});
 }
 
