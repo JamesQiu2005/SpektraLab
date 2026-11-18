@@ -26,9 +26,9 @@ export interface ExportRecipe {
 const naming = (): ExportRecipe['naming'] => ({ order: [...NAME_TOKENS], tokens: ['originalName', 'filmStock', 'printStock'], separator: '_' });
 
 export const DEFAULT_RECIPES: ExportRecipe[] = [
-  { id: 'jpeg-p3', name: 'JPEG — Display P3', format: 'jpeg', bitDepth: 8, colorSpace: 'display-p3', quality: 92, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'SpektraLab', existing: 'addSuffix', naming: naming() },
-  { id: 'tiff-prophoto', name: 'TIFF 16-bit — ProPhoto', format: 'tiff', bitDepth: 16, colorSpace: 'prophoto', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'SpektraLab', existing: 'addSuffix', naming: naming() },
-  { id: 'png-srgb', name: 'PNG 8-bit — sRGB', format: 'png', bitDepth: 8, colorSpace: 'sRGB', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'SpektraLab', existing: 'addSuffix', naming: naming() },
+  { id: 'jpeg-p3', name: 'JPEG — Display P3', format: 'jpeg', bitDepth: 8, colorSpace: 'display-p3', quality: 92, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'Develop', existing: 'addSuffix', naming: naming() },
+  { id: 'tiff-prophoto', name: 'TIFF 16-bit — ProPhoto', format: 'tiff', bitDepth: 16, colorSpace: 'prophoto', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'Develop', existing: 'addSuffix', naming: naming() },
+  { id: 'png-srgb', name: 'PNG 8-bit — sRGB', format: 'png', bitDepth: 8, colorSpace: 'sRGB', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'Develop', existing: 'addSuffix', naming: naming() },
   { id: 'di', name: 'Digital Intermediate', format: 'di', bitDepth: 16, colorSpace: 'display-p3', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: '_prints', existing: 'addSuffix', naming: naming() },
 ];
 

@@ -5,7 +5,7 @@ fn main() {
     // No network capability, enforced by the kernel for this process and every child (WebKit's
     // processes, the engine host): first, before any thread or window exists. See no_network.rs.
     if let Err(e) = spektralab_lib::no_network::install() {
-        eprintln!("SpektraLab will not start: its no-network guard could not be put in place ({e}).");
+        eprintln!("Develop will not start: its no-network guard could not be put in place ({e}).");
         std::process::exit(1);
     }
     // WebKitGTK's DMABUF renderer crashed the web process on the first Linux test machine (Intel

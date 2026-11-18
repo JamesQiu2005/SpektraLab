@@ -222,7 +222,7 @@ pub fn run() {
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
-                        file_name: Some("spektralab".into()),
+                        file_name: Some("develop".into()),
                     }),
                 ])
                 .max_file_size(4 * 1024 * 1024)
@@ -257,7 +257,7 @@ pub fn run() {
                 sidecars: files::SidecarStore { dir: sidecar_dir },
                 launch_paths: Mutex::new(file_args(&argv)),
             });
-            log::info!("SpektraLab {} starting on {}", app.package_info().version, std::env::consts::OS);
+            log::info!("Develop {} starting on {}", app.package_info().version, std::env::consts::OS);
             tauri::async_runtime::spawn(async move { host.start().await });
             Ok(())
         })
@@ -289,5 +289,5 @@ pub fn run() {
             app_paths,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running SpektraLab");
+        .expect("error while running Develop");
 }

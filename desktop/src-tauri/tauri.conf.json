@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SpektraLab",
+  "productName": "Develop",
   "version": "1.3.1",
-  "identifier": "app.spektralab.desktop",
+  "identifier": "io.github.jegly.develop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "SpektraLab",
+        "title": "Develop",
         "width": 1600,
         "height": 960,
         "minWidth": 1100,
@@ -47,12 +47,12 @@
       "appimage",
       "nsis"
     ],
-    "publisher": "SpektraLab contributors",
+    "publisher": "jegly",
     "copyright": "GPL-3.0-or-later; film and paper profiles CC BY-SA 4.0",
     "category": "Photography",
     "shortDescription": "Film and print emulation",
-    "longDescription": "SpektraLab develops a photograph as film and prints it on paper, with spectral film and paper profiles.",
-    "homepage": "https://github.com/spektrafilm",
+    "longDescription": "Develop develops a photograph as film and prints it on paper, with spectral film and paper profiles. Based on SpektraLab and spektrafilm.",
+    "homepage": "https://github.com/jegly",
     "license": "GPL-3.0-or-later",
     "icon": [
       "icons/32x32.png",
@@ -126,7 +126,7 @@
         ],
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico",
-        "startMenuFolder": "SpektraLab"
+        "startMenuFolder": "Develop"
       }
     },
     "licenseFile": "../../license/LICENSE"

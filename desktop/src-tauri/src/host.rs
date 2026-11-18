@@ -470,7 +470,7 @@ pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> 
         }
     }
     Err(format!(
-        "SpektraLab could not find its engine host ({}). Reinstall the app, or set SPEKTRALAB_HOST_DIR.",
+        "Develop could not find its engine host ({}). Reinstall the app, or set SPEKTRALAB_HOST_DIR.",
         exe_name()
     ))
 }

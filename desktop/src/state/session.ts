@@ -567,7 +567,7 @@ export async function openPaths(paths: string[]) {
   try {
     const entries = await platform().expandPaths(paths);
     if (!entries.length) {
-      set({ status: tz('Nothing there SpektraLab can open.', '没有 SpektraLab 能打开的文件。') });
+      set({ status: tz('Nothing there Develop can open.', '没有 Develop 能打开的文件。') });
       return;
     }
     // One file is "edit this": its folder comes along around it.
@@ -598,7 +598,7 @@ async function setLibrary(folder: string, files: FileEntry[]) {
   frameImages.print = null;
   frameImages.original = null;
   set({ folder, frames: files, selection: null, picked: [], savedGeometry: {}, thumbVersion: get().thumbVersion + 1, imageVersion: get().imageVersion + 1, badge: null });
-  void platform().setTitle(`SpektraLab — ${baseName(folder)}`);
+  void platform().setTitle(`Develop — ${baseName(folder)}`);
   // The thumbnails' crop masks come from each frame's saved geometry.
   void Promise.all(
     files.map(async (f) => {

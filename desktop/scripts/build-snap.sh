@@ -7,20 +7,20 @@
 #   SPEKTRALAB_BUNDLES=deb node scripts/package.mjs linux && sh scripts/build-snap.sh
 #   sudo snap install --dangerous release/snap/<name>_<version>_amd64.snap
 #
-# SNAP_NAME (default spektralab) and SNAP_TITLE set the snap's name; APPID is read from tauri.conf.json.
+# SNAP_NAME (default develop) and SNAP_TITLE set the snap's name; APPID is read from tauri.conf.json.
 set -e
 cd "$(dirname "$0")/.."
 DEB=$(ls release/linux/*_amd64.deb 2>/dev/null | head -1)
 [ -n "$DEB" ] || { echo "build-snap: no .deb in release/linux; run: SPEKTRALAB_BUNDLES=deb node scripts/package.mjs linux"; exit 1; }
 VERSION=$(dpkg-deb -f "$DEB" Version)
-NAME=${SNAP_NAME:-spektralab}
+NAME=${SNAP_NAME:-develop}
 TITLE=${SNAP_TITLE:-$(grep -m1 '"productName"' src-tauri/tauri.conf.json | cut -d'"' -f4)}
 APPID=$(grep -m1 '"identifier"' src-tauri/tauri.conf.json | cut -d'"' -f4)
 P=release/snap/prime
 rm -rf release/snap
 mkdir -p "$P"
 dpkg-deb -x "$DEB" "$P"
-[ -x "$P/usr/bin/spektralab" ] && [ -x "$P/usr/bin/spektralab-host" ] || { echo "build-snap: the .deb has no usr/bin/spektralab or spektralab-host"; exit 1; }
+[ -x "$P/usr/bin/develop" ] && [ -x "$P/usr/bin/spektralab-host" ] || { echo "build-snap: the .deb has no usr/bin/develop or spektralab-host"; exit 1; }
 
 # The desktop entry and icon, pointing at the snap's command and icon
 ICON=$(ls "$P"/usr/share/icons/hicolor/512x512/apps/*.png | head -1)

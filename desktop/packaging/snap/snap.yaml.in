@@ -18,7 +18,7 @@ assumes: [snapd2.43]
 title: '@TITLE@'
 apps:
   @NAME@:
-    command: usr/bin/spektralab
+    command: usr/bin/develop
     command-chain: [snap/command-chain/gpu-2604-wrapper, snap/command-chain/desktop-launch]
     common-id: '@APPID@'
     # opengl gives /dev/dri, which the engine's Vulkan device needs as well as the webview
