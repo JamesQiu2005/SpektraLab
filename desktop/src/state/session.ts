@@ -172,7 +172,18 @@ let fullSeq = 0;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUndoAt = 0;
 let openGen = 0;
-const FULL_DELAY_MS = 400;
+// How long to wait after the last edit before rendering the frame at its own resolution. The Mac's
+// 400 ms suits a full render of under a second; on a laptop GPU it is 10-15 s at 24 MP (Intel UHD
+// 620), so a pause of half a second while adjusting started one, and the next nudge had to wait for
+// the engine to give it up (1-3 s: it stops between nodes, and halation alone is ~2.4 s there).
+// The delay is a quarter of the last full render's time, between 0.4 and 3 s: a Mac keeps its
+// 400 ms; a slow machine waits until the user has actually stopped.
+const FULL_DELAY_MIN_MS = 400;
+const FULL_DELAY_MAX_MS = 3000;
+let lastFullMs = 0;
+function fullDelayMs() {
+  return Math.min(FULL_DELAY_MAX_MS, Math.max(FULL_DELAY_MIN_MS, lastFullMs * 0.25));
+}
 
 function noteError(op: string, e: unknown) {
   const msg = e instanceof HostCallError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : String(e);
@@ -264,7 +275,7 @@ function scheduleFull() {
   // An export run renders the frame itself, at the file's own resolution.
   if (get().batchExporting) return;
   const gen = wantedGen;
-  fullTimer = setTimeout(() => void renderFull(gen), FULL_DELAY_MS);
+  fullTimer = setTimeout(() => void renderFull(gen), fullDelayMs());
 }
 
 async function renderFull(gen: number) {
@@ -287,7 +298,13 @@ async function renderFull(gen: number) {
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
     if (gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;
-    platform().log('info', `session: full render ${r.width}x${r.height} landed in ${Math.round(performance.now() - t0)} ms`);
+    lastFullMs = performance.now() - t0;
+    platform().log(
+      'info',
+      `session: full render ${r.width}x${r.height} landed in ${Math.round(lastFullMs)} ms` +
+        (r.hostMs != null ? ` (host ${Math.round(r.hostMs)} ms, transfer ${Math.round(lastFullMs - r.hostMs)} ms)` : '') +
+        `, next delay ${Math.round(fullDelayMs())} ms`,
+    );
     set({ imageVersion: get().imageVersion + 1, badge: 'full' });
     await refreshThumb();
   } catch (e) {

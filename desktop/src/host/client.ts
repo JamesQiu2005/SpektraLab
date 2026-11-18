@@ -32,6 +32,8 @@ export interface RenderReply extends RgbaImage {
   tier: Tier;
   reprinted: boolean;
   ms: number;
+  /** The host's own share of `ms` (engine + display transform), when it reports it. */
+  hostMs?: number;
 }
 
 function rgba8(info: ImageInfo, payload: Uint8Array): RgbaImage {
@@ -108,12 +110,20 @@ export class Host {
   }
   async render(session: string, tier: Tier, opts: { reprint?: boolean; progressId?: string } = {}): Promise<RenderReply> {
     const t0 = performance.now();
-    const r = await this.call<{ image: ImageInfo; tier: Tier; reprinted: boolean }>(
+    const r = await this.call<{ image: ImageInfo; tier: Tier; reprinted: boolean; timings_ms?: { render?: number; transform?: number } }>(
       'render',
       { session, tier, reprint: opts.reprint ?? false, format: 'rgba8', display: 'srgb', progress_id: opts.progressId },
       tier === 'full' ? 900_000 : 180_000,
     );
-    return { ...rgba8(r.result.image, r.payload), tier: r.result.tier ?? tier, reprinted: !!r.result.reprinted, ms: performance.now() - t0 };
+    const host = r.result.timings_ms;
+    return {
+      ...rgba8(r.result.image, r.payload),
+      tier: r.result.tier ?? tier,
+      reprinted: !!r.result.reprinted,
+      ms: performance.now() - t0,
+      // The host's own time (engine + display transform): the rest of `ms` is the trip to the page.
+      hostMs: host ? (host.render ?? 0) + (host.transform ?? 0) : undefined,
+    };
   }
   async sceneLatitude(session: string, request: Record<string, unknown>): Promise<Record<string, unknown>> {
     return (await this.call<Record<string, unknown>>('scene_latitude', { session, request })).result;
