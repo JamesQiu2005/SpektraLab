@@ -55,8 +55,8 @@ int main(int argc, char** argv) {
 
         struct Feature { const char* key; const char* label; };
         // The Digital Intermediate is ported (spk_di_encode.comp): it is checked below to render.
-        const std::array<Feature, 4> features{{
-            {"scene_latitude_active", "scene latitude mapping"},
+        // Scene latitude mapping is ported too (spk_scene_latitude.comp).
+        const std::array<Feature, 3> features{{
             {"contrast_mask_active", "contrast mask"},
             {"overscan_active", "overscan"},
             {"date_imprint_active", "date imprint"},
@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == before, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (4 flags, DI renders, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (3 flags, DI renders, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
