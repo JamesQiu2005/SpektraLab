@@ -53,33 +53,31 @@ int main(int argc, char** argv) {
         render(engine.get(), session.get());
         const std::string before = params(session.get());
 
-        struct Feature { const char* key; const char* label; };
-        // The Digital Intermediate is ported (spk_di_encode.comp): it is checked below to render.
-        // Scene latitude mapping is ported too (spk_scene_latitude.comp).
-        // The contrast mask is ported too (spk_mask_*.comp).
-        const std::array<Feature, 2> features{{
-            {"overscan_active", "overscan"},
-            {"date_imprint_active", "date imprint"},
-        }};
-        for (const Feature& feature : features) {
-            // Include a supported change to catch partial application before
-            // the unsupported field is rejected.
-            const std::string delta = std::string("{\"") + feature.key +
-                                      "\":true,\"print_exposure\":1.25}";
-            const spk_status status = spk_set_params(session.get(), delta.c_str(), nullptr);
-            const std::string error = spk_last_error(engine.get());
-            require(status == SPK_ERR_USER && error.find(feature.label) != std::string::npos &&
-                    error.find("Windows Vulkan backend") != std::string::npos,
-                    std::string("unclear feature refusal: ") + feature.key + ": " + error);
-            require(params(session.get()) == before, std::string("refused delta mutated params: ") + feature.key);
-            render(engine.get(), session.get());
-
-            spk_session* rejected = spk_open(engine.get(), &input, delta.c_str(), nullptr);
-            const std::string open_error = spk_last_error(engine.get());
-            if (rejected) spk_session_release(rejected);
-            require(!rejected && open_error.find(feature.label) != std::string::npos,
-                    std::string("open accepted an unported effect: ") + feature.key);
+        // The film edge and the date back render on Vulkan since overscan.metal's kernels were ported and
+        // their imprints are drawn without CoreText (edge_raster.cpp); the DI, scene latitude and the
+        // contrast mask before them. Each is set, rendered, and set back.
+        // A frame of the 135 gate's shape (36.25 x 24.3) for the film edge: it refuses any other.
+        std::vector<float> gate(149 * 100 * 3);
+        for (size_t i = 0; i < gate.size(); ++i) gate[i] = 0.025f + float(i % 29) * 0.025f;
+        const spk_image gate_input{gate.data(), 149, 100, 3};
+        std::unique_ptr<spk_session, decltype(&spk_session_release)> edge_session(
+            spk_open(engine.get(), &gate_input, nullptr, nullptr), spk_session_release);
+        require(bool(edge_session), std::string("135-shaped open failed: ") + spk_last_error(engine.get()));
+        for (const char* delta : {"{\"overscan_active\":true,\"overscan_format\":\"135\",\"overscan_edge_text\":\"PORTRA 400\"}",
+                                  "{\"date_imprint_active\":true,\"date_imprint_text\":\"'25 11 19\",\"date_imprint_placement\":\"frame\"}"}) {
+            require(spk_set_params(edge_session.get(), delta, nullptr) == SPK_OK,
+                    std::string("refused: ") + delta + ": " + spk_last_error(engine.get()));
+            spk_result shown{};
+            const spk_status st = spk_render(edge_session.get(), "full", &shown);
+            const bool ok = st == SPK_OK && shown.rgba16 && shown.width > 0 && shown.height > 0;
+            const std::string why = spk_last_error(engine.get());
+            spk_result_free(&shown);
+            require(ok, std::string("did not render: ") + delta + ": " + why);
+            require(spk_set_params(edge_session.get(), "{\"overscan_active\":false,\"date_imprint_active\":false}", nullptr) == SPK_OK,
+                    "could not set the film edge back");
         }
+        render(engine.get(), session.get());
+        require(params(session.get()) == before, "the film edge and date did not set back");
 
         spk_result di{};
         char* di_json = nullptr;
@@ -109,7 +107,7 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == before, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (2 flags, DI renders, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (film edge and date render, DI renders, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

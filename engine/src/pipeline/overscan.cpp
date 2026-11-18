@@ -24,6 +24,8 @@
 #include <Accelerate/Accelerate.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
+#else
+#include "edge_raster.hpp"   // the imprints off Apple: stb_truetype, a coverage rasteriser
 #endif
 
 #include <algorithm>
@@ -1585,13 +1587,84 @@ bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov,
 }
 
 #else
-// Off Apple the imprints' rasteriser (CoreText, CoreGraphics, vImage) has no
-// replacement yet: the film edge and the date are refused before a render
-// (windows_unported.hpp), so no group reaches this. A light leak, which shares
-// this node, draws no imprint.
-bool rasterise(const OverscanLayout&, const Group&, std::vector<float>& cov, int& x0, int& y0, int& w, int& h) {
-    cov.clear(); x0 = y0 = w = h = 0;
-    return false;
+// Off Apple: the same group drawn through edge_raster (stb_truetype glyphs in
+// free faces, one coverage rasteriser, a threaded Gaussian): the box, the
+// transform, the ops' order and gains and the softening are the Mac's.
+bool rasterise(const OverscanLayout& L, const Group& g, std::vector<float>& cov, int& x0, int& y0,
+               int& w, int& h) {
+    double xmin = 1e30, ymin = 1e30, xmax = -1e30, ymax = -1e30;
+    auto grow = [&](double s, double t) {
+        double x, y;
+        film_to_canvas_px(L, s, t, x, y);
+        xmin = std::min(xmin, x); ymin = std::min(ymin, y); xmax = std::max(xmax, x); ymax = std::max(ymax, y);
+    };
+    for (const Op& op : g.ops) {
+        if (op.kind == Op::Poly) {
+            for (size_t k = 0; k + 1 < op.pts.size(); k += 2) grow(op.pts[k], op.pts[k + 1]);
+        } else if (op.kind == Op::Circle) {
+            grow(op.pts[0] - op.size_mm, op.pts[1] - op.size_mm);
+            grow(op.pts[0] + op.size_mm, op.pts[1] + op.size_mm);
+        } else {
+            const double len = (0.75 * op.size_mm * op.hscale + op.tracking_mm * (op.scale_advances ? op.hscale : 1.0)) *
+                               double(op.text.size()) + op.size_mm;
+            const double r = op.rot_deg * M_PI / 180.0;
+            const double ex = std::cos(r), ey = std::sin(r);
+            for (double a : {-0.3 * op.size_mm, len})
+                for (double b : {-1.1 * op.size_mm, 0.4 * op.size_mm})
+                    grow(op.s + a * ex - b * ey, op.t + a * ey + b * ex);
+        }
+    }
+    const double pad = 3.0 + 3.0 * std::max(g.blur_mm, g.tail_w > 0.0 ? g.tail_mm : 0.0) / L.px;
+    x0 = std::max(0, int(std::floor(xmin - pad)));
+    y0 = std::max(0, int(std::floor(ymin - pad)));
+    const int x1 = std::min(int(L.canvas_w), int(std::ceil(xmax + pad)));
+    const int y1 = std::min(int(L.canvas_h), int(std::ceil(ymax + pad)));
+    w = x1 - x0; h = y1 - y0;
+    if (w <= 0 || h <= 0) return false;
+
+    // Film mm (s, t) -> this box's pixels: `film_to_canvas_px` is affine.
+    namespace er = spk::edge_raster;
+    er::Affine G;
+    {
+        double ox, oy, sx, sy, tx, ty;
+        film_to_canvas_px(L, 0, 0, ox, oy);
+        film_to_canvas_px(L, 1, 0, sx, sy);
+        film_to_canvas_px(L, 0, 1, tx, ty);
+        G.a = sx - ox; G.b = sy - oy; G.c = tx - ox; G.d = ty - oy; G.e = ox - x0; G.f = oy - y0;
+    }
+    er::Bitmap bm(w, h);
+    for (const Op& op : g.ops) {
+        const double gain = std::clamp(op.gain, 0.0, 1.0);
+        if (op.kind == Op::Poly) { bm.fill_polygon(op.pts, G, gain); continue; }
+        if (op.kind == Op::Circle) { bm.fill_ellipse(op.pts[0], op.pts[1], op.size_mm, op.size_mm, G, gain); continue; }
+        // The op's own space: (scale the whole line), rotate about its start, put it there.
+        er::Affine S, R, T;
+        if (op.scale_advances) S.a = op.hscale;
+        const double rr = op.rot_deg * M_PI / 180.0;
+        R.a = std::cos(rr); R.b = std::sin(rr); R.c = -std::sin(rr); R.d = std::cos(rr);
+        T.e = op.s; T.f = op.t;
+        std::string why;
+        if (!bm.fill_text(op.font, op.size_mm, op.text, op.tracking_mm, op.scale_advances ? 1.0 : op.hscale,
+                          S.then(R).then(T).then(G), gain, why))
+            std::fprintf(stderr, "spektralab: film edge text: %s\n", why.c_str());
+    }
+    cov = bm.coverage();
+    auto soften = [&](std::vector<float>& c, double sigma) {
+        if (!(sigma > 0.3)) return true;
+        const int r = int(std::ceil(3.0 * sigma));
+        std::vector<float> k(size_t(2 * r + 1));
+        double sum = 0.0;
+        for (int i = -r; i <= r; ++i) { k[size_t(i + r)] = float(std::exp(-0.5 * i * i / (sigma * sigma))); sum += k[size_t(i + r)]; }
+        for (float& v : k) v = float(v / sum);
+        er::soften(c, w, h, k);
+        return true;
+    };
+    if (!(g.tail_w > 0.0)) return soften(cov, g.blur_mm / L.px);
+    std::vector<float> tail = cov;
+    if (!soften(cov, g.blur_mm / L.px) || !soften(tail, g.tail_mm / L.px)) return false;
+    const float wc = float(1.0 - g.tail_w), wt = float(g.tail_w);
+    for (size_t i = 0; i < cov.size(); ++i) cov[i] = wc * cov[i] + wt * tail[i];
+    return true;
 }
 #endif  // __APPLE__
 
@@ -2000,9 +2073,10 @@ double text_width(const char* font, double size_mm, const std::string& text, dou
 }
 
 #else
-// Off Apple: no CoreText to measure with (see `rasterise`); unreachable while the
-// film edge and the date are refused.
-double text_width(const char*, double, const std::string&, double, double) { return 0.0; }
+// Off Apple: measured in the same free face `rasterise` draws with (edge_raster).
+double text_width(const char* font, double size_mm, const std::string& text, double tracking_mm, double hscale) {
+    return spk::edge_raster::text_width(font, size_mm, text, tracking_mm) * hscale;
+}
 #endif  // __APPLE__
 
 // --- the Pentax MZ-S data line (API-SPEC §21.2) -----------------------

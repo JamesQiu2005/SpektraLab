@@ -1,110 +1,14 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
-// overscan.metal spk_leak_frame (API-SPEC §21.1, §21.9): a light leak with the
-// film edge off. The frame is laid over the format's nominal gate, each pixel
-// takes its film position, and the leak there -- its kind (band, wash, spot)
-// and the edge burn beside it -- is added to it as exposure. Expression for
-// expression from the Metal kernel and its `leak_field`, `leak_kind_field` and
-// `leak_edge`; sin, cos and atan2 through spk_trig.glsl (Vulkan's built-ins
-// are far looser than Metal's). P: overscan.cpp's parameter block; n: {pixels}
-#include "spk_trig.glsl"
+// overscan.metal spk_leak_frame (API-SPEC §21.1, §21.9): a light leak with the film edge off. The frame
+// is laid over the format's nominal gate, each pixel takes its film position, and the leak there is
+// added to it as exposure. Helpers: spk_overscan.glsl. n: {pixels}
 layout(local_size_x = 256) in;
 layout(std430, binding = 0) readonly buffer Frame { float frame[]; };
 layout(std430, binding = 1) readonly buffer Pbuf { float P[]; };
 layout(std430, binding = 2) readonly buffer N { uint n[]; };
 layout(std430, binding = 3) writeonly buffer Out { float dst[]; };
-
-// The block's indices (overscan.metal's enum, overscan.cpp `enum OsP`): only
-// those this kernel reads.
-const uint P_CW = 0u, P_PX = 2u, P_VERTICAL = 13u;
-const uint P_GS0 = 14u, P_GT0 = 15u, P_GH = 17u;
-const uint P_FILM_W = 44u;
-const uint P_LEAK_KIND = 261u, P_LEAK_AMP = 262u, P_LEAK_SC = 263u, P_LEAK_ST = 264u, P_LEAK_EDGE = 265u,
-           P_LEAK_SIG_A = 266u, P_LEAK_SIG_B = 267u, P_LEAK_DIR = 268u, P_LEAK_TILT = 269u,
-           P_LEAK_FRONT = 270u, P_LEAK_LAMBDA = 271u, P_LEAK_LEN = 272u, P_LEAK_CORE = 273u;
-const uint P_LEAK_REAR_R = 274u, P_LEAK_FRONT_R = 277u;
-const uint P_EDGE_S = 284u, P_EDGE_L = 286u, P_EDGE_U = 288u, P_EDGE_K = 290u, P_EDGE_PH = 292u;
-const uint P_EDGE_JIT = 296u, P_EDGE_CORE = 297u, P_EDGE_P0 = 298u, P_EDGE_P1 = 299u, P_EDGE_PA = 300u,
-           P_EDGE_SHIFT = 301u, P_EDGE_TAIL = 302u, P_EDGE_TLEN = 303u;
-const uint P_PERF_ROWS = 305u;
-const uint P_EDGE_AMP = 311u, P_EDGE_FRONT = 312u;
-
-uint spk_global_index() {
-    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
-}
-
-vec3 leak_edge(vec2 st, vec3 rear, vec3 front, float amp, float f) {
-    const float W = P[P_FILM_W];
-    if (st.y < 0.0 || st.y > W) return vec3(0.0);
-    const float s = st.x + P[P_EDGE_SHIFT];
-    vec3 e = vec3(0.0);
-    for (uint k = 0u; k < 2u; ++k) {
-        const float d = max(k == 0u ? st.y : W - st.y, 0.0);
-        const float p1 = P[P_EDGE_PH + 2u * k], p2 = P[P_EDGE_PH + 2u * k + 1u];
-        const float k1 = P[P_EDGE_K], k2 = P[P_EDGE_K + 1u];
-        const float w = 0.55 * spk_sin(k1 * s + p1) + 0.33 * spk_sin(k2 * s + p2) + 0.12 * spk_sin(2.9 * k2 * s + p1 + p2);
-        const float w2 = 0.6 * spk_sin(k1 * s + p2 + 2.1) + 0.4 * spk_sin(k2 * s + p1 + 0.7);
-        const float len = max(P[P_EDGE_L + k] * exp(P[P_EDGE_U + k] * w), 1e-3);
-        const float str = P[P_EDGE_S + k] * exp2(P[P_EDGE_JIT] * (0.6 * w + 0.4 * w2));
-        const float tlen = len * max(P[P_EDGE_TLEN], 1.0);
-        float p = exp(-d / len) + P[P_EDGE_TAIL] * exp(-d / tlen);
-        const float rows = P[P_PERF_ROWS];
-        const bool row_here = rows < 0.5 || (rows < 1.5 ? k == 0u : k == 1u);
-        if (P[P_EDGE_PA] > 0.0 && row_here) {
-            const float dh = max(max(P[P_EDGE_P0] - d, d - P[P_EDGE_P1]), 0.0);
-            p += P[P_EDGE_PA] * exp(-dh / tlen);
-        }
-        const float core = exp(-d / (len * max(P[P_EDGE_CORE], 1e-3)));
-        e += str * ((1.0 - f) * p * rear + f * core * front);
-    }
-    return amp * e;
-}
-
-vec3 leak_kind_field(vec2 st, float kind, vec3 rear, vec3 front) {
-    const float W = P[P_FILM_W], amp = P[P_LEAK_AMP], f = P[P_LEAK_FRONT];
-    const float d_edge = max(P[P_LEAK_EDGE] < 0.5 ? st.y : W - st.y, 0.0);
-    const float across = exp(-d_edge / max(P[P_LEAK_LAMBDA], 1e-3));
-    float p, core;
-    if (kind < 1.5) {
-        // band: tilted a few degrees off square; soft on one flank, sharp on the other
-        const float d = st.x - P[P_LEAK_SC] + P[P_LEAK_TILT] * (st.y - 0.5 * W);
-        const float sig = d * P[P_LEAK_DIR] > 0.0 ? P[P_LEAK_SIG_A] : P[P_LEAK_SIG_B];
-        p = exp(-0.5 * d * d / max(sig * sig, 1e-6));
-        const float c = P[P_LEAK_CORE];
-        core = exp(-0.5 * d * d / max(c * c, 1e-6));
-    } else if (kind < 2.5) {
-        // wash: from the leaking end into the frame, rising a little past the end
-        const float x = (st.x - P[P_LEAK_SC]) * P[P_LEAK_DIR] + P[P_LEAK_TILT] * (st.y - 0.5 * W);
-        const float len = max(P[P_LEAK_LEN], 1e-3);
-        p = exp(-max(x, -0.5 * len) / len);
-        core = p;
-    } else {
-        // spot: the 120 window, or off 120 a pinhole
-        const vec2 dd = st - vec2(P[P_LEAK_SC], P[P_LEAK_ST]);
-        const float ca = spk_cos(P[P_LEAK_TILT]), sa = spk_sin(P[P_LEAK_TILT]);
-        const vec2 q = vec2(ca * dd.x + sa * dd.y, (ca * dd.y - sa * dd.x) / max(P[P_LEAK_SIG_B], 0.1));
-        const float rho = length(q), th = rho > 0.0 ? spk_atan2(q.y, q.x) : 0.0, ph = 6.2831853 * P[P_LEAK_DIR];
-        const float edge = 0.55 * spk_cos(2.0 * th + ph) + 0.30 * spk_cos(3.0 * th + 2.7 * ph + 1.3)
-                         + 0.15 * spk_cos(5.0 * th + 4.1 * ph + 2.1);
-        const float r = max(P[P_LEAK_LEN], 1e-3) * (1.0 + P[P_LEAK_CORE] * edge);
-        const float u = rho / r;
-        const float window = exp(-u * u * u * u);
-        const float scatter = exp(-max(rho - r, 0.0) / max(P[P_LEAK_SIG_A], 1e-3));
-        p = 8.0 * window + 0.125 * scatter;
-        return amp * ((1.0 - f) * p * rear + f * p * front);
-    }
-    return amp * across * ((1.0 - f) * p * rear + f * core * front);
-}
-
-vec3 leak_field(vec2 st) {
-    const float kind = P[P_LEAK_KIND];
-    const vec3 rear = vec3(P[P_LEAK_REAR_R], P[P_LEAK_REAR_R + 1u], P[P_LEAK_REAR_R + 2u]);
-    const vec3 front = vec3(P[P_LEAK_FRONT_R], P[P_LEAK_FRONT_R + 1u], P[P_LEAK_FRONT_R + 2u]);
-    vec3 e = vec3(0.0);
-    if (kind > 0.5) e = leak_kind_field(st, kind, rear, front);
-    if (P[P_EDGE_AMP] > 0.0) e += leak_edge(st, rear, front, P[P_EDGE_AMP], P[P_EDGE_FRONT]);
-    return e;
-}
+#include "spk_overscan.glsl"
 
 void main() {
     const uint i = spk_global_index();

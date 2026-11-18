@@ -1,0 +1,30 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// overscan.metal spk_overscan_picture_weight (API-SPEC §25): where the picture was exposed -- the gate's
+// coverage at the same film position as spk_overscan_canvas. Three equal channels, for the blur.
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Pbuf { float P[]; };
+layout(std430, binding = 1) readonly buffer N { uint n[]; };
+layout(std430, binding = 2) writeonly buffer Out { float dst[]; };
+#include "spk_overscan.glsl"
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= n[0]) return;
+    const uint cw = uint(P[P_CW]);
+    const vec2 st = canvas_to_film(float(i % cw), float(i / cw));
+    float cov = 0.0;
+    if (P[P_CARRIER] > 1.5 || (st.y >= 0.0 && st.y <= P[P_FILM_W])) {
+        vec2 sg = st;
+        if (P[P_PAIR_ADV] > 0.0 && st.x > P[P_GS0] + 0.5 * (P[P_GW] + P[P_PAIR_ADV])) sg.x -= P[P_PAIR_ADV];
+        if (P[P_NB_NEXT] > 0.0) {
+            const float mid = P[P_GS0] + 0.5 * P[P_GW];
+            if (st.x > mid + 0.5 * P[P_NB_NEXT])      sg.x -= P[P_NB_NEXT];
+            else if (st.x < mid - 0.5 * P[P_NB_PREV]) sg.x += P[P_NB_PREV];
+        }
+        cov = penumbra(gate_sdf(sg), P[P_PENUMBRA]);
+    }
+    dst[3u * i] = cov;
+    dst[3u * i + 1u] = cov;
+    dst[3u * i + 2u] = cov;
+}

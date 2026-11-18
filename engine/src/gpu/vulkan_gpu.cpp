@@ -113,6 +113,13 @@ constexpr KernelSpec kKernels[] = {
     {"spk_lens_cctf_encode", 2, kWorkgroup},
     // a light leak with the film edge off (overscan.metal)
     {"spk_leak_frame", 4, kWorkgroup},
+    // the film edge (overscan.metal)
+    {"spk_overscan_canvas", 4, kWorkgroup},
+    {"spk_overscan_add_mask", 4, kWorkgroup},
+    {"spk_overscan_picture_weight", 3, kWorkgroup},
+    {"spk_edr_weighted", 7, kWorkgroup},
+    {"spk_overscan_film_present", 4, kWorkgroup},
+    {"spk_overscan_light", 4, kWorkgroup},
 };
 
 const KernelSpec* find_kernel(const char* name) {

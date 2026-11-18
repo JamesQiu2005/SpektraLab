@@ -57,8 +57,10 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/contrast_mask.cpp
     # and the lens (diffusion filter, aberrations) since spk_lens_*.comp
     src/pipeline/lens.cpp
-    # and the overscan node for the light leaks (spk_leak_frame.comp)
+    # and the overscan node: light leaks, the film edge and the date back
+    # (spk_leak_frame.comp, spk_overscan_*.comp; edge_raster.cpp draws the imprints off Apple)
     src/pipeline/overscan.cpp
+    src/pipeline/edge_raster.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(APPLE)
@@ -71,6 +73,7 @@ target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb"
 )
 
 if(BUILD_TESTING)
@@ -132,7 +135,8 @@ if(NOT APPLE)
             spk_lens_splat spk_lens_mix spk_lens_tca spk_lens_loca_share spk_lens_loca_mix
             spk_lens_down2 spk_lens_line spk_lens_pyr_down0 spk_lens_pyr_down spk_lens_pyr_up
             spk_lens_pyr_out spk_lens_gauss_1d spk_lens_rows_put spk_lens_cctf_encode
-            spk_leak_frame
+            spk_leak_frame spk_overscan_canvas spk_overscan_add_mask spk_overscan_picture_weight
+            spk_edr_weighted spk_overscan_film_present spk_overscan_light
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")

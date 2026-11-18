@@ -51,6 +51,10 @@ def overlay(tmp):
     for f in (ENGINE / "resources").iterdir():
         if f.name != "profiles":
             os.symlink(f, res / f.name)
+    # Vulkan builds keep their compiled kernels beside the staged resources, not in engine/resources.
+    staged = os.environ.get("SPEKTRALAB_ENGINE_RESOURCES")
+    if staged and (Path(staged) / "vulkan").is_dir() and not (res / "vulkan").exists():
+        os.symlink(Path(staged) / "vulkan", res / "vulkan")
     for d in (ENGINE / "resources" / "profiles", ENGINE / "resources_product" / "profiles"):
         for f in d.glob("*.json"):
             if not (res / "profiles" / f.name).exists():

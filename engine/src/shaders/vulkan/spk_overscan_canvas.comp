@@ -1,0 +1,88 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// overscan.metal spk_overscan_canvas: raw exposure on the film canvas -- the picture through the gate's
+// penumbra (a pair's second exposure, a cine film's neighbours), the gate flare, the edge fog and spool
+// leaks, and the light leak. n: {pixels}
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Frame { float frame[]; };
+layout(std430, binding = 1) readonly buffer Pbuf { float P[]; };
+layout(std430, binding = 2) readonly buffer N { uint n[]; };
+layout(std430, binding = 3) writeonly buffer Out { float dst[]; };
+#include "spk_overscan.glsl"
+
+vec3 sample_frame(float fx, float fy, uint fw, uint fh) {
+    fx = clamp(fx, 0.0, float(fw) - 1.0);
+    fy = clamp(fy, 0.0, float(fh) - 1.0);
+    const uint x0 = uint(floor(fx)), y0 = uint(floor(fy));
+    const uint x1 = min(x0 + 1u, fw - 1u), y1 = min(y0 + 1u, fh - 1u);
+    const float ax = fx - float(x0), ay = fy - float(y0);
+    const uint i00 = 3u * (y0 * fw + x0), i01 = 3u * (y0 * fw + x1);
+    const uint i10 = 3u * (y1 * fw + x0), i11 = 3u * (y1 * fw + x1);
+    const vec3 a = vec3(frame[i00], frame[i00 + 1u], frame[i00 + 2u]);
+    const vec3 b = vec3(frame[i01], frame[i01 + 1u], frame[i01 + 2u]);
+    const vec3 c = vec3(frame[i10], frame[i10 + 1u], frame[i10 + 2u]);
+    const vec3 d = vec3(frame[i11], frame[i11 + 1u], frame[i11 + 2u]);
+    return mix(mix(a, b, ax), mix(c, d, ax), ay);
+}
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= n[0]) return;
+    const uint cw = uint(P[P_CW]);
+    const vec2 st = canvas_to_film(float(i % cw), float(i / cw));
+    const float W = P[P_FILM_W];
+    vec3 e = vec3(0.0);
+    if (P[P_CARRIER] > 1.5 || (st.y >= 0.0 && st.y <= W)) {
+        vec2 sg = st;
+        float shift = 0.0;
+        if (P[P_PAIR_ADV] > 0.0 && st.x > P[P_GS0] + 0.5 * (P[P_GW] + P[P_PAIR_ADV])) { shift = P[P_PAIR_ADV]; sg.x -= shift; }
+        if (P[P_NB_NEXT] > 0.0) {
+            const float mid = P[P_GS0] + 0.5 * P[P_GW];
+            if (st.x > mid + 0.5 * P[P_NB_NEXT])      { shift = P[P_NB_NEXT]; sg.x -= shift; }
+            else if (st.x < mid - 0.5 * P[P_NB_PREV]) { shift = -P[P_NB_PREV]; sg.x -= shift; }
+        }
+        const float cov = penumbra(gate_sdf(sg), P[P_PENUMBRA]);
+        const bool nb = P[P_NB_NEXT] > 0.0;
+        const float s_at = nb ? sg.x : st.x;
+        if (cov > 0.0) {
+            const float px = P[P_PX];
+            float fx, fy;
+            if (P[P_VERTICAL] < 0.5) { fx = (s_at - P[P_GS0]) / px - 0.5; fy = (st.y - P[P_GT0]) / px - 0.5; }
+            else                     { fx = (P[P_GT0] + P[P_GH] - st.y) / px - 0.5; fy = (s_at - P[P_GS0]) / px - 0.5; }
+            if (P[P_FALLOFF] > 0.0)
+                e += (cov * lens_falloff(sg)) * sample_frame(fx, fy, uint(P[P_FW]), uint(P[P_FH]));
+            else
+                e += cov * sample_frame(fx, fy, uint(P[P_FW]), uint(P[P_FH]));
+        }
+        const float d_gate = gate_sdf(sg);
+        if (P[P_FLARE_AMP] > 0.0 && d_gate > -0.02 && d_gate < 6.0 * P[P_FLARE_WIDTH]) {
+            const float px = P[P_PX];
+            const float in_s = clamp(sg.x, P[P_GS0] + 0.12, P[P_GS0] + P[P_GW] - 0.12) + (nb ? 0.0 : shift);
+            const float in_t = clamp(st.y, P[P_GT0] + 0.12, P[P_GT0] + P[P_GH] - 0.12);
+            float fx, fy;
+            if (P[P_VERTICAL] < 0.5) { fx = (in_s - P[P_GS0]) / px - 0.5; fy = (in_t - P[P_GT0]) / px - 0.5; }
+            else                     { fx = (P[P_GT0] + P[P_GH] - in_t) / px - 0.5; fy = (in_s - P[P_GS0]) / px - 0.5; }
+            const vec3 edge_light = sample_frame(fx, fy, uint(P[P_FW]), uint(P[P_FH]));
+            const float prof = exp(-max(d_gate, 0.0) / P[P_FLARE_WIDTH]);
+            e += P[P_FLARE_AMP] * prof * edge_light;
+        }
+        const float d_top = max(st.y, 0.0), d_bot = max(W - st.y, 0.0);
+        const uint seed = uint(P[P_FOG_SEED]);
+        const float period = max(P[P_FOG_PERIOD], 0.1);
+        const float nz = 0.6 * value_noise(st.x / period, seed) +
+                         0.4 * value_noise(st.x / (0.37 * period), seed ^ 0xA5A5A5A5u);
+        float fog = P[P_FOG_AMP] * exp(-min(d_top, d_bot) / max(P[P_FOG_WIDTH], 1e-3)) * (0.3 + 0.7 * nz);
+        const uint nl = uint(P[P_N_LEAKS]);
+        for (uint k = 0u; k < nl; ++k) {
+            const uint b = P_LEAKS + 5u * k;
+            const float dd = P[b + 1u] < 0.5 ? d_top : d_bot;
+            const float ds = st.x - P[b];
+            fog += P[b + 2u] * exp(-ds * ds / (2.0 * P[b + 3u] * P[b + 3u])) * exp(-dd / P[b + 4u]);
+        }
+        e += fog * vec3(P[P_FOG_R], P[P_FOG_G], P[P_FOG_B]);
+        if (P[P_LEAK_KIND] > 0.5 || P[P_EDGE_AMP] > 0.0) e += leak_field(st);
+    }
+    dst[3u * i] = e.x;
+    dst[3u * i + 1u] = e.y;
+    dst[3u * i + 2u] = e.z;
+}

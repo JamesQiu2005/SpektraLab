@@ -14,8 +14,10 @@ inline const char* windows_unported_error(bool di, bool latitude, bool mask,
     (void)latitude;
     // The contrast mask renders on Vulkan since spk_mask_reduce/spk_mask_epilogue were ported.
     (void)mask;
-    if (overscan) return "overscan is not implemented by the Windows Vulkan backend yet";
-    if (date) return "date imprint is not implemented by the Windows Vulkan backend yet";
+    // The film edge and the date back render on Vulkan since overscan.metal's kernels were ported
+    // (spk_overscan_*.comp) and their imprints are drawn without CoreText (edge_raster.cpp).
+    (void)overscan;
+    (void)date;
     // `scan_hdr` (2026-11-06): `spk_scan_hdr_expand` is Metal only.
     if (scan_hdr) return "scan_hdr is not implemented by the Windows Vulkan backend yet";
     return nullptr;
