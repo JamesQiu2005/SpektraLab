@@ -1,0 +1,7 @@
+#!/bin/sh
+# Uses the GNOME runtime's own launcher (sets up GTK, fonts, themes and portals inside the snap), falling back
+# to the copy bundled with this snap.
+if [ -x "$SNAP/gnome-platform/command-chain/desktop-launch" ]; then
+    exec "$SNAP/gnome-platform/command-chain/desktop-launch" "$@"
+fi
+exec "$SNAP/snap/command-chain/desktop-launch-bundled" "$@"

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Hands over to the graphics provider snap (mesa-2604) when it's connected; otherwise runs as is.
+if [ -x "$SNAP/gpu-2604/bin/gpu-2604-provider-wrapper" ]; then
+    exec "$SNAP/gpu-2604/bin/gpu-2604-provider-wrapper" "$@"
+fi
+exec "$@"
