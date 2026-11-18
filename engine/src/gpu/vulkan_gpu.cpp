@@ -87,6 +87,8 @@ constexpr KernelSpec kKernels[] = {
     {"spk_di_encode", 4, kWorkgroup},
     {"spk_scene_latitude", 4, kWorkgroup},
     {"spk_scene_curve", 5, kWorkgroup},
+    {"spk_mask_reduce", 7, kWorkgroup},
+    {"spk_mask_epilogue", 8, kWorkgroup},
     {"spk_bw_correct", 4, kWorkgroup},
     {"spk_edr", 5, kWorkgroup},
     {"spk_cctf_decode", 3, kWorkgroup},

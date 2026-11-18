@@ -12,7 +12,8 @@ inline const char* windows_unported_error(bool di, bool latitude, bool mask,
     (void)di;
     // Scene latitude mapping renders on Vulkan since spk_scene_latitude was ported.
     (void)latitude;
-    if (mask) return "contrast mask is not implemented by the Windows Vulkan backend yet";
+    // The contrast mask renders on Vulkan since spk_mask_reduce/spk_mask_epilogue were ported.
+    (void)mask;
     if (overscan) return "overscan is not implemented by the Windows Vulkan backend yet";
     if (date) return "date imprint is not implemented by the Windows Vulkan backend yet";
     // `scan_hdr` (2026-11-06): `spk_scan_hdr_expand` is Metal only.

@@ -75,32 +75,7 @@ bool Pipeline::node_scene_layers(const Image&, Image&, std::string& error) {
     return false;
 }
 
-bool Pipeline::contrast_mask_wanted() const { return params_.print_render.contrast_mask.active; }
-
-void Pipeline::release_contrast_mask() {
-    mask_on_ = false;
-    mask_coef_ = gpu::BufferRef{};
-    band_row0_ = 0;
-}
-
-bool Pipeline::prepare_contrast_mask(const Image&, std::string& error, std::vector<float>* delta) {
-    release_contrast_mask();
-    if (delta) delta->clear();
-    if (!contrast_mask_wanted()) return true;
-    error = windows_unported_error(false, false, true, false, false);
-    return false;
-}
-
-bool Pipeline::contrast_mask_field(const Image& cmy, std::vector<float>& delta, uint32_t& gw,
-                                   uint32_t& gh, std::string& error) {
-    gw = gh = 0;
-    return prepare_contrast_mask(cmy, error, &delta);
-}
-
-bool Pipeline::node_contrast_mask_epilogue(const Image&, Image&, std::string& error) {
-    error = windows_unported_error(false, false, true, false, false);
-    return false;
-}
+// The contrast mask is compiled on every backend (contrast_mask.cpp; spk_mask_*.comp).
 
 }  // namespace spk
 #endif  // !__APPLE__
