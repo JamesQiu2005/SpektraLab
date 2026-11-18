@@ -55,10 +55,12 @@ describe('the wire with the catalogue', () => {
     expect(w.extended_dynamic_range).toBe(false);
   });
 
-  it("scales the Grain strength by the film's own grain", () => {
+  it('sends the Grain strength as it is, for every film (the per-film scale is off)', () => {
     setActiveCatalog(cat);
-    const w = fullDelta({ ...FILM_PARAMS_DEFAULT, filmStock: 'kodak_tri_x_400' });
-    expect(w.grain_amount).toBeCloseTo(1.7 * FILM_PARAMS_DEFAULT.effects.grain, 6);
+    for (const film of ['kodak_tri_x_400', 'kodak_portra_400', 'kodak_portra_160']) {
+      const w = fullDelta({ ...FILM_PARAMS_DEFAULT, filmStock: film });
+      expect(w.grain_amount, film).toBe(FILM_PARAMS_DEFAULT.effects.grain);
+    }
   });
 
   it('changes the film and its paper in one delta', () => {

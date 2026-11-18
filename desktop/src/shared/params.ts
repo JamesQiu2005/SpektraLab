@@ -444,7 +444,6 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
   const p = heldToItsFilm(p0, cat);
   const monoFilm = cat.isMonochrome(p.filmStock);
   const monoPaper = cat.isMonochrome(p.printStock);
-  const filmGrain = cat.stock(p.filmStock)?.grain ?? 1;
   const di = gate.digitalIntermediate && p.digitalIntermediate;
   const placement = p.placementIsRight ? p.sceneLatitudeOther : p.sceneLatitude;
   const f: WireField[] = [
@@ -505,8 +504,10 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
   f.push(
     { name: 'halation_amount', value: clamp(e.halation, r.halation[0], r.halation[1]), layer: 'shoot' },
     { name: 'halation_scatter_amount', value: clamp(e.scatter, r.scatter[0], r.scatter[1]), layer: 'shoot' },
-    // The Grain strength's 1 is the film's own grain (the catalogue's `grain`, SpektraLab 2).
-    { name: 'grain_amount', value: clamp(e.grain * filmGrain, r.grain[0], r.grain[1]), layer: 'shoot' },
+    // The Grain strength as it is, for every film. SpektraLab 2 multiplies it by the catalogue's
+    // per-film `grain` (Stock.swift `silver`: `cat.stock(film)?.grain`); reverted here at the
+    // owner's request on 2026-11-18 so the grain can be judged against what it was.
+    { name: 'grain_amount', value: clamp(e.grain, r.grain[0], r.grain[1]), layer: 'shoot' },
     { name: 'dir_couplers_active', value: e.couplersActive, layer: 'shoot' },
     { name: 'dir_couplers_amount', value: clamp(e.couplers, r.couplers[0], r.couplers[1]), layer: 'shoot' },
     { name: 'glare_amount', value: clamp(e.glare, r.glare[0], r.glare[1]), layer: 'print' },
