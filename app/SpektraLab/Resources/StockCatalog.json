@@ -612,6 +612,32 @@
    "grain": 1.09
   },
   {
+   "id": "kodak_vision2_100t",
+   "name": "Kodak Vision2 100T",
+   "shortName": "Vision2 100T",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 100,
+   "swatch": "#6f8fa6",
+   "grain": 0.91
+  },
+  {
+   "id": "kodak_vision2_200t",
+   "name": "Kodak Vision2 200T",
+   "shortName": "Vision2 200T",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 200,
+   "swatch": "#63849d",
+   "grain": 1.05
+  },
+  {
    "id": "kodak_vision2_250d",
    "name": "Kodak Vision2 250D",
    "shortName": "Vision2 250D",
@@ -625,17 +651,56 @@
    "grain": 1.15
   },
   {
-   "id": "kodak_vision_500t",
-   "name": "Kodak Vision 500T",
-   "shortName": "Vision 500T",
+   "id": "kodak_vision2_500t",
+   "name": "Kodak Vision2 500T",
+   "shortName": "Vision2 500T",
    "kind": "cine negative",
    "stage": "filming",
    "use": "still",
    "type": "negative",
    "targetPrint": "kodak_2383",
    "iso": 500,
-   "swatch": "#4f6a85",
-   "grain": 0.99
+   "swatch": "#527290",
+   "grain": 2.0
+  },
+  {
+   "id": "kodak_vision2_expression_500t",
+   "name": "Kodak Vision2 Expression 500T",
+   "shortName": "Vision2 Expr. 500T",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 500,
+   "swatch": "#5d6f8a",
+   "grain": 1.57
+  },
+  {
+   "id": "kodak_vision_200t",
+   "name": "Kodak Vision 200T",
+   "shortName": "Vision 200T",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 200,
+   "swatch": "#5f809a",
+   "grain": 1.07
+  },
+  {
+   "id": "kodak_vision_250d",
+   "name": "Kodak Vision 250D",
+   "shortName": "Vision 250D",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 250,
+   "swatch": "#68959b",
+   "grain": 1.0
   },
   {
    "id": "kodak_vision_320t",
@@ -651,17 +716,43 @@
    "grain": 0.84
   },
   {
-   "id": "kodak_vision_250d",
-   "name": "Kodak Vision 250D",
-   "shortName": "Vision 250D",
+   "id": "kodak_vision_500t",
+   "name": "Kodak Vision 500T",
+   "shortName": "Vision 500T",
    "kind": "cine negative",
    "stage": "filming",
    "use": "still",
    "type": "negative",
    "targetPrint": "kodak_2383",
-   "iso": 250,
-   "swatch": "#68959b",
-   "grain": 1.0
+   "iso": 500,
+   "swatch": "#4f6a85",
+   "grain": 0.99
+  },
+  {
+   "id": "kodak_vision_500t_5263",
+   "name": "Kodak Vision 500T (5263)",
+   "shortName": "Vision 500T 5263",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 500,
+   "swatch": "#56718b",
+   "grain": 1.24
+  },
+  {
+   "id": "kodak_vision_800t",
+   "name": "Kodak Vision 800T",
+   "shortName": "Vision 800T",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 800,
+   "swatch": "#47607c",
+   "grain": 0.93
   },
   {
    "id": "fujifilm_eterna_250",
@@ -701,6 +792,19 @@
    "iso": 64,
    "swatch": "#7aa59a",
    "grain": 0.79
+  },
+  {
+   "id": "fujifilm_reala_500d",
+   "name": "Fujifilm Reala 500D",
+   "shortName": "Reala 500D",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 500,
+   "swatch": "#74a08a",
+   "grain": 1.65
   },
   {
    "id": "kodak_tri_x_400",

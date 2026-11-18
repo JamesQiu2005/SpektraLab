@@ -27,8 +27,10 @@ from spectral_film_lab.utils.io import load_densitometer_data
 from spectral_film_lab.config import SPECTRAL_SHAPE
 
 WL = SPECTRAL_SHAPE.wavelengths
+GENERIC_START = {"kodak_vision_500t_5263"}
 DONOR = {"kodak_vision_250d": "kodak_vision_500t_5263", "kodak_vision_320t": "kodak_vision_500t_5263",
-         "kodak_vision_500t": "kodak_vision_500t_5263", "kodak_vision_200t": "kodak_vision_500t_5263"}
+         "kodak_vision_500t": "kodak_vision_500t_5263", "kodak_vision_200t": "kodak_vision_500t_5263",
+         "kodak_vision_800t": "kodak_vision_500t_5263"}
 
 
 def L(p):
@@ -90,7 +92,14 @@ def main():
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(raw / stock, dst)
-        own_dyes = (raw / stock / "dye_density_c.csv").exists()
+        own_dyes = (raw / stock / "dye_density_c.csv").exists() and stock not in GENERIC_START
+        if stock in GENERIC_START:
+            # the sheet publishes C/M/Y, but starting from them the factory's dmid_dmin fit misses the sheet's own
+            # midscale neutral (RMS 0.10 D, grey ramp 0.05); from its generic starting dyes it fits (0.04 D, 0.006)
+            for c in "cmy":
+                (dst / f"dye_density_{c}.csv").unlink(missing_ok=True)
+            sheet.setdefault("extra_tags", {})["dyes"] = ("the sheet's published C/M/Y were tried as starting dyes and missed its "
+                                                          "midscale neutral (0.10 D RMS); the generic starting dyes used instead")
         fuji = stock.startswith("fujifilm_")
         sheet.update({
             "positive": False, "cine": True, "tungsten": spec["tungsten"], "ramp_paper": "kodak_2383",

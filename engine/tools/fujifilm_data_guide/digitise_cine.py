@@ -153,6 +153,8 @@ def labels(tokens, r, where):
     out = []
     for t in tokens:
         v = numeric(t)
+        if v is None and where == "below" and t["text"].upper() == "N":
+            v = 0.0      # Kodak marks the normal exposure on a camera-stop axis "N"
         if v is None:
             continue
         b = t["bbox"]
@@ -161,7 +163,7 @@ def labels(tokens, r, where):
         w = (b[2] - b[0]) / max(len(txt), 1)
         if txt.startswith("-"):
             cx += w / 2
-        if where == "below" and r.y1 - 2 <= b[1] <= r.y1 + 12 and r.x0 - 12 <= cx <= r.x1 + 12:
+        if where == "below" and r.y1 - 2 <= b[1] <= r.y1 + 12 and r.x0 - 6 <= cx <= r.x1 + 6:
             out.append((cx, v))
         if where == "above" and r.y0 - 22 <= b[3] <= r.y0 + 2 and r.x0 - 12 <= cx <= r.x1 + 12:
             out.append((cx, v))
@@ -214,6 +216,23 @@ def sign_fix(labs, increasing=True):
 
 def curves(page, r):
     out = []
+    # a curve drawn as a run of tiny filled segments (Kodak's VISION2 Expression 500T yellow dye): collect the
+    # pieces of one colour inside the frame and take the mean height in 0.5 pt columns
+    tiny = {}
+    for d in page.get_drawings():
+        rr = d["rect"]
+        if (d["type"] == "fs" and d.get("color") is not None and len(d["items"]) <= 6 and rr.width < 6 and rr.height < 14
+                and r.x0 - 2 <= rr.x0 and rr.x1 <= r.x1 + 2 and r.y0 - 2 <= rr.y0 and rr.y1 <= r.y1 + 2):
+            pts = [pp for it in d["items"] for pp in it[1:] if hasattr(pp, "x")]
+            tiny.setdefault(colour_kind(d.get("color")), []).extend((pp.x, pp.y) for pp in pts)
+    for ck, pts in tiny.items():
+        if len(pts) < 40 or ck == "k":
+            continue
+        P = np.array(pts)
+        xb = np.round(P[:, 0] * 2) / 2
+        xs = np.unique(xb)
+        ys = np.array([P[xb == x, 1].mean() for x in xs])
+        out.append({"pts": np.column_stack([xs, ys]), "colour": ck, "dash": "solid", "width": 1.0})
     for d in page.get_drawings():
         if d["type"] != "s" or any(it[0] == "re" for it in d["items"]):
             continue
@@ -229,6 +248,7 @@ def curves(page, r):
         if rr.x0 < r.x0 - 14 or rr.x1 > r.x1 + 14 or rr.y0 < r.y0 - 14 or rr.y1 > r.y1 + 14:
             continue
         ck = colour_kind(d.get("color"))
+        ck = COLOUR_MAP.get(ck, ck)
         dk = dash_kind(d.get("dashes"))
         subs = sample_items(items)
         lens = [float(np.hypot(*np.ptp(x, axis=0))) for x in subs]
@@ -272,10 +292,24 @@ def group(cs):
     by = {}
     for c in cs:
         by.setdefault((c["colour"], c["dash"]), []).append(c["pts"])
-    return {k: [p for p in chain(v) if np.ptp(p[:, 0]) > 4] for k, v in by.items()}
+    out = {}
+    for k, v in by.items():
+        # a piece that already spans most of the chart is a whole curve: never chain it to another
+        # (VISION 200T's three dyes meet at one corner and were glued into one)
+        span = max(np.ptp(p[:, 0]) for p in v)
+        whole = [p for p in v if np.ptp(p[:, 0]) > 0.6 * span and span > 60]
+        parts = [p for p in v if not any(p is w for w in whole)]
+        out[k] = [p for p in whole + chain(parts) if np.ptp(p[:, 0]) > 4]
+    return out
+
+
+COLOUR_MAP = {}
 
 
 def read(spec):
+    # a sheet that draws a record in an unusual colour (VISION 800T: the blue record in yellow)
+    COLOUR_MAP.clear()
+    COLOUR_MAP.update(spec.get("colour_map", {}))
     doc = pymupdf.open(spec["pdf"])
     sheet = {"stock": spec["stock"], "name": spec["name"], "source": spec["source"], "warnings": [], "charts": {}}
     data = {}
@@ -288,6 +322,9 @@ def read(spec):
                 f = v.get("frame")
                 if f and abs(r.x0 - f[0]) < 6 and abs(r.y0 - f[1]) < 6:
                     kind = k
+            pinned = spec.get("charts", {}).get(kind or "", {}).get("frame") if kind else None
+            if pinned and not (abs(r.x0 - pinned[0]) < 6 and abs(r.y0 - pinned[1]) < 6 and spec["charts"][kind].get("page") == pno + 1):
+                continue
             if kind is None or kind in sheet["charts"]:
                 continue
             o = spec.get("charts", {}).get(kind, {})
@@ -402,7 +439,16 @@ def assign(sheet, data, spec):
     pieces = [(k, p) for k, v in d.items() for p in v if np.ptp(p[:, 0]) > 60]
     if any(k[0] != "k" for k, _ in pieces):
         # colour-coded (Kodak Vision2): coloured = the three dyes, black solid = midscale, black dashed = D-min
-        col = sorted([(k, p) for k, p in pieces if k[0] != "k"], key=lambda kp: kp[1][np.argmax(kp[1][:, 1]), 0])
+        # the three dyes: coloured, peak-normalised curves with distinct peaks (Kodak draws a dye twice in some
+        # brochures, once in the panel's yellow; a duplicate peak keeps its non-yellow copy)
+        cand = sorted([(k, p) for k, p in pieces if k[0] != "k" and 0.85 <= p[:, 1].max() <= 1.12],
+                      key=lambda kp: (kp[1][np.argmax(kp[1][:, 1]), 0], kp[0][0] == "o"))
+        col = []
+        for kp in cand:
+            pk = kp[1][np.argmax(kp[1][:, 1]), 0]
+            if col and abs(pk - col[-1][1][np.argmax(col[-1][1][:, 1]), 0]) < 15:
+                continue
+            col.append(kp)
         blk = [(k, p) for k, p in pieces if k[0] == "k"]
         if len(col) >= 3:
             for ch, (k, p) in zip("ymc", col[:3]):
