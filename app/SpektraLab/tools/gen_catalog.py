@@ -102,6 +102,16 @@ NAMES = {
     "fujifilm_sensia_100": ("Fujifilm Sensia 100", "Sensia 100", "slide (positive)"),
     "fujifilm_sensia_200": ("Fujifilm Sensia 200", "Sensia 200", "slide (positive)"),
     "fujifilm_sensia_400": ("Fujifilm Sensia 400", "Sensia 400", "slide (positive)"),
+    # the product's own motion-picture negatives, from the makers' data sheets (NOTICE.md)
+    "fujifilm_eterna_250": ("Fujifilm Eterna 250", "Eterna 250", "cine negative"),
+    "fujifilm_eterna_250d": ("Fujifilm Eterna 250D", "Eterna 250D", "cine negative"),
+    "fujifilm_f_64d": ("Fujifilm F-64D", "F-64D", "cine negative"),
+    "kodak_vision2_50d": ("Kodak Vision2 50D", "Vision2 50D", "cine negative"),
+    "kodak_vision2_250d": ("Kodak Vision2 250D", "Vision2 250D", "cine negative"),
+    "kodak_vision_500t_5263": ("Kodak Vision 500T (5263)", "Vision 500T 5263", "cine negative"),
+    "kodak_vision_500t": ("Kodak Vision 500T", "Vision 500T", "cine negative"),
+    "kodak_vision_320t": ("Kodak Vision 320T", "Vision 320T", "cine negative"),
+    "kodak_vision_250d": ("Kodak Vision 250D", "Vision 250D", "cine negative"),
 }
 # What a profile's `info` does not say. CineStill 800T is Vision3 500T's emulsion with its
 # remjet off, declared a still colour negative printed on 2383 (the desktop's catalogue).
@@ -158,6 +168,15 @@ FUJI_SLIDES = ["fujifilm_velvia_50", "fujifilm_velvia_100f", "fujifilm_astia_100
                "fujifilm_64t_type_ii", "fujifilm_sensia_100", "fujifilm_sensia_200", "fujifilm_sensia_400"]
 ORDER[ORDER.index("fujifilm_xtra_400") + 1:ORDER.index("fujifilm_xtra_400") + 1] = FUJI_NEGATIVES
 ORDER[ORDER.index("fujifilm_velvia_100") + 1:ORDER.index("fujifilm_velvia_100") + 1] = FUJI_SLIDES
+# The product's cine negatives after Verita 200D: Kodak's older generations, then Fujifilm's.
+CINE = ["kodak_vision2_50d", "kodak_vision2_250d", "kodak_vision_500t_5263", "kodak_vision_500t", "kodak_vision_320t",
+        "kodak_vision_250d", "fujifilm_eterna_250", "fujifilm_eterna_250d", "fujifilm_f_64d"]
+ORDER[ORDER.index("kodak_verita_200d") + 1:ORDER.index("kodak_verita_200d") + 1] = CINE
+CHOSEN.update({
+    "kodak_vision2_50d": "#7a99ab", "kodak_vision2_250d": "#6a929a", "kodak_vision_500t_5263": "#56718b",
+    "kodak_vision_500t": "#4f6a85", "kodak_vision_320t": "#5c7c96", "kodak_vision_250d": "#68959b",
+    "fujifilm_eterna_250": "#5e8c88", "fujifilm_eterna_250d": "#6a9a8e", "fujifilm_f_64d": "#7aa59a",
+})
 # Fujifilm's negatives in the greens of C200 / X-Tra / Pro 400H; its slides beside Provia's blue and Velvia's magenta.
 CHOSEN.update({
     "fujifilm_pro_160s": "#8fb39a", "fujifilm_pro_160c": "#6f9f86", "fujifilm_npl_160": "#5f8f8a",
@@ -222,6 +241,16 @@ COLOUR_GRAIN = {
     "fujifilm_superia_reala": 0.47, "fujifilm_superia_100": 0.32, "fujifilm_superia_200": 0.55,
     "fujifilm_true_definition_400": 0.90, "fujifilm_superia_xtra_800": 0.93, "fujifilm_superia_1600": 1.21,
     "fujifilm_nexia_a200": 0.83, "fujifilm_nexia_400": 0.87, "fujifilm_nexia_800": 1.18,
+    # The product's cine negatives (2026-11-19): ISO rule, the same probe and family factor (x0.987). The makers'
+    # granularity curves (as the Vision3 rows above use) are not digitised for these yet.
+    "fujifilm_eterna_250": 1.34,
+    "fujifilm_eterna_250d": 1.15,
+    "fujifilm_f_64d": 0.79,
+    "kodak_vision2_50d": 1.09,
+    "kodak_vision2_250d": 1.15,
+    "kodak_vision_250d": 1.0,
+    "kodak_vision_320t": 0.84,
+    "kodak_vision_500t": 0.99,
 }
 # A silver paper's grades as packs (`engine/resources_product/paper_grades.json`),
 # and the filter new prints are made through.

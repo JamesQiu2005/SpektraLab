@@ -81,6 +81,8 @@ def install_raw(raw: Path, stock: str, positive: bool, sf_src: Path):
         shutil.rmtree(dst)
     dst.mkdir(parents=True)
     names = (["dye_density_c", "dye_density_m", "dye_density_y"] if positive else ["dye_density_min", "dye_density_mid"])
+    if not positive and (raw / stock / "dye_density_c.csv").exists():
+        names += ["dye_density_c", "dye_density_m", "dye_density_y"]      # the sheet's own dyes (Kodak publishes them)
     for n in names + [f"log_sensitivity_{c}" for c in "rgb"] + [f"density_curve_{c}" for c in "rgb"]:
         shutil.copy(raw / stock / f"{n}.csv", dst / f"{n}.csv")
     if positive:
@@ -135,7 +137,7 @@ def factory(stock, sheet, ref_ill):
         log["dye_model"] = "published C/M/Y spectral dye densities (normalised to peak 1.0, 'separated light')"
     else:
         p, out = quiet(F.create_profile, stock=stock, name=sheet["name"], type="negative", densitometer=dens,
-                       dye_density_cmy_donor="generic_a", reference_illuminant=ref_ill,
+                       dye_density_cmy_donor=sheet.get("dye_donor", "generic_a"), reference_illuminant=ref_ill,
                        log_sensitivity_density_over_min=1.0)
         raw = copy.deepcopy(p)
         p, _ = quiet(F.remove_density_min, p)
@@ -154,7 +156,8 @@ def factory(stock, sheet, ref_ill):
         p, _ = quiet(F.replace_fitted_density_curves, p)
         p, _ = quiet(F.balance_sensitivity, p)
         p, _ = quiet(F.replace_fitted_density_curves, p)
-        log["dye_model"] = "dmid_dmin (generic_a starting dyes, masking couplers fitted)"
+        log["dye_model"] = ("dmid_dmin (" + ("the sheet's own C/M/Y as starting dyes" if sheet.get("dye_donor", "generic_a") is None
+                                             else "generic_a starting dyes") + ", masking couplers fitted)")
         align = os.environ.get("ALIGN_MID", "none")
         if align != "none":
             # upstream's make_profiles row for Fujifilm Pro 400H ('mid') / C200 ('green'): each layer's curve
@@ -437,7 +440,8 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
     sheet["stock"] = stock
     positive = sheet["positive"]
     kind = "positive" if positive else "negative"
-    tungsten = "Tungsten" in sheet.get("subtitle", "") or "Tungsten" in sheet.get("title", "")
+    tungsten = sheet.get("tungsten", "Tungsten" in sheet.get("subtitle", "") or "Tungsten" in sheet.get("title", ""))
+    paper = sheet.get("ramp_paper", "kodak_portra_endura")
     ref_ill = "T" if tungsten else "D55"
     install_raw(raw, stock, positive, Path(args.sf_src))
     p, rawp, log = factory(stock, sheet, ref_ill)
@@ -469,7 +473,7 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
     info = {
         "stock": stock, "name": sheet["name"], "type": kind, "support": "film", "stage": "filming",
         "use": "still", "antihalation": "strong",
-        "target_print": None if positive else "fujifilm_crystal_archive_typeii",
+        "target_print": None if positive else sheet.get("target_print", "fujifilm_crystal_archive_typeii"),
         "channel_model": "color", "densitometer": "status_A" if positive else "status_M",
         "log_sensitivity_density_over_min": float(sheet.get("sensitivity_density_over_min") or 1.0),
         "reference_illuminant": ref_ill, "viewing_illuminant": "D50",
@@ -479,7 +483,7 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
     evs = [-1, 0, 1, 2] if positive else [-2, -1, 0, 1, 2, 3, 4, 5, 6]
     # upstream's make_profiles rows for its three Fujifilm negatives (Pro 400H, X-Tra 400, C200) use 0.3;
     # on the Pro 400H sheet it reproduces the shipped profile closest (dE2000 1.9 against 2.6 at 1.0)
-    trust = float(os.environ.get("TRUST", "1.0" if positive else "0.3"))
+    trust = float(os.environ.get("TRUST", sheet.get("trust", "1.0" if positive else "0.3")))
     M = F.compute_densitometer_crosstalk_matrix(load_densitometer_data(type=p.info.densitometer), p.data.dye_density[:, :3])
     log["densitometer_crosstalk"] = np.round(M, 4).tolist()
     prm, _ = anchor(le, prm, kind, M)
@@ -491,13 +495,13 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
     if not positive:
         # upstream fits the print filters once, on the uncorrected film, then fits the ramp with them
         eng.put(stock, doc_for(prm))
-        pack = eng.pack(stock, "kodak_portra_endura")
+        pack = eng.pack(stock, paper)
 
     def residual(x):
         # the shifts ride on 1 so the finite-difference step is not zero (scipy's step is relative)
         q = shift_scale(None, prm, kind, x[0:3], [x[3] - 1, 0.0, x[4] - 1])
         eng.put(stock, doc_for(q))
-        g = eng.ramp(stock, "kodak_portra_endura", evs, positive, pack)
+        g = eng.ramp(stock, paper, evs, positive, pack)
         if positive:
             m = g.mean(axis=1, keepdims=True)
             r = (g - m) / m * 0.184
@@ -510,7 +514,7 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
     fit = scipy.optimize.least_squares(residual, [1, 1, 1, 1, 1.0], diff_step=1e-2, max_nfev=80)
     x = fit.x.copy()
     x[3:5] -= 1
-    log["grey_ramp"] = {"paper": None if positive else "kodak_portra_endura", "scanned": positive, "ev": evs,
+    log["grey_ramp"] = {"paper": None if positive else paper, "scanned": positive, "ev": evs,
                         "trustability": trust, "print_pack_portra_endura": None if pack is None else [round(v, 3) for v in pack[0]] + [round(pack[1], 4)],
                         "density_scale": x[0:3].round(4).tolist(),
                         "log_exposure_shift_r_b": [round(float(x[3]), 4), round(float(x[4]), 4)],
@@ -539,6 +543,8 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
 
 
 def metadata(sheet, log, ref_ill, positive):
+    if sheet.get("cine"):
+        return metadata_cine(sheet, log, ref_ill)
     pg = sheet["printed_page"]
     ax = {k: {a: (None if sheet[k][a] is None else
                   ({"relative_decade_pt": round(sheet[k][a]["decade_pt"], 3)} if sheet[k][a].get("relative") else
@@ -603,6 +609,43 @@ def metadata(sheet, log, ref_ill, positive):
         "tags": tags,
         "digitisation": {"axes": ax, "rms_granularity_sheet": sheet.get("rms_granularity"),
                          "labels_note": "axis residual = largest gap between a tick label's value and the line fitted through the grid lines it labels"},
+        "fit_residuals": log,
+    }
+
+
+def metadata_cine(sheet, log, ref_ill):
+    ch = sheet["charts"]
+    ax = {k: {a: {"residual_max": round(ch[k][a]["residual_max"], 4), "source": ch[k][a]["source"]} for a in "xy"} for k in ch}
+    own = sheet.get("dye_donor", "generic_a") is None
+    tags = {
+        "log_sensitivity": f"SHEET inside the plotted range (density {sheet['sensitivity_density_over_min']} over D-min); ASSUMED tails "
+                           "(exponential approach); level FITTED (sRGB 18 % grey -> 0)",
+        "density_curves": "SHEET (Status M, unmixed), FITTED (3 CDFs per layer, grey-ramp scale/shift on " + sheet["ramp_paper"] +
+                          "); ASSUMED beyond the plotted exposures",
+        "channel_density": ("FITTED to the sheet's midscale neutral minus D-min, starting from the sheet's own C/M/Y dyes" if own
+                            else "FITTED to the sheet's midscale neutral minus D-min (dmid_dmin, generic starting dyes)"),
+        "base_density": sheet.get("min_tag", "SHEET (D-min curve; none outside the plotted range)"),
+        "midscale_neutral_density": sheet.get("mid_tag", "SHEET (midscale neutral curve; none outside the plotted range)"),
+        "hanatos2025_adaptation": "FITTED (reflectance sets; window widths held at the Portra NC/VC product profiles')",
+        "info": f"SHEET: ECN-2, {'tungsten' if sheet['tungsten'] else 'daylight'} balance; ASSUMED antihalation strong (rem-jet), "
+                f"{ref_ill} reference, target print {sheet['target_print']}",
+    }
+    for k, v in sheet.get("extra_tags", {}).items():
+        tags[k] = v
+    return {
+        "version": "spektralab-" + TODAY, "created": TODAY,
+        "datasource": sheet["source"] + ": spectral sensitivity, characteristic curves (Status M, ECN-2) and spectral dye density, "
+                      "digitised from the PDF's vector paths",
+        "copyright": "SpektraLab product data. Not a spektrafilm profile; no array is read from one.",
+        "license": "Built from the manufacturer's published data sheet. See engine/resources_product/NOTICE.md.",
+        "method": ("spektrafilm's profile factory (9428440, GPL-3.0): D-min removed, speed point (green D 0.2) three stops under 0, "
+                   "C/M/Y dyes reconstructed from midscale neutral and D-min (dmid_dmin" + (", the sheet's own dyes as start" if own else
+                   ", generic starting dyes") + ", masking couplers fitted), Status M unmixed, three normal CDFs per layer, "
+                   f"{ref_ill} balance; then the shipped profiles' form reproduced from them as for the Portra NC/VC and Fujifilm "
+                   f"AF3-207U product profiles, with upstream's grey-ramp correction on {sheet['ramp_paper']} (-2..+6 EV, trustability "
+                   f"{sheet.get('trust', 0.3)}, upstream's setting for its Vision3 rows) run through the SpektraLab engine."),
+        "tags": tags,
+        "digitisation": {"axes": ax},
         "fit_residuals": log,
     }
 
