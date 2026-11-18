@@ -26,6 +26,10 @@ bool Pipeline::set_overscan_frame(uint32_t, uint32_t, std::string& error) {
 std::string Pipeline::overscan_geometry_json() const { return "{\"valid\":false}"; }
 // API-SPEC §24: no film edge here, so no format to name.
 std::string Pipeline::overscan_formats_json() { return "{\"formats\":[]}"; }
+// 2.4.1's EDR node (pipeline.cpp, API-SPEC §25) calls this under a film edge, again after the port's root; it
+// did not link off Apple. node_edr checks overscan_.valid first, which set_overscan_frame never makes true here,
+// so this is never reached: an empty block keeps the link honest without inventing a layout.
+void Pipeline::overscan_params_block(std::vector<float>& P) const { P.clear(); }
 
 // API-SPEC §21.5-§21.6: the lens pass (`lens.cpp`) dispatches Metal kernels
 // only, so it is refused here rather than run on kernels Vulkan lacks.
