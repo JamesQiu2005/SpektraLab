@@ -33,4 +33,12 @@ describe('settings clipboard', () => {
     expect(out.params.filmEdge.seeded).toBe(true);
     expect(out.params.filmEdge.frameSeed).not.toBe(4242);
   });
+  it('carries the lens choice for a whole shoot', () => {
+    const a = newSidecar();
+    a.decode = { ...a.decode, lensCorrection: true, lens: { maker: 'My Lenses', model: 'Tokina RMC 500mm', focalMM: 500, aperture: 8, custom: { distortion: 0, vignetting: -0.3, tcaR: 1, tcaB: 1 } } };
+    const out = applyClip({ groups: ['lensCorrection'], settings: a, sourceName: 'a' }, newSidecar());
+    expect(out.decode.lensCorrection).toBe(true);
+    expect(out.decode.lens?.model).toBe('Tokina RMC 500mm');
+    expect(out.decode.whiteBalance).toBe(newSidecar().decode.whiteBalance);
+  });
 });

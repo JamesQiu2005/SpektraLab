@@ -144,6 +144,7 @@ const GROUP_LABEL: Record<ClipboardGroup, () => string> = {
   filmEffects: () => t('clipFilmEffects'),
   printEffects: () => t('clipPrintEffects'),
   scenePlacement: () => t('clipScenePlacement'),
+  lensCorrection: () => tz('Lens Correction', '镜头校正'),
 };
 
 function ClipboardSection() {
