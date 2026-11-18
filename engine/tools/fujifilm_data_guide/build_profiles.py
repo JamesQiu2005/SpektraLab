@@ -86,6 +86,22 @@ def install_raw(raw: Path, stock: str, positive: bool, sf_src: Path):
     for n in names + [f"log_sensitivity_{c}" for c in "rgb"] + [f"density_curve_{c}" for c in "rgb"]:
         shutil.copy(raw / stock / f"{n}.csv", dst / f"{n}.csv")
     if positive:
+        # AF3-207U draws each slide dye 0.005-0.064 above zero where it absorbs nothing: yellow and magenta beyond
+        # 650 nm read min(Y, M) > 0, where spektrafilm's source sheet for Velvia 100 reads 0.00. That constant is
+        # subtracted from all three curves, which are renormalised to peak 1. Checked on two independent references:
+        # Velvia 100 from the guide scans at C* 43.5 uncorrected, 46.2 corrected, against 46.0 from spektrafilm's raw
+        # data and 45.1 shipped; Provia 100F corrected 36.0 against 36.5 shipped.
+        wl_o = np.arange(650, 701, 5.0)
+        yy, mm = (np.interp(wl_o, *np.loadtxt(dst / f"dye_density_{c}.csv", delimiter=",")[np.argsort(np.loadtxt(dst / f"dye_density_{c}.csv", delimiter=",")[:, 0])].T,
+                            left=np.nan, right=np.nan) for c in "ym")
+        v = np.where(np.isnan(yy), mm, np.where(np.isnan(mm), yy, np.minimum(yy, mm)))
+        dye_offset = float(np.nanmean(v)) if np.isfinite(v).any() else 0.0
+        for n in names:
+            a = np.loadtxt(dst / f"{n}.csv", delimiter=",")
+            a = a[np.argsort(a[:, 0])]
+            y_ = a[:, 1] - dye_offset
+            np.savetxt(dst / f"{n}.csv", np.column_stack([a[:, 0], y_ / y_.max()]), delimiter=",", fmt="%.6f")
+        (dst / "dye_offset.txt").write_text(f"{dye_offset:.5f}\n")
         # A slide's dye is drawn only where Fujifilm drew it (Velvia 50's yellow stops at 600 nm, on its
         # baseline). The factory's loader leaves NaN outside a curve, and a densitometer sum that skips
         # those wavelengths reads as density (2.0 of yellow under Status A red). Hold each end value out
@@ -117,6 +133,9 @@ def cdf_fit(le, dc, kind):
     return p
 
 
+args_sf_src_global = "."
+
+
 def factory(stock, sheet, ref_ill):
     positive = sheet["positive"]
     kind = "positive" if positive else "negative"
@@ -135,6 +154,9 @@ def factory(stock, sheet, ref_ill):
         p, _ = quiet(F.balance_sensitivity, p)
         p, _ = quiet(F.replace_fitted_density_curves, p)
         log["dye_model"] = "published C/M/Y spectral dye densities (normalised to peak 1.0, 'separated light')"
+        off_f = Path(args_sf_src_global) / "spectral_film_lab" / "data" / "film" / "positive" / stock / "dye_offset.txt"
+        if off_f.exists():
+            log["dye_offset_removed"] = float(off_f.read_text())
     else:
         p, out = quiet(F.create_profile, stock=stock, name=sheet["name"], type="negative", densitometer=dens,
                        dye_density_cmy_donor=sheet.get("dye_donor", "generic_a"), reference_illuminant=ref_ill,
@@ -443,6 +465,8 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
     tungsten = sheet.get("tungsten", "Tungsten" in sheet.get("subtitle", "") or "Tungsten" in sheet.get("title", ""))
     paper = sheet.get("ramp_paper", "kodak_portra_endura")
     ref_ill = "T" if tungsten else "D55"
+    global args_sf_src_global
+    args_sf_src_global = args.sf_src
     install_raw(raw, stock, positive, Path(args.sf_src))
     p, rawp, log = factory(stock, sheet, ref_ill)
 
@@ -576,7 +600,8 @@ def metadata(sheet, log, ref_ill, positive):
                            "relative axis: one grid interval = one decade, the sheet's '1.0' bar") +
                            "); ASSUMED tails (exponential approach); level FITTED (sRGB 18 % grey -> 0)",
         "density_curves": f"SHEET ({dens}, unmixed), FITTED (3 CDFs per layer, grey-ramp scale/shift); ASSUMED beyond the plotted exposures (the CDFs' own toe and shoulder)",
-        "channel_density": ("SHEET (C/M/Y spectral dye density, 'separated light', peak 1.0), rescaled to unit Status A density"
+        "channel_density": ("SHEET (C/M/Y spectral dye density, 'separated light', peak 1.0) less the sheet's constant offset "
+                            f"({log.get('dye_offset_removed', 0):.3f}: min(Y, M) at 650-700 nm), rescaled to unit Status A density"
                             if positive else "FITTED to the sheet's midscale neutral minus D-min (dmid_dmin model)"),
         "base_density": ("FITTED (the characteristic curves' D-min, smoothed across the Status A peaks)" if positive
                          else "SHEET (D-min curve; none outside the plotted range)"),

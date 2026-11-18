@@ -453,7 +453,7 @@
    "targetPrint": null,
    "iso": 50,
    "swatch": "#a8467c",
-   "grain": 0.72
+   "grain": 0.92
   },
   {
    "id": "fujifilm_velvia_100f",
@@ -466,7 +466,7 @@
    "targetPrint": null,
    "iso": 100,
    "swatch": "#c06a98",
-   "grain": 0.78
+   "grain": 0.79
   },
   {
    "id": "fujifilm_astia_100f",
@@ -492,7 +492,7 @@
    "targetPrint": null,
    "iso": 400,
    "swatch": "#4a7cc4",
-   "grain": 1.61
+   "grain": 1.47
   },
   {
    "id": "fujifilm_64t_type_ii",
@@ -505,7 +505,7 @@
    "targetPrint": null,
    "iso": 64,
    "swatch": "#4b5fa8",
-   "grain": 0.9
+   "grain": 0.78
   },
   {
    "id": "fujifilm_sensia_100",
@@ -518,7 +518,7 @@
    "targetPrint": null,
    "iso": 100,
    "swatch": "#7aa5e0",
-   "grain": 0.69
+   "grain": 0.68
   },
   {
    "id": "fujifilm_sensia_200",
@@ -531,7 +531,7 @@
    "targetPrint": null,
    "iso": 200,
    "swatch": "#6a98d6",
-   "grain": 1.26
+   "grain": 1.3
   },
   {
    "id": "fujifilm_sensia_400",
@@ -544,7 +544,7 @@
    "targetPrint": null,
    "iso": 400,
    "swatch": "#5a8acb",
-   "grain": 1.0
+   "grain": 1.05
   },
   {
    "id": "kodak_vision3_50d",

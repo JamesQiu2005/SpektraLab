@@ -233,9 +233,9 @@ COLOUR_GRAIN = {
     # per family: slides x1.023 (Provia 100F, Velvia 100), negatives x0.987 (Pro 400H, C200, Portra 400).
     # The probe reproduces those rows to within 10 %, so each figure below carries about that.
     # SHEET: Fujifilm's diffuse RMS granularity (48 um, D 1.0), the slides'.
-    "fujifilm_velvia_50": 0.72, "fujifilm_velvia_100f": 0.78, "fujifilm_astia_100f": 0.56,
-    "fujifilm_provia_400f": 1.61, "fujifilm_64t_type_ii": 0.90, "fujifilm_sensia_100": 0.69,
-    "fujifilm_sensia_200": 1.26, "fujifilm_sensia_400": 1.00,
+    "fujifilm_velvia_50": 0.92, "fujifilm_velvia_100f": 0.79, "fujifilm_astia_100f": 0.56,
+    "fujifilm_provia_400f": 1.47, "fujifilm_64t_type_ii": 0.78, "fujifilm_sensia_100": 0.68,
+    "fujifilm_sensia_200": 1.3, "fujifilm_sensia_400": 1.05,
     # ISO: the guide footnotes its negatives' RMS (3-7) as not comparable with its reversal scale, so the rule above.
     "fujifilm_pro_160s": 1.11, "fujifilm_pro_160c": 0.98, "fujifilm_npl_160": 0.86, "fujifilm_pro_800z": 0.96,
     "fujifilm_superia_reala": 0.47, "fujifilm_superia_100": 0.32, "fujifilm_superia_200": 0.55,
