@@ -430,6 +430,19 @@
    "grain": 1.19
   },
   {
+   "id": "kodak_pro_image_100",
+   "name": "Kodak Pro Image 100",
+   "shortName": "Pro Image 100",
+   "kind": "colour negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_portra_endura",
+   "iso": 100,
+   "swatch": "#d9a26e",
+   "grain": 0.79
+  },
+  {
    "id": "fujifilm_c200",
    "name": "Fujifilm C200",
    "shortName": "C200",
@@ -623,6 +636,32 @@
    "iso": 800,
    "swatch": "#7aa35e",
    "grain": 1.18
+  },
+  {
+   "id": "fujifilm_200",
+   "name": "Fujifilm 200",
+   "shortName": "Fujifilm 200",
+   "kind": "colour negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "fujifilm_crystal_archive_typeii",
+   "iso": 200,
+   "swatch": "#5fae7a",
+   "grain": 1.04
+  },
+  {
+   "id": "fujifilm_400",
+   "name": "Fujifilm 400",
+   "shortName": "Fujifilm 400",
+   "kind": "colour negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "fujifilm_crystal_archive_typeii",
+   "iso": 400,
+   "swatch": "#4f9e6c",
+   "grain": 1.02
   },
   {
    "id": "kodak_ektachrome_100",
@@ -844,6 +883,32 @@
    "iso": 200,
    "swatch": "#bf9530",
    "grain": 1.92
+  },
+  {
+   "id": "kodak_ektachrome_e100_2",
+   "name": "Kodak Ektachrome E100 (E-4000)",
+   "shortName": "E100 (E-4000)",
+   "kind": "slide (positive)",
+   "stage": "filming",
+   "use": "still",
+   "type": "positive",
+   "targetPrint": null,
+   "iso": 100,
+   "swatch": "#4f86c9",
+   "grain": 0.8
+  },
+  {
+   "id": "kodak_ektachrome_100d_7294",
+   "name": "Kodak Ektachrome 100D 7294",
+   "shortName": "Ektachrome 100D",
+   "kind": "slide (positive)",
+   "stage": "filming",
+   "use": "still",
+   "type": "positive",
+   "targetPrint": null,
+   "iso": 100,
+   "swatch": "#5a7fb8",
+   "grain": 1.13
   },
   {
    "id": "fujifilm_provia_100f",
@@ -1234,6 +1299,45 @@
    "iso": 500,
    "swatch": "#74a08a",
    "grain": 1.65
+  },
+  {
+   "id": "fujifilm_eterna_vivid_160",
+   "name": "Fujifilm Eterna Vivid 160",
+   "shortName": "Eterna Vivid 160",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 160,
+   "swatch": "#5f9488",
+   "grain": 1.02
+  },
+  {
+   "id": "fujifilm_eterna_400",
+   "name": "Fujifilm Eterna 400",
+   "shortName": "Eterna 400",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 400,
+   "swatch": "#56877d",
+   "grain": 0.97
+  },
+  {
+   "id": "fujifilm_eterna_500",
+   "name": "Fujifilm Eterna 500",
+   "shortName": "Eterna 500",
+   "kind": "cine negative",
+   "stage": "filming",
+   "use": "still",
+   "type": "negative",
+   "targetPrint": "kodak_2383",
+   "iso": 500,
+   "swatch": "#4d7a72",
+   "grain": 1.2
   },
   {
    "id": "kodak_tri_x_400",

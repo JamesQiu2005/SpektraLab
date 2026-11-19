@@ -245,12 +245,14 @@ def raster_track(page, c, dpi=600):
                 pred = hist[-1][1]
             k = np.where(m[:, j])[0]
             runs = [q for q in np.split(k, np.where(np.diff(k) > 1)[0] + 1) if len(q)]
-            # a run much longer than the stroke is a (hidden) grid line or a crossing, unless the curve is steep here
-            runs = [q for q in runs if len(q) <= 30 or abs(slope) > 2]
-            cand = [float(np.mean(q)) for q in runs]
+            # where the curve is steep, a long run that covers the prediction is the curve (one long run per column); otherwise a
+            # run much longer than the stroke is a (hidden) grid line or a crossing and is passed over
+            dist = lambda q: 0.0 if q[0] - 3 <= pred <= q[-1] + 3 else min(abs(q[0] - pred), abs(q[-1] - pred))
+            runs = [q for q in runs if len(q) <= 30 or (dist(q) == 0.0 and abs(slope) > 1.0)]
             tol = (6 if len(hist) > 3 else 40) + 0.5 * gap
-            best = min(cand, key=lambda y: abs(y - pred)) if cand else None
-            if best is None or abs(best - pred) > tol:
+            q = min(runs, key=dist) if runs else None
+            best = float(np.mean(q)) if q is not None else None
+            if best is None or dist(q) > tol:
                 gap += 1                       # under a grid line, a hidden grid line or a label: bridge it
                 continue
             gap = 0

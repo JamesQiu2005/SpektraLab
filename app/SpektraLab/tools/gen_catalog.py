@@ -142,6 +142,15 @@ NAMES = {
     "kodak_ektapress_pj800": ("Kodak Ektapress PJ800", "Ektapress PJ800", "colour negative"),
     "kodak_pro_100": ("Kodak Pro 100", "Pro 100", "colour negative"),
     "kodak_pro_400mc": ("Kodak Pro 400 MC", "Pro 400 MC", "colour negative"),
+    # batch 4 (2026-11-19): current colour films and more cine stocks, from the makers' sheets
+    "kodak_pro_image_100": ("Kodak Pro Image 100", "Pro Image 100", "colour negative"),
+    "fujifilm_200": ("Fujifilm 200", "Fujifilm 200", "colour negative"),
+    "fujifilm_400": ("Fujifilm 400", "Fujifilm 400", "colour negative"),
+    "kodak_ektachrome_e100_2": ("Kodak Ektachrome E100 (E-4000)", "E100 (E-4000)", "slide (positive)"),
+    "kodak_ektachrome_100d_7294": ("Kodak Ektachrome 100D 7294", "Ektachrome 100D", "slide (positive)"),
+    "fujifilm_eterna_vivid_160": ("Fujifilm Eterna Vivid 160", "Eterna Vivid 160", "cine negative"),
+    "fujifilm_eterna_400": ("Fujifilm Eterna 400", "Eterna 400", "cine negative"),
+    "fujifilm_eterna_500": ("Fujifilm Eterna 500", "Eterna 500", "cine negative"),
     "kodak_supra_200": ("Kodak Supra 200", "Supra 200", "colour negative"),
     "kodak_supra_400": ("Kodak Supra 400", "Supra 400", "colour negative"),
     "kodak_royal_supra_200": ("Kodak Royal Supra 200", "Royal Supra 200", "colour negative"),
@@ -249,6 +258,14 @@ CINE = ["kodak_vision2_50d", "kodak_vision2_100t", "kodak_vision2_200t", "kodak_
         "kodak_vision_500t_5263", "kodak_vision_800t", "fujifilm_eterna_250", "fujifilm_eterna_250d", "fujifilm_f_64d",
         "fujifilm_reala_500d"]
 ORDER[ORDER.index("kodak_verita_200d") + 1:ORDER.index("kodak_verita_200d") + 1] = CINE
+# batch 4 (2026-11-19): after their families; no card that was there moves relative to the others
+ORDER[ORDER.index("kodak_high_definition_400") + 1:ORDER.index("kodak_high_definition_400") + 1] = ["kodak_pro_image_100"]
+ORDER[ORDER.index("fujifilm_nexia_800") + 1:ORDER.index("fujifilm_nexia_800") + 1] = ["fujifilm_200", "fujifilm_400"]
+ORDER[ORDER.index("kodak_kodachrome_200") + 1:ORDER.index("kodak_kodachrome_200") + 1] = ["kodak_ektachrome_e100_2", "kodak_ektachrome_100d_7294"]
+ORDER[ORDER.index("fujifilm_reala_500d") + 1:ORDER.index("fujifilm_reala_500d") + 1] = ["fujifilm_eterna_vivid_160", "fujifilm_eterna_400", "fujifilm_eterna_500"]
+CHOSEN.update({"kodak_pro_image_100": "#d9a26e", "fujifilm_200": "#5fae7a", "fujifilm_400": "#4f9e6c",
+               "kodak_ektachrome_e100_2": "#4f86c9", "kodak_ektachrome_100d_7294": "#5a7fb8",
+               "fujifilm_eterna_vivid_160": "#5f9488", "fujifilm_eterna_400": "#56877d", "fujifilm_eterna_500": "#4d7a72"})
 CHOSEN.update({
     "kodak_vision2_50d": "#7a99ab", "kodak_vision2_250d": "#6a929a", "kodak_vision_500t_5263": "#56718b",
     "kodak_vision_500t": "#4f6a85", "kodak_vision_320t": "#5c7c96", "kodak_vision_250d": "#68959b",
@@ -384,6 +401,12 @@ COLOUR_GRAIN = {
     "kodak_ektachrome_e100vs": 0.8,
     "kodak_ektachrome_e100g": 0.8,
     "kodak_ektachrome_e200": 1.18,
+    # batch 4 (2026-11-19), the same probe and family factors. ISO rule (x0.987): Pro Image 100, Fujifilm 200 / 400 (the
+    # sheets give Print Grain Index or nothing comparable), Eterna Vivid 160 / 400 / 500. SHEET (x1.023): E100 (E-4000,
+    # RMS 8); Ektachrome 100D publishes a granularity curve, not a figure: E100's 8 is taken (its still twin).
+    "kodak_pro_image_100": 0.79, "fujifilm_200": 1.04, "fujifilm_400": 1.02, "kodak_ektachrome_e100_2": 0.80,
+    "kodak_ektachrome_100d_7294": 1.13, "fujifilm_eterna_vivid_160": 1.02, "fujifilm_eterna_400": 0.97,
+    "fujifilm_eterna_500": 1.20,
     "kodak_ektachrome_160t": 1.24,
     "kodak_ektachrome_320t": 1.57,
     "kodak_ektachrome_400x": 1.98,
