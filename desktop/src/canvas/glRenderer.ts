@@ -156,12 +156,14 @@ vec3 layer2(vec3 c, vec2 suv) {
 }
 
 void main() {
-  vec2 ouv;
-  if (uOffscreen) {
-    ouv = vUv;
-  } else {
-    vec2 px = vUv * uViewport;
-    ouv = (px - uOffset) / uOutSize;
+  vec2 px = vUv * uViewport;
+  vec2 ouv = uOffscreen ? vUv : (px - uOffset) / uOutSize;
+  // How much the picture is shrunk here (the mip level), taken before any pixel returns: GLSL's own
+  // derivatives are undefined where a neighbouring pixel has left (the border, the surround), and at
+  // the picture's edge that picked a wrong level -- a dotted line along the border (2026-11-19).
+  vec2 sAll = geometryMap(ouv);
+  vec2 gx = dFdx(sAll), gy = dFdy(sAll);
+  if (!uOffscreen) {
     if (ouv.x < 0.0 || ouv.y < 0.0 || ouv.x > 1.0 || ouv.y > 1.0) {
       // The border (Adjustments.border) round the picture, then the surround.
       vec2 lo = uOffset - uBorder.xy, hi = uOffset + uOutSize + uBorder.zw;
@@ -178,9 +180,9 @@ void main() {
   bool before = uCompare == 2 || (uCompare == 1 && ouv.x < uSplit);
   vec3 c;
   if (before && uHasOriginal) {
-    c = texture(uOriginal, suv).rgb;
+    c = textureGrad(uOriginal, suv, gx, gy).rgb;
   } else if (uHasImage) {
-    c = layer2(texture(uImage, suv).rgb, suv);
+    c = layer2(textureGrad(uImage, suv, gx, gy).rgb, suv);
   } else {
     c = vec3(uSurround);
   }
