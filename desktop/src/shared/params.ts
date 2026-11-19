@@ -330,8 +330,14 @@ export const FILM_EDGE_GATES: Record<string, readonly [number, number]> = {
  * the gate and refuses one of another shape, so with the film edge on the host cuts the picture to the
  * gate's shape first (the long side over the short; the picture keeps its orientation). Null: no cut.
  */
+/** The pair the host composes (whiteBalance.ts decodeWire), or null. */
+export function pairDecode(p: FilmParams): { second: string; swap: boolean } | null {
+  return p.pairWith ? { second: p.pairWith, swap: !!p.pairSwap } : null;
+}
+
 export function filmEdgeCutAspect(p: FilmParams, gate: FeatureGate = ALL_FEATURES): number | null {
-  if (!gate.overscan || !p.filmEdge.active) return null;
+  // A pair's piece is already the gate and an advance: the host makes it, nothing is cut.
+  if (!gate.overscan || !p.filmEdge.active || p.pairWith) return null;
   const g = FILM_EDGE_GATES[p.filmEdge.format];
   if (!g) return null;
   return Math.max(g[0], g[1]) / Math.min(g[0], g[1]);
@@ -448,6 +454,10 @@ export interface FilmParams {
   sceneLatitudeOther: SceneLatitudeSettings;
   placementIsRight: boolean;
   pairSplit: number;
+  /** Develop's half-frame pair: the second picture's path, beside this one on one piece of film ('' none). */
+  pairWith: string;
+  /** The second picture first along the film. */
+  pairSwap: boolean;
   effects: EffectStrengths;
   linuxAdvanced: AdvancedParams;
   leak: LeakSettings;
@@ -482,6 +492,8 @@ export const FILM_PARAMS_DEFAULT: FilmParams = {
   sceneLatitudeOther: SCENE_LATITUDE_DEFAULT,
   placementIsRight: false,
   pairSplit: 0,
+  pairWith: '',
+  pairSwap: false,
   effects: EFFECTS_DEFAULT,
   linuxAdvanced: ADVANCED_DEFAULT,
   leak: LEAK_DEFAULT,
@@ -631,7 +643,8 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
   if (p.autoExposureMethod != null) f.push({ name: 'auto_exposure_method', value: p.autoExposureMethod, layer: 'shoot' });
   f.push(
     { name: 'auto_exposure', value: p.autoExposure, layer: 'shoot' },
-    { name: 'film_format_mm', value: clamp(p.filmFormatMM, 4, 200), layer: 'shoot' },
+    // A pair's piece is 37 mm of film along its long edge (two 18 mm frames and the 1 mm between).
+    { name: 'film_format_mm', value: p.pairWith ? 37 : clamp(p.filmFormatMM, 4, 200), layer: 'shoot' },
     { name: 'grain_active', value: p.grainActive, layer: 'shoot' },
     // A black-and-white film's grain is one layer, whatever the setting: sub-layers are the colour model.
     { name: 'grain_sublayers_active', value: p.grainActive && p.effects.grainLayered && !monoFilm, layer: 'shoot' },
@@ -718,7 +731,9 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
     f.push({ name: 'overscan_active', value: fe.active, layer: 'shoot' });
     if (fe.active) {
       f.push(
-        { name: 'overscan_format', value: fe.format, layer: 'shoot' },
+        // A pair is two half frames on one piece: the engine's 135_half, told the input holds both.
+        { name: 'overscan_format', value: p.pairWith ? '135_half' : fe.format, layer: 'shoot' },
+        { name: 'overscan_pair', value: !!p.pairWith, layer: 'shoot' },
         { name: 'overscan_mode', value: fe.view, layer: 'shoot' },
         { name: 'overscan_gate', value: fe.gate, layer: 'shoot' },
         { name: 'overscan_holes', value: fe.holes, layer: 'shoot' },

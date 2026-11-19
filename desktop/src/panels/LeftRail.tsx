@@ -38,6 +38,7 @@ import { useOutput } from '../canvas/output';
 import { StockList } from './StockList';
 import { edgeTextFor } from '@shared/stocks';
 import { unsupportedReason } from './gate';
+import { platform } from '../platform';
 
 export function LeftRail() {
   const { t: tr } = useI18n();
@@ -50,6 +51,7 @@ export function LeftRail() {
         <ClipboardSection />
         <FilmSection />
         <FilmEdgeSection />
+        <PairSection />
         <DateBackSection />
         <PrintSection />
         <CropSection />
@@ -341,6 +343,47 @@ function FilmEdgeSection() {
           {tz('New Frame', '换一帧')}
         </button>
       </div>
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------- Half-Frame Pair
+// Develop's half-frame pair (SpektraLab 2's Pair): this photograph and another on one piece of 135, each
+// cut to the half frame's 18 x 24 and at its own exposure, the 1 mm of film between them. The host makes
+// the piece (decode.pair); with the film edge on it is printed as a pair on one strip.
+
+function PairSection() {
+  const p = useSession((s) => s.sidecar.params);
+  const selection = useSession((s) => s.selection);
+  const pairWith = p.pairWith ?? '';
+  const name = (path: string) => path.split(/[\\/]/).pop() ?? path;
+  const choose = async () => {
+    const files = await platform().pickFiles(tz('Pair with another photograph', '与另一张照片组成双格'));
+    const second = files[0];
+    if (!second || second === selection) return;
+    setParams((q) => ({ ...q, pairWith: second, pairSwap: false }));
+  };
+  return (
+    <Section id="pair" title={tz('Half-Frame Pair', '半格双拼')}>
+      <div className="caption">
+        {pairWith
+          ? tz(`Paired with ${name(pairWith)}`, `已与 ${name(pairWith)} 组成双格`)
+          : tz('Two photographs side by side on one frame of 135, as a half-frame camera makes them.', '两张照片并排在一格 135 胶片上，如半格相机所拍。')}
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn" disabled={!selection} onClick={() => void choose()} data-testid="pair-with">
+          {pairWith ? tz('Change…', '更换…') : tz('Pair with…', '组成双格…')}
+        </button>
+        <button className="btn" disabled={!pairWith} onClick={() => setParams((q) => ({ ...q, pairSwap: !q.pairSwap }))} title={tz('Swap which photograph comes first', '交换先后顺序')}>
+          {tz('Swap', '交换')}
+        </button>
+        <button className="btn" disabled={!pairWith} onClick={() => setParams((q) => ({ ...q, pairWith: '', pairSwap: false }))}>
+          {tz('Unpair', '取消双格')}
+        </button>
+      </div>
+      {pairWith && !p.filmEdge.active && (
+        <div className="caption">{tz('Tick Film Edge to see the pair on its strip.', '勾选胶片边缘即可看到胶片条上的双格。')}</div>
+      )}
     </Section>
   );
 }

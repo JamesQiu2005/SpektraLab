@@ -160,3 +160,19 @@ describe('a film edge cuts the picture to its gate (filmEdgeCutAspect)', () => {
     expect(decodeWire({ whiteBalance: 'As Shot', temperature: 5500, tint: 0, lensCorrection: false, lens: null }, false, 1)).toEqual({ cut: { aspect: 1 } });
   });
 });
+
+describe('a half-frame pair (Develop)', () => {
+  it('is 37 mm of film, printed as 135 half with both frames, and never cut to a gate', async () => {
+    const { filmEdgeCutAspect, pairDecode } = await import('./params');
+    const { decodeWire } = await import('./whiteBalance');
+    const p = { ...FILM_PARAMS_DEFAULT, pairWith: '/photos/b.ARW', filmEdge: { ...FILM_PARAMS_DEFAULT.filmEdge, active: true, format: '120_6x6' } };
+    const d = fullDelta(p);
+    expect(d).toMatchObject({ film_format_mm: 37, overscan_format: '135_half', overscan_pair: true });
+    expect(filmEdgeCutAspect(p)).toBeNull();
+    expect(pairDecode(p)).toEqual({ second: '/photos/b.ARW', swap: false });
+    expect(decodeWire({ whiteBalance: 'As Shot', temperature: 5500, tint: 0, lensCorrection: false, lens: null }, false, null, pairDecode(p))).toEqual({
+      pair: { second: '/photos/b.ARW', swap: false },
+    });
+    expect(pairDecode(FILM_PARAMS_DEFAULT)).toBeNull();
+  });
+});

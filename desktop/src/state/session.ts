@@ -28,6 +28,7 @@ import {
   clamp,
   withFrameSeed,
   filmEdgeCutAspect,
+  pairDecode,
 } from '@shared/params';
 import { type Adjustments, ADJUSTMENTS_DEFAULT } from '@shared/adjustments';
 import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
@@ -372,7 +373,9 @@ export function setParams(fn: (p: FilmParams) => FilmParams) {
   const next = withFrameSeed(fn(s.sidecar.params));
   if (jsonEqual(next, s.sidecar.params)) return;
   pushUndo();
-  const cutMoved = filmEdgeCutAspect(next, s.gate) !== filmEdgeCutAspect(s.sidecar.params, s.gate);
+  const cutMoved =
+    filmEdgeCutAspect(next, s.gate) !== filmEdgeCutAspect(s.sidecar.params, s.gate) ||
+    !jsonEqual(pairDecode(next), pairDecode(s.sidecar.params));
   set({ sidecar: { ...get().sidecar, params: next, state: get().sidecar.state === 'processed' ? 'stale' : get().sidecar.state } });
   scheduleSave();
   // A film edge going on or off, or another format, cuts the picture to another gate: decode again.
@@ -440,15 +443,19 @@ async function redecodeNow() {
   const s = get();
   const sid = s.engineSession;
   if (!sid || !s.selection) return;
-  const wire = decodeWire(s.sidecar.decode, isRawFrame(), filmEdgeCutAspect(s.sidecar.params, s.gate));
+  const wire = decodeWire(s.sidecar.decode, isRawFrame(), filmEdgeCutAspect(s.sidecar.params, s.gate), pairDecode(s.sidecar.params));
   const key = JSON.stringify(wire);
-  if (!wire || key === sentDecode || !hostRedecodes(s.hello?.methods)) {
+  // Nothing to ask of the decode now (a pair undone, a film edge off on a JPEG) is still a change from
+  // what was decoded: decode again with the defaults rather than keep the old piece or cut.
+  // Only when the last decode made something to undo: a pair's piece, a gate's cut, a lens correction.
+  const undoing = !wire && !!sentDecode && /"(pair|cut|lens_correction)"/.test(sentDecode);
+  if ((!wire && !undoing) || key === sentDecode || !hostRedecodes(s.hello?.methods)) {
     void requestPrint();
     return;
   }
   set({ redecoding: true, status: tz('Decoding the photo again…', '正在重新解码照片…') });
   try {
-    const r = await host().redecode(sid, wire);
+    const r = await host().redecode(sid, wire ?? {});
     if (get().engineSession !== sid) return;
     sentDecode = key;
     set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, lensStatus: r.lens_correction ?? null, status: '' });
@@ -727,7 +734,7 @@ async function develop(path: string, gen: number) {
   try {
     const t0 = performance.now();
     const params = get().sidecar.params;
-    const decode = decodeWire(get().sidecar.decode, isRawPath(path), filmEdgeCutAspect(get().sidecar.params, get().gate));
+    const decode = decodeWire(get().sidecar.decode, isRawPath(path), filmEdgeCutAspect(get().sidecar.params, get().gate), pairDecode(get().sidecar.params));
     let r;
     try {
       r = await host().open(path, wireParams(params), decode);

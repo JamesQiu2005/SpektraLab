@@ -96,15 +96,23 @@ export interface WireDecode {
   lens?: Record<string, unknown>;
   /** Develop: the film edge's gate shape the host cuts the picture to (params.ts `filmEdgeCutAspect`). */
   cut?: { aspect: number };
+  /** Develop: a half-frame pair's second picture (params.ts `pairDecode`). */
+  pair?: { second: string; swap: boolean };
 }
 
 /**
  * `open.decode` / `redecode.decode`. White balance for a RAW only (the host refuses it elsewhere);
  * lens correction (Develop) for any file, sent only while on. Null: nothing to ask.
  */
-export function decodeWire(d: DecodeSettings, isRaw: boolean, cutAspect: number | null = null): WireDecode | null {
+export function decodeWire(
+  d: DecodeSettings,
+  isRaw: boolean,
+  cutAspect: number | null = null,
+  pair: { second: string; swap: boolean } | null = null,
+): WireDecode | null {
   const out: WireDecode = {};
   if (cutAspect) out.cut = { aspect: cutAspect };
+  if (pair) out.pair = pair;
   if (isRaw) {
     if (modeOf(d) === 'As Shot') out.white_balance = { mode: 'as_shot' };
     else {
