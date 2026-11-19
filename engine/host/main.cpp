@@ -464,6 +464,10 @@ Json m_thumbnail(const Request& q, std::vector<uint8_t>& payload) {
 struct HostDecode : DecodeOptions {
     bool lens_correction = false;
     LensChoice lens;
+    // A film edge's gate (SpektraLab 2's `HostCut`): the engine takes the frame it is handed as the gate,
+    // so the picture is cut to the gate's shape first -- the largest cut about the middle, in the
+    // picture's own orientation. The long side over the short; 0: no cut.
+    double cut_aspect = 0;
 };
 
 double optional_number(const Json& o, const char* key, double fallback, double lo, double hi, const char* what) {
@@ -499,6 +503,11 @@ HostDecode decode_options(const Json& decode) {
             options.lens_correction = kv.second.as_bool(false);
             if (options.lens_correction && !lens_correction_available())
                 throw HostError{"unsupported", "lens correction at decode is not available in this host"};
+        } else if (kv.first == "cut") {
+            const Json& c = kv.second;
+            if (c.is_null()) continue;
+            if (!c.is_object()) throw HostError{"bad_request", "decode.cut must be an object"};
+            options.cut_aspect = optional_number(c, "aspect", 0, 1, 20, "decode.cut.aspect");
         } else if (kv.first == "lens") {
             // Which lens (Develop's picker): a database lens by maker and model, or a custom one by its
             // numbers; focal length and f-number when the file has none. Absent: the EXIF lens.
@@ -567,6 +576,26 @@ Decoded decode_frame(const fs::path& path, const HostDecode& options) {
             lens.set("error", str(why));
         }
         d.lens = std::move(lens);
+    }
+    if (options.cut_aspect >= 1) {
+        // The largest cut of the gate's shape about the middle, landscape or portrait as the picture is.
+        FloatImage& f = d.frame;
+        const bool portrait = f.height > f.width;
+        const double a = portrait ? 1.0 / options.cut_aspect : options.cut_aspect;   // width over height
+        uint32_t w = f.width, h = f.height;
+        if (double(w) / double(h) > a) w = uint32_t(std::lround(double(h) * a));
+        else h = uint32_t(std::lround(double(w) / a));
+        w = std::max<uint32_t>(1, std::min(w, f.width));
+        h = std::max<uint32_t>(1, std::min(h, f.height));
+        if (w != f.width || h != f.height) {
+            const uint32_t x0 = (f.width - w) / 2, y0 = (f.height - h) / 2;
+            std::vector<float> cut(size_t(w) * h * 3);
+            for (uint32_t y = 0; y < h; ++y)
+                std::copy_n(f.rgb.data() + (size_t(y0 + y) * f.width + x0) * 3, size_t(w) * 3, cut.data() + size_t(y) * w * 3);
+            f.rgb.swap(cut);
+            f.width = w;
+            f.height = h;
+        }
     }
     d.decode_ms = ms_since(t0);
     return d;

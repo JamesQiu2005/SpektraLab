@@ -146,3 +146,17 @@ describe('each photo its own leak (withFrameSeed)', () => {
     expect(edge.filmEdge.seeded).toBe(true);
   });
 });
+
+describe('a film edge cuts the picture to its gate (filmEdgeCutAspect)', () => {
+  it('asks for the gate shape only while the film edge is on', async () => {
+    const { filmEdgeCutAspect } = await import('./params');
+    const { decodeWire } = await import('./whiteBalance');
+    const off = FILM_PARAMS_DEFAULT;
+    expect(filmEdgeCutAspect(off)).toBeNull();
+    const half = { ...off, filmEdge: { ...off.filmEdge, active: true, format: '135_half' } };
+    expect(filmEdgeCutAspect(half)).toBeCloseTo(24 / 18, 9);
+    expect(filmEdgeCutAspect({ ...half, filmEdge: { ...half.filmEdge, format: '120_6x6' } })).toBe(1);
+    expect(filmEdgeCutAspect(half, { ...ALL_FEATURES, overscan: false })).toBeNull();
+    expect(decodeWire({ whiteBalance: 'As Shot', temperature: 5500, tint: 0, lensCorrection: false, lens: null }, false, 1)).toEqual({ cut: { aspect: 1 } });
+  });
+});

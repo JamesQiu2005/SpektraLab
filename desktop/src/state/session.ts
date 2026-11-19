@@ -27,6 +27,7 @@ import {
   jsonEqual,
   clamp,
   withFrameSeed,
+  filmEdgeCutAspect,
 } from '@shared/params';
 import { type Adjustments, ADJUSTMENTS_DEFAULT } from '@shared/adjustments';
 import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
@@ -371,9 +372,12 @@ export function setParams(fn: (p: FilmParams) => FilmParams) {
   const next = withFrameSeed(fn(s.sidecar.params));
   if (jsonEqual(next, s.sidecar.params)) return;
   pushUndo();
+  const cutMoved = filmEdgeCutAspect(next, s.gate) !== filmEdgeCutAspect(s.sidecar.params, s.gate);
   set({ sidecar: { ...get().sidecar, params: next, state: get().sidecar.state === 'processed' ? 'stale' : get().sidecar.state } });
   scheduleSave();
-  void requestPrint();
+  // A film edge going on or off, or another format, cuts the picture to another gate: decode again.
+  if (cutMoved) scheduleRedecode();
+  else void requestPrint();
 }
 
 /** A Layer 2 edit: one draw. */
@@ -436,7 +440,7 @@ async function redecodeNow() {
   const s = get();
   const sid = s.engineSession;
   if (!sid || !s.selection) return;
-  const wire = decodeWire(s.sidecar.decode, isRawFrame());
+  const wire = decodeWire(s.sidecar.decode, isRawFrame(), filmEdgeCutAspect(s.sidecar.params, s.gate));
   const key = JSON.stringify(wire);
   if (!wire || key === sentDecode || !hostRedecodes(s.hello?.methods)) {
     void requestPrint();
@@ -723,7 +727,7 @@ async function develop(path: string, gen: number) {
   try {
     const t0 = performance.now();
     const params = get().sidecar.params;
-    const decode = decodeWire(get().sidecar.decode, isRawPath(path));
+    const decode = decodeWire(get().sidecar.decode, isRawPath(path), filmEdgeCutAspect(get().sidecar.params, get().gate));
     let r;
     try {
       r = await host().open(path, wireParams(params), decode);

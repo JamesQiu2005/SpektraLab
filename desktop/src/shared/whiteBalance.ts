@@ -94,14 +94,17 @@ export interface WireDecode {
   white_balance?: { mode: 'as_shot' } | { mode: 'custom'; temperature_k: number; tint: number };
   lens_correction?: boolean;
   lens?: Record<string, unknown>;
+  /** Develop: the film edge's gate shape the host cuts the picture to (params.ts `filmEdgeCutAspect`). */
+  cut?: { aspect: number };
 }
 
 /**
  * `open.decode` / `redecode.decode`. White balance for a RAW only (the host refuses it elsewhere);
  * lens correction (Develop) for any file, sent only while on. Null: nothing to ask.
  */
-export function decodeWire(d: DecodeSettings, isRaw: boolean): WireDecode | null {
+export function decodeWire(d: DecodeSettings, isRaw: boolean, cutAspect: number | null = null): WireDecode | null {
   const out: WireDecode = {};
+  if (cutAspect) out.cut = { aspect: cutAspect };
   if (isRaw) {
     if (modeOf(d) === 'As Shot') out.white_balance = { mode: 'as_shot' };
     else {

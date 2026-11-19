@@ -310,6 +310,32 @@ export const FILM_EDGE_FORMATS = [
 ] as const;
 export type FilmEdgeFormat = (typeof FILM_EDGE_FORMATS)[number];
 
+/** Each film-edge format's gate, along x across the film in mm (engine overscan.cpp `kFormats`). */
+export const FILM_EDGE_GATES: Record<string, readonly [number, number]> = {
+  '135': [36.25, 24.3],
+  '135_half': [18, 24],
+  '135_xpan': [65, 24],
+  '120_645': [41.5, 56],
+  '120_6x6': [56, 56],
+  '120_6x7': [69.5, 56],
+  '120_6x8': [76, 56],
+  '120_6x9': [84, 56],
+  '120_6x12': [112, 56],
+  '120_6x17': [168, 56],
+};
+
+/**
+ * The cut a film edge needs (SpektraLab 2's `HostCut`): the engine takes the picture it is handed as
+ * the gate and refuses one of another shape, so with the film edge on the host cuts the picture to the
+ * gate's shape first (the long side over the short; the picture keeps its orientation). Null: no cut.
+ */
+export function filmEdgeCutAspect(p: FilmParams, gate: FeatureGate = ALL_FEATURES): number | null {
+  if (!gate.overscan || !p.filmEdge.active) return null;
+  const g = FILM_EDGE_GATES[p.filmEdge.format];
+  if (!g) return null;
+  return Math.max(g[0], g[1]) / Math.min(g[0], g[1]);
+}
+
 export interface FilmEdgeSettings {
   active: boolean;
   format: string;
