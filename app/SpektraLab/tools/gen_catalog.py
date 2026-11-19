@@ -158,6 +158,27 @@ NAMES = {
 }
 # What a profile's `info` does not say. CineStill 800T is Vision3 500T's emulsion with its
 # remjet off, declared a still colour negative printed on 2383 (the desktop's catalogue).
+# Motion-picture negatives whose profiles say "still" (the engine reads a profile's `use`, so the profiles
+# are left as they are): the picker shows them as cine, beside Vision3 (Develop, the owner's choice 2026-11-19).
+CINE_IN_CATALOGUE = {
+    "kodak_vision2_50d",
+    "kodak_vision2_100t",
+    "kodak_vision2_200t",
+    "kodak_vision2_250d",
+    "kodak_vision2_500t",
+    "kodak_vision2_expression_500t",
+    "kodak_vision_200t",
+    "kodak_vision_250d",
+    "kodak_vision_320t",
+    "kodak_vision_500t",
+    "kodak_vision_500t_5263",
+    "kodak_vision_800t",
+    "fujifilm_eterna_250",
+    "fujifilm_eterna_250d",
+    "fujifilm_f_64d",
+    "fujifilm_reala_500d",
+}
+
 INFO = {
     "cinestill_800t": {"stage": "filming", "type": "negative", "target_print": "kodak_2383"},
     # Kodak's ELITE Chrome consumer editions: aliases of the professional films whose curves they publish
@@ -391,7 +412,7 @@ def main() -> None:
             "shortName": short,
             "kind": kind,
             "stage": info.get("stage"),            # filming | printing
-            "use": info.get("use", "still"),       # still | cine
+            "use": "cine" if sid in CINE_IN_CATALOGUE else info.get("use", "still"),       # still | cine
             "type": info.get("type"),              # negative | positive
             "targetPrint": info.get("target_print"),
             "iso": iso_of(short) if film else None,
