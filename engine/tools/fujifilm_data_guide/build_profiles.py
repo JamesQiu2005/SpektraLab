@@ -73,7 +73,7 @@ def quiet(fn, *a, **k):
 
 # ============================================================================================ stage 1
 
-def install_raw(raw: Path, stock: str, positive: bool, sf_src: Path):
+def install_raw(raw: Path, stock: str, positive: bool, sf_src: Path, guide_offset: bool = True):
     """The factory reads its raw curves as package data; give it this film's folder."""
     kind = "positive" if positive else "negative"
     dst = sf_src / "spectral_film_lab" / "data" / "film" / kind / stock
@@ -85,7 +85,7 @@ def install_raw(raw: Path, stock: str, positive: bool, sf_src: Path):
         names += ["dye_density_c", "dye_density_m", "dye_density_y"]      # the sheet's own dyes (Kodak publishes them)
     for n in names + [f"log_sensitivity_{c}" for c in "rgb"] + [f"density_curve_{c}" for c in "rgb"]:
         shutil.copy(raw / stock / f"{n}.csv", dst / f"{n}.csv")
-    if positive:
+    if positive and guide_offset:
         # AF3-207U draws each slide dye 0.005-0.064 above zero where it absorbs nothing: yellow and magenta beyond
         # 650 nm read min(Y, M) > 0, where spektrafilm's source sheet for Velvia 100 reads 0.00. That constant is
         # subtracted from all three curves, which are renormalised to peak 1. Checked on two independent references:
@@ -467,7 +467,8 @@ def build(stock, raw: Path, args, eng: EngineLoop, refl, wts, refl_counts):
     ref_ill = "T" if tungsten else "D55"
     global args_sf_src_global
     args_sf_src_global = args.sf_src
-    install_raw(raw, stock, positive, Path(args.sf_src))
+    # the dye-offset correction belongs to the Fujifilm guide's slide sheets only (they carry `printed_page`)
+    install_raw(raw, stock, positive, Path(args.sf_src), guide_offset="printed_page" in sheet)
     p, rawp, log = factory(stock, sheet, ref_ill)
 
     k = unit_densitometer(p)
@@ -639,6 +640,8 @@ def metadata(sheet, log, ref_ill, positive):
 
 
 def metadata_cine(sheet, log, ref_ill):
+    if sheet.get("positive"):
+        return metadata_slide(sheet, log, ref_ill)
     ch = sheet["charts"]
     ax = {k: {a: {"residual_max": round(ch[k][a]["residual_max"], 4), "source": ch[k][a]["source"]} for a in "xy"} for k in ch}
     own = sheet.get("dye_donor", "generic_a") is None
@@ -669,6 +672,42 @@ def metadata_cine(sheet, log, ref_ill):
                    f"{ref_ill} balance; then the shipped profiles' form reproduced from them as for the Portra NC/VC and Fujifilm "
                    f"AF3-207U product profiles, with upstream's grey-ramp correction on {sheet['ramp_paper']} (-2..+6 EV, trustability "
                    f"{sheet.get('trust', 0.3)}, upstream's setting for its Vision3 rows) run through the SpektraLab engine."),
+        "tags": tags,
+        "digitisation": {"axes": ax},
+        "fit_residuals": log,
+    }
+
+
+def metadata_slide(sheet, log, ref_ill):
+    ch = sheet.get("charts", {})
+    ax = {k: {a: {"residual_max": round(ch[k][a]["residual_max"], 4), "source": ch[k][a]["source"]} for a in "xy"} for k in ch}
+    tags = {
+        "log_sensitivity": f"SHEET inside the plotted range (density {sheet.get('sensitivity_density_over_min', 1.0)} over D-min); "
+                           "ASSUMED tails (exponential approach); level FITTED (sRGB 18 % grey -> 0)",
+        "density_curves": "SHEET (Status A, unmixed through the published dyes), FITTED (3 CDFs per layer, grey-ramp scale/shift, "
+                          "scanned); ASSUMED beyond the plotted exposures",
+        "channel_density": "SHEET (C/M/Y spectral dye density as published, normalised by the maker to a visual neutral of 1.0), "
+                           "rescaled to unit Status A density",
+        "base_density": "FITTED (the characteristic curves' D-min, smoothed across the Status A peaks)",
+        "midscale_neutral_density": "DERIVED (the dyes at mid grey over the base)",
+        "hanatos2025_adaptation": "FITTED (reflectance sets; window widths held at the Portra NC/VC product profiles')",
+        "info": f"SHEET: {sheet.get('process', 'E-6')}, {'tungsten' if sheet.get('tungsten') else 'daylight'} balance; "
+                f"ASSUMED antihalation strong, {ref_ill} reference, no print (scanned)",
+    }
+    for k, v in sheet.get("extra_tags", {}).items():
+        tags[k] = v
+    return {
+        "version": "spektralab-" + TODAY, "created": TODAY,
+        "datasource": sheet["source"] + ": spectral sensitivity, characteristic curves (Status A) and spectral dye density, "
+                      "digitised from the PDF's vector paths",
+        "copyright": "SpektraLab product data. Not a spektrafilm profile; no array is read from one.",
+        "license": "Built from the manufacturer's published data sheet. See engine/resources_product/NOTICE.md.",
+        "method": ("spektrafilm's profile factory (9428440, GPL-3.0): D-min removed (and laid in as base), green at the 18 % "
+                   "transmittance density put at log exposure 0, Status A unmixed through the published C/M/Y dyes, three normal "
+                   f"CDFs per layer, {ref_ill} balance; then the shipped profiles' form as for the Fujifilm AF3-207U slides "
+                   "(unit Status A dyes, exponential sensitivity tails, hanatos2025 window + surface, upstream's positive grey-ramp "
+                   "correction scanned -1..+2 EV trustability 1 through the SpektraLab engine, CDFs refitted, anchored so an sRGB "
+                   "18 % grey scans at 18 %)."),
         "tags": tags,
         "digitisation": {"axes": ax},
         "fit_residuals": log,

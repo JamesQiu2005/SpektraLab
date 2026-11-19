@@ -120,11 +120,30 @@ NAMES = {
     "kodak_vision_200t": ("Kodak Vision 200T", "Vision 200T", "cine negative"),
     "kodak_vision_800t": ("Kodak Vision 800T", "Vision 800T", "cine negative"),
     "fujifilm_reala_500d": ("Fujifilm Reala 500D", "Reala 500D", "cine negative"),
+    # the product's own Kodak slides, from Kodak's E- publications (NOTICE.md)
+    "kodak_ektachrome_64": ("Kodak Ektachrome 64", "Ektachrome 64", "slide (positive)"),
+    "kodak_ektachrome_64t": ("Kodak Ektachrome 64T", "Ektachrome 64T", "slide (positive)"),
+    "kodak_ektachrome_100_plus": ("Kodak Ektachrome 100 Plus", "Ektachrome 100 Plus", "slide (positive)"),
+    "kodak_ektachrome_e100vs": ("Kodak Ektachrome E100VS", "E100VS", "slide (positive)"),
+    "kodak_ektachrome_e100g": ("Kodak Ektachrome E100G", "E100G", "slide (positive)"),
+    "kodak_ektachrome_e200": ("Kodak Ektachrome E200", "E200", "slide (positive)"),
+    "kodak_ektachrome_160t": ("Kodak Ektachrome 160T", "Ektachrome 160T", "slide (positive)"),
+    "kodak_ektachrome_320t": ("Kodak Ektachrome 320T", "Ektachrome 320T", "slide (positive)"),
+    "kodak_ektachrome_400x": ("Kodak Ektachrome 400X", "Ektachrome 400X", "slide (positive)"),
+    "kodak_ektachrome_p1600": ("Kodak Ektachrome P1600", "Ektachrome P1600", "slide (positive)"),
+    "kodak_elite_chrome_extra_color_100": ("Kodak Elite Chrome Extra Color 100", "Elite Chrome EC 100", "slide (positive)"),
+    "kodak_elite_chrome_200": ("Kodak Elite Chrome 200", "Elite Chrome 200", "slide (positive)"),
+    "kodak_elite_chrome_400": ("Kodak Elite Chrome 400", "Elite Chrome 400", "slide (positive)"),
+    "kodak_kodachrome_25": ("Kodak Kodachrome 25", "Kodachrome 25", "slide (positive)"),
+    "kodak_kodachrome_200": ("Kodak Kodachrome 200", "Kodachrome 200", "slide (positive)"),
 }
 # What a profile's `info` does not say. CineStill 800T is Vision3 500T's emulsion with its
 # remjet off, declared a still colour negative printed on 2383 (the desktop's catalogue).
 INFO = {
     "cinestill_800t": {"stage": "filming", "type": "negative", "target_print": "kodak_2383"},
+    # Kodak's ELITE Chrome consumer editions: aliases of the professional films whose curves they publish
+    "kodak_elite_chrome_extra_color_100": {"stage": "filming", "type": "positive", "target_print": None},
+    "kodak_elite_chrome_200": {"stage": "filming", "type": "positive", "target_print": None},
 }
 
 # design/src/gen.py (film cards, STOCK_DOT) and gen_flow.py (PAPERS) name these.
@@ -176,6 +195,10 @@ FUJI_SLIDES = ["fujifilm_velvia_50", "fujifilm_velvia_100f", "fujifilm_astia_100
                "fujifilm_64t_type_ii", "fujifilm_sensia_100", "fujifilm_sensia_200", "fujifilm_sensia_400"]
 ORDER[ORDER.index("fujifilm_xtra_400") + 1:ORDER.index("fujifilm_xtra_400") + 1] = FUJI_NEGATIVES
 ORDER[ORDER.index("fujifilm_velvia_100") + 1:ORDER.index("fujifilm_velvia_100") + 1] = FUJI_SLIDES
+# The product's Kodak slides after Kodachrome 64.
+KODAK_SLIDES = ['kodak_ektachrome_64', 'kodak_ektachrome_64t', 'kodak_ektachrome_100_plus', 'kodak_ektachrome_e100vs', 'kodak_ektachrome_e100g', 'kodak_ektachrome_e200', 'kodak_ektachrome_160t', 'kodak_ektachrome_320t', 'kodak_ektachrome_400x', 'kodak_ektachrome_p1600', 'kodak_elite_chrome_extra_color_100', 'kodak_elite_chrome_200', 'kodak_elite_chrome_400', 'kodak_kodachrome_25', 'kodak_kodachrome_200']
+ORDER[ORDER.index("kodak_kodachrome_64") + 1:ORDER.index("kodak_kodachrome_64") + 1] = KODAK_SLIDES
+CHOSEN.update({"kodak_ektachrome_64": "#5a86c4", "kodak_ektachrome_64t": "#4a6fb2", "kodak_ektachrome_100_plus": "#5f8dcc", "kodak_ektachrome_e100vs": "#3f74c8", "kodak_ektachrome_e100g": "#6a95cf", "kodak_ektachrome_e200": "#5582c0", "kodak_ektachrome_160t": "#4867a6", "kodak_ektachrome_320t": "#42609c", "kodak_ektachrome_400x": "#4d79b8", "kodak_ektachrome_p1600": "#3d5f98", "kodak_elite_chrome_extra_color_100": "#7aa0d6", "kodak_elite_chrome_200": "#7096cc", "kodak_elite_chrome_400": "#668cc2", "kodak_kodachrome_25": "#d1ad4a", "kodak_kodachrome_200": "#bf9530"})
 # The product's cine negatives after Verita 200D: Kodak's older generations, then Fujifilm's.
 CINE = ["kodak_vision2_50d", "kodak_vision2_100t", "kodak_vision2_200t", "kodak_vision2_250d", "kodak_vision2_500t",
         "kodak_vision2_expression_500t", "kodak_vision_200t", "kodak_vision_250d", "kodak_vision_320t", "kodak_vision_500t",
@@ -264,6 +287,23 @@ COLOUR_GRAIN = {
     "kodak_vision_250d": 1.0,
     "kodak_vision_320t": 0.84,
     "kodak_vision_500t": 0.99,
+    # The product's Kodak slides (2026-11-19): SHEET, Kodak's diffuse rms granularity (E-163 etc.; P1600's 34 is at EI 1600),
+    # the same probe and slide factor (x1.023). The two ELITE Chrome aliases take their professional twin's figure.
+    "kodak_ektachrome_64": 1.18,
+    "kodak_ektachrome_64t": 1.14,
+    "kodak_ektachrome_100_plus": 1.31,
+    "kodak_ektachrome_e100vs": 0.8,
+    "kodak_ektachrome_e100g": 0.8,
+    "kodak_ektachrome_e200": 1.18,
+    "kodak_ektachrome_160t": 1.24,
+    "kodak_ektachrome_320t": 1.57,
+    "kodak_ektachrome_400x": 1.98,
+    "kodak_ektachrome_p1600": 2.0,
+    "kodak_elite_chrome_400": 1.95,
+    "kodak_kodachrome_25": 0.61,
+    "kodak_kodachrome_200": 1.92,
+    "kodak_elite_chrome_extra_color_100": 0.8,
+    "kodak_elite_chrome_200": 1.18,
     "kodak_vision2_100t": 0.91,
     "kodak_vision2_200t": 1.05,
     "kodak_vision2_500t": 2.0,

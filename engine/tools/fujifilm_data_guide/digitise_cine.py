@@ -112,7 +112,9 @@ def classify(page, r):
     left = text_in(page, pymupdf.Rect(r.x0 - 45, r.y0, r.x0, r.y1))
     right = text_in(page, pymupdf.Rect(r.x1, r.y0, r.x1 + 45, r.y1))
     allt = below + above + left + right
-    if "granularity" in allt or "sigma" in allt or "spatial" in allt or "response" in left or "modulation" in above:
+    # skip granularity and MTF charts by their own axis titles (a page header above a chart does not count)
+    if ("granularity" in left + right or "sigma" in left + right or "spatial" in below or "response" in left
+            or "modulation" in above):
         return None
     if "wavelength" in below:
         if "sensitiv" in left or "sensitiv" in above:
@@ -298,8 +300,15 @@ def group(cs):
         # (VISION 200T's three dyes meet at one corner and were glued into one)
         span = max(np.ptp(p[:, 0]) for p in v)
         whole = [p for p in v if np.ptp(p[:, 0]) > 0.6 * span and span > 60]
-        parts = [p for p in v if not any(p is w for w in whole)]
-        out[k] = [p for p in whole + chain(parts) if np.ptp(p[:, 0]) > 4]
+        parts = chain([p for p in v if not any(p is w for w in whole)])
+        # a whole curve may still take a short continuation (Elite Chrome 400's red, split at its peak)
+        for i, w in enumerate(whole):
+            for q in list(parts):
+                if np.hypot(*(w[-1] - q[0])) < 0.8:
+                    whole[i] = w = np.vstack([w, q[1:]]); parts = [x for x in parts if x is not q]
+                elif np.hypot(*(q[-1] - w[0])) < 0.8:
+                    whole[i] = w = np.vstack([q, w[1:]]); parts = [x for x in parts if x is not q]
+        out[k] = [p for p in whole + parts if np.ptp(p[:, 0]) > 4]
     return out
 
 
@@ -314,6 +323,8 @@ def read(spec):
     sheet = {"stock": spec["stock"], "name": spec["name"], "source": spec["source"], "warnings": [], "charts": {}}
     data = {}
     for pno, page in enumerate(doc):
+        if spec.get("pages") and pno + 1 not in spec["pages"]:
+            continue
         h = Half(page, 0, page.rect.width)
         over = {k: v for k, v in spec.get("charts", {}).items() if v.get("page") == pno + 1}
         for r in frames(page):
@@ -386,6 +397,15 @@ def read(spec):
                 sheet["warnings"].append(f"{kind} on page {pno + 1}: axes not found")
                 continue
             sheet["charts"][kind] = {"page": pno + 1, "frame": list(r), "x": ax, "y": ay, **ax_info}
+            if kind == "char":
+                # Kodak labels a slide's records "B", "G", "R" where the curves start: keep where, in data units
+                lab = {}
+                for t in h.tokens:
+                    tx = t["text"].strip()
+                    if tx in ("R", "G", "B") and r.x0 - 22 <= t["bbox"][0] <= r.x1 and r.y0 - 4 <= t["bbox"][1] <= r.y1:
+                        cx, cy = (t["bbox"][0] + t["bbox"][2]) / 2, (t["bbox"][1] + t["bbox"][3]) / 2
+                        lab[tx.lower()] = (ax["a"] * cx + ax["b"], ay["a"] * cy + ay["b"])
+                sheet["charts"][kind]["rgb_labels"] = lab
             g = group(cs)
             sheet["charts"][kind]["styles"] = {f"{k[0]}/{k[1]}": len(v) for k, v in g.items()}
             vals = {k: [to_values(p, ax, ay) for p in v] for k, v in g.items()}
@@ -420,6 +440,22 @@ def assign(sheet, data, spec):
             out[f"log_sensitivity_{ch}"] = p
     # ---- characteristic
     c = data.get("char", {})
+    lab = sheet["charts"].get("char", {}).get("rgb_labels", {})
+    if spec.get("positive") and len(lab) == 3 and not any(k[0] in "rgb" for k in c):
+        # black slide curves: each record is the curve nearest its letter (Kodak sets B, G, R at the curves' start)
+        pieces = sorted([p for v in c.values() for p in v], key=lambda a: np.ptp(a[:, 0]), reverse=True)[:3]
+        xr = max(np.ptp(p[:, 0]) for p in pieces); yr = max(np.ptp(p[:, 1]) for p in pieces)
+        def dist(p, xy):
+            return float(np.min(np.hypot((p[:, 0] - xy[0]) / xr, (p[:, 1] - xy[1]) / yr)))
+        free = list(range(len(pieces)))
+        pairs = sorted(((dist(pieces[i], xy), ch, i) for ch, xy in lab.items() for i in free))
+        used_ch, used_i = set(), set()
+        for d_, ch, i in pairs:
+            if ch in used_ch or i in used_i:
+                continue
+            out[f"density_curve_{ch}"] = pieces[i]; used_ch.add(ch); used_i.add(i)
+        sheet["char_assignment"] = "by the B/G/R letters"
+        c = {}
     coloured = {k: v for k, v in c.items() if k[0] in "rgb"}
     if len(coloured) == 3:
         for k, v in coloured.items():
@@ -427,7 +463,7 @@ def assign(sheet, data, spec):
     else:
         pieces = sorted([p for v in c.values() for p in v], key=lambda a: np.ptp(a[:, 0]), reverse=True)
         pieces = [p for p in pieces if np.ptp(p[:, 0]) > 1.0][:3]
-        if len(pieces) != 3:
+        if len(pieces) != 3 and not sheet.get("char_assignment"):
             W.append(f"char: {len(pieces)} curves")
         pieces = sorted(pieces, key=lambda a: -np.mean(a[:, 1]))
         for ch, p in zip("bgr", pieces):
@@ -478,6 +514,16 @@ def assign(sheet, data, spec):
         others = ([max(mid, key=lambda kp: np.mean(kp[1][:, 1]))] if mid else []) + [mn]
     if not pieces:
         pass
+    elif spec.get("positive") and len(pieces) == 4:
+        # Kodak slide dyes, normalised to a visual neutral of 1.0, drawn with that neutral: the neutral is the
+        # one with the highest mean; the other three are the dyes by peak
+        neu = max(pieces, key=lambda kp: np.mean(kp[1][:, 1]))
+        dy = sorted([kp for kp in pieces if kp is not neu], key=lambda kp: kp[1][np.argmax(kp[1][:, 1]), 0])
+        for ch, (k, p) in zip("ymc", dy):
+            out[f"dye_density_{ch}"] = p
+        out["dye_density_visual_neutral"] = neu[1]
+        sheet["dyes_published"] = True
+        others = []
     elif len(dyes) >= 3:
         dyes = sorted(dyes, key=lambda kp: kp[1][np.argmax(kp[1][:, 1]), 0])[:3]
         for ch, (k, p) in zip("ymc", dyes):
@@ -508,7 +554,7 @@ def plot(dst, sheet, out):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     fig, axs = plt.subplots(1, 3, figsize=(15, 4))
-    col = {"r": "tab:red", "g": "tab:green", "b": "tab:blue", "c": "tab:cyan", "m": "m", "y": "gold", "min": "grey", "mid": "k"}
+    col = {"r": "tab:red", "g": "tab:green", "b": "tab:blue", "c": "tab:cyan", "m": "m", "y": "gold", "min": "grey", "mid": "k", "neutral": "k"}
     for k, v in out.items():
         ch = k.split("_")[-1]
         i = 0 if k.startswith("log_sens") else (2 if k.startswith("dye") else 1)
