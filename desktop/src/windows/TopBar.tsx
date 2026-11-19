@@ -41,6 +41,9 @@ export function TopBar() {
       <button className="icon-btn" title={tz('Open photographs (Ctrl+Shift+O)', '打开照片（Ctrl+Shift+O）')} onClick={() => void openFilesDialog()} data-testid="open-button">
         <Import />
       </button>
+      <button className="icon-btn" title={tz('Layout: several photographs on one print', '排版：多张照片排在一张上')} onClick={() => setPages({ layoutOpen: true })} data-testid="layout-button">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="2" y="4" width="5" height="12" rx="1" fill="currentColor" /><rect x="8" y="4" width="4" height="12" rx="1" fill="currentColor" opacity="0.7" /><rect x="13" y="4" width="5" height="12" rx="1" fill="currentColor" /></svg>
+      </button>
       <button className="icon-btn" title={t('helpExport') + ' (Ctrl+E)'} disabled={!selection} onClick={() => setPages({ exportOpen: true })} data-testid="export-button">
         <Export />
       </button>

@@ -64,6 +64,7 @@ export async function installMenu(): Promise<void> {
     items: [
       await item(tz('Open Folder…', '打开文件夹…'), () => void openDialog(), 'CmdOrCtrl+O'),
       await item(tz('Open Photographs…', '打开照片…'), () => void openFilesDialog(), 'CmdOrCtrl+Shift+O'),
+      await item(tz('New Layout…', '新建排版…'), () => setPages({ layoutOpen: true }), 'CmdOrCtrl+L'),
       await item(tz('Export…', '导出…'), openExport, 'CmdOrCtrl+E'),
       await sep(),
       await item(tz('Settings…', '设置…'), () => setPages({ settingsOpen: true }), 'CmdOrCtrl+,'),

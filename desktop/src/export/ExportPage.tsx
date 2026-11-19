@@ -34,7 +34,7 @@ async function loadRecipes(): Promise<ExportRecipe[]> {
   }
 }
 
-function waitForDeveloped(path: string, timeoutMs = 600_000): Promise<boolean> {
+export function waitForDeveloped(path: string, timeoutMs = 600_000): Promise<boolean> {
   return new Promise((resolve) => {
     const ok = () => {
       const s = sessionStore.getState();

@@ -992,3 +992,17 @@ input {
 .canvas-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
 .wm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px 0; }
 .wm-grid .btn.on { outline: 1px solid var(--accent, #f0a030); }
+
+/* Develop: the multi-photo layout page (windows/LayoutPage.tsx) */
+.layout-templates { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.layout-templates .btn { display: flex; flex-direction: column; align-items: center; gap: 4px; height: auto; padding: 6px 4px; font-size: 10.5px; line-height: 1.2; white-space: normal; text-align: center; }
+.layout-templates .btn.on { outline: 2px solid var(--selection-frame, #f0a030); }
+.layout-sheet { position: relative; box-shadow: 0 2px 18px rgba(0, 0, 0, 0.5); }
+.layout-cell { position: absolute; overflow: hidden; cursor: pointer; background: rgba(127, 127, 127, 0.25); }
+.layout-cell.on { outline: 2px solid var(--selection-frame, #f0a030); outline-offset: -2px; z-index: 1; }
+.layout-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; color: var(--dim); padding: 6px; }
+.layout-picks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.layout-pick { padding: 0; border: 2px solid transparent; background: none; cursor: pointer; aspect-ratio: 1; overflow: hidden; border-radius: 3px; }
+.layout-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.layout-pick span { font-size: 10px; word-break: break-all; }
+.layout-pick.on { border-color: var(--selection-frame, #f0a030); }

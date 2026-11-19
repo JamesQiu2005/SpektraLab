@@ -9,6 +9,7 @@ import { useSession } from '../state/session';
 import { Filmstrip } from './Filmstrip';
 import { TopBar } from './TopBar';
 import { AboutDialog, HostFailure, SettingsDialog } from './Dialogs';
+import { LayoutPage } from './LayoutPage';
 import { ExportPage } from '../export/ExportPage';
 
 export function EditorWindow() {
@@ -35,6 +36,7 @@ export function EditorWindow() {
       <SettingsDialog />
       <AboutDialog />
       <ExportPage />
+      <LayoutPage />
     </>
   );
 }

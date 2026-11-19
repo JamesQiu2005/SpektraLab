@@ -111,6 +111,8 @@ export interface SessionState {
   clipboardGroups: ClipboardGroup[];
   // pages
   exportOpen: boolean;
+  /** Develop's multi-photo layout page (windows/LayoutPage.tsx). */
+  layoutOpen: boolean;
   settingsOpen: boolean;
   aboutOpen: boolean;
   batchExporting: boolean;
@@ -153,6 +155,7 @@ const INITIAL: SessionState = {
   clipboard: null,
   clipboardGroups: [...CLIPBOARD_GROUPS],
   exportOpen: false,
+  layoutOpen: false,
   settingsOpen: false,
   aboutOpen: false,
   batchExporting: false,
@@ -905,7 +908,7 @@ export function setComparePosition(p: number) {
   if (v !== get().comparePosition) set({ comparePosition: v });
 }
 
-export function setPages(p: Partial<Pick<SessionState, 'exportOpen' | 'settingsOpen' | 'aboutOpen' | 'batchExporting' | 'clipboardGroups'>>) {
+export function setPages(p: Partial<Pick<SessionState, 'exportOpen' | 'layoutOpen' | 'settingsOpen' | 'aboutOpen' | 'batchExporting' | 'clipboardGroups'>>) {
   set(p);
 }
 export function setStatus(status: string) {
@@ -969,4 +972,11 @@ export async function boot() {
 /** For tests and the export run. */
 export function _internals() {
   return { get, set };
+}
+
+/** Photographs added to the filmstrip without leaving the folder (a layout's own picks from elsewhere). */
+export function addFrames(paths: string[]) {
+  const have = new Set(get().frames.map((f) => f.path));
+  const added = paths.filter((p) => !have.has(p)).map((p) => ({ path: p, name: baseName(p), size: 0, mtime_ms: 0 }));
+  if (added.length) set({ frames: [...get().frames, ...added], thumbVersion: get().thumbVersion + 1 });
 }
