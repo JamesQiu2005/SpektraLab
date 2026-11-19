@@ -18,8 +18,8 @@ The app's only engine build. A Mac Catalyst app cannot link a plain macOS object
 exactly as `engine/build.sh` does — the same sources, the same flags — for the Catalyst targets:
 
 - **The library.** Every `engine/src/{core,gpu,pipeline}/*.cpp`, C++20 at `-O2 -Wall -Wextra`, compiled in parallel
-  for `arm64-apple-ios18.0-macabi` and `x86_64-apple-ios18.0-macabi` (the macOS 15 floor, spelled as Catalyst spells
-  it), each archived with `libtool -static` and joined with `lipo` into
+  for `arm64-apple-ios17.0-macabi` and `x86_64-apple-ios17.0-macabi` (the macOS 14 floor since 2.4.2, spelled as
+  Catalyst spells it; macOS 15 before), each archived with `libtool -static` and joined with `lipo` into
   `build/engine-macosx/libspektralab_engine.a`. Both architectures, because a Release build of the app is
   universal. The source list is a glob: an engine `.cpp` added later is picked up by rerunning the script, and a
   stale library reads as a link error.

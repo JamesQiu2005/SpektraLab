@@ -173,7 +173,7 @@ struct MacColourWheelControl: View {
             MacColourWheelFace(zone: value, active: press?.part ?? hover)
                 .overlay {
                     Color.clear.contentShape(Rectangle())
-                        .gesture(MacWheelPress { state, p, flags in handle(state, p, flags, layout) })
+                        .macPress { state, p, flags in handle(state, p, flags, layout) }
                 }
                 .onContinuousHover { phase in
                     switch phase {
@@ -436,17 +436,3 @@ extension MacColourWheel.Layout {
     }
 }
 
-/// A mouse press held and moved, from its first moment: where it is, in the view's own space, and the
-/// modifier keys (the event's own, the operating system 18 and later, as `MacMarqueeRecognizer` reads them).
-private struct MacWheelPress: UIGestureRecognizerRepresentable {
-    let action: (UIGestureRecognizer.State, CGPoint, UIKeyModifierFlags) -> Void
-    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
-        let press = UILongPressGestureRecognizer()
-        press.minimumPressDuration = 0
-        press.allowableMovement = .greatestFiniteMagnitude
-        return press
-    }
-    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        action(recognizer.state, context.converter.localLocation, recognizer.modifierFlags)
-    }
-}

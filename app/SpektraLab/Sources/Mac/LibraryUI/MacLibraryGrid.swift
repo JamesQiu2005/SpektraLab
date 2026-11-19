@@ -300,9 +300,9 @@ struct MacLibraryGrid: View {
                     // The space under the last row is the grid's too: a marquee starts there, as in Finder.
                     .frame(minHeight: geo.size.height, alignment: .topLeading)
                     .contentShape(Rectangle())
-                    .gesture(MacMarqueeRecognizer { state, point, flags in
+                    .macMarquee { state, point, flags in
                         if MacMarquee.drive(&marquee, state, point, flags, layout: layout, rows: rows, browser: browser) { searching = false }
-                    })
+                    }
                     .modifier(MacEmptyClick(layout: layout) { searching = false; browser.selectNone() })
                     .overlay(alignment: .topLeading) { MacMarquee.drawn(marquee) }
                     .padding(.bottom, MacMetric.pt(24))
@@ -988,12 +988,13 @@ struct MacMarquee {
 struct MacClick: ViewModifier {
     let action: (UIKeyModifierFlags) -> Void
     func body(content: Content) -> some View {
-        content.gesture(MacClickRecognizer(action: action))
+        content.macClick(action)
     }
 }
 
 /// A mouse or trackpad drag (a click held and moved; a scroll is the scroll view's): where it is now and
 /// where it began, in the view's own space, with the modifier keys.
+@available(iOS 18.0, *)
 struct MacMarqueeRecognizer: UIGestureRecognizerRepresentable {
     let action: (UIGestureRecognizer.State, (now: CGPoint, start: CGPoint), UIKeyModifierFlags) -> Void
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
@@ -1016,11 +1017,12 @@ struct MacEmptyClick: ViewModifier {
     let layout: any MacGridGeometry
     let clear: () -> Void
     func body(content: Content) -> some View {
-        content.gesture(MacPointClickRecognizer { point in if layout.cell(at: point) == nil { clear() } })
+        content.macPointClick { point in if layout.cell(at: point) == nil { clear() } }
     }
 }
 
 /// A click and where it landed, in the view's own space.
+@available(iOS 18.0, *)
 struct MacPointClickRecognizer: UIGestureRecognizerRepresentable {
     let action: (CGPoint) -> Void
     func makeUIGestureRecognizer(context: Context) -> UITapGestureRecognizer { UITapGestureRecognizer() }
@@ -1044,6 +1046,7 @@ struct MacViewerGlyph: View {
     }
 }
 
+@available(iOS 18.0, *)
 struct MacClickRecognizer: UIGestureRecognizerRepresentable {
     let action: (UIKeyModifierFlags) -> Void
     func makeUIGestureRecognizer(context: Context) -> UITapGestureRecognizer { UITapGestureRecognizer() }

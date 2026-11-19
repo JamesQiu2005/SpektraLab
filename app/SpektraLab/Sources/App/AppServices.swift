@@ -109,6 +109,8 @@ final class AppServices {
         // snapshot harness's are a scratch folder of their own, gone with the run.
         watermarks = WatermarkStore(folder: realLibrary && persists ? WatermarkStore.folder(in: ImportService.root) : nil)
         settings = AppSettings(defaults: persists ? defaults : nil)
+        // A LibRaw decode that fell back to Core Image's says so in the log (Settings' RAW decoder, `LibRawDecode`).
+        LibRawDecode.report = { message, fields in Log.warn(.engine, message, fields) }
         // Kept only where the library is: the drawings' own library, and a test, save nothing.
         recipes = ExportRecipeStore(url: realLibrary && persists ? ImportService.root.appendingPathComponent(ExportRecipeStore.fileName) : nil,
                                     defaults: realLibrary && persists ? defaults : nil)
@@ -939,6 +941,16 @@ final class AppServices {
         LensResolver.forgetAll()
         for case let session? in sessions.values.map(\.session) where session.isHeld { session.resolveLens() }
         Log.note(.library, "lens database changed", ["lenses": LensLibrary.shared.lensCount])
+    }
+
+    /// Settings › Develop › *RAW decoder* moved (2.4.2): every open RAW is decoded again by the decoder now chosen. Its
+    /// keys carry the decoder (`RawDecoderChoice.keyWord`), so nothing kept from the other one is shown for it; every
+    /// other develop, card and export reads the setting when it decodes.
+    func rawDecoderChanged() {
+        for case let session? in sessions.values.map(\.session) where session.frame?.developsFromRAW == true {
+            session.sourceChanged()
+        }
+        Log.note(.engine, "RAW decoder", ["decoder": settings.rawDecoder.rawValue, "libraw": LibRawDecode.version ?? "none"])
     }
 
     func cropRemapsFrameChanged() {

@@ -77,7 +77,24 @@ struct AppSettingsSelfTest {
         let handWritten = AppSettings(defaults: both)
         expect(handWritten.hdrByDefault && !handWritten.edrByDefault, "edr: a store that says both reads as HDR's alone")
 
-        for name in ["fresh", "older", "dev", "both"] { UserDefaults(suiteName: "app_settings_selftest.\(name)")?.removePersistentDomain(forName: "app_settings_selftest.\(name)") }
+        // RAW decoder (2.4.2): Apple's unless LibRaw was chosen; the choice is handed to the decode (`RawDecoderChoice
+        // .current`) at launch and on a change, and kept. Apple's keys carry no decoder word (2.4.1's, byte for byte).
+        let decoder = suite("decoder")
+        let d0 = AppSettings(defaults: decoder)
+        expect(d0.rawDecoder == .system && RawDecoderChoice.current == .system, "raw decoder: Apple's where nothing was kept")
+        expect(decoder.object(forKey: "settings.rawDecoder") == nil, "raw decoder: reading nothing writes no key")
+        expect(!DecodeSettings().pixelsKey.contains("decoder"), "raw decoder: Apple's pixels key is 2.4.1's")
+        d0.rawDecoder = .libraw
+        expect(RawDecoderChoice.current == .libraw && decoder.string(forKey: "settings.rawDecoder") == "libraw",
+               "raw decoder: LibRaw chosen is handed to the decode and kept")
+        expect(DecodeSettings().pixelsKey.hasSuffix("|decoder=libraw.1"), "raw decoder: LibRaw's pixels key says so")
+        RawDecoderChoice.current = .system
+        let d1 = AppSettings(defaults: decoder)
+        expect(d1.rawDecoder == .libraw && RawDecoderChoice.current == .libraw, "raw decoder: kept across a relaunch, and handed on")
+        decoder.set("dcraw", forKey: "settings.rawDecoder")
+        let d2 = AppSettings(defaults: decoder)
+        expect(d2.rawDecoder == .system && RawDecoderChoice.current == .system, "raw decoder: an unknown word reads as Apple's")
+        for name in ["fresh", "older", "dev", "both", "decoder"] { UserDefaults(suiteName: "app_settings_selftest.\(name)")?.removePersistentDomain(forName: "app_settings_selftest.\(name)") }
         print("app settings checks: \(passed) passed, \(failed.count) failed")
         exit(failed.isEmpty ? 0 : 1)
     }

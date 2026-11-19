@@ -115,7 +115,9 @@ enum MacWatermarkCheck {
             }
             guard ok else { return nil }
             px = buf
-            if let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(src, 0, kCGImageAuxiliaryDataTypeISOGainMap) as? [CFString: Any],
+            // The ISO gain map's type is macOS 15's (Mac Catalyst 18); on 14 a file is read without it.
+            let isoGainMap: CFString? = { if #available(iOS 18.0, *) { return kCGImageAuxiliaryDataTypeISOGainMap } else { return nil } }()
+            if let isoGainMap, let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(src, 0, isoGainMap) as? [CFString: Any],
                let data = info[kCGImageAuxiliaryDataInfoData] as? Data,
                let d = info[kCGImageAuxiliaryDataInfoDataDescription] as? [String: Any],
                let mw = d["Width"] as? Int, let mh = d["Height"] as? Int, let row = d["BytesPerRow"] as? Int {

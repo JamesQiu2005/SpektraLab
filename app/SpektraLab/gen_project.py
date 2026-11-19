@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """gen_project.py -- write SpektraLab.xcodeproj (and its shared scheme) from this file.
 
-    gen_project.py [--team TEAMID] [--bundle-id ID] [--no-engine] [--version 2.4.1] [--build N]
+    gen_project.py [--team TEAMID] [--bundle-id ID] [--no-engine] [--version 2.4.2] [--build N]
                    [--mac-idiom pad|mac] [--unhardened]
 
 The project is generated rather than kept, so what it builds is readable here and
@@ -57,6 +57,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 APP = "SpektraLab"
+# The Mac's floor as Mac Catalyst spells it: 17.0 is macOS 14 (2.4.2; 18.0, macOS 15, before). The engine is built for
+# the same floor (tools/build_engine_mac.sh, CATALYST_FLOOR and METAL_FLOOR there): move the three together.
+MAC_CATALYST_FLOOR = "17.0"
 
 # The demo library's pictures: (name in the bundle, source under design/src).
 # t1 and t4 take the larger plain renders of the same photographs.
@@ -145,7 +148,7 @@ def main() -> None:
     ap.add_argument("--bundle-id", default=None)
     ap.add_argument("--no-engine", action="store_true",
                     help="do not link the engine even where tools/build_engine_mac.sh has built it")
-    ap.add_argument("--version", default="2.4.1", help="the app's version (CFBundleShortVersionString)")
+    ap.add_argument("--version", default="2.4.2", help="the app's version (CFBundleShortVersionString)")
     ap.add_argument("--build", default="1", help="the build's number (CFBundleVersion): higher for every release")
     ap.add_argument("--update-feed", default="https://spektralab.app/updates/mac.json",
                     help="where Check for Updates reads the latest Mac release's manifest (Info.plist SPKUpdateFeedURL)")
@@ -272,7 +275,14 @@ def main() -> None:
                   # app is sealed (modern_UI's Tools/sign-library-helper.sh says why).
                   'if [ \\"$PLATFORM_NAME\\" = macosx ]; then h=\\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\\"; '
                   'mkdir -p \\"$h\\" && cp -f \\"$PROJECT_DIR/../../vendor/spklib/macos/spklib-host\\" \\"$h/\\" && '
-                  'codesign --force --options runtime --timestamp=none --sign \\"${EXPANDED_CODE_SIGN_IDENTITY:--}\\" \\"$h/spklib-host\\"; fi\\n')
+                  'codesign --force --options runtime --timestamp=none --sign \\"${EXPANDED_CODE_SIGN_IDENTITY:--}\\" \\"$h/spklib-host\\"; '
+                  # 2.4.2: the optional LibRaw decoder (vendor/libraw, engine/raw-helper/README.md), beside it and signed
+                  # the same way, with LibRaw's LGPL-2.1 notices in the app's resources.
+                  'cp -f \\"$PROJECT_DIR/../../vendor/libraw/macos/spkraw-host\\" \\"$h/\\" && '
+                  'codesign --force --options runtime --timestamp=none --sign \\"${EXPANDED_CODE_SIGN_IDENTITY:--}\\" \\"$h/spkraw-host\\" && '
+                  'l=\\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Licenses/LibRaw\\" && mkdir -p \\"$l\\" && '
+                  'cp -f \\"$PROJECT_DIR/../../vendor/libraw/LICENSE.LGPL\\" \\"$PROJECT_DIR/../../vendor/libraw/COPYRIGHT\\" '
+                  '\\"$PROJECT_DIR/../../vendor/libraw/SOURCE.md\\" \\"$l/\\"; fi\\n')
         ph_engine = add("phase_engine", "Engine resources",
                         "{\n\t\t\tisa = PBXShellScriptBuildPhase;\n\t\t\talwaysOutOfDate = 1;\n"
                         "\t\t\tbuildActionMask = 2147483647;\n\t\t\tfiles = (\n\t\t\t);\n"
@@ -316,8 +326,10 @@ def main() -> None:
         # from; on the Mac, 2 alone is "scaled Catalyst mode" and 2,6 "Optimize for Mac".
         "TARGETED_DEVICE_FAMILY": "2",
         '"TARGETED_DEVICE_FAMILY[sdk=macosx*]"': '"2,6"' if args.mac_idiom == "mac" else "2",
-        # The desktop app's floor (macOS 15), which the engine's metallib is stamped for.
-        '"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]"': "18.0",
+        # The desktop app's floor: macOS 14 since 2.4.2 (Mac Catalyst 17.0; macOS 15 before), the floor
+        # tools/build_engine_mac.sh builds the engine and stamps its metallib for. What macOS 14 lacks is
+        # asked for by `if #available` where it is used (the stock strip's scroll, `StripScrolling`).
+        '"IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*]"': MAC_CATALYST_FLOOR,
         "SUPPORTS_MACCATALYST": "YES",
         "SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD": "NO",
         "SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD": "NO",

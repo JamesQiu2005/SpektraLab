@@ -18,7 +18,7 @@ files=(Model/Format.swift Model/Localization.swift Model/FeatureFlags.swift Mode
        Model/Adjustments.swift Model/CurveMath.swift Model/Geometry.swift Model/FilmEdge.swift Model/LensEdge.swift Model/ExportRecipe.swift
        Model/SettingsClipboard.swift Model/Stock.swift Scheduler/DevicePolicy.swift Features/Develop/DevelopLayout.swift
        Engine/SceneLatitude.swift Engine/ScenePlacement.swift Model/HalfFramePair.swift Engine/PrintLayers.swift
-       Engine/RawExposure.swift Engine/DigitalDecode.swift Engine/LensProfile.swift Engine/LensProfileReader.swift Engine/LensCorrection.swift
+       Engine/RawExposure.swift Engine/LibRawDecode.swift Engine/DigitalDecode.swift Engine/LensProfile.swift Engine/LensProfileReader.swift Engine/LensCorrection.swift
        Engine/LCPReader.swift Services/LensDatabase.swift Engine/LensResolver.swift Engine/RawBlack.swift)
 sources=()
 for file in "${files[@]}"; do sources+=("$src/$file"); done

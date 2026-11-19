@@ -110,6 +110,16 @@ final class AppSettings {
     /// original while the bar is down, as a finger held on the picture (PAGES.md W-X2), the default and what
     /// the page always did — or pressed, each press switching between the original and the develop.
     var spaceOriginal = SpaceOriginal.hold { didSet { save() } }
+    /// **RAW decoder** (Settings › Develop; 2.4.2): Apple's — the default, every release's before 2.4.2 — or LibRaw, in its
+    /// own helper (`LibRawDecode`). Handed to the decode as `RawDecoderChoice.current`, at launch and on a change; moving it
+    /// is another picture of every RAW (its keys say which decoder made it), and the open ones are developed again
+    /// (`AppServices.rawDecoderChanged`).
+    var rawDecoder = RawDecoderChoice.system {
+        didSet {
+            RawDecoderChoice.current = rawDecoder
+            save()
+        }
+    }
 
     enum SpaceOriginal: String, CaseIterable, Sendable {
         case hold, toggle
@@ -163,6 +173,9 @@ final class AppSettings {
         galleryView = d.string(forKey: "settings.galleryView").flatMap(GalleryView.init(rawValue:)) ?? galleryView
         agentAccess = d.bool(forKey: "agent.access")
         spaceOriginal = d.string(forKey: "settings.spaceOriginal").flatMap(SpaceOriginal.init(rawValue:)) ?? spaceOriginal
+        rawDecoder = d.string(forKey: "settings.rawDecoder").flatMap(RawDecoderChoice.init(rawValue:)) ?? rawDecoder
+        // As `hdrByDefault`: an initialiser's assignment runs no `didSet`.
+        RawDecoderChoice.current = rawDecoder
     }
 
     /// Another camera body: a new gate, new margins, new holes.
@@ -202,5 +215,6 @@ final class AppSettings {
         d.set(galleryView.rawValue, forKey: "settings.galleryView")
         d.set(agentAccess, forKey: "agent.access")
         d.set(spaceOriginal.rawValue, forKey: "settings.spaceOriginal")
+        d.set(rawDecoder.rawValue, forKey: "settings.rawDecoder")
     }
 }

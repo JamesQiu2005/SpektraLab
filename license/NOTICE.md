@@ -25,3 +25,9 @@ spektrafilm profiles, the LUTs and their direct derivatives, with Andrea Volpato
 - **spklib** (`vendor/spklib/macos/spklib-host`), the helper that reads SpektraLab libraries and
   Capture One catalogs, MIT, shipped as a prebuilt binary and run as a separate process
   (`API-SPEC-library-helper.md`).
+- **LibRaw** (`vendor/libraw/macos/spkraw-host`, from 2.4.2), the optional RAW decoder (Settings ›
+  Develop › RAW decoder): LibRaw 0.23.0-Snapshot202611, unmodified, statically linked into SpektraLab's
+  own helper and run as a separate process (`engine/raw-helper/README.md`). LibRaw is dual-licensed
+  LGPL-2.1 / CDDL-1.0; SpektraLab takes the LGPL-2.1 option. Its notices and the exact source are in
+  `vendor/libraw/` (`LICENSE.LGPL`, `COPYRIGHT`, `SOURCE.md`) and in the app at
+  `Contents/Resources/Licenses/LibRaw`; `engine/raw-helper/build-mac.sh` rebuilds the helper.

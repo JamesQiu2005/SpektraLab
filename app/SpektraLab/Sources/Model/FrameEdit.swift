@@ -303,8 +303,25 @@ struct DecodeSettings: Codable, Equatable, Hashable, Sendable {
     }
 
     var exposureKey: String {
-        rawExposureTreatment == .legacy ? "" : "|raw=\(rawExposureTreatment.rawValue)"
+        (rawExposureTreatment == .legacy ? "" : "|raw=\(rawExposureTreatment.rawValue)") + RawDecoderChoice.current.keyWord
     }
+}
+
+/// Which decoder turns a RAW into the engine's linear picture (Settings › Develop › RAW decoder, 2.4.2): Apple's
+/// (Core Image's `CIRAWFilter`, the default and what every release before 2.4.2 used) or LibRaw, in its own process
+/// (`LibRawDecode`, `engine/raw-helper`). An app setting, not a frame's: no sidecar carries it. It is part of every key
+/// a RAW's pixels are kept under (`DecodeSettings.exposureKey`, and through it `pixelsKey`, the develop stamp and the
+/// proxy's name), as a word only LibRaw adds — so every key of Apple's decode is what it was, byte for byte, and a
+/// picture made by one decoder is never shown as the other's. The two decoders' colour differs (another camera matrix,
+/// another demosaic): that is the choice.
+enum RawDecoderChoice: String, CaseIterable, Sendable {
+    case system, libraw
+
+    /// The setting as the decode reads it: `AppSettings.rawDecoder` sets it at launch and on a change.
+    nonisolated(unsafe) static var current = RawDecoderChoice.system
+
+    /// What it adds to a key: "" for Apple's, so those keys are 2.4.1's.
+    var keyWord: String { self == .libraw ? "|decoder=libraw.1" : "" }
 }
 
 /// Read from the same RAW filter that supplies pixels. A report, never an

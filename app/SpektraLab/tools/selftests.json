@@ -21,6 +21,11 @@
    "weight": 55
   },
   {
+   "id": "libraw_decode_check",
+   "run": "bash \"$here/tools/libraw_decode_check.sh\"",
+   "weight": 190
+  },
+  {
    "id": "library_browser_selftest",
    "build": [
     "-O",
@@ -657,6 +662,7 @@
     "$src/Engine/PictureMemory.swift",
     "$src/Engine/NeutralPick.swift",
     "$src/Engine/RawExposure.swift",
+    "$src/Engine/LibRawDecode.swift",
     "$src/Engine/LensProfile.swift",
     "$src/Engine/LensProfileReader.swift",
     "$src/Engine/LensCorrection.swift",

@@ -53,7 +53,8 @@ struct StockGrid: View {
     /// What the strip shows where it is: the maker's name held at its top, the rows not drawn, the rows asked for
     /// (`StockGridLayout.Shown`). Nil until the strip has told where it is: its top.
     @State private var shown: StockGridLayout.Shown?
-    @State private var position = ScrollPosition(y: 0)
+    /// Where the strip is asked to scroll to (`StripScrolling`): the strip's open and a newly chosen card's reveal.
+    @State private var ask: StripScrollAsk?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// A line of the grid: a maker's name, or a row of its cards (the row's place among the layout's rows).
@@ -114,6 +115,8 @@ struct StockGrid: View {
                 // The room under the last card that lets the strip reach its foot: a row straight under the name.
                 .padding(.bottom, CGFloat(layout.trailing(window: window)))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Where the content is, before macOS 15 (`StripScrolling`).
+                .modifier(StripOffsetReader())
                 // A scroll over the strip is decided and moved by the app, the strip's or the column's, and left at a
                 // row's rest (`MacWheelRow.swift`, round 4); its indicator is drawn at the panel's left edge there.
                 .macScrollPassesToColumn(rests: { tall in
@@ -123,16 +126,12 @@ struct StockGrid: View {
             // The strip's indicator is at the panel's left (the owner, round 4): UIKit's on the right is not shown. On the
             // Mac this hides only UIKit's own indicator, not AppKit's scroller Catalyst draws: `StripIndicator` hides that.
             .scrollIndicators(.hidden)
-            .scrollPosition($position)
-            // Where the strip is, at every step of a scroll: kept, not drawn.
-            .onScrollGeometryChange(for: CGPoint.self) { CGPoint(x: $0.containerSize.height, y: $0.contentOffset.y) } action: { _, at in
-                scrolled.window = Double(at.x)
-                scrolled.offset = Double(at.y)
-            }
-            // What it shows there, as that changes: a name held or pushed, a row gone under it, a row come in.
-            .onScrollGeometryChange(for: StockGridLayout.Shown.self) { layout.shown(at: Double($0.contentOffset.y), window: Double($0.containerSize.height)) } action: { _, next in
-                show(next, layout: layout)
-            }
+            // Where the strip is, at every step of a scroll (kept, not drawn), and what it shows there as that changes:
+            // a name held or pushed, a row gone under it, a row come in. Moved where it is asked to (`ask`).
+            .modifier(StripScrolling(ask: ask, reduceMotion: reduceMotion, window: window,
+                                     at: { offset, tall in scrolled.window = tall; scrolled.offset = offset },
+                                     shownAt: { offset, tall in layout.shown(at: offset, window: tall) },
+                                     shown: { next in show(next, layout: layout) }))
             .onAppear {
                 scrolled.window = window
                 rest(on: selected, layout: layout, window: window)
@@ -190,7 +189,7 @@ struct StockGrid: View {
     private func rest(on id: String, layout: StockGridLayout, window: Double) {
         let to = row(of: id, in: layout).map { min(layout.rest($0), layout.foot(window: window)) } ?? 0
         scrolled.offset = to
-        position.scrollTo(y: CGFloat(to))
+        ask = StripScrollAsk(y: to, animated: false, serial: (ask?.serial ?? 0) + 1)
         show(layout.shown(at: to, window: window), layout: layout)
     }
 
@@ -203,7 +202,7 @@ struct StockGrid: View {
         scrolled.tapped = ""
         let to = layout.reveal(row: row, from: scrolled.offset, window: scrolled.window > 0 ? scrolled.window : window, tapped: tapped)
         guard abs(to - scrolled.offset) > 0.5 else { return }
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { position.scrollTo(y: CGFloat(to)) }
+        ask = StripScrollAsk(y: to, animated: true, serial: (ask?.serial ?? 0) + 1)
     }
 
     /// A row of cards, each as wide as the rule's card.
@@ -462,6 +461,98 @@ final class GripPointerView: UIView {
             }
             press = nil
             draggedYet = false
+        }
+    }
+}
+
+// MARK: the strip's scroll, by system (2.4.2: macOS 14)
+
+/// A place the strip is asked to scroll to: `serial` makes the same place asked again a new ask.
+struct StripScrollAsk: Equatable {
+    var y: Double
+    var animated: Bool
+    var serial: Int
+}
+
+/// The coordinate space the strip's content is measured in where the system cannot say where a scroll is (before macOS 15).
+private let stripScrollSpace = "stock.strip.scroll"
+
+private struct StripOffsetKey: PreferenceKey {
+    static let defaultValue = 0.0
+    static func reduce(value: inout Double, nextValue: () -> Double) { value = nextValue() }
+}
+
+/// The strip's scroll as the panel reads and moves it. On macOS 15 and later (Mac Catalyst 18), the system's own:
+/// `ScrollPosition` and `onScrollGeometryChange`, as the strip has always been. On macOS 14 the scroll is read from where
+/// its content is (`StripOffsetReader`, a preference in a named space), so the held maker's name, the rows under it and the
+/// cards' pictures follow the scroll as they do on 15; the strip is not moved for the app there (no API before 15 moves a
+/// scroll view to a point), so it opens at its top and a chosen card is not brought into view.
+struct StripScrolling: ViewModifier {
+    let ask: StripScrollAsk?
+    let reduceMotion: Bool
+    let window: Double
+    let at: (_ offset: Double, _ window: Double) -> Void
+    let shownAt: (_ offset: Double, _ window: Double) -> StockGridLayout.Shown
+    let shown: (StockGridLayout.Shown) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.modifier(StripScrollingSystem(ask: ask, reduceMotion: reduceMotion, at: at, shownAt: shownAt, shown: shown))
+        } else {
+            content
+                .coordinateSpace(name: stripScrollSpace)
+                .onPreferenceChange(StripOffsetKey.self) { offset in
+                    at(offset, window)
+                    shown(shownAt(offset, window))
+                }
+        }
+    }
+}
+
+/// What the strip's content tells of where it is, before macOS 15 (`StripScrolling`); nothing on 15 and later.
+struct StripOffsetReader: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+        } else {
+            content.background(GeometryReader { g in
+                Color.clear.preference(key: StripOffsetKey.self, value: Double(-g.frame(in: .named(stripScrollSpace)).minY))
+            })
+        }
+    }
+}
+
+@available(iOS 18.0, *)
+private struct StripScrollingSystem: ViewModifier {
+    let ask: StripScrollAsk?
+    let reduceMotion: Bool
+    let at: (Double, Double) -> Void
+    let shownAt: (Double, Double) -> StockGridLayout.Shown
+    let shown: (StockGridLayout.Shown) -> Void
+    @State private var position = ScrollPosition(y: 0)
+    @State private var done = 0
+
+    func body(content: Content) -> some View {
+        content
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: CGPoint.self) { CGPoint(x: $0.containerSize.height, y: $0.contentOffset.y) } action: { _, p in
+                at(Double(p.y), Double(p.x))
+            }
+            .onScrollGeometryChange(for: StockGridLayout.Shown.self) { shownAt(Double($0.contentOffset.y), Double($0.containerSize.height)) } action: { _, next in
+                shown(next)
+            }
+            .onAppear { move(ask) }
+            .onChange(of: ask) { _, next in move(next) }
+    }
+
+    /// The ask, once: the strip's open at once, a reveal eased (as before 2.4.2).
+    private func move(_ ask: StripScrollAsk?) {
+        guard let ask, ask.serial != done else { return }
+        done = ask.serial
+        if ask.animated {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { position.scrollTo(y: CGFloat(ask.y)) }
+        } else {
+            position.scrollTo(y: CGFloat(ask.y))
         }
     }
 }

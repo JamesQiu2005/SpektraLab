@@ -112,6 +112,21 @@ struct MacSettingsDevelop: View {
                                  other: Fmt.thousands(settings.previewLongEdge) + " px")
             }
             .macSettingsItem("Develop", "Preview size")
+            // 2.4.2: whose decoder turns a RAW into the film's light (`AppSettings.rawDecoder`, `LibRawDecode`). Switching it
+            // decodes the open pictures again; LibRaw is offered only where its helper is in the app.
+            MacSettingsRow(label: L("RAW decoder"),
+                           caption: LibRawDecode.isAvailable
+                               ? L("Which decoder turns a RAW file into the light the film is exposed to. Apple's is the macOS decoder every earlier version used. LibRaw is an open-source decoder that runs in a process of its own: it reads some cameras macOS does not, and its colour and highlights differ, so the same photograph develops differently. With LibRaw, macOS's own lens correction is not available (the lens database's and a file's own profiles still are), and a file LibRaw cannot read is decoded by Apple's. Switching develops the open pictures again.")
+                               : L("Which decoder turns a RAW file into the light the film is exposed to. LibRaw's helper is not in this copy of the app, so Apple's decodes every RAW."),
+                           last: false) {
+                MacSettingsPopUp(label: L("RAW decoder"),
+                                 options: [(RawDecoderChoice.system, L("Apple (macOS)")),
+                                           (RawDecoderChoice.libraw, "LibRaw" + (LibRawDecode.version.map { " " + $0 } ?? ""))],
+                                 selection: Binding(get: { settings.rawDecoder },
+                                                    set: { settings.rawDecoder = $0; model.rawDecoderChanged() }),
+                                 allowed: { $0 == .system || LibRawDecode.isAvailable })
+            }
+            .macSettingsItem("RAW decoder")
             // v1.3.3's Settings › Film effects › *Crop re-maps the frame*, restored (2026-10-26): what a
             // crop means for the film's physical scale (`FrameEdit.wireFilmFormatMM`). Off by default.
             MacSettingsRow(label: L("Crop re-maps the frame"),

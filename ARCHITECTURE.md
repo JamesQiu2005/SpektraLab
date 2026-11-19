@@ -2,7 +2,7 @@
 
 How SpektraLab 2 is put together: a Mac Catalyst app with the SpektraLab engine, a C++/Metal render
 engine, linked into it, and a library helper, `spklib-host`, running beside it. Written for someone
-about to change the pipeline, the app or the release. Current as of **2.4.1, 2026-11-16**.
+about to change the pipeline, the app or the release. Current as of **2.4.2, 2026-11-18**.
 
 The SpektraLab engine is a C++/Metal implementation derived from spektrafilm by Andrea Volpato
 (GPL-3.0-or-later). The engine's sections (§1–§4, §6, §8) carry over from 1.x except where they
@@ -21,7 +21,7 @@ subsections.
 ## 0. The product, end to end
 
 ```
-  ┌─ SpektraLab.app ── Mac Catalyst, universal, macOS 15+, 68 MB ─────────┐
+  ┌─ SpektraLab.app ── Mac Catalyst, universal, macOS 14+, 68 MB ─────────┐
   │  SwiftUI + UIKit, AppKit through the runtime · en · 简 · 繁 · 日本語    │
   │                                                                       │
   │  App/  Mac/   AppServices (the one model) · the window: Library ·     │
@@ -240,7 +240,7 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
 - **The engine is built for Catalyst by `build_engine_mac.sh`**, from the same sources and with
   the same safe-math kernels as `engine/build.sh` (§8.4), because a Catalyst app cannot link a
   plain macOS object. It writes `build/engine-macosx/`, which the project links and copies.
-- **Versions** live in `gen_project.py`: the default is the current release (2.4.1); a release
+- **Versions** live in `gen_project.py`: the default is the current release (2.4.2); a release
   passes `--version`, `--build <yyyyMMddHHmm>` and `--bundle-id com.spektralab.mac`, and the
   generated project is committed with it. A build without `--version` shows the default in
   Settings › General › About.
@@ -249,8 +249,12 @@ xcodebuild … archive                       a release: Release, ARCHS='arm64 x8
   [SpektraLab_library](https://github.com/JamesQiu2005/SpektraLab_library) (2.2.x ships v0.3.1),
   its sha256 beside it; `API-SPEC-library-helper.md` §7 is how to update it. The app copies it to
   `Contents/Helpers` and runs it as a separate process.
-- **Signing and notarisation.** The archive is unsigned. The helper is signed first
-  (`codesign -i spklib-host`), then the app, with the Developer ID Application identity,
+- **The RAW decoder helper** (2.4.2) is `vendor/libraw/macos/spkraw-host`: LibRaw (LGPL-2.1, unmodified,
+  pinned in `engine/third_party/libraw-pin/`) in SpektraLab's own helper, built by
+  `engine/raw-helper/build-mac.sh` and run as a separate process when Settings chooses LibRaw
+  (`engine/raw-helper/README.md`). It is copied to `Contents/Helpers` beside the library helper.
+- **Signing and notarisation.** The archive is unsigned. The helpers are signed first
+  (`codesign -i spklib-host`, `codesign -i spkraw-host`), then the app, with the Developer ID Application identity,
   hardened runtime and no entitlements; the DMG (the app, an Applications link, `Licenses/`) is
   signed, notarised with `notarytool` and stapled, then checked with `spctl`. Releases are
   GitHub releases carrying the DMG (`SpektraLab-<version>-universal.dmg`). The DMG is universal. The

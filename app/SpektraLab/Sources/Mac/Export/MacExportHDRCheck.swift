@@ -249,7 +249,7 @@ enum MacExportHDRCheck {
 
     /// The ISO declaration's fields as ImageIO gives them back (one channel).
     nonisolated static func isoFields(_ src: CGImageSource) -> [String: Double]? {
-        guard let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(src, 0, kCGImageAuxiliaryDataTypeISOGainMap) as? [CFString: Any],
+        guard #available(iOS 18.0, *), let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(src, 0, kCGImageAuxiliaryDataTypeISOGainMap) as? [CFString: Any],
               let md = info[kCGImageAuxiliaryDataInfoMetadata] else { return nil }
         let m = md as! CGImageMetadata
         func v(_ t: CGImageMetadataTag?) -> Double? { t.flatMap { CGImageMetadataTagCopyValue($0) as? String }.flatMap(Double.init) }
@@ -265,7 +265,7 @@ enum MacExportHDRCheck {
 
     /// The ISO map's codes, row padding removed.
     nonisolated static func isoCodes(_ src: CGImageSource) -> (width: Int, height: Int, codes: [UInt8])? {
-        guard let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(src, 0, kCGImageAuxiliaryDataTypeISOGainMap) as? [CFString: Any],
+        guard #available(iOS 18.0, *), let info = CGImageSourceCopyAuxiliaryDataInfoAtIndex(src, 0, kCGImageAuxiliaryDataTypeISOGainMap) as? [CFString: Any],
               let d = info[kCGImageAuxiliaryDataInfoDataDescription] as? [CFString: Any],
               let w = d[kCGImagePropertyWidth] as? Int, let h = d[kCGImagePropertyHeight] as? Int,
               let row = d[kCGImagePropertyBytesPerRow] as? Int, let data = info[kCGImageAuxiliaryDataInfoData] as? Data else { return nil }
@@ -351,7 +351,7 @@ enum MacExportHDRCheck {
         guard let hdr = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceDecodeRequest: kCGImageSourceDecodeToHDR] as CFDictionary),
               let sdr = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceDecodeRequest: kCGImageSourceDecodeToSDR] as CFDictionary),
               let plain = CGImageSourceCreateImageAtIndex(src, 0, nil) else { failures.append("not decoded"); return done() }
-        facts["decode_hdr"] = ["bits": hdr.bitsPerComponent, "space": (hdr.colorSpace?.name as String?) ?? "?", "content_headroom": Double(hdr.contentHeadroom)]
+        facts["decode_hdr"] = ["bits": hdr.bitsPerComponent, "space": (hdr.colorSpace?.name as String?) ?? "?", "content_headroom": { if #available(iOS 18.0, *) { return Double(hdr.contentHeadroom) } else { return -1.0 } }()]
         let stored = isoCodes(src)
         let top = log2(headroom)
         let isoMin = iso?["GainMapMin"] ?? 0, isoMax = iso?["GainMapMax"] ?? 0, isoGamma = iso?["Gamma"] ?? 1
