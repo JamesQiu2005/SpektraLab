@@ -11,7 +11,7 @@
 // The JSON keys of `FilmParams` are the Swift `Codable` keys, so a sidecar
 // written by the macOS app opens here and the other way round.
 
-import { activeCatalog, type StockCatalog } from './stocks';
+import { activeCatalog, edgeTextFor, type StockCatalog } from './stocks';
 
 export type ParamLayer = 'shoot' | 'print';
 export type WireValue = number | boolean | string;
@@ -689,7 +689,8 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
         { name: 'overscan_frame_number', value: clamp(Math.round(fe.frameNumber), 0, 99), layer: 'shoot' },
         { name: 'overscan_fog', value: clamp(fe.fog, 0, 4), layer: 'shoot' },
         { name: 'overscan_leaks', value: clamp(fe.leaks, 0, 4), layer: 'shoot' },
-        { name: 'overscan_edge_text', value: fe.edgeText, layer: 'shoot' },
+        // The film's own edge words unless the photo set its own (SpektraLab 2's `Stock.edgeText(gauge:)`).
+        { name: 'overscan_edge_text', value: fe.edgeText || edgeTextFor(cat, p.filmStock, fe.format), layer: 'shoot' },
         { name: 'overscan_f_number', value: clamp(fe.fNumber, 0, 64), layer: 'shoot' },
       );
     }

@@ -115,6 +115,47 @@ export class StockCatalog {
   }
 }
 
+/**
+ * The words a film prints on its edge (SpektraLab 2's `EdgeWords` and `Stock.edgeText(gauge:)`,
+ * FilmEdgeStock.swift): the film's own where it prints something other than its name, read off real
+ * strips (135, 120); else its name in capitals, without a push's "(Push 1)". The engine draws no maker's
+ * name of its own: this is `overscan_edge_text`.
+ */
+export const EDGE_WORDS: Record<string, readonly [string, string]> = {
+  kodak_gold_200: ['KODAK GB 200-7', 'KODAK 200'],
+  kodak_portra_800: ['KODAK PORTRA 800-3', 'KODAK PORTRA 800'],
+  kodak_portra_800_push1: ['KODAK PORTRA 800-3', 'KODAK PORTRA 800'],
+  kodak_portra_800_push2: ['KODAK PORTRA 800-3', 'KODAK PORTRA 800'],
+  kodak_ultramax_400: ['KODAK GC 400', 'KODAK GC 400'],
+  kodak_portra_160nc: ['KODAK 160NC', 'KODAK 160NC-2'],
+  kodak_portra_160vc: ['KODAK 160VC', 'KODAK 160VC-2'],
+  kodak_portra_400nc: ['KODAK 400NC', 'KODAK 400NC-3'],
+  kodak_portra_400vc: ['KODAK 400VC', 'KODAK 400VC-3'],
+  kodak_ektachrome_100: ['KODAK E100', 'KODAK E100'],
+  fujifilm_c200: ['FUJI 200', 'FUJI 200'],
+  fujifilm_xtra_400: ['S-400', 'FUJI S-400'],
+  fujifilm_pro_400h: ['PRO400H', 'FUJI PRO400H'],
+  fujifilm_provia_100f: ['FUJI RDPIII', 'FUJI RDPIII'],
+  fujifilm_velvia_100: ['RVP100', 'FUJI RVP100'],
+  kodak_vision3_50d: ['EASTMAN 5203', 'EASTMAN 5203'],
+  kodak_vision3_250d: ['EASTMAN 5207', 'EASTMAN 5207'],
+  kodak_vision3_200t: ['EASTMAN 5213', 'EASTMAN 5213'],
+  kodak_vision3_500t: ['EASTMAN 5219', 'EASTMAN 5219'],
+  kodak_tri_x_400: ['KODAK 400TX', 'KODAK 400TX'],
+  kodak_tmax_100: ['KODAK 100TMX', 'KODAK 100TMX'],
+  fujifilm_neopan_acros_100_ii: ['FUJI 100 ACROS II', 'FUJI 100 ACROS II'],
+  ilford_hp5_plus_400: ['ILFORD HP5 PLUS', 'ILFORD HP5 PLUS'],
+};
+
+/** A film's edge words for a film-edge format ("135", "135_half", "120_6x6"…). */
+export function edgeTextFor(cat: StockCatalog, filmId: string, format: string): string {
+  const gauge = format.startsWith('120') ? 1 : 0;
+  const own = EDGE_WORDS[filmId];
+  if (own) return own[gauge]!;
+  const name = cat.stock(filmId)?.name ?? '';
+  return name.split('(')[0]!.trim().toUpperCase();
+}
+
 export const EMPTY_CATALOG = new StockCatalog([]);
 
 // The catalogue the wire is built with (params.ts `wire`). Set once the file is loaded; until then,

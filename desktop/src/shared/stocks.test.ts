@@ -79,3 +79,18 @@ describe('the wire with the catalogue', () => {
     expect('m_filter_neutral' in w).toBe(false);
   });
 });
+
+describe('film edge words (SpektraLab 2 EdgeWords)', () => {
+  it('prints the film’s own words, else its name in capitals', async () => {
+    const { edgeTextFor, StockCatalog } = await import('./stocks');
+    const cat = new StockCatalog([
+      { id: 'kodak_portra_400', name: 'Kodak Portra 400', stage: 'filming' },
+      { id: 'kodak_portra_800_push1', name: 'Kodak Portra 800 (Push 1)', stage: 'filming' },
+    ] as never);
+    expect(edgeTextFor(cat, 'kodak_portra_400', '135')).toBe('KODAK PORTRA 400');
+    expect(edgeTextFor(cat, 'kodak_gold_200', '135_half')).toBe('KODAK GB 200-7');
+    expect(edgeTextFor(cat, 'kodak_gold_200', '120_6x6')).toBe('KODAK 200');
+    expect(edgeTextFor(cat, 'fujifilm_velvia_100', '120_6x12')).toBe('FUJI RVP100');
+    expect(edgeTextFor(cat, 'kodak_portra_800_push1', '135')).toBe('KODAK PORTRA 800-3');
+  });
+});
