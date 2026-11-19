@@ -11,6 +11,8 @@ whose engine is derived from [spektrafilm](https://github.com/andreavolpato/spek
 Volpato. It is not affiliated with or endorsed by either project. The film model, the measured
 profiles and the print and scan model are theirs; Develop is the Linux port and the app built on it.
 
+![Develop on Ubuntu: a street photo on Ilford Delta 100, printed on Ilford Multigrade IV RC](screenshots/develop.png)
+
 ## What it does
 
 - **130 film and paper stocks**: colour negative, slide, motion-picture and black-and-white films,

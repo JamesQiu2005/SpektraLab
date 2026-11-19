@@ -9,6 +9,8 @@ Develop 是一款 Linux 上的胶片模拟暗房软件。打开 RAW 或 JPEG，�
 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)。本项目与二者均无隶属或背书关系。
 胶片模型、实测配置文件以及印放与扫描模型属于它们；Develop 是 Linux 移植以及基于其构建的应用。
 
+![Develop 在 Ubuntu 上：街头照片，Ilford Delta 100 胶片，印放于 Ilford Multigrade IV RC 相纸](screenshots/develop.png)
+
 ## 要点
 
 - 130 种胶片与相纸（彩色负片、反转片、电影胶片、黑白胶片），按品牌排序。
