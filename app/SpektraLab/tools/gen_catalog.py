@@ -146,7 +146,7 @@ NAMES = {
     "kodak_pro_image_100": ("Kodak Pro Image 100", "Pro Image 100", "colour negative"),
     "fujifilm_200": ("Fujifilm 200", "Fujifilm 200", "colour negative"),
     "fujifilm_400": ("Fujifilm 400", "Fujifilm 400", "colour negative"),
-    "kodak_ektachrome_e100_2": ("Kodak Ektachrome E100 (E-4000)", "E100 (E-4000)", "slide (positive)"),
+    "kodak_ektachrome_e100_2": ("Kodak Ektachrome 100 #2", "Ektachrome 100 #2", "slide (positive)"),
     "kodak_ektachrome_100d_7294": ("Kodak Ektachrome 100D 7294", "Ektachrome 100D", "slide (positive)"),
     "fujifilm_eterna_vivid_160": ("Fujifilm Eterna Vivid 160", "Eterna Vivid 160", "cine negative"),
     "fujifilm_eterna_400": ("Fujifilm Eterna 400", "Eterna 400", "cine negative"),
@@ -185,6 +185,10 @@ NAMES = {
 # Motion-picture negatives whose profiles say "still" (the engine reads a profile's `use`, so the profiles
 # are left as they are): the picker shows them as cine, beside Vision3 (Develop, the owner's choice 2026-11-19).
 CINE_IN_CATALOGUE = {
+    "fujifilm_eterna_500",
+    "fujifilm_eterna_400",
+    "fujifilm_eterna_vivid_160",
+    "kodak_ektachrome_100d_7294",
     "kodak_vision2_50d",
     "kodak_vision2_100t",
     "kodak_vision2_200t",
