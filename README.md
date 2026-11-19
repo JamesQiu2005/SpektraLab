@@ -52,6 +52,35 @@ Linux editor built on that engine.
 - Check for Updates. Left out on purpose: Develop has no network access.
 - The iPhone and iPad app, and builds for the Mac and Windows.
 
+## How the new film stocks were made
+
+SpektraLab ships spektrafilm's 28 measured profiles and a handful of its own. Develop adds 93 film
+profiles, most of them for films discontinued long ago, reverse-engineered from the data sheets their
+makers published: Fujifilm's *Professional Data Guide* (2005), Kodak's technical publications for
+VISION motion-picture negatives, EKTACHROME, ELITE Chrome and KODACHROME slides and its still
+negatives, and Ilford/HARMAN and Fujifilm's black-and-white sheets.
+
+1. **Read the curves off the sheets.** For every film: its spectral sensitivity (how each layer
+   responds to each wavelength), its characteristic curves (density against exposure) and its spectral
+   dye densities (the colour each dye absorbs). Most sheets are PDFs that store their charts as vector
+   paths, so the digitisers in `engine/tools/fujifilm_data_guide/` read the curves straight from those
+   paths. Each axis is fitted through the chart's own grid lines and labels, which leaves only the
+   publisher's own drawing error. Charts that are only images are traced at 600 dpi.
+2. **Turn them into profiles.** The curves go through spektrafilm's own profile factory, then the
+   same rules as spektrafilm's shipped profiles. Every fit that depends on the engine (the paper's
+   filter pack, the grey ramp, the grain) is run through the engine itself. Where a sheet leaves
+   something out (some VISION sheets have no neutral or D-min curve), it is derived from the film's
+   own data and the profile's `metadata` says so.
+3. **Check the method on films we can compare.** The same chain was run on spektrafilm's own raw data
+   for films it already has. Pro 400H, Velvia 100, Vision3 500T, Kodachrome 64 and Ektachrome 100
+   come out within ΔE2000 1.0 to 2.1 (mean, on a ColorChecker) of spektrafilm's measured profiles.
+   The digitiser also reproduces spektrafilm's raw Kodachrome 64 curves from Kodak's sheet to within
+   0.009.
+
+Each profile records its source publication and its fitting errors in its `metadata`, and
+`engine/resources_product/NOTICE.md` lists them all. These are reconstructions from published data,
+not measurements of real film. They are as close to each film as its maker's sheet allows.
+
 ## No network, by design
 
 Develop cannot reach the internet. A seccomp filter installed before anything else starts allows
