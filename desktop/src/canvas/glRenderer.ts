@@ -238,8 +238,13 @@ export class GLRenderer {
     const a = gl.getAttribLocation(this.program, 'aPos');
     gl.enableVertexAttribArray(a);
     gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
-    this.image = this.texture(gl.LINEAR);
-    this.original = this.texture(gl.LINEAR);
+    // The picture and the original are drawn smaller than they are whenever the view is zoomed out (a
+    // 3,400 px preview in a 700 px window). With a plain LINEAR filter each screen pixel reads 4 of the
+    // ~25-64 pixels it covers, so grain and fine detail alias and look far stronger than in the export
+    // (measured on an exported Portra 400, 2026-11-19). Mipmaps average every pixel in, as an image viewer
+    // does; at 100 % and above the full-resolution level is the one read, as before.
+    this.image = this.texture(gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR);
+    this.original = this.texture(gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR);
     this.curves = this.texture(gl.LINEAR);
   }
 
@@ -260,12 +265,12 @@ export class GLRenderer {
     return p;
   }
 
-  private texture(filter: number): WebGLTexture {
+  private texture(filter: number, mag: number = filter): WebGLTexture {
     const gl = this.gl;
     const t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
@@ -284,6 +289,8 @@ export class GLRenderer {
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, img.width, img.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
+    // The averaged smaller copies the zoomed-out view reads (see the constructor).
+    gl.generateMipmap(gl.TEXTURE_2D);
     return true;
   }
 
