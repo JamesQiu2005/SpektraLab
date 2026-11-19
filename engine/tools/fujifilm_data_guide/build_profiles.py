@@ -61,7 +61,8 @@ TODAY = _dt.date.today().isoformat()
 WINDOW_SIGMAS = (26.4, 56.0)      # erf4 edge widths, as in kodak_portra_160nc.json and its three siblings
 TAIL_TAU_NM = 120.0
 WL = np.arange(380, 781, 5.0)
-TRIM_DYE_400 = {"fujifilm_nexia_400", "fujifilm_nexia_800"}
+TRIM_DYE_400 = {"fujifilm_nexia_400", "fujifilm_nexia_800", "kodak_supra_200", "kodak_supra_400",
+                "kodak_royal_supra_400", "kodak_high_definition_400"}
 
 
 def quiet(fn, *a, **k):
@@ -655,14 +656,14 @@ def metadata_cine(sheet, log, ref_ill):
         "base_density": sheet.get("min_tag", "SHEET (D-min curve; none outside the plotted range)"),
         "midscale_neutral_density": sheet.get("mid_tag", "SHEET (midscale neutral curve; none outside the plotted range)"),
         "hanatos2025_adaptation": "FITTED (reflectance sets; window widths held at the Portra NC/VC product profiles')",
-        "info": f"SHEET: ECN-2, {'tungsten' if sheet['tungsten'] else 'daylight'} balance; ASSUMED antihalation strong (rem-jet), "
-                f"{ref_ill} reference, target print {sheet['target_print']}",
+        "info": f"SHEET: {sheet.get('process', 'ECN-2')}, {'tungsten' if sheet['tungsten'] else 'daylight'} balance; ASSUMED antihalation "
+                f"strong{' (rem-jet)' if sheet.get('process', 'ECN-2') == 'ECN-2' else ''}, {ref_ill} reference, target print {sheet['target_print']}",
     }
     for k, v in sheet.get("extra_tags", {}).items():
         tags[k] = v
     return {
         "version": "spektralab-" + TODAY, "created": TODAY,
-        "datasource": sheet["source"] + ": spectral sensitivity, characteristic curves (Status M, ECN-2) and spectral dye density, "
+        "datasource": sheet["source"] + f": spectral sensitivity, characteristic curves (Status M, {sheet.get('process', 'ECN-2')}) and spectral dye density, "
                       "digitised from the PDF's vector paths",
         "copyright": "SpektraLab product data. Not a spektrafilm profile; no array is read from one.",
         "license": "Built from the manufacturer's published data sheet. See engine/resources_product/NOTICE.md.",
@@ -671,7 +672,8 @@ def metadata_cine(sheet, log, ref_ill):
                    ", generic starting dyes") + ", masking couplers fitted), Status M unmixed, three normal CDFs per layer, "
                    f"{ref_ill} balance; then the shipped profiles' form reproduced from them as for the Portra NC/VC and Fujifilm "
                    f"AF3-207U product profiles, with upstream's grey-ramp correction on {sheet['ramp_paper']} (-2..+6 EV, trustability "
-                   f"{sheet.get('trust', 0.3)}, upstream's setting for its Vision3 rows) run through the SpektraLab engine."),
+                   f"{sheet.get('trust', 0.3)}, upstream's setting for its {'Kodak still' if sheet.get('process') == 'C-41' else 'Vision3'} rows) "
+                   "run through the SpektraLab engine."),
         "tags": tags,
         "digitisation": {"axes": ax},
         "fit_residuals": log,

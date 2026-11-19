@@ -492,7 +492,13 @@ def assign(sheet, data, spec):
             sheet["dyes_published"] = True
         sol = [p for k, p in blk if k[1] == "solid"]
         das = [p for k, p in blk if k[1] != "solid"]
-        if sol and das:
+        rest = [p for k, p in pieces if k[0] != "k" and not (0.85 <= p[:, 1].max() <= 1.12)]
+        if not blk and len(col) < 3 and len(rest) == 2:
+            # midscale and D-min drawn in colour, no dyes (KODAK SUPRA 400): the higher one is the midscale
+            rest = sorted(rest, key=lambda a: -np.mean(a[:, 1]))
+            out["dye_density_mid"], out["dye_density_min"] = rest
+            sheet["mid_min_published"] = True
+        elif sol and das:
             out["dye_density_mid"] = max(sol, key=lambda a: np.mean(a[:, 1]))
             out["dye_density_min"] = max(das, key=lambda a: np.ptp(a[:, 0]))
             sheet["mid_min_published"] = True

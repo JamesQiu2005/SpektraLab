@@ -82,7 +82,14 @@ def derive_min_mid(raw, stock, donor):
     return np.column_stack([WL[ok], dmin[ok]]), np.column_stack([WL[ok], mid[ok]]), info
 
 
+STILL = False
+
+
 def main():
+    global STILL
+    if "--still" in sys.argv:
+        sys.argv.remove("--still")
+        STILL = True
     raw, specs, out = Path(sys.argv[1]), json.loads(Path(sys.argv[2]).read_text()), Path(sys.argv[3])
     by = {s["stock"]: s for s in specs}
     for stock in sys.argv[4:]:
@@ -101,9 +108,13 @@ def main():
             sheet.setdefault("extra_tags", {})["dyes"] = ("the sheet's published C/M/Y were tried as starting dyes and missed its "
                                                           "midscale neutral (0.10 D RMS); the generic starting dyes used instead")
         fuji = stock.startswith("fujifilm_")
+        still = STILL
         sheet.update({
-            "positive": False, "cine": True, "tungsten": spec["tungsten"], "ramp_paper": "kodak_2383",
-            "target_print": "kodak_2383", "trust": "0.3", "dye_donor": None if own_dyes else "generic_a",
+            "positive": False, "cine": True, "tungsten": spec["tungsten"],
+            # still negatives: upstream's Kodak still rows (Portra Endura, trustability 1); cine: its Vision3 rows (2383, 0.3)
+            "ramp_paper": "kodak_portra_endura" if still else "kodak_2383",
+            "target_print": "kodak_portra_endura" if still else "kodak_2383", "trust": "1.0" if still else "0.3",
+            "process": "C-41" if still else "ECN-2", "dye_donor": None if own_dyes else "generic_a",
             "sensitivity_density_over_min": density_level(spec["pdf"], 0.4 if fuji else 0.2),
         })
         if not sheet.get("mid_min_published"):

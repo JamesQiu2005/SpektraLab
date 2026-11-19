@@ -1,0 +1,10 @@
+{
+  "derived_from": "kodak_supra_200",
+  "metadata": {
+    "what": "Kodak Royal Supra 200: the same emulsion as KODAK PROFESSIONAL SUPRA 200.",
+    "data": "None of its own. KODAK PROFESSIONAL ROYAL SUPRA 200 (E-4026, p. 7) publishes the same spectral sensitivity, characteristic and midscale/D-min curves as SUPRA 200 (E-4029, p. 7): digitised from each sheet they agree to within 0.0001. The engine loads kodak_supra_200 and overrides only the name."
+  },
+  "info": {
+    "name": "Kodak Royal Supra 200"
+  }
+}
