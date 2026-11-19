@@ -1,0 +1,10 @@
+{
+  "derived_from": "kodak_ektachrome_e200",
+  "metadata": {
+    "what": "Kodak Elite Chrome 200: Kodak's consumer edition of the film in kodak_ektachrome_e200.",
+    "data": "None of its own. KODAK ELITE Chrome 200 Film (publication E-148) publishes the same spectral sensitivity, characteristic and dye density curves as KODAK PROFESSIONAL EKTACHROME Film E200 (E-28): digitised from both sheets they agree to within 0.0002 (log sensitivity, density). The engine loads kodak_ektachrome_e200 and overrides only the name."
+  },
+  "info": {
+    "name": "Kodak Elite Chrome 200"
+  }
+}
