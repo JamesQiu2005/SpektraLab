@@ -71,6 +71,21 @@ NAMES = {
     "kodak_tmax_100": ("Kodak T-Max 100", "T-Max 100", "b&w negative"),
     "fujifilm_neopan_acros_100_ii": ("Fujifilm Neopan 100 Acros II", "Acros 100 II", "b&w negative"),
     "ilford_hp5_plus_400": ("Ilford HP5 Plus 400", "HP5 Plus 400", "b&w negative"),
+    # the product's black-and-white films from makers' data sheets (2026-11-19)
+    "ilford_pan_f_plus_50": ("Ilford Pan F Plus 50", "Pan F Plus 50", "b&w negative"),
+    "ilford_fp4_plus_125": ("Ilford FP4 Plus 125", "FP4 Plus 125", "b&w negative"),
+    "ilford_delta_100": ("Ilford Delta 100", "Delta 100", "b&w negative"),
+    "ilford_delta_400": ("Ilford Delta 400", "Delta 400", "b&w negative"),
+    "ilford_delta_3200": ("Ilford Delta 3200", "Delta 3200", "b&w negative"),
+    "ilford_sfx_200": ("Ilford SFX 200", "SFX 200", "b&w negative"),
+    "ilford_xp2_super_400": ("Ilford XP2 Super 400", "XP2 Super 400", "b&w negative"),
+    "ilford_ortho_plus_80": ("Ilford Ortho Plus 80", "Ortho Plus 80", "b&w negative"),
+    "kodak_tmax_400": ("Kodak T-Max 400", "T-Max 400", "b&w negative"),
+    "kodak_tmax_p3200": ("Kodak T-Max P3200", "T-Max P3200", "b&w negative"),
+    "kodak_plus_x_125": ("Kodak Plus-X 125", "Plus-X 125", "b&w negative"),
+    "kodak_double_x_5222": ("Kodak Double-X 5222", "Double-X 250", "b&w negative"),
+    "fujifilm_neopan_400": ("Fujifilm Neopan 400", "Neopan 400", "b&w negative"),
+    "fujifilm_neopan_1600": ("Fujifilm Neopan 1600", "Neopan 1600", "b&w negative"),
     "kodak_portra_endura": ("Kodak Professional Portra Endura", "Portra Endura", "colour paper"),
     "kodak_supra_endura": ("Kodak Professional Supra Endura", "Supra Endura", "colour paper"),
     "kodak_ultra_endura": ("Kodak Professional Ultra Endura", "Ultra Endura", "colour paper"),
@@ -127,6 +142,15 @@ NAMES = {
     "kodak_ektapress_pj800": ("Kodak Ektapress PJ800", "Ektapress PJ800", "colour negative"),
     "kodak_pro_100": ("Kodak Pro 100", "Pro 100", "colour negative"),
     "kodak_pro_400mc": ("Kodak Pro 400 MC", "Pro 400 MC", "colour negative"),
+    # batch 4 (2026-11-19): current colour films and more cine stocks, from the makers' sheets
+    "kodak_pro_image_100": ("Kodak Pro Image 100", "Pro Image 100", "colour negative"),
+    "fujifilm_200": ("Fujifilm 200", "Fujifilm 200", "colour negative"),
+    "fujifilm_400": ("Fujifilm 400", "Fujifilm 400", "colour negative"),
+    "kodak_ektachrome_e100_2": ("Kodak Ektachrome E100 (E-4000)", "E100 (E-4000)", "slide (positive)"),
+    "kodak_ektachrome_100d_7294": ("Kodak Ektachrome 100D 7294", "Ektachrome 100D", "slide (positive)"),
+    "fujifilm_eterna_vivid_160": ("Fujifilm Eterna Vivid 160", "Eterna Vivid 160", "cine negative"),
+    "fujifilm_eterna_400": ("Fujifilm Eterna 400", "Eterna 400", "cine negative"),
+    "fujifilm_eterna_500": ("Fujifilm Eterna 500", "Eterna 500", "cine negative"),
     "kodak_supra_200": ("Kodak Supra 200", "Supra 200", "colour negative"),
     "kodak_supra_400": ("Kodak Supra 400", "Supra 400", "colour negative"),
     "kodak_royal_supra_200": ("Kodak Royal Supra 200", "Royal Supra 200", "colour negative"),
@@ -228,6 +252,9 @@ ORDER = [
 ORDER[ORDER.index("kodak_portra_endura"):ORDER.index("kodak_portra_endura")] = [
     "kodak_tri_x_400", "kodak_tmax_100", "fujifilm_neopan_acros_100_ii", "ilford_hp5_plus_400"]
 ORDER.append("ilford_multigrade_iv_rc")
+# The product's black-and-white films from makers' data sheets (2026-11-19): after HP5 Plus.
+BW_SHEETS = ['ilford_pan_f_plus_50', 'ilford_fp4_plus_125', 'ilford_delta_100', 'ilford_delta_400', 'ilford_delta_3200', 'ilford_sfx_200', 'ilford_xp2_super_400', 'ilford_ortho_plus_80', 'kodak_tmax_400', 'kodak_tmax_p3200', 'kodak_plus_x_125', 'kodak_double_x_5222', 'fujifilm_neopan_400', 'fujifilm_neopan_1600']
+ORDER[ORDER.index("ilford_hp5_plus_400") + 1:ORDER.index("ilford_hp5_plus_400") + 1] = BW_SHEETS
 # The product's Fujifilm films (AF3-207U): the negatives after X-Tra 400, the slides after Velvia 100,
 # so no card that was there has moved relative to the others.
 FUJI_NEGATIVES = ["fujifilm_pro_160s", "fujifilm_pro_160c", "fujifilm_npl_160", "fujifilm_pro_800z",
@@ -252,6 +279,14 @@ CINE = ["kodak_vision2_50d", "kodak_vision2_100t", "kodak_vision2_200t", "kodak_
         "kodak_vision_500t_5263", "kodak_vision_800t", "fujifilm_eterna_250", "fujifilm_eterna_250d", "fujifilm_f_64d",
         "fujifilm_reala_500d"]
 ORDER[ORDER.index("kodak_verita_200d") + 1:ORDER.index("kodak_verita_200d") + 1] = CINE
+# batch 4 (2026-11-19): after their families; no card that was there moves relative to the others
+ORDER[ORDER.index("kodak_high_definition_400") + 1:ORDER.index("kodak_high_definition_400") + 1] = ["kodak_pro_image_100"]
+ORDER[ORDER.index("fujifilm_nexia_800") + 1:ORDER.index("fujifilm_nexia_800") + 1] = ["fujifilm_200", "fujifilm_400"]
+ORDER[ORDER.index("kodak_kodachrome_200") + 1:ORDER.index("kodak_kodachrome_200") + 1] = ["kodak_ektachrome_e100_2", "kodak_ektachrome_100d_7294"]
+ORDER[ORDER.index("fujifilm_reala_500d") + 1:ORDER.index("fujifilm_reala_500d") + 1] = ["fujifilm_eterna_vivid_160", "fujifilm_eterna_400", "fujifilm_eterna_500"]
+CHOSEN.update({"kodak_pro_image_100": "#d9a26e", "fujifilm_200": "#5fae7a", "fujifilm_400": "#4f9e6c",
+               "kodak_ektachrome_e100_2": "#4f86c9", "kodak_ektachrome_100d_7294": "#5a7fb8",
+               "fujifilm_eterna_vivid_160": "#5f9488", "fujifilm_eterna_400": "#56877d", "fujifilm_eterna_500": "#4d7a72"})
 CHOSEN.update({
     "kodak_vision2_50d": "#7a99ab", "kodak_vision2_250d": "#6a929a", "kodak_vision_500t_5263": "#56718b",
     "kodak_vision_500t": "#4f6a85", "kodak_vision_320t": "#5c7c96", "kodak_vision_250d": "#68959b",
@@ -277,12 +312,37 @@ CHOSEN.update({
     "kodak_tri_x_400": "#8c8a87", "kodak_tmax_100": "#a9a8a6", "fujifilm_neopan_acros_100_ii": "#c1c3c5",
     "ilford_hp5_plus_400": "#73716e", "ilford_multigrade_iv_rc": "#f1f1ef",
 })
+# The black-and-white films from makers' data sheets: greys again, light for slow films, dark for fast ones.
+CHOSEN.update({
+    "ilford_pan_f_plus_50": "#cfcecb", "ilford_fp4_plus_125": "#b3b1ae", "ilford_delta_100": "#bab9b7",
+    "ilford_delta_400": "#7f7d7a", "ilford_delta_3200": "#4f4e4c", "ilford_sfx_200": "#8f8580",
+    "ilford_xp2_super_400": "#867a76", "ilford_ortho_plus_80": "#b9b3a5", "kodak_tmax_400": "#7b7c7e",
+    "kodak_tmax_p3200": "#5a5b5d", "kodak_plus_x_125": "#a3a19c", "kodak_double_x_5222": "#696866",
+    "fujifilm_neopan_400": "#858789", "fujifilm_neopan_1600": "#5f6163",
+})
 # What the Grain strength's 1 is on a black-and-white film: the desktop app's
 # `FilmParams.ownGrain` (its 0bca29da), measured there on engine renders with
 # the grain as one layer against each maker's published RMS granularity. The
 # wire stops at 2, so Tri-X's ruler is at its end from 1.18 and HP5's from 1.34.
 OWN_GRAIN = {"kodak_tri_x_400": 1.70, "ilford_hp5_plus_400": 1.49, "kodak_tmax_100": 0.74,
              "fujifilm_neopan_acros_100_ii": 0.64}
+# The black-and-white films from makers' data sheets (2026-11-19). The engine's visual RMS at grain 1 measured with
+# engine/tools/fujifilm_data_guide/grain_probe.py (scanned, the grain as one layer, 6 um pixels, net D 1.0, 8x8 px
+# for the 48 um circle); that probe reads the four rows above at 0.96 x their makers' RMS (Tri-X 17, T-Max 100 8,
+# Acros II 7; HP5 Plus's row implies 16), so each figure is 0.96 x target / measured, capped at the wire's 2.
+# SHEET: the maker's diffuse RMS granularity (T-Max 400 10, P3200 18, Plus-X 10, Double-X 14).
+# RULE: no figure published (HARMAN publishes none; FUJIFILM's guide none for Neopan): the RMS a film of that speed
+# has in its family, fitted on the published ones: conventional (Plus-X, Double-X, Tri-X) 10 x (ISO/125)^0.458,
+# tabular (T-Max 100/400, P3200, Acros II) 10.0 x (ISO/250)^0.352 (Delta at ISO 1000 for Delta 3200; XP2 Super's dye
+# image on the tabular rule). About +-20 %.
+OWN_GRAIN.update({
+    # SHEET
+    "kodak_tmax_400": 0.93, "kodak_tmax_p3200": 1.89, "kodak_plus_x_125": 0.98, "kodak_double_x_5222": 1.30,
+    # RULE
+    "ilford_fp4_plus_125": 1.41, "ilford_pan_f_plus_50": 0.58, "ilford_sfx_200": 1.31, "ilford_ortho_plus_80": 0.71,
+    "fujifilm_neopan_400": 1.91, "fujifilm_neopan_1600": 2.0, "ilford_delta_100": 0.64, "ilford_delta_400": 1.24,
+    "ilford_delta_3200": 2.0, "ilford_xp2_super_400": 1.63,
+})
 # What the Grain strength's 1 is on a colour film (2026-11-11, the owner: "each colour film, negative and
 # positive, has its own default grain"): the `grain_amount` at which the engine renders the film's granularity,
 # with the sub-layers on (the app's default), at 6 µm pixels. Two sources, never mixed in one row:
@@ -362,6 +422,12 @@ COLOUR_GRAIN = {
     "kodak_ektachrome_e100vs": 0.8,
     "kodak_ektachrome_e100g": 0.8,
     "kodak_ektachrome_e200": 1.18,
+    # batch 4 (2026-11-19), the same probe and family factors. ISO rule (x0.987): Pro Image 100, Fujifilm 200 / 400 (the
+    # sheets give Print Grain Index or nothing comparable), Eterna Vivid 160 / 400 / 500. SHEET (x1.023): E100 (E-4000,
+    # RMS 8); Ektachrome 100D publishes a granularity curve, not a figure: E100's 8 is taken (its still twin).
+    "kodak_pro_image_100": 0.79, "fujifilm_200": 1.04, "fujifilm_400": 1.02, "kodak_ektachrome_e100_2": 0.80,
+    "kodak_ektachrome_100d_7294": 1.13, "fujifilm_eterna_vivid_160": 1.02, "fujifilm_eterna_400": 0.97,
+    "fujifilm_eterna_500": 1.20,
     "kodak_ektachrome_160t": 1.24,
     "kodak_ektachrome_320t": 1.57,
     "kodak_ektachrome_400x": 1.98,
