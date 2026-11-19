@@ -19,16 +19,38 @@ profiles and the print and scan model are theirs; Develop is the Linux port and 
   edge and date back, lens aberrations and diffusion filters, light leaks, the Digital Intermediate,
   local scene layers and the HDR slide scan.
 - **The editor shows what exports**: the picture on screen is the file you get.
-- **Develop's own additions**:
-  - Lens correction for distortion, vignetting and colour fringes from lensfun's database, plus
-    "My Lenses" for manual lenses lensfun does not know.
-  - Local Layers: graduated and radial masks that change the light before it reaches the film.
-  - Half-frame pairs and double exposures.
-  - HSL, channel mixer and vibrance.
-  - Borders and watermarks.
-  - Multi-photo layouts: diptychs, triptychs, grids and cinematic stills.
-  - Export to JPEG, PNG and 16-bit TIFF in sRGB, Display P3, Adobe RGB or ProPhoto.
-  - An Advanced panel with engine settings no SpektraLab interface exposes.
+- Half-frame pairs, double exposures, HSL, channel mixer, vibrance, watermarks, light leaks, lens
+  characters and the film edge, as in SpektraLab's Mac app.
+- Export to JPEG, PNG and 16-bit TIFF in sRGB, Display P3, Adobe RGB or ProPhoto.
+
+## How Develop differs from SpektraLab
+
+SpektraLab is a Mac app on Metal. Its repository also has Windows viewers and an engine that builds
+on Linux, but on Linux and Windows that engine refused many of the Mac's effects. Develop is a full
+Linux editor built on that engine.
+
+**What Develop adds**
+
+| | Develop | SpektraLab |
+|---|---|---|
+| Linux desktop editor | yes, with a `.deb` and a snap | engine and host only |
+| Engine effects on Vulkan (Linux, Windows) | all of them: film edge and date back, Digital Intermediate, scene latitude, contrast mask, lens aberrations and diffusion filters, light leaks, scene layers, HDR slide scan | most of these refused |
+| Colour on Vulkan | fixed: a red cast on every Vulkan render since 2.4.0 (a blur mode the Vulkan kernels lacked) | red cast |
+| Film and paper stocks | 130, including 93 new film profiles built from manufacturers' published data sheets | 38 |
+| Network | none: blocked by a seccomp filter, no update checks | checks for updates |
+| Lens correction | lensfun's database, plus "My Lenses" for manual lenses it does not know | on the Mac only |
+| Local Layers | graduated, radial and whole-frame masks of exposure and warmth, on the engine's scene layers | (engine feature) |
+| Multi-photo layouts | diptychs, triptychs, grids and cinematic stills, with gaps and borders | no |
+| Borders | a print border of any grey | no |
+| Advanced panel | development contrast, lens and scanner softness, highlight headroom, scanner white and black points | not exposed |
+
+**What SpektraLab has that Develop does not**
+
+- The photo library, Capture One catalogue reading and the Light Table.
+- HDR: showing a picture on an HDR screen and exporting HDR (gain-map) files. The engine's HDR slide
+  scan is ported, but Linux's web view cannot show HDR.
+- Check for Updates. Left out on purpose: Develop has no network access.
+- The iPhone and iPad app, and builds for the Mac and Windows.
 
 ## No network, by design
 
