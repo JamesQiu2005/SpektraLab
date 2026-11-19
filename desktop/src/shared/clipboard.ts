@@ -17,6 +17,8 @@ export const CLIPBOARD_GROUPS = [
   'scenePlacement',
   // Develop: the lens a photo was taken with (lens.ts), so a shoot on one manual lens is set once.
   'lensCorrection',
+  // Develop: the local exposure layers (sceneLayers.ts), e.g. one graduated sky across a sequence.
+  'localLayers',
 ] as const;
 export type ClipboardGroup = (typeof CLIPBOARD_GROUPS)[number];
 
@@ -42,6 +44,7 @@ export const GROUP_PATHS: Record<ClipboardGroup, string[]> = {
   printEffects: ['params.printEffects', 'params.preflashExposure'],
   scenePlacement: ['params.sceneLatitude', 'placementNeedsFit'],
   lensCorrection: ['decode.lensCorrection', 'decode.lens'],
+  localLayers: ['params.sceneLayers'],
 };
 
 export interface SettingsClip {

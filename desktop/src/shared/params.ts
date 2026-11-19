@@ -12,6 +12,7 @@
 // written by the macOS app opens here and the other way round.
 
 import { activeCatalog, edgeTextFor, type StockCatalog } from './stocks';
+import { type SceneLayer, decodeSceneLayers, sceneLayersStamp } from './sceneLayers';
 
 export type ParamLayer = 'shoot' | 'print';
 export type WireValue = number | boolean | string;
@@ -467,6 +468,8 @@ export interface FilmParams {
   doubleWith: string;
   /** Its share of the frame's light, 0.1-0.9 (SpektraLab 2's Balance). */
   doubleBalance: number;
+  /** Develop's local exposure layers (sceneLayers.ts), on the engine's RFC-052 scene layers. */
+  sceneLayers: SceneLayer[];
   effects: EffectStrengths;
   linuxAdvanced: AdvancedParams;
   leak: LeakSettings;
@@ -505,6 +508,7 @@ export const FILM_PARAMS_DEFAULT: FilmParams = {
   pairSwap: false,
   doubleWith: '',
   doubleBalance: 0.5,
+  sceneLayers: [],
   effects: EFFECTS_DEFAULT,
   linuxAdvanced: ADVANCED_DEFAULT,
   leak: LEAK_DEFAULT,
@@ -567,6 +571,7 @@ export function decodeFilmParams(raw: unknown): FilmParams {
   base.linuxAdvanced = decodeShape(o.linuxAdvanced, ADVANCED_DEFAULT);
   base.leak = decodeShape(o.leak, LEAK_DEFAULT);
   if (!(LEAK_KINDS as readonly string[]).includes(base.leak.kind)) base.leak.kind = 'off';
+  base.sceneLayers = decodeSceneLayers(o.sceneLayers);
   base.lens = decodeShape(o.lens, LENS_DEFAULT);
   if (base.lens.filter !== null && !(SOFT_FILTERS as readonly string[]).includes(base.lens.filter)) base.lens.filter = null;
   if (base.lens.character !== null && !(LENS_CHARACTERS as readonly string[]).includes(base.lens.character)) base.lens.character = null;
@@ -783,6 +788,8 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
       );
     }
   }
+  // The local exposure layers: the stamp of the masks the host was handed (session.ts sends them first).
+  f.push({ name: 'scene_layers', value: sceneLayersStamp(p.sceneLayers), layer: 'shoot' });
   // Light Leak (SpektraLab 2's `leakWire`). Its switches are always sent, so turning it off reaches
   // the engine; `leak_rate` 1, one picture edited alone always shows its camera's leak; `leak_front`
   // -1, the camera's share of front light.

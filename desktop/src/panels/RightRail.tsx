@@ -52,6 +52,7 @@ import { CurveEditor } from './CurveEditor';
 import { type Watermark, type WatermarkPosition, WATERMARK_DEFAULT, WATERMARK_POSITIONS } from '@shared/watermark';
 import { activeCatalog } from '@shared/stocks';
 import { LensCorrectionPart } from './LensPicker';
+import { type SceneLayer, type SceneLayerKind, MAX_SCENE_LAYERS, SCENE_LAYER_DEFAULT } from '@shared/sceneLayers';
 import { unsupportedReason } from './gate';
 import { host, HostCallError } from '../host/client';
 
@@ -78,6 +79,7 @@ export function RightRail() {
             <FilmFormatSection />
             <LightLeakSection />
             <LensSection />
+            <LayersSection />
             <AdvancedSection />
             <ScenePlacementSection />
           </>
@@ -463,6 +465,93 @@ const LEAK_LABEL: Record<LeakKind, () => string> = {
   wash: () => tz('Wash', '漫光'),
   spot: () => tz('Spot', '光斑'),
 };
+
+const LAYER_KIND_LABEL: Record<SceneLayerKind, () => string> = {
+  linear: () => tz('Graduated', '渐变'),
+  radial: () => tz('Radial', '径向'),
+  whole: () => tz('Whole Frame', '全画面'),
+};
+
+/**
+ * Local exposure layers (shared/sceneLayers.ts): graduated and radial masks, each a local amount of exposure
+ * and warmth on the light before it reaches the film, so the film's own curve and colour respond to it.
+ */
+function LayersSection() {
+  const layers = useSession((s) => s.sidecar.params.sceneLayers) ?? [];
+  const can = useSession((s) => !!s.hello?.methods?.includes('scene_layers'));
+  const [sel, setSel] = useState(0);
+  const i = Math.min(sel, Math.max(0, layers.length - 1));
+  const cur: SceneLayer | undefined = layers[i];
+  const setAll = (next: SceneLayer[]) => setParams((q) => ({ ...q, sceneLayers: next }));
+  const setCur = (patch: Partial<SceneLayer>) => cur && setAll(layers.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const add = () => {
+    if (layers.length >= MAX_SCENE_LAYERS) return;
+    setAll([...layers, { ...SCENE_LAYER_DEFAULT }]);
+    setSel(layers.length);
+  };
+  const remove = () => {
+    setAll(layers.filter((_, k) => k !== i));
+    setSel(Math.max(0, i - 1));
+  };
+  const unsupported = can ? null : tz('Local layers need an engine that has them.', '局部图层需要支持它的引擎。');
+  return (
+    <Section
+      id="sceneLayers"
+      title={tz('Local Layers', '局部图层')}
+      onReset={() => setAll([])}
+      resetEnabled={layers.length > 0}
+      resetHelp={tz('No local layers.', '无局部图层。')}
+      unsupported={unsupported}
+    >
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {layers.map((l, k) => (
+          <button key={k} className={'btn' + (k === i ? ' on' : '')} style={{ opacity: l.enabled ? 1 : 0.5 }} onClick={() => setSel(k)} data-testid={'layer-' + k}>
+            {k + 1}
+          </button>
+        ))}
+        <button className="btn" disabled={layers.length >= MAX_SCENE_LAYERS} onClick={add} data-testid="layer-add">
+          {tz('+ Add', '+ 添加')}
+        </button>
+        {cur && (
+          <button className="btn" onClick={remove} data-testid="layer-remove">
+            {tz('Remove', '删除')}
+          </button>
+        )}
+      </div>
+      {!cur ? (
+        <div className="caption">{tz('Add a layer to darken a sky, lift a face or warm a corner. It changes the light reaching the film, so the film responds to it.', '添加图层可压暗天空、提亮面部或暖化角落。它改变照到胶片上的光，胶片随之响应。')}</div>
+      ) : (
+        <>
+          <ToggleRow label={tz('On', '启用')} on={cur.enabled} onChange={(v) => setCur({ enabled: v })} />
+          <PillMenu
+            label={tz('Mask', '蒙版')}
+            value={cur.kind}
+            options={(Object.keys(LAYER_KIND_LABEL) as SceneLayerKind[]).map((k) => ({ value: k, label: LAYER_KIND_LABEL[k]() }))}
+            fill
+            onChange={(v) => setCur({ kind: v as SceneLayerKind })}
+          />
+          <ScrubSlider label={tz('Exposure', '曝光')} sublabel={tz('stops', '档')} value={cur.exposure} range={[-3, 3]} zero={0} snap={0.05} format={signed(2)} onChange={(v) => setCur({ exposure: v })} />
+          <ScrubSlider label={tz('Warmth', '色温')} sublabel={tz('cool … warm', '冷 … 暖')} value={cur.warmth} range={[-100, 100]} zero={0} snap={1} format={signed(0)} onChange={(v) => setCur({ warmth: v })} />
+          <ScrubSlider label={tz('Opacity', '不透明度')} value={cur.opacity * 100} range={[0, 100]} zero={100} snap={1} format={(v) => v.toFixed(0)} onChange={(v) => setCur({ opacity: v / 100 })} />
+          {cur.kind !== 'whole' && (
+            <>
+              {cur.kind === 'linear' && (
+                <ScrubSlider label={tz('Angle', '角度')} sublabel={tz('0 = the top, 90 = the right', '0 = 顶部，90 = 右侧')} value={cur.angle} range={[-180, 180]} zero={0} snap={5} format={(v) => `${v.toFixed(0)}°`} onChange={(v) => setCur({ angle: v })} />
+              )}
+              <ScrubSlider label={tz('Across', '左右')} value={cur.x * 100} range={[0, 100]} zero={50} snap={1} format={(v) => v.toFixed(0)} onChange={(v) => setCur({ x: v / 100 })} />
+              <ScrubSlider label={tz('Up / Down', '上下')} value={cur.y * 100} range={[0, 100]} zero={cur.kind === 'linear' ? 40 : 50} snap={1} format={(v) => v.toFixed(0)} onChange={(v) => setCur({ y: v / 100 })} />
+              {cur.kind === 'radial' && (
+                <ScrubSlider label={tz('Size', '大小')} value={cur.radius * 100} range={[5, 150]} zero={40} snap={1} format={(v) => v.toFixed(0)} onChange={(v) => setCur({ radius: v / 100 })} />
+              )}
+              <ScrubSlider label={tz('Feather', '羽化')} value={cur.feather * 100} range={[0, 100]} zero={50} snap={1} format={(v) => v.toFixed(0)} onChange={(v) => setCur({ feather: v / 100 })} />
+              <ToggleRow label={tz('Invert', '反转')} sublabel={tz('affect the other side', '作用于另一侧')} on={cur.invert} onChange={(v) => setCur({ invert: v })} />
+            </>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
 
 function LightLeakSection() {
   const lk = useSession((s) => s.sidecar.params.leak) ?? LEAK_DEFAULT;

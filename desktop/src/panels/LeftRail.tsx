@@ -149,6 +149,7 @@ const GROUP_LABEL: Record<ClipboardGroup, () => string> = {
   printEffects: () => t('clipPrintEffects'),
   scenePlacement: () => t('clipScenePlacement'),
   lensCorrection: () => tz('Lens Correction', '镜头校正'),
+  localLayers: () => tz('Local Layers', '局部图层'),
 };
 
 function ClipboardSection() {

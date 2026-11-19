@@ -44,6 +44,7 @@ import { frameImages, makeThumbFromPrint } from './frames';
 import { thumbs } from './thumbs';
 import { tz } from '../i18n';
 import type { LensCorrectionReply } from '@shared/lens';
+import { sceneLayersRequest, sceneLayersStamp } from '@shared/sceneLayers';
 
 export type Tool = 'select' | 'hand' | 'crop';
 
@@ -256,6 +257,8 @@ export async function requestPrint(): Promise<void> {
         return;
       }
       const want = s.sidecar.params;
+      // The local exposure layers' masks reach the host before any params that name them.
+      await ensureSceneLayers(sid, want);
       const d = sentParams ? paramsDelta(want, sentParams, s.gate) : { delta: wireParams(want), layers: new Set(['shoot']) };
       if (Object.keys(d.delta).length) {
         await host().setParams(sid, d.delta);
@@ -463,6 +466,7 @@ async function redecodeNow() {
     const r = await host().redecode(sid, wire ?? {});
     if (get().engineSession !== sid) return;
     sentDecode = key;
+    forgetSceneLayers();   // a new engine session holds no masks
     set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, lensStatus: r.lens_correction ?? null, status: '' });
     void requestPrint();
   } catch (e) {
@@ -754,6 +758,7 @@ async function develop(path: string, gen: number) {
     }
     sentParams = params;
     sentDecode = JSON.stringify(decode);
+    forgetSceneLayers();
     set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, lensStatus: r.lens_correction ?? null, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
     noteAsShot();
     platform().log(
@@ -979,4 +984,22 @@ export function addFrames(paths: string[]) {
   const have = new Set(get().frames.map((f) => f.path));
   const added = paths.filter((p) => !have.has(p)).map((p) => ({ path: p, name: baseName(p), size: 0, mtime_ms: 0 }));
   if (added.length) set({ frames: [...get().frames, ...added], thumbVersion: get().thumbVersion + 1 });
+}
+
+// --- local exposure layers (shared/sceneLayers.ts) ------------------------------------------
+// The masks the host's session holds, by its id and the stamp: a redecode or a new open makes a new engine
+// session, which holds none, so both are forgotten there (`forgetSceneLayers`).
+let sentLayers: { sid: string; stamp: string } | null = null;
+export function forgetSceneLayers() {
+  sentLayers = null;
+}
+async function ensureSceneLayers(sid: string, p: FilmParams) {
+  const stamp = sceneLayersStamp(p.sceneLayers);
+  if (sentLayers && sentLayers.sid === sid && sentLayers.stamp === stamp) return;
+  if (!stamp && !sentLayers) return;   // none held, none wanted
+  if (!get().hello?.methods?.includes('scene_layers')) return;
+  const n = get().nativeSize;
+  const req = sceneLayersRequest(p.sceneLayers, n ? n.width / n.height : 1.5);
+  await host().transport.request('scene_layers', { session: sid, stamp: req.stamp, layers: req.layers }, { payload: req.payload, timeoutMs: 60_000 });
+  sentLayers = { sid, stamp };
 }
