@@ -1,0 +1,67 @@
+name: @NAME@
+version: '@VERSION@'
+summary: Film and print emulation with spectral film and paper profiles
+description: |
+  Develops a photograph as film and prints it on paper. Light from a RAW file
+  is traced through the film's dye layers and the paper's at 81 wavelengths,
+  with grain, halation, DIR couplers and the enlarger's filter pack, using
+  spektrafilm's measured film and paper profiles.
+
+  Film modelling powered by spektrafilm (Andrea Volpato, GPL-3.0); the film
+  and paper profiles are CC BY-SA 4.0.
+license: GPL-3.0-or-later
+base: core26
+grade: stable
+confinement: strict
+architectures: [amd64]
+assumes: [snapd2.43]
+title: '@TITLE@'
+apps:
+  @NAME@:
+    command: usr/bin/develop
+    command-chain: [snap/command-chain/gpu-2604-wrapper, snap/command-chain/desktop-launch]
+    common-id: '@APPID@'
+    # opengl gives /dev/dri, which the engine's Vulkan device needs as well as the webview
+    plugs: [desktop, desktop-legacy, gsettings, home, removable-media, wayland, x11, opengl]
+    slots: [single-instance]
+slots:
+  # tauri-plugin-single-instance owns this name so a photo opened from the file manager goes to
+  # the running window. Without the slot confinement refuses the name and every launch is a new window.
+  single-instance:
+    interface: dbus
+    bus: session
+    name: '@APPID@.SingleInstance'
+plugs:
+  gnome-core26:
+    interface: content
+    target: $SNAP/gnome-platform
+    default-provider: gnome-core26
+  gpu-2604:
+    interface: content
+    target: $SNAP/gpu-2604
+    default-provider: mesa-2604
+  gtk-3-themes:
+    interface: content
+    target: $SNAP/data-dir/themes
+    default-provider: gtk-common-themes
+  icon-themes:
+    interface: content
+    target: $SNAP/data-dir/icons
+    default-provider: gtk-common-themes
+  sound-themes:
+    interface: content
+    target: $SNAP/data-dir/sounds
+    default-provider: gtk-common-themes
+environment:
+  SNAP_DESKTOP_RUNTIME: $SNAP/gnome-platform
+  # lensfun, carried in the snap (its database too: the host loads $SNAP/usr/share/lensfun/version_1)
+  LD_LIBRARY_PATH: $SNAP/usr/lib/x86_64-linux-gnu
+  GTK_USE_PORTAL: '1'
+layout:
+  # WebKitGTK starts its web, network and GPU processes from this compiled-in path
+  /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1:
+    bind: $SNAP/gnome-platform/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1
+  /usr/share/xml/iso-codes:
+    bind: $SNAP/gnome-platform/usr/share/xml/iso-codes
+  /usr/libexec/glycin-loaders:
+    bind: $SNAP/gnome-platform/usr/libexec/glycin-loaders

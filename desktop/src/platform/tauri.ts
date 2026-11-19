@@ -4,7 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { error as logError, info as logInfo, warn as logWarn } from '@tauri-apps/plugin-log';
-import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { AppPaths, FileEntry, Platform } from './index';
 
 export function tauriPlatform(): Platform {
@@ -45,7 +45,6 @@ export function tauriPlatform(): Platform {
       return r ?? null;
     },
     reveal: (path) => revealItemInDir(path),
-    openUrl: (url) => openUrl(url),
     async message(title, text, kind = 'info') {
       await message(text, { title, kind });
     },

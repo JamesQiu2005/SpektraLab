@@ -35,8 +35,10 @@ void main() {
         accumulated.z += transmission * integral_data.value[3u * wavelength + 2u];
     }
     for (uint channel = 0u; channel < 3u; ++channel) {
-        float value = max(accumulated[channel] * epilogue.value[channel]
-                          + epilogue.value[3u + channel], 0.0) + 1e-10;
+        // Metal's max(x, 0) is fmax, NaN -> 0; GLSL's max with a NaN is undefined, and the curve
+        // search that reads this plane next would index outside its table on a NaN.
+        float v = accumulated[channel] * epilogue.value[channel] + epilogue.value[3u + channel];
+        float value = ((isnan(v) || v < 0.0) ? 0.0 : v) + 1e-10;
         if (meta.value[2] == 0u) value = log(value) * 0.4342944819032518;
         output_data.value[3u * pixel + channel] = value;
     }

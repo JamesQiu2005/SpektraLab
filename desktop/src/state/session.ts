@@ -26,6 +26,10 @@ import {
   fullDelta,
   jsonEqual,
   clamp,
+  withFrameSeed,
+  filmEdgeCutAspect,
+  pairDecode,
+  doubleDecode,
 } from '@shared/params';
 import { type Adjustments, ADJUSTMENTS_DEFAULT } from '@shared/adjustments';
 import { type Geometry, GEOMETRY_DEFAULT, outputSize } from '@shared/geometry';
@@ -39,6 +43,8 @@ import { settingsStore } from './settings';
 import { frameImages, makeThumbFromPrint } from './frames';
 import { thumbs } from './thumbs';
 import { tz } from '../i18n';
+import type { LensCorrectionReply } from '@shared/lens';
+import { sceneLayersRequest, sceneLayersStamp } from '@shared/sceneLayers';
 
 export type Tool = 'select' | 'hand' | 'crop';
 
@@ -77,6 +83,8 @@ export interface SessionState {
   engineSession: string | null;
   nativeSize: { width: number; height: number } | null;
   metadata: FileMetadata | null;
+  /** Develop: what lens correction did at the last decode, or why not (null: not asked). */
+  lensStatus: LensCorrectionReply | null;
   /** The open frame's kind as the host decoded it (`raw`, `tiff`, …); null until it lands. */
   frameKind: string | null;
   /** A decode-setting change (white balance) is being re-decoded. */
@@ -84,6 +92,8 @@ export interface SessionState {
   imageVersion: number;
   badge: Tier | null;
   developing: boolean;
+  /** An edit is waiting for its preview: shown on the canvas, a film change takes a second or more. */
+  rendering: boolean;
   status: string;
   lastError: string | null;
   // view
@@ -102,6 +112,8 @@ export interface SessionState {
   clipboardGroups: ClipboardGroup[];
   // pages
   exportOpen: boolean;
+  /** Develop's multi-photo layout page (windows/LayoutPage.tsx). */
+  layoutOpen: boolean;
   settingsOpen: boolean;
   aboutOpen: boolean;
   batchExporting: boolean;
@@ -123,11 +135,13 @@ const INITIAL: SessionState = {
   engineSession: null,
   nativeSize: null,
   metadata: null,
+  lensStatus: null,
   frameKind: null,
   redecoding: false,
   imageVersion: 0,
   badge: null,
   developing: false,
+  rendering: false,
   status: '',
   lastError: null,
   tool: 'select',
@@ -142,6 +156,7 @@ const INITIAL: SessionState = {
   clipboard: null,
   clipboardGroups: [...CLIPBOARD_GROUPS],
   exportOpen: false,
+  layoutOpen: false,
   settingsOpen: false,
   aboutOpen: false,
   batchExporting: false,
@@ -163,10 +178,24 @@ let sentParams: FilmParams | null = null;
 let wantedGen = 0;
 let inFlight = false;
 let fullTimer: ReturnType<typeof setTimeout> | null = null;
+/** The progress id of the full render in flight, so an edit can cancel it. */
+let fullProgressId: string | null = null;
+let fullSeq = 0;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUndoAt = 0;
 let openGen = 0;
-const FULL_DELAY_MS = 400;
+// How long to wait after the last edit before rendering the frame at its own resolution. The Mac's
+// 400 ms suits a full render of under a second; on a laptop GPU it is 10-15 s at 24 MP (Intel UHD
+// 620), so a pause of half a second while adjusting started one, and the next nudge had to wait for
+// the engine to give it up (1-3 s: it stops between nodes, and halation alone is ~2.4 s there).
+// The delay is a quarter of the last full render's time, between 0.4 and 3 s: a Mac keeps its
+// 400 ms; a slow machine waits until the user has actually stopped.
+const FULL_DELAY_MIN_MS = 400;
+const FULL_DELAY_MAX_MS = 3000;
+let lastFullMs = 0;
+function fullDelayMs() {
+  return Math.min(FULL_DELAY_MAX_MS, Math.max(FULL_DELAY_MIN_MS, lastFullMs * 0.25));
+}
 
 function noteError(op: string, e: unknown) {
   const msg = e instanceof HostCallError ? `${e.message} (${e.code})` : e instanceof Error ? e.message : String(e);
@@ -199,16 +228,37 @@ function noteAsShot() {
 export async function requestPrint(): Promise<void> {
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
-  if (inFlight) return;
+  if (get().engineSession && !get().rendering) set({ rendering: true });
+  if (inFlight) {
+    // A full render of the state before this edit holds the engine for 10 s and more on a laptop
+    // GPU (24 MP on an Intel UHD 620), and the edit waited for it: a film clicked during it seemed to
+    // do nothing. Its result would be dropped anyway (`gen !== wantedGen`), so stop it; its
+    // `finally` calls back here as soon as the engine lets go (at its next node, ~1-3 s at worst).
+    const sid = get().engineSession;
+    const id = fullProgressId;
+    if (sid && id) {
+      fullProgressId = null;
+      host().cancel(sid, id).catch(() => {});
+    }
+    return;
+  }
   const sid = get().engineSession;
-  if (!sid) return;
+  if (!sid) {
+    set({ rendering: false });
+    return;
+  }
   inFlight = true;
   try {
     for (;;) {
       const gen = wantedGen;
       const s = get();
-      if (s.engineSession !== sid) return;
+      if (s.engineSession !== sid) {
+        set({ rendering: false });
+        return;
+      }
       const want = s.sidecar.params;
+      // The local exposure layers' masks reach the host before any params that name them.
+      await ensureSceneLayers(sid, want);
       const d = sentParams ? paramsDelta(want, sentParams, s.gate) : { delta: wireParams(want), layers: new Set(['shoot']) };
       if (Object.keys(d.delta).length) {
         await host().setParams(sid, d.delta);
@@ -216,12 +266,17 @@ export async function requestPrint(): Promise<void> {
       }
       const reprint = d.layers.size === 1 && d.layers.has('print');
       const r = await host().render(sid, 'live', { reprint });
-      if (get().engineSession !== sid) return;
+      if (get().engineSession !== sid) {
+        set({ rendering: false });
+        return;
+      }
       frameImages.print = r;
-      set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '' });
-      if (gen === wantedGen) break;
+      const caughtUp = gen === wantedGen;
+      set({ imageVersion: get().imageVersion + 1, badge: 'preview', status: '', ...(caughtUp ? { rendering: false } : {}) });
+      if (caughtUp) break;
     }
   } catch (e) {
+    set({ rendering: false });
     noteError(tz('Render', '渲染'), e);
   } finally {
     inFlight = false;
@@ -234,7 +289,7 @@ function scheduleFull() {
   // An export run renders the frame itself, at the file's own resolution.
   if (get().batchExporting) return;
   const gen = wantedGen;
-  fullTimer = setTimeout(() => void renderFull(gen), FULL_DELAY_MS);
+  fullTimer = setTimeout(() => void renderFull(gen), fullDelayMs());
 }
 
 async function renderFull(gen: number) {
@@ -249,18 +304,28 @@ async function renderFull(gen: number) {
     return;
   }
   inFlight = true;
+  const progressId = `full-${++fullSeq}`;
+  fullProgressId = progressId;
   try {
     const t0 = performance.now();
-    const r = await host().render(sid, 'full');
+    const r = await host().render(sid, 'full', { progressId });
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
     if (gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;
-    platform().log('info', `session: full render ${r.width}x${r.height} landed in ${Math.round(performance.now() - t0)} ms`);
+    lastFullMs = performance.now() - t0;
+    platform().log(
+      'info',
+      `session: full render ${r.width}x${r.height} landed in ${Math.round(lastFullMs)} ms` +
+        (r.hostMs != null ? ` (host ${Math.round(r.hostMs)} ms, transfer ${Math.round(lastFullMs - r.hostMs)} ms)` : '') +
+        `, next delay ${Math.round(fullDelayMs())} ms`,
+    );
     set({ imageVersion: get().imageVersion + 1, badge: 'full' });
     await refreshThumb();
   } catch (e) {
-    noteError(tz('Full render', '全尺寸渲染'), e);
+    // Cancelled by an edit (requestPrint): not a failure, the edit's own render follows.
+    if (!(e instanceof HostCallError && e.code === 'cancelled')) noteError(tz('Full render', '全尺寸渲染'), e);
   } finally {
+    if (fullProgressId === progressId) fullProgressId = null;
     inFlight = false;
     if (gen !== wantedGen) void requestPrint();
   }
@@ -311,12 +376,19 @@ function pushUndo() {
 export function setParams(fn: (p: FilmParams) => FilmParams) {
   const s = get();
   if (s.batchExporting) return;
-  const next = fn(s.sidecar.params);
+  // A leak's first switch-on in this photo draws its own frame seed (`withFrameSeed`).
+  const next = withFrameSeed(fn(s.sidecar.params));
   if (jsonEqual(next, s.sidecar.params)) return;
   pushUndo();
+  const cutMoved =
+    filmEdgeCutAspect(next, s.gate) !== filmEdgeCutAspect(s.sidecar.params, s.gate) ||
+    !jsonEqual(pairDecode(next), pairDecode(s.sidecar.params)) ||
+    !jsonEqual(doubleDecode(next), doubleDecode(s.sidecar.params));
   set({ sidecar: { ...get().sidecar, params: next, state: get().sidecar.state === 'processed' ? 'stale' : get().sidecar.state } });
   scheduleSave();
-  void requestPrint();
+  // A film edge going on or off, or another format, cuts the picture to another gate: decode again.
+  if (cutMoved) scheduleRedecode();
+  else void requestPrint();
 }
 
 /** A Layer 2 edit: one draw. */
@@ -379,21 +451,26 @@ async function redecodeNow() {
   const s = get();
   const sid = s.engineSession;
   if (!sid || !s.selection) return;
-  const wire = decodeWire(s.sidecar.decode, isRawFrame());
+  const wire = decodeWire(s.sidecar.decode, isRawFrame(), filmEdgeCutAspect(s.sidecar.params, s.gate), pairDecode(s.sidecar.params), doubleDecode(s.sidecar.params));
   const key = JSON.stringify(wire);
-  if (!wire || key === sentDecode || !hostRedecodes(s.hello?.methods)) {
+  // Nothing to ask of the decode now (a pair undone, a film edge off on a JPEG) is still a change from
+  // what was decoded: decode again with the defaults rather than keep the old piece or cut.
+  // Only when the last decode made something to undo: a pair's piece, a gate's cut, a lens correction.
+  const undoing = !wire && !!sentDecode && /"(pair|double|cut|lens_correction)"/.test(sentDecode);
+  if ((!wire && !undoing) || key === sentDecode || !hostRedecodes(s.hello?.methods)) {
     void requestPrint();
     return;
   }
-  set({ redecoding: true, status: tz('Decoding with the new white balance…', '正在以新的白平衡解码…') });
+  set({ redecoding: true, status: tz('Decoding the photo again…', '正在重新解码照片…') });
   try {
-    const r = await host().redecode(sid, wire);
+    const r = await host().redecode(sid, wire ?? {});
     if (get().engineSession !== sid) return;
     sentDecode = key;
-    set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, status: '' });
+    forgetSceneLayers();   // a new engine session holds no masks
+    set({ nativeSize: { width: r.width, height: r.height }, metadata: r.metadata ?? get().metadata, lensStatus: r.lens_correction ?? null, status: '' });
     void requestPrint();
   } catch (e) {
-    noteError(tz('White balance', '白平衡'), e);
+    noteError(tz('Decode', '解码'), e);
   } finally {
     set({ redecoding: false });
   }
@@ -516,7 +593,7 @@ export async function openPaths(paths: string[]) {
   try {
     const entries = await platform().expandPaths(paths);
     if (!entries.length) {
-      set({ status: tz('Nothing there SpektraLab can open.', '没有 SpektraLab 能打开的文件。') });
+      set({ status: tz('Nothing there Develop can open.', '没有 Develop 能打开的文件。') });
       return;
     }
     // One file is "edit this": its folder comes along around it.
@@ -547,7 +624,7 @@ async function setLibrary(folder: string, files: FileEntry[]) {
   frameImages.print = null;
   frameImages.original = null;
   set({ folder, frames: files, selection: null, picked: [], savedGeometry: {}, thumbVersion: get().thumbVersion + 1, imageVersion: get().imageVersion + 1, badge: null });
-  void platform().setTitle(`SpektraLab — ${baseName(folder)}`);
+  void platform().setTitle(`Develop — ${baseName(folder)}`);
   // The thumbnails' crop masks come from each frame's saved geometry.
   void Promise.all(
     files.map(async (f) => {
@@ -563,13 +640,17 @@ async function setLibrary(folder: string, files: FileEntry[]) {
 
 async function closeEngineSession() {
   const sid = get().engineSession;
-  set({ engineSession: null });
+  set({ engineSession: null, rendering: false });
   sentParams = null;
   sentDecode = null;
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
   if (decodeTimer) clearTimeout(decodeTimer);
   decodeTimer = null;
+  // The next frame's open queues behind a full render of this one: stop it first.
+  const fullId = fullProgressId;
+  fullProgressId = null;
+  if (sid && fullId) await host().cancel(sid, fullId).catch(() => {});
   if (sid) await host().close(sid).catch(() => {});
 }
 
@@ -628,6 +709,7 @@ export async function select(path: string): Promise<void> {
     sidecar,
     nativeSize: null,
     metadata: null,
+    lensStatus: null,
     frameKind: null,
     badge: null,
     undo: [],
@@ -661,7 +743,7 @@ async function develop(path: string, gen: number) {
   try {
     const t0 = performance.now();
     const params = get().sidecar.params;
-    const decode = decodeWire(get().sidecar.decode, isRawPath(path));
+    const decode = decodeWire(get().sidecar.decode, isRawPath(path), filmEdgeCutAspect(get().sidecar.params, get().gate), pairDecode(get().sidecar.params), doubleDecode(get().sidecar.params));
     let r;
     try {
       r = await host().open(path, wireParams(params), decode);
@@ -676,7 +758,8 @@ async function develop(path: string, gen: number) {
     }
     sentParams = params;
     sentDecode = JSON.stringify(decode);
-    set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
+    forgetSceneLayers();
+    set({ engineSession: r.session, nativeSize: { width: r.width, height: r.height }, metadata: r.metadata, lensStatus: r.lens_correction ?? null, frameKind: r.kind ?? (isRawPath(path) ? 'raw' : null) });
     noteAsShot();
     platform().log(
       'info',
@@ -830,7 +913,7 @@ export function setComparePosition(p: number) {
   if (v !== get().comparePosition) set({ comparePosition: v });
 }
 
-export function setPages(p: Partial<Pick<SessionState, 'exportOpen' | 'settingsOpen' | 'aboutOpen' | 'batchExporting' | 'clipboardGroups'>>) {
+export function setPages(p: Partial<Pick<SessionState, 'exportOpen' | 'layoutOpen' | 'settingsOpen' | 'aboutOpen' | 'batchExporting' | 'clipboardGroups'>>) {
   set(p);
 }
 export function setStatus(status: string) {
@@ -894,4 +977,29 @@ export async function boot() {
 /** For tests and the export run. */
 export function _internals() {
   return { get, set };
+}
+
+/** Photographs added to the filmstrip without leaving the folder (a layout's own picks from elsewhere). */
+export function addFrames(paths: string[]) {
+  const have = new Set(get().frames.map((f) => f.path));
+  const added = paths.filter((p) => !have.has(p)).map((p) => ({ path: p, name: baseName(p), size: 0, mtime_ms: 0 }));
+  if (added.length) set({ frames: [...get().frames, ...added], thumbVersion: get().thumbVersion + 1 });
+}
+
+// --- local exposure layers (shared/sceneLayers.ts) ------------------------------------------
+// The masks the host's session holds, by its id and the stamp: a redecode or a new open makes a new engine
+// session, which holds none, so both are forgotten there (`forgetSceneLayers`).
+let sentLayers: { sid: string; stamp: string } | null = null;
+export function forgetSceneLayers() {
+  sentLayers = null;
+}
+async function ensureSceneLayers(sid: string, p: FilmParams) {
+  const stamp = sceneLayersStamp(p.sceneLayers);
+  if (sentLayers && sentLayers.sid === sid && sentLayers.stamp === stamp) return;
+  if (!stamp && !sentLayers) return;   // none held, none wanted
+  if (!get().hello?.methods?.includes('scene_layers')) return;
+  const n = get().nativeSize;
+  const req = sceneLayersRequest(p.sceneLayers, n ? n.width / n.height : 1.5);
+  await host().transport.request('scene_layers', { session: sid, stamp: req.stamp, layers: req.layers }, { payload: req.payload, timeoutMs: 60_000 });
+  sentLayers = { sid, stamp };
 }

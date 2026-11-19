@@ -129,8 +129,6 @@ export function SettingsDialog() {
                 }}
               />
               <div className="caption">{tz('Whether cropping changes the physical scale of grain, halation and glare. Off — the default, and the physically true answer — the crop shows less of the same negative.', '裁剪是否改变颗粒、光晕与耀光的物理尺度。关闭（默认，也是物理上正确的做法）时，裁剪只是看到同一张负片的更小部分。')}</div>
-              <ToggleRow label={tz('Decouple effects', '分离效果强度')} on={st.decoupleEffects} onChange={(v) => set('decoupleEffects', v)} />
-              <div className="caption">{tz('Show a strength for each film effect beside its switch. The strengths belong to the frame: turning this off hides the sliders and changes no picture.', '在每个胶片效果的开关旁显示强度滑块。强度属于照片本身：关闭此项只会隐藏滑块，不会改变任何画面。')}</div>
             </div>
             <div className="settings-group">
               <h3>{tz('Digital Intermediate', '数字中间片')}</h3>
@@ -217,15 +215,15 @@ export function AboutDialog() {
     ).then(setTexts);
   }, [open]);
   return (
-    <Frame open={open} onClose={() => setPages({ aboutOpen: false })} title="SpektraLab" testId="about">
+    <Frame open={open} onClose={() => setPages({ aboutOpen: false })} title="Develop" testId="about">
       <div className="dialog-body">
         <p>
-          {tz('Version', '版本')} {paths?.version ?? '1.3.1'} — {tz('film and print emulation built on the SpektraLab engine, derived from spektrafilm by Andrea Volpato.', '基于 SpektraLab 引擎的胶片与相纸模拟；该引擎派生自 Andrea Volpato 的 spektrafilm。')}
+          {tz('Version', '版本')} {paths?.version ?? '1.3.1'} — {tz('film and print emulation for Linux. Based on SpektraLab (github.com/JamesQiu2005/SpektraLab) and its engine, derived from spektrafilm by Andrea Volpato.', 'Linux 上的胶片与相纸模拟。基于 SpektraLab（github.com/JamesQiu2005/SpektraLab）及其引擎；该引擎派生自 Andrea Volpato 的 spektrafilm。')}
         </p>
         <p className="caption">
           {tz(
-            'SpektraLab is free software under the GNU GPL, version 3 or later. The film and paper profiles are licensed CC BY-SA 4.0; their attribution follows.',
-            'SpektraLab 是依据 GNU GPL 第 3 版或更新版本发布的自由软件。胶片与相纸的特性数据依据 CC BY-SA 4.0 授权，署名如下。',
+            'Develop is free software under the GNU GPL, version 3 or later, as SpektraLab is. The film and paper profiles are licensed CC BY-SA 4.0; their attribution follows.',
+            'Develop 与 SpektraLab 一样，是依据 GNU GPL 第 3 版或更新版本发布的自由软件。胶片与相纸的特性数据依据 CC BY-SA 4.0 授权，署名如下。',
           )}
         </p>
         {texts.map((x) => (
@@ -277,8 +275,8 @@ export function HostFailure() {
             {vulkan && (
               <p className="caption">
                 {tz(
-                  'SpektraLab renders on the GPU through Vulkan. Make sure a Vulkan driver is installed for your graphics card (on Linux: mesa-vulkan-drivers or your vendor’s driver; on Windows: the latest driver from your GPU vendor), then restart the engine.',
-                  'SpektraLab 通过 Vulkan 在 GPU 上渲染。请确认已为显卡安装 Vulkan 驱动（Linux：mesa-vulkan-drivers 或厂商驱动；Windows：显卡厂商的最新驱动），然后重启引擎。',
+                  'Develop renders on the GPU through Vulkan. Make sure a Vulkan driver is installed for your graphics card (on Linux: mesa-vulkan-drivers or your vendor’s driver; on Windows: the latest driver from your GPU vendor), then restart the engine.',
+                  'Develop 通过 Vulkan 在 GPU 上渲染。请确认已为显卡安装 Vulkan 驱动（Linux：mesa-vulkan-drivers 或厂商驱动；Windows：显卡厂商的最新驱动），然后重启引擎。',
                 )}
               </p>
             )}

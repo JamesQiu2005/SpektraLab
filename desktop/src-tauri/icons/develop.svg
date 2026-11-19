@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Develop: red, green and blue light overlapping. Original artwork. -->
+  <defs><radialGradient id="dark" cx="0.5" cy="0.4" r="0.8"><stop offset="0" stop-color="#1e1e1e"/><stop offset="1" stop-color="#050505"/></radialGradient></defs>
+  <rect width="512" height="512" rx="112" fill="url(#dark)"/>
+  <g style="isolation:isolate">
+    <circle cx="256.0" cy="196.0" r="112" fill="#ff2a2a" style="mix-blend-mode:screen"/>
+    <circle cx="316.6" cy="301.0" r="112" fill="#22e04a" style="mix-blend-mode:screen"/>
+    <circle cx="195.4" cy="301.0" r="112" fill="#2a5cff" style="mix-blend-mode:screen"/>
+  </g>
+</svg>

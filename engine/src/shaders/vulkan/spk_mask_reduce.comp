@@ -1,0 +1,35 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// contrast_mask.metal's `spk_mask_reduce`: one thread per grid cell, the mean of the mask
+// coordinate x over the cell's pixels. The cells partition the frame, so every pixel is counted
+// once whatever the tier's size. meta: W, H, gw, gh, wavelengths.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Cmy { float value[]; } cmy;
+layout(set = 0, binding = 1, std430) readonly buffer Chd { float value[]; } chd;
+layout(set = 0, binding = 2, std430) readonly buffer Base { float value[]; } base_data;
+layout(set = 0, binding = 3, std430) readonly buffer Ixs { float value[]; } ixs;
+layout(set = 0, binding = 4, std430) readonly buffer Params { float value[]; } p;
+layout(set = 0, binding = 5, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 6, std430) writeonly buffer Output { float value[]; } out_data;
+
+#include "spk_mask.glsl"
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint W = meta.value[0], H = meta.value[1], gw = meta.value[2], gh = meta.value[3], nl = meta.value[4];
+    uint cell = spk_global_index();
+    if (cell >= gw * gh) return;
+    uint cy = cell / gw, cx = cell % gw;
+    uint x0 = (cx * W) / gw, x1 = max(((cx + 1u) * W) / gw, x0 + 1u);
+    uint y0 = (cy * H) / gh, y1 = max(((cy + 1u) * H) / gh, y0 + 1u);
+    x1 = min(x1, W); y1 = min(y1, H);
+    float acc = 0.0;
+    for (uint y = y0; y < y1; ++y)
+        for (uint x = x0; x < x1; ++x)
+            acc += mask_x(mask_image_exposure(y * W + x, nl));
+    out_data.value[cell] = acc / float((x1 - x0) * (y1 - y0));
+}

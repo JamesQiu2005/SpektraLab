@@ -8,7 +8,7 @@ import { BeforeAfter, Crop, Cursor, Export, Import, SidebarLeft, SidebarRight, Z
 import { t, tz } from '../i18n';
 import { currentFitZoom, setOriginal, setPages, setTool, solveNow, toggleCompare, useSession, zoomStep, zoomTo, zoomToFit } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
-import { openDialog } from './actions';
+import { openFilesDialog } from './actions';
 import { baseName } from '../platform';
 
 export function TopBar() {
@@ -36,8 +36,13 @@ export function TopBar() {
         <SidebarLeft />
       </button>
       <span style={{ width: 14 }} />
-      <button className="icon-btn" title={t('helpOpen') + ' (Ctrl+O)'} onClick={() => void openDialog()} data-testid="open-button">
+      {/* Photographs, any kind, one or many (the folder is File › Open Folder…, Ctrl+O): a folder picker here
+          greyed every file out, and its "Open a folder or image" promised both (the owner, 2026-11-19). */}
+      <button className="icon-btn" title={tz('Open photographs (Ctrl+Shift+O)', '打开照片（Ctrl+Shift+O）')} onClick={() => void openFilesDialog()} data-testid="open-button">
         <Import />
+      </button>
+      <button className="icon-btn" title={tz('Layout: several photographs on one print', '排版：多张照片排在一张上')} onClick={() => setPages({ layoutOpen: true })} data-testid="layout-button">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="2" y="4" width="5" height="12" rx="1" fill="currentColor" /><rect x="8" y="4" width="4" height="12" rx="1" fill="currentColor" opacity="0.7" /><rect x="13" y="4" width="5" height="12" rx="1" fill="currentColor" /></svg>
       </button>
       <button className="icon-btn" title={t('helpExport') + ' (Ctrl+E)'} disabled={!selection} onClick={() => setPages({ exportOpen: true })} data-testid="export-button">
         <Export />

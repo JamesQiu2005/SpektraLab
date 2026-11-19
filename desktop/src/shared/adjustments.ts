@@ -12,6 +12,7 @@
 //   → black/white point → saturation → colour balance → curves → vignette
 
 import { clamp } from './params';
+import { type Watermark, WATERMARK_DEFAULT, decodeWatermark, watermarkShows } from './watermark';
 
 export interface ColorZone {
   hue: number;
@@ -51,6 +52,78 @@ export interface Adjustments {
   curves: CurveSet;
   colorBalance: ColorBalance;
   vignette: Vignette;
+  /** A plain frame round the finished picture (Develop's own; the Mac sidecar has no such key). */
+  border: Border;
+  /** SpektraLab 2's (Adjustments.swift): saturation that spares what is already saturated, −100…100. */
+  vibrance: number;
+  /** SpektraLab 2's HSL: each of eight colours with its own hue, saturation and luminance, −100…100. */
+  hsl: HSLSet;
+  /** SpektraLab 2's channel mixer: each output channel's offsets from itself, −100…100 each. */
+  channelMixer: ChannelMixer;
+  /** Develop's text watermark (watermark.ts), on the canvas and in every export. */
+  watermark: Watermark;
+}
+
+export const HSL_HUES = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'] as const;
+export type HSLHue = (typeof HSL_HUES)[number];
+export interface HSLBand {
+  hue: number;
+  saturation: number;
+  luminance: number;
+}
+export type HSLSet = Record<HSLHue, HSLBand>;
+/** How far ±100 turns a colour's hue, in degrees (HSLSet.hueReach). */
+export const HSL_HUE_REACH = 30;
+export const MIXER_CHANNELS = ['red', 'green', 'blue'] as const;
+export type MixerChannel = (typeof MIXER_CHANNELS)[number];
+export type MixerRow = Record<MixerChannel, number>;
+export type ChannelMixer = Record<MixerChannel, MixerRow>;
+const HSL_BAND: HSLBand = { hue: 0, saturation: 0, luminance: 0 };
+const MIXER_ROW: MixerRow = { red: 0, green: 0, blue: 0 };
+export const HSL_DEFAULT: HSLSet = Object.fromEntries(HSL_HUES.map((h) => [h, HSL_BAND])) as HSLSet;
+export const MIXER_DEFAULT: ChannelMixer = { red: MIXER_ROW, green: MIXER_ROW, blue: MIXER_ROW };
+export const hslNeutral = (h: HSLSet) => HSL_HUES.every((k) => h[k].hue === 0 && h[k].saturation === 0 && h[k].luminance === 0);
+export const mixerNeutral = (m: ChannelMixer) =>
+  MIXER_CHANNELS.every((o) => MIXER_CHANNELS.every((i) => m[o][i] === 0));
+
+/**
+ * A plain border round the finished picture, on the canvas and in every exported file: white, black
+ * or any grey, its width a share of the picture's long edge, the bottom optionally deeper (a gallery
+ * or instant-print look). Neutral only, so it means the same in every export colour space.
+ */
+export interface Border {
+  enabled: boolean;
+  /** 0 black .. 1 white, as encoded on an sRGB display. */
+  tone: number;
+  /** Each side, in % of the picture's long edge. */
+  size: number;
+  /** Added to the bottom only, in % of the long edge. */
+  bottomExtra: number;
+}
+export const BORDER_DEFAULT: Border = { enabled: false, tone: 1, size: 4, bottomExtra: 0 };
+export const BORDER_RANGES = { size: [0, 25], bottomExtra: [0, 30] } as const;
+
+/** The border's four widths in pixels for a picture of `w` x `h`; all zero when it is off. */
+export function borderPixels(b: Border | undefined, w: number, h: number) {
+  if (!b || !b.enabled) return { left: 0, right: 0, top: 0, bottom: 0 };
+  const long = Math.max(w, h);
+  const side = Math.round((long * Math.min(Math.max(b.size, 0), BORDER_RANGES.size[1])) / 100);
+  const extra = Math.round((long * Math.min(Math.max(b.bottomExtra, 0), BORDER_RANGES.bottomExtra[1])) / 100);
+  return { left: side, right: side, top: side, bottom: side + extra };
+}
+
+/**
+ * The border's code value (0..1) in an export's colour space. A grey is the same light in every RGB
+ * space here, so only the transfer curve differs: sRGB and Display P3 share sRGB's; ProPhoto (ROMM)
+ * has its own 1.8 with a linear toe below 1/512.
+ */
+export function borderCode(tone: number, space: 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb'): number {
+  const t = Math.min(Math.max(tone, 0), 1);
+  if (space === 'sRGB' || space === 'display-p3') return t;
+  const lin = t <= 0.04045 ? t / 12.92 : Math.pow((t + 0.055) / 1.055, 2.4);
+  // Adobe RGB (1998): gamma 563/256 (the engine's Cctf::Adobe).
+  if (space === 'adobe-rgb') return Math.pow(lin, 256 / 563);
+  return lin < 1 / 512 ? lin * 16 : Math.pow(lin, 1 / 1.8);
 }
 
 const ZONE: ColorZone = { hue: 0, saturation: 0, luminance: 0 };
@@ -82,6 +155,11 @@ export const ADJUSTMENTS_DEFAULT: Adjustments = {
   curves: CURVES_IDENTITY,
   colorBalance: { master: ZONE, shadows: ZONE, midtones: ZONE, highlights: ZONE },
   vignette: { amount: 0, midpoint: 50 },
+  border: BORDER_DEFAULT,
+  vibrance: 0,
+  hsl: HSL_DEFAULT,
+  channelMixer: MIXER_DEFAULT,
+  watermark: WATERMARK_DEFAULT,
 };
 
 export const curveIsIdentity = (c: Curve) =>
@@ -106,7 +184,12 @@ export function isNeutral(a: Adjustments): boolean {
     zoneNeutral(a.colorBalance.shadows) &&
     zoneNeutral(a.colorBalance.midtones) &&
     zoneNeutral(a.colorBalance.highlights) &&
-    a.vignette.amount === 0
+    a.vignette.amount === 0 &&
+    !a.border?.enabled &&
+    !a.vibrance &&
+    hslNeutral(a.hsl ?? HSL_DEFAULT) &&
+    mixerNeutral(a.channelMixer ?? MIXER_DEFAULT) &&
+    !watermarkShows(a.watermark)
   );
 }
 
@@ -199,6 +282,8 @@ export function removePoint(c: Curve, i: number): Curve {
 export const PROPHOTO_MID_GREY = 0.3857;
 /** The same through the sRGB curve — what the canvas's sRGB frame carries. */
 export const SRGB_MID_GREY = 0.4614;
+/** `pow(0.18, 256/563)`: mid-grey through Adobe RGB's gamma 563/256. */
+export const ADOBE_MID_GREY = 0.4585;
 
 export interface Layer2Uniforms {
   wbGain: [number, number, number];
@@ -220,6 +305,15 @@ export interface Layer2Uniforms {
   midGrey: number;
   curvesActive: boolean;
   enabled: boolean;
+  vibrance: number;
+  hslActive: boolean;
+  /** Radians, and fractions: red orange yellow green aqua blue purple magenta. */
+  hslHue: number[];
+  hslSat: number[];
+  hslLum: number[];
+  mixerActive: boolean;
+  /** Rows of the matrix: red out, green out, blue out. */
+  mix: [number, number, number, number, number, number, number, number, number];
 }
 
 function zoneOffset(z: ColorZone): [number, number, number] {
@@ -237,6 +331,8 @@ export function layer2Uniforms(a: Adjustments, midGrey = SRGB_MID_GREY): Layer2U
   const t = a.temperature / 100;
   const g = a.tint / 100;
   const cb = a.colorBalance;
+  const hsl = a.hsl ?? HSL_DEFAULT;
+  const mx = a.channelMixer ?? MIXER_DEFAULT;
   return {
     wbGain: [1 + 0.18 * t, 1 - 0.12 * g, 1 - 0.18 * t],
     exposureGain: Math.pow(2, a.exposure),
@@ -257,6 +353,14 @@ export function layer2Uniforms(a: Adjustments, midGrey = SRGB_MID_GREY): Layer2U
     midGrey,
     curvesActive: !curvesIdentity(a.curves),
     enabled: a.enabled,
+
+    vibrance: (a.vibrance ?? 0) / 100,
+    hslActive: !hslNeutral(hsl),
+    hslHue: HSL_HUES.map((h) => (hsl[h].hue * HSL_HUE_REACH * Math.PI) / 180 / 100),
+    hslSat: HSL_HUES.map((h) => hsl[h].saturation / 100),
+    hslLum: HSL_HUES.map((h) => hsl[h].luminance / 100),
+    mixerActive: !mixerNeutral(mx),
+    mix: MIXER_CHANNELS.flatMap((o, k) => MIXER_CHANNELS.map((inp, n) => mx[o][inp] / 100 + (k === n ? 1 : 0))) as Layer2Uniforms['mix'],
   };
 }
 
@@ -270,6 +374,42 @@ export function tonePosition(l: number, midGrey: number): number {
 }
 
 /** `layer2Tone` — steps 1–6. In/out: one pixel, encoded 0…1. */
+// 5b. Vibrance: saturation that spares what is already saturated (Layer2Kernel.swift `l2Vibrance`).
+function vibranceOf(r: number, g: number, b: number, v: number): [number, number, number] {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  const s = mx > 1e-4 ? sat((mx - mn) / mx) : 0;
+  const l = luma(r, g, b);
+  const k = Math.max(1 + v * (1 - s), 0);
+  return [l + (r - l) * k, l + (g - l) * k, l + (b - l) * k];
+}
+
+const HSL_CENTRES = [0, 30, 60, 120, 180, 240, 270, 300, 360];
+// 5c. HSL: the pixel's colour between two of the eight, turned, scaled and lightened by both (`l2Hsl`).
+function hslOf(r: number, g: number, b: number, u: Layer2Uniforms): [number, number, number] {
+  const l = luma(r, g, b);
+  const dr = r - l, dg = g - l, db = b - l;
+  const px = dr - 0.5 * (dg + db), py = 0.8660254 * (dg - db);
+  const chroma = Math.hypot(px, py);
+  if (chroma < 1e-6) return [r, g, b];
+  let h = Math.atan2(py, px) * 57.29577951;
+  if (h < 0) h += 360;
+  let i = 0;
+  while (i < 7 && h >= HSL_CENTRES[i + 1]!) i++;
+  const j = (i + 1) % 8;
+  let t = sat((h - HSL_CENTRES[i]!) / (HSL_CENTRES[i + 1]! - HSL_CENTRES[i]!));
+  t = t * t * (3 - 2 * t);
+  const mix = (a: number, c: number) => a + (c - a) * t;
+  const turn = mix(u.hslHue[i]!, u.hslHue[j]!), scale = Math.max(1 + mix(u.hslSat[i]!, u.hslSat[j]!), 0);
+  const lift = mix(u.hslLum[i]!, u.hslLum[j]!);
+  const cs = Math.cos(turn), sn = Math.sin(turn);
+  const qx = (px * cs - py * sn) * scale, qy = (px * sn + py * cs) * scale;
+  const q = qy / 0.8660254;
+  const ss = -2 * 0.2126 * qx - (0.7152 - 0.0722) * q;
+  const e = Math.min(Math.max(chroma / 0.2, 0), 1);
+  const k = 1 + 0.5 * lift * (e * e * (3 - 2 * e));
+  return [(l + qx + 0.5 * ss) * k, (l + 0.5 * (ss + q)) * k, (l + 0.5 * (ss - q)) * k];
+}
+
 export function layer2Tone(c: [number, number, number], u: Layer2Uniforms): [number, number, number] {
   let [r, g, b] = c;
   r *= u.wbGain[0];
@@ -321,6 +461,23 @@ export function layer2Tone(c: [number, number, number], u: Layer2Uniforms): [num
   r = l + (r - l) * u.saturation;
   g = l + (g - l) * u.saturation;
   b = l + (b - l) * u.saturation;
+  // 5b-5d. vibrance, HSL, the channel mixer (Layer2Kernel.swift, statement for statement); the luma the
+  // colour balance splits on is read again only after one of them ran.
+  let moved = false;
+  if (u.vibrance !== 0) {
+    [r, g, b] = vibranceOf(r, g, b, u.vibrance);
+    moved = true;
+  }
+  if (u.hslActive) {
+    [r, g, b] = hslOf(r, g, b, u);
+    moved = true;
+  }
+  if (u.mixerActive) {
+    const m = u.mix;
+    [r, g, b] = [m[0] * r + m[1] * g + m[2] * b, m[3] * r + m[4] * g + m[5] * b, m[6] * r + m[7] * g + m[8] * b];
+    moved = true;
+  }
+  if (moved) l = luma(r, g, b);
   const ls = sat(tonePosition(l, u.midGrey));
   const wS = (1 - ls) * (1 - ls);
   const wH = ls * ls;
@@ -456,6 +613,30 @@ export function decodeAdjustments(raw: unknown): Adjustments {
       midtones: decodeZone(cb.midtones),
       highlights: decodeZone(cb.highlights),
     },
+    vibrance: Math.min(100, Math.max(-100, num(o.vibrance, 0))),
+    hsl: Object.fromEntries(
+      HSL_HUES.map((h) => {
+        const band = obj(obj(o.hsl)[h]);
+        const v = (k: keyof HSLBand) => Math.min(100, Math.max(-100, num(band[k], 0)));
+        return [h, { hue: v('hue'), saturation: v('saturation'), luminance: v('luminance') }];
+      }),
+    ) as HSLSet,
+    channelMixer: Object.fromEntries(
+      MIXER_CHANNELS.map((out) => {
+        const row = obj(obj(o.channelMixer)[out]);
+        return [out, Object.fromEntries(MIXER_CHANNELS.map((inp) => [inp, Math.min(100, Math.max(-100, num(row[inp], 0)))]))];
+      }),
+    ) as ChannelMixer,
+    watermark: decodeWatermark(o.watermark),
     vignette: { amount: num(v.amount, 0), midpoint: num(v.midpoint, 50) },
+    border: (() => {
+      const b = obj(o.border);
+      return {
+        enabled: typeof b.enabled === 'boolean' ? b.enabled : BORDER_DEFAULT.enabled,
+        tone: num(b.tone, BORDER_DEFAULT.tone),
+        size: num(b.size, BORDER_DEFAULT.size),
+        bottomExtra: num(b.bottomExtra, BORDER_DEFAULT.bottomExtra),
+      };
+    })(),
   };
 }

@@ -1,0 +1,32 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_gauss_1d: a symmetric FIR along one axis of a level (the
+// glow's Gaussian), edges replicated, stored fp16-rounded (spk_lens.glsl).
+// w: taps 0 .. r; meta: {H, W, r, axis}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Img { float img[]; };
+layout(std430, binding = 1) readonly buffer Wt { float w[]; };
+layout(std430, binding = 2) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 3) writeonly buffer Out { float dst[]; };
+
+void main() {
+    uint i = spk_global_index();
+    uint H = meta[0], W = meta[1], axis = meta[3];
+    int r = int(meta[2]);
+    if (i >= H * W) return;
+    int y = int(i / W), x = int(i % W);
+    vec3 s = w[0] * SPK_LD3(img, i);
+    for (int t = 1; t <= r; ++t) {
+        uint a, b;
+        if (axis == 0u) {
+            a = uint(y) * W + uint(clamp(x - t, 0, int(W) - 1));
+            b = uint(y) * W + uint(clamp(x + t, 0, int(W) - 1));
+        } else {
+            a = uint(clamp(y - t, 0, int(H) - 1)) * W + uint(x);
+            b = uint(clamp(y + t, 0, int(H) - 1)) * W + uint(x);
+        }
+        s += w[t] * (SPK_LD3(img, a) + SPK_LD3(img, b));
+    }
+    SPK_ST3(dst, i, spk_q16v(s));
+}

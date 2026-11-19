@@ -81,6 +81,14 @@ constexpr KernelSpec kKernels[] = {
     {"spk_glare_add", 5, kWorkgroup},
     {"spk_reduce_max", 3, kWorkgroup},
     {"spk_boost", 4, kWorkgroup},
+    {"spk_highlight_headroom", 4, kWorkgroup},
+    {"spk_negative_hue", 8, kWorkgroup},
+    {"spk_minilab", 13, kWorkgroup},
+    {"spk_di_encode", 4, kWorkgroup},
+    {"spk_scene_latitude", 4, kWorkgroup},
+    {"spk_scene_curve", 5, kWorkgroup},
+    {"spk_mask_reduce", 7, kWorkgroup},
+    {"spk_mask_epilogue", 8, kWorkgroup},
     {"spk_bw_correct", 4, kWorkgroup},
     {"spk_edr", 5, kWorkgroup},
     {"spk_cctf_decode", 3, kWorkgroup},
@@ -88,6 +96,33 @@ constexpr KernelSpec kKernels[] = {
     {"spk_geometry_resample_df", 4, kWorkgroup},
     {"spk_lut3d_trilinear", 6, kWorkgroup},
     {"spk_di_normalise", 5, kWorkgroup},
+    // the lens (lens.metal): the diffusion filter's pyramid, the glow, the aberrations
+    {"spk_lens_splat", 3, kWorkgroup},
+    {"spk_lens_mix", 7, kWorkgroup},
+    {"spk_lens_tca", 4, kWorkgroup},
+    {"spk_lens_loca_share", 4, kWorkgroup},
+    {"spk_lens_loca_mix", 5, kWorkgroup},
+    {"spk_lens_down2", 3, kWorkgroup},
+    {"spk_lens_line", 9, kWorkgroup},
+    {"spk_lens_pyr_down0", 4, kWorkgroup},
+    {"spk_lens_pyr_down", 3, kWorkgroup},
+    {"spk_lens_pyr_up", 4, kWorkgroup},
+    {"spk_lens_pyr_out", 6, kWorkgroup},
+    {"spk_lens_gauss_1d", 4, kWorkgroup},
+    {"spk_lens_rows_put", 3, kWorkgroup},
+    {"spk_lens_cctf_encode", 2, kWorkgroup},
+    // a light leak with the film edge off (overscan.metal)
+    {"spk_leak_frame", 4, kWorkgroup},
+    // the film edge (overscan.metal)
+    {"spk_overscan_canvas", 4, kWorkgroup},
+    {"spk_overscan_add_mask", 4, kWorkgroup},
+    {"spk_overscan_picture_weight", 3, kWorkgroup},
+    {"spk_edr_weighted", 7, kWorkgroup},
+    {"spk_overscan_film_present", 4, kWorkgroup},
+    {"spk_overscan_light", 4, kWorkgroup},
+    // RFC-052's scene layers (scene_layers.metal)
+    {"spk_scene_layers", 13, kWorkgroup},
+    {"spk_scan_hdr_expand", 4, kWorkgroup},
 };
 
 const KernelSpec* find_kernel(const char* name) {
@@ -198,10 +233,13 @@ public:
         }
         if (!physical_) { error = "no Vulkan compute queue"; return false; }
         storage_range_limit_ = properties_.limits.maxStorageBufferRange;
+        // The widest kernel's binding count (spk_minilab's 13 since it was ported), not a fixed 8.
+        uint32_t widest = 0;
+        for (const auto& spec : kKernels) widest = std::max(widest, spec.bindings);
         if (properties_.limits.maxComputeWorkGroupInvocations < kWorkgroup ||
             properties_.limits.maxComputeWorkGroupSize[0] < kWorkgroup ||
-            properties_.limits.maxPerStageDescriptorStorageBuffers < 8 ||
-            properties_.limits.maxDescriptorSetStorageBuffers < 8) {
+            properties_.limits.maxPerStageDescriptorStorageBuffers < widest ||
+            properties_.limits.maxDescriptorSetStorageBuffers < widest) {
             error = "Vulkan device limits are below the current shader layout";
             return false;
         }

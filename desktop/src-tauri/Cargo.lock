@@ -737,6 +737,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "develop"
+version = "1.3.1"
+dependencies = [
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-window-state",
+ "tokio",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3256,24 +3275,6 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
-]
-
-[[package]]
-name = "spektralab"
-version = "1.3.1"
-dependencies = [
- "log",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-window-state",
- "tokio",
 ]
 
 [[package]]

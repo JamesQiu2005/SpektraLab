@@ -1,0 +1,186 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_line: one directional gather of the field -- curvature,
+// astigmatism and coma -- along e_t (mode 0) or e_r (mode 1), on the mip level
+// whose texel is <= sigma / 4, blended with the next coarser one (trilinear).
+// Expression for expression from the Metal kernel; see its comments for why.
+// levels 0..4 at bindings 0..4; lv: {I0, LH, LW} x 5; lp: {pcx, pcy, inv_hd,
+// h0, p, sfc, sast, coma}; meta: {H, W, row0, mode, lmax}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer B0 { float L0[]; };
+layout(std430, binding = 1) readonly buffer B1 { float L1[]; };
+layout(std430, binding = 2) readonly buffer B2 { float L2[]; };
+layout(std430, binding = 3) readonly buffer B3 { float L3[]; };
+layout(std430, binding = 4) readonly buffer B4 { float L4[]; };
+layout(std430, binding = 5) readonly buffer Lv { int lv[]; };
+layout(std430, binding = 6) readonly buffer Lp { float lp[]; };
+layout(std430, binding = 7) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 8) writeonly buffer Out { float dst[]; };
+
+vec3 lvl_ld3(int l, uint s) {
+    if (l == 0) return SPK_LD3(L0, s);
+    if (l == 1) return SPK_LD3(L1, s);
+    if (l == 2) return SPK_LD3(L2, s);
+    if (l == 3) return SPK_LD3(L3, s);
+    return SPK_LD3(L4, s);
+}
+
+// texel centres of level l on plane pixel (i + 0.5) T - 0.5
+vec3 level_sample(int l, int I0, int LH, int LW, float T, float X, float Y) {
+    float u = (X + 0.5) / T - 0.5, v = (Y + 0.5) / T - 0.5;
+    float uf = floor(u), vf = floor(v);
+    float fx = u - uf, fy = v - vf;
+    int j0 = clamp(int(uf), 0, LW - 1), j1 = clamp(int(uf) + 1, 0, LW - 1);
+    int i0 = clamp(int(vf) - I0, 0, LH - 1), i1 = clamp(int(vf) + 1 - I0, 0, LH - 1);
+    vec3 v00 = lvl_ld3(l, uint(i0) * uint(LW) + uint(j0)), v01 = lvl_ld3(l, uint(i0) * uint(LW) + uint(j1));
+    vec3 v10 = lvl_ld3(l, uint(i1) * uint(LW) + uint(j0)), v11 = lvl_ld3(l, uint(i1) * uint(LW) + uint(j1));
+    return (1.0 - fy) * ((1.0 - fx) * v00 + fx * v01) + fy * ((1.0 - fx) * v10 + fx * v11);
+}
+
+// The standard normal CDF (Abramowitz & Stegun 7.1.26 for erf, |error| < 1.5e-7).
+float norm_cdf(float z) {
+    float x = abs(z) * 0.70710678118654752;
+    float t = 1.0 / (1.0 + 0.3275911 * x);
+    float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t +
+                     0.254829592) * t * exp(-x * x);
+    return z >= 0.0 ? 0.5 * (1.0 + y) : 0.5 * (1.0 - y);
+}
+float norm_pdf(float z) { return exp(-0.5 * z * z); }   // unnormalised: a common factor
+
+struct Field { float var_t, var_r, L; };
+float knee(float h, float h0) {
+    return h0 > 0.0 ? smoothstep(h0, min(h0 + 0.1, 1.0), h) : 1.0;
+}
+float g_field(float h, float h0, float p) {
+    float u = h0 > 0.0 ? max(h - h0, 0.0) / (1.0 - h0) : h;
+    return knee(h, h0) * pow(max(u, 0.0), p);
+}
+float g_coma(float h, float h0) {
+    float u = h0 > 0.0 ? max(h - h0, 0.0) / (1.0 - h0) : h;
+    return knee(h, h0) * u;
+}
+Field field_at(float h) {
+    float g = g_field(h, lp[3], lp[4]);
+    float sfc = lp[5] * g, sa = abs(lp[6]) * g;
+    Field F;
+    F.L = lp[7] * g_coma(h, lp[3]);
+    F.var_t = sfc * sfc + (lp[6] > 0.0 ? sa * sa : 0.0) + F.L * F.L / 54.0;
+    F.var_r = sfc * sfc + (lp[6] < 0.0 ? sa * sa : 0.0);
+    return F;
+}
+
+const float kMinSigma = 0.4;    // kMinEffectiveBlurSigma
+const int kMaxTaps = 160;
+const float kMinComet = 0.05;   // px: a comet shorter moves nothing a code sees
+const float kTruncate = 3.5;    // the Gaussian's support, sigmas (lens.cpp kLineTruncate)
+
+struct Lod { int l0; float frac; float va; float vp; float q; float rho; bool on; };
+float level_variance(int l) {
+    float T = float(1 << l);
+    return (T * T - 1.0) / 4.0 + T * T / 6.0;
+}
+Lod lod_for(float sigma, int lmax, bool force) {
+    Lod d;
+    d.on = sigma >= kMinSigma || force;
+    d.q = clamp((sigma - kMinSigma) / (2.0 - kMinSigma), 0.0, 1.0);
+    d.rho = force ? 1.0 : smoothstep(kMinSigma, 4.0 * kMinSigma, sigma);
+    if (!d.on) { d.l0 = 0; d.frac = 0.0; d.va = 0.0; d.vp = 0.0; d.rho = 0.0; return d; }
+    float lam = log2(sigma / 4.0);
+    if (lam <= 0.0) { d.l0 = 0; d.frac = 0.0; }
+    else if (lam >= float(lmax)) { d.l0 = lmax; d.frac = 0.0; }
+    else { d.l0 = int(floor(lam)); d.frac = lam - float(d.l0); }
+    float T0 = float(1 << d.l0), T1 = 2.0 * T0;
+    d.va = (1.0 - d.frac) * level_variance(d.l0) +
+           (d.frac > 0.0 ? d.frac * level_variance(d.l0 + 1) : 0.0);
+    d.vp = d.va + 0.25 * d.q * d.q * ((1.0 - d.frac) * T0 * T0 + d.frac * T1 * T1);
+    return d;
+}
+
+float comet_weight(float s, float sigma, float L) {
+    if (L < 1e-3) return sigma > 1e-3 ? norm_pdf(s / sigma) : (abs(s) < 0.5 ? 1.0 : 0.0);
+    if (sigma < 1e-3) return (s >= 0.0 && s <= L) ? (1.0 - s / L) : 0.0;
+    float b = s / sigma, a = (s - L) / sigma;
+    float dP = norm_cdf(b) - norm_cdf(a);
+    float dp = (norm_pdf(b) - norm_pdf(a)) * 0.39894228040143268;
+    return max(dP - (s * dP + sigma * dp) / L, 0.0);
+}
+float comet_cdf(float s, float sigma, float L) {
+    float a = (s - L) / sigma, b = s / sigma;
+    float Pa = norm_cdf(a), Pb = norm_cdf(b);
+    float pa = norm_pdf(a) * 0.39894228040143268, pb = norm_pdf(b) * 0.39894228040143268;
+    float I0 = (b * Pb + pb) - (a * Pa + pa);
+    float I1 = 0.5 * (((b * b - 1.0) * Pb + b * pb) - ((a * a - 1.0) * Pa + a * pa));
+    return sigma * ((1.0 - s / L) * I0 + (sigma / L) * I1);
+}
+float comet_cell(float s, float sigma, float L, float T) {
+    sigma = max(sigma, 0.02 * T);
+    return max(comet_cdf(s + 0.5 * T, sigma, L) - comet_cdf(s - 0.5 * T, sigma, L), 0.0);
+}
+
+void main() {
+    uint i = spk_global_index();
+    uint H = meta[0], W = meta[1], row0 = meta[2], mode = meta[3];
+    int lmax = int(meta[4]);
+    if (i >= H * W) return;
+    uint y = i / W, x = i % W;
+    float X = float(x), Y = float(y + row0);
+    float dx = X - lp[0], dy = Y - lp[1];
+    float r = sqrt(dx * dx + dy * dy);
+    float h = r * lp[2];
+    Field F = field_at(h);
+    float La = abs(F.L);
+    Lod lt = lod_for(sqrt(F.var_t), lmax, false);
+    Lod lr = lod_for(sqrt(F.var_r + La * La / 18.0), lmax, La >= kMinComet);
+    Lod me = mode == 0u ? lt : lr;
+    vec3 here = SPK_LD3(L0, i);
+    float jac = 1.0;
+    if (mode == 1u && lp[7] != 0.0 && r > 1.0) {
+        float Dm = field_at((r - 0.5) * lp[2]).L / 3.0;
+        float Dp = field_at((r + 0.5) * lp[2]).L / 3.0;
+        jac = (1.0 - (Dp - Dm)) * (1.0 - (F.L / 3.0) / r);
+    }
+    if (!me.on || me.rho <= 0.0) {
+        here *= jac;
+        SPK_ST3(dst, i, here);
+        return;
+    }
+    float var = mode == 0u ? F.var_t - lr.rho * lr.vp : F.var_r - lt.rho * lt.vp;
+    float sigma = sqrt(max(var / me.rho - me.va, 0.0));
+    vec2 er = r > 1e-6 ? vec2(dx, dy) / r : vec2(1.0, 0.0);
+    vec2 e = mode == 0u ? vec2(-er.y, er.x) : er;
+    vec2 n = vec2(-e.y, e.x);
+    float Ls = mode == 1u ? F.L : 0.0;          // signed: > 0 the comet points outward
+    float Lp = abs(Ls), sgn = Ls < 0.0 ? -1.0 : 1.0;
+    vec3 acc2 = vec3(0.0);
+    for (int k = 0; k < 2; ++k) {
+        int l = me.l0 + k;
+        float wl = k == 0 ? 1.0 - me.frac : me.frac;
+        if (wl <= 0.0) continue;
+        float T = float(1 << l);
+        int I0 = lv[3 * l], LH = lv[3 * l + 1], LW = lv[3 * l + 2];
+        float smin = -kTruncate * sigma - (sgn < 0.0 ? Lp : 0.0);
+        float smax = kTruncate * sigma + (sgn > 0.0 ? Lp : 0.0);
+        float step = Lp > 0.0 ? min(T, max(Lp / 6.0, 0.125)) : T;
+        int k0 = int(floor(smin / step)), k1 = int(ceil(smax / step));
+        if (k1 - k0 + 1 > kMaxTaps) {
+            step = (smax - smin) / float(kMaxTaps - 1);
+            k0 = int(floor(smin / step)); k1 = int(ceil(smax / step));
+        }
+        vec3 acc = vec3(0.0);
+        float wsum = 0.0;
+        float sigc = sqrt(max(sigma * sigma - step * step / 12.0, 0.0));
+        for (int t = k0; t <= k1; ++t) {
+            float s = float(t) * step;
+            float w = Lp > 0.0 ? comet_cell(sgn * s, sigc, Lp, step) : comet_weight(s, sigma, 0.0);
+            if (w <= 0.0) continue;
+            float qx = X - s * e.x, qy = Y - s * e.y, o = 0.5 * T * me.q;
+            acc += (0.5 * w) * (level_sample(l, I0, LH, LW, T, qx + o * n.x, qy + o * n.y) +
+                                level_sample(l, I0, LH, LW, T, qx - o * n.x, qy - o * n.y));
+            wsum += w;
+        }
+        acc2 += wl * (wsum > 0.0 ? acc / wsum : here);
+    }
+    acc2 = mix(here, acc2, me.rho) * jac;
+    SPK_ST3(dst, i, acc2);
+}

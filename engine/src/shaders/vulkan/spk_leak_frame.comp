@@ -1,0 +1,25 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// overscan.metal spk_leak_frame (API-SPEC §21.1, §21.9): a light leak with the film edge off. The frame
+// is laid over the format's nominal gate, each pixel takes its film position, and the leak there is
+// added to it as exposure. Helpers: spk_overscan.glsl. n: {pixels}
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Frame { float frame[]; };
+layout(std430, binding = 1) readonly buffer Pbuf { float P[]; };
+layout(std430, binding = 2) readonly buffer N { uint n[]; };
+layout(std430, binding = 3) writeonly buffer Out { float dst[]; };
+#include "spk_overscan.glsl"
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= n[0]) return;
+    const uint cw = uint(P[P_CW]);
+    const float x = float(i % cw), y = float(i / cw), px = P[P_PX];
+    vec2 st;
+    if (P[P_VERTICAL] < 0.5) st = vec2(P[P_GS0] + (x + 0.5) * px, P[P_GT0] + (y + 0.5) * px);
+    else                     st = vec2(P[P_GS0] + (y + 0.5) * px, P[P_GT0] + P[P_GH] - (x + 0.5) * px);
+    const vec3 e = vec3(frame[3u * i], frame[3u * i + 1u], frame[3u * i + 2u]) + leak_field(st);
+    dst[3u * i] = e.x;
+    dst[3u * i + 1u] = e.y;
+    dst[3u * i + 2u] = e.z;
+}

@@ -38,7 +38,7 @@ const TARGETS = {
     hostDir: join(buildDir, 'host-linux-x64'),
     exe: 'spektralab-host',
     triple: 'x86_64-unknown-linux-gnu',
-    bundles: 'deb,appimage',
+    bundles: process.env.SPEKTRALAB_BUNDLES ?? 'deb,appimage',   // e.g. SPEKTRALAB_BUNDLES=deb (the snap is made from the .deb)
     out: 'linux',
     extra: [],
   },

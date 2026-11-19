@@ -1,0 +1,33 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_pyr_down0: the diffusion pyramid's first level from the
+// image (fp32, the scatter source applied), the binomial [1 5 10 10 5 1] / 32
+// per axis. The level is stored fp16-rounded (spk_lens.glsl). meta: {Hin, Win, Hout, Wout}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Img { float img[]; };
+layout(std430, binding = 1) readonly buffer Bp { float bp[]; };
+layout(std430, binding = 2) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 3) writeonly buffer Out { float dst[]; };
+
+SPK_SCATTER_SOURCE_FN(scatter_source, bp)
+
+const float kB6[6] = float[6](1.0 / 32.0, 5.0 / 32.0, 10.0 / 32.0, 10.0 / 32.0, 5.0 / 32.0, 1.0 / 32.0);
+
+void main() {
+    uint i = spk_global_index();
+    uint Hin = meta[0], Win = meta[1], Hout = meta[2], Wout = meta[3];
+    if (i >= Hout * Wout) return;
+    uint r = i / Wout, j = i % Wout;
+    int fy = 2 * int(r) - 2, fx = 2 * int(j) - 2;
+    uint xs[6];
+    for (int b = 0; b < 6; ++b) xs[b] = uint(clamp(fx + b, 0, int(Win) - 1));
+    vec3 s = vec3(0.0);
+    for (int a = 0; a < 6; ++a) {
+        uint row = uint(clamp(fy + a, 0, int(Hin) - 1)) * Win;
+        vec3 acc = vec3(0.0);
+        for (int b = 0; b < 6; ++b) acc += kB6[b] * scatter_source(SPK_LD3(img, row + xs[b]));
+        s += kB6[a] * acc;
+    }
+    SPK_ST3(dst, i, spk_q16v(s));
+}

@@ -1,0 +1,42 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// overscan.metal spk_edr_weighted (API-SPEC §25): the print's EDR mixed over the print without it by the
+// picture's blurred weight times the film's presence -- spk_edr's arithmetic where the weight is 1, the
+// input untouched where it is 0.
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Rgb { float rgb[]; };
+layout(std430, binding = 1) readonly buffer Pe { float p[]; };
+layout(std430, binding = 2) readonly buffer Lut { float lut[]; };
+layout(std430, binding = 3) readonly buffer N { uint n[]; };
+layout(std430, binding = 4) readonly buffer Wt { float w[]; };
+layout(std430, binding = 5) readonly buffer Pbuf { float P[]; };
+layout(std430, binding = 6) writeonly buffer Out { float dst[]; };
+#include "spk_overscan.glsl"
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= n[0]) return;
+    float r = rgb[3u * i], g = rgb[3u * i + 1u], b = rgb[3u * i + 2u];
+    float k = w[3u * i];
+    k = k >= 1.0 - 1e-6 ? 1.0 : k;
+    if (k > 1e-6) {
+        const uint cw = uint(P[P_CW]);
+        k *= film_alpha(canvas_to_film(float(i % cw), float(i / cw)));
+    }
+    if (k <= 1e-6) { dst[3u * i] = r; dst[3u * i + 1u] = g; dst[3u * i + 2u] = b; return; }
+    float y = max(p[0] * r + p[1] * g + p[2] * b, 0.0);
+    float toe = p[5], shoulder = p[6];
+    float mapped = y;
+    if (y > 0.0 && (y < toe || y > shoulder)) {
+        uint count = max(uint(p[7]), 2u);
+        float u = clamp((log2(y) - p[3]) * p[4], 0.0, 1.0) * float(count - 1u);
+        uint i0 = min(uint(floor(u)), count - 2u);
+        float t = u - float(i0);
+        mapped = exp2(mix(lut[i0], lut[i0 + 1u], t));
+    }
+    float scale = mapped / (y + 1e-10);
+    if (k >= 1.0) { dst[3u * i] = r * scale; dst[3u * i + 1u] = g * scale; dst[3u * i + 2u] = b * scale; return; }
+    dst[3u * i] = r + (r * scale - r) * k;
+    dst[3u * i + 1u] = g + (g * scale - g) * k;
+    dst[3u * i + 2u] = b + (b * scale - b) * k;
+}

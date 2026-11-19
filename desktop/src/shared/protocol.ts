@@ -5,6 +5,7 @@
 // request in `desktop/PROTOCOL-REQUESTS.md` has not landed yet — read the
 // comment before making one required.
 
+import type { LensCorrectionReply } from './lens';
 export type HostErrorCode =
   | 'bad_request'
   | 'not_found'
@@ -149,6 +150,8 @@ export interface OpenResult {
   metadata: FileMetadata;
   params: WireParams;
   timings_ms?: { decode?: number; open?: number };
+  /** Develop: what lens correction did at this decode, or why not (absent: not asked). */
+  lens_correction?: LensCorrectionReply;
 }
 
 export type Tier = 'live' | 'preview' | 'full';
@@ -165,7 +168,7 @@ export interface ExportImageParams {
   path: string;
   format: 'tiff16' | 'tiff8' | 'jpeg' | 'png';
   quality?: number;
-  color_space?: 'sRGB' | 'display-p3' | 'prophoto';
+  color_space?: 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb';
   long_edge?: number;
   overwrite?: boolean;
 }

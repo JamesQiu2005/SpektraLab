@@ -1,0 +1,42 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// lens.metal spk_lens_tca: lateral chromatic aberration, R and B magnified
+// against G by 1 + a h, bilinear, scaled by the map's Jacobian.
+// p: {pcx, pcy, inv_hd, a_r, a_b}; meta: {H, W, row0}
+#include "spk_lens.glsl"
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Img { float img[]; };
+layout(std430, binding = 1) readonly buffer P { float p[]; };
+layout(std430, binding = 2) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 3) writeonly buffer Out { float dst[]; };
+
+float bl_sample(uint H, uint W, uint row0, uint c, float qx, float qY) {
+    float xf = floor(qx), yf = floor(qY);
+    float fx = qx - xf, fy = qY - yf;
+    int x0 = clamp(int(xf), 0, int(W) - 1), x1 = clamp(int(xf) + 1, 0, int(W) - 1);
+    int y0 = clamp(int(yf) - int(row0), 0, int(H) - 1), y1 = clamp(int(yf) + 1 - int(row0), 0, int(H) - 1);
+    float v00 = img[3u * (uint(y0) * W + uint(x0)) + c], v01 = img[3u * (uint(y0) * W + uint(x1)) + c];
+    float v10 = img[3u * (uint(y1) * W + uint(x0)) + c], v11 = img[3u * (uint(y1) * W + uint(x1)) + c];
+    return (1.0 - fy) * ((1.0 - fx) * v00 + fx * v01) + fy * ((1.0 - fx) * v10 + fx * v11);
+}
+
+void main() {
+    uint i = spk_global_index();
+    uint H = meta[0], W = meta[1], row0 = meta[2];
+    if (i >= H * W) return;
+    uint y = i / W, x = i % W;
+    float X = float(x), Y = float(y + row0);
+    float dx = X - p[0], dy = Y - p[1];
+    float rd = sqrt(dx * dx + dy * dy);
+    float hd = rd * p[2];
+    dst[3u * i + 1u] = img[3u * i + 1u];
+    for (uint k = 0u; k < 2u; ++k) {
+        uint c = k == 0u ? 0u : 2u;
+        float a = p[3u + k];
+        if (a == 0.0 || rd <= 0.0) { dst[3u * i + c] = img[3u * i + c]; continue; }
+        float ru = 2.0 * rd / (1.0 + sqrt(max(1.0 + 4.0 * a * hd, 1e-6)));
+        float s = ru / rd, hu = ru * p[2];
+        float jac = 1.0 / ((1.0 + 2.0 * a * hu) * (1.0 + a * hu));
+        dst[3u * i + c] = jac * bl_sample(H, W, row0, c, p[0] + dx * s, p[1] + dy * s);
+    }
+}

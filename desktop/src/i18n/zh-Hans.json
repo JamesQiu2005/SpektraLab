@@ -237,7 +237,7 @@
  "setAgentsInstalled": "已安装",
  "setAgentsInstalledOther": "已为另一份应用安装",
  "setAgentsMCP": "MCP 服务",
- "setAgentsMCPCaption": "用以下任一方式把 SpektraLab 添加给智能体。服务由智能体在需要时通过 stdio 自行启动，不在后台常驻。",
+ "setAgentsMCPCaption": "用以下任一方式把 Develop 添加给智能体。服务由智能体在需要时通过 stdio 自行启动，不在后台常驻。",
  "setAgentsNotInstalled": "未安装",
  "setAgentsReinstall": "重新安装",
  "setAgentsToggle": "允许命令行与智能体访问",

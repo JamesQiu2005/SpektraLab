@@ -64,6 +64,7 @@ export async function installMenu(): Promise<void> {
     items: [
       await item(tz('Open Folder…', '打开文件夹…'), () => void openDialog(), 'CmdOrCtrl+O'),
       await item(tz('Open Photographs…', '打开照片…'), () => void openFilesDialog(), 'CmdOrCtrl+Shift+O'),
+      await item(tz('New Layout…', '新建排版…'), () => setPages({ layoutOpen: true }), 'CmdOrCtrl+L'),
       await item(tz('Export…', '导出…'), openExport, 'CmdOrCtrl+E'),
       await sep(),
       await item(tz('Settings…', '设置…'), () => setPages({ settingsOpen: true }), 'CmdOrCtrl+,'),
@@ -151,7 +152,7 @@ export async function installMenu(): Promise<void> {
   const help = await Submenu.new({
     text: tz('&Help', '帮助(&H)'),
     items: [
-      await item(tz('About SpektraLab', '关于 SpektraLab'), () => setPages({ aboutOpen: true })),
+      await item(tz('About Develop', '关于 Develop'), () => setPages({ aboutOpen: true })),
       await item(tz('Show Logs', '显示日志'), () => void platform().appPaths().then((p) => platform().reveal(p.logs))),
     ],
   });

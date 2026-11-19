@@ -9,6 +9,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { LanguageSetting } from '../i18n';
 import type { SideUnit } from '@shared/params';
+import { type MyLens, decodeMyLenses } from '@shared/lens';
 
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
@@ -31,6 +32,8 @@ export interface Settings {
   collapsedSections: Record<string, boolean>;
   lastFolder: string | null;
   settingsPage: 'general' | 'rendering' | 'diagnostics';
+  /** Develop: the owner's own lenses, for those lensfun does not have (shared/lens.ts). */
+  myLenses: MyLens[];
 }
 
 export const SETTINGS_DEFAULT: Settings = {
@@ -50,6 +53,7 @@ export const SETTINGS_DEFAULT: Settings = {
   collapsedSections: {},
   lastFolder: null,
   settingsPage: 'general',
+  myLenses: [],
 };
 
 const KEY = 'ui2.settings';
@@ -68,6 +72,7 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
     const s = out as unknown as Settings;
     if (!INTERFACE_SCALES.includes(s.interfaceScale)) s.interfaceScale = SETTINGS_DEFAULT.interfaceScale;
     if (!(PREVIEW_EDGES as readonly number[]).includes(s.previewLongEdge)) s.previewLongEdge = SETTINGS_DEFAULT.previewLongEdge;
+    s.myLenses = decodeMyLenses(o.myLenses);
     return s;
   } catch {
     return SETTINGS_DEFAULT;

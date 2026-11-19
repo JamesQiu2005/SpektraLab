@@ -237,7 +237,7 @@
  "setAgentsInstalled": "Installed",
  "setAgentsInstalledOther": "Installed for another copy of the app",
  "setAgentsMCP": "MCP server",
- "setAgentsMCPCaption": "Add SpektraLab to an agent with one of these. The agent starts the server itself over stdio when it needs it; nothing runs in the background.",
+ "setAgentsMCPCaption": "Add Develop to an agent with one of these. The agent starts the server itself over stdio when it needs it; nothing runs in the background.",
  "setAgentsNotInstalled": "Not installed",
  "setAgentsReinstall": "Reinstall",
  "setAgentsToggle": "Allow command line and agent access",

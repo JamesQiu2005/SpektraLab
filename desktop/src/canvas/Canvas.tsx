@@ -26,7 +26,9 @@ import {
   rotated,
 } from '@shared/geometry';
 import { clamp } from '@shared/params';
+import { type Border, borderPixels } from '@shared/adjustments';
 import { GLRenderer, type DrawState } from './glRenderer';
+import { drawWatermark } from '@shared/watermark';
 import { frameImages } from '../state/frames';
 import {
   beginGesture,
@@ -54,6 +56,8 @@ export interface Layout {
   fitZoom: number;
   display: Geometry;
   native: { width: number; height: number };
+  /** The border's widths on screen, device px (zero without one). */
+  borderPx: { left: number; top: number; right: number; bottom: number };
 }
 
 export function displayGeometry(g: Geometry, cropping: boolean): Geometry {
@@ -67,20 +71,26 @@ export function computeLayout(
   cropping: boolean,
   view: { fit: boolean; zoom: number; cx: number; cy: number },
   margin: number,
+  border?: Border,
 ): Layout {
   const display = displayGeometry(g, cropping);
   const out = outputSize(display, native);
-  const fitZoom = Math.min((viewport.width - 2 * margin) / out.width, (viewport.height - 2 * margin) / out.height);
+  // The border (Adjustments.border) is fitted with the picture, so Fit shows the whole framed
+  // print; not while cropping, which is about the picture alone.
+  const b = borderPixels(cropping ? undefined : border, out.width, out.height);
+  const total = { width: out.width + b.left + b.right, height: out.height + b.top + b.bottom };
+  const fitZoom = Math.min((viewport.width - 2 * margin) / total.width, (viewport.height - 2 * margin) / total.height);
   const zoom = view.fit || cropping ? fitZoom : view.zoom;
   const outSize = { width: out.width * zoom, height: out.height * zoom };
   const cx = view.fit || cropping ? 0.5 : view.cx;
   const cy = view.fit || cropping ? 0.5 : view.cy;
   let ox = viewport.width / 2 - cx * outSize.width;
   let oy = viewport.height / 2 - cy * outSize.height;
-  // Smaller than the canvas: centred on that axis.
-  if (outSize.width <= viewport.width) ox = (viewport.width - outSize.width) / 2;
-  if (outSize.height <= viewport.height) oy = (viewport.height - outSize.height) / 2;
-  return { viewport, offset: { x: ox, y: oy }, outSize, out, zoom, fitZoom, display, native };
+  // Smaller than the canvas: the framed print centred on that axis.
+  if (total.width * zoom <= viewport.width) ox = (viewport.width - total.width * zoom) / 2 + b.left * zoom;
+  if (total.height * zoom <= viewport.height) oy = (viewport.height - total.height * zoom) / 2 + b.top * zoom;
+  const borderPx = { left: b.left * zoom, top: b.top * zoom, right: b.right * zoom, bottom: b.bottom * zoom };
+  return { viewport, offset: { x: ox, y: oy }, outSize, out, zoom, fitZoom, display, native, borderPx };
 }
 
 export function Canvas() {
@@ -103,6 +113,7 @@ export function Canvas() {
   const comparePosition = useSession((s) => s.comparePosition);
   const showingOriginal = useSession((s) => s.showingOriginal);
   const badge = useSession((s) => s.badge);
+  const rendering = useSession((s) => s.rendering);
   const selection = useSession((s) => s.selection);
   const batch = useSession((s) => s.batchExporting);
   const exportOpen = useSession((s) => s.exportOpen);
@@ -138,6 +149,7 @@ export function Canvas() {
           cropping,
           view,
           cropping ? 24 * size.dpr : 0,
+          adjustments.enabled ? adjustments.border : undefined,
         )
       : null;
   useEffect(() => {
@@ -192,6 +204,8 @@ export function Canvas() {
       compare: showingOriginal ? 2 : comparing ? 1 : 0,
       split: comparePosition,
       surround: SURROUND,
+      border: layout.borderPx,
+      borderTone: adjustments.border?.tone ?? 1,
     };
     r.draw(state);
   }, [imageVersion, layout?.zoom, layout?.offset.x, layout?.offset.y, size, geometry, adjustments, cropping, comparing, comparePosition, showingOriginal, layout]);
@@ -242,6 +256,8 @@ export function Canvas() {
           compare: showingOriginal ? 2 : comparing ? 1 : 0,
           split: comparePosition,
           surround: SURROUND,
+          border: layout.borderPx,
+          borderTone: adjustments.border?.tone ?? 1,
         });
     }, 60);
     return () => clearTimeout(t);
@@ -370,6 +386,7 @@ export function Canvas() {
       data-testid="canvas"
     >
       <canvas ref={canvas} className="canvas-gl" />
+      {layout && <WatermarkOverlay layout={layout} size={size} />}
       {glError && <div className="canvas-message">{tz('This display cannot draw the picture (WebGL2): ', '此显示无法绘制画面（WebGL2）：') + glError}</div>}
       {!selection && !glError && <div className="canvas-message">{tz('Open a folder or drop photographs here (Ctrl+O).', '打开文件夹或把照片拖到这里（Ctrl+O）。')}</div>}
       {layout && cropping && <CropOverlay layout={layout} geometry={geometry} dpr={size.dpr} />}
@@ -386,6 +403,12 @@ export function Canvas() {
           <span className="compare-label left">{tz('Before', '之前')}</span>
           <span className="compare-label right">{tz('After', '之后')}</span>
           <span className="compare-handle" />
+        </div>
+      )}
+      {rendering && selection && (
+        <div className="rendering-pill" data-testid="rendering-pill" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          {tz('Developing…', '正在冲洗…')}
         </div>
       )}
       <div className="canvas-corner">
@@ -441,4 +464,26 @@ function CropOverlay({ layout, geometry, dpr }: { layout: Layout; geometry: Geom
       })}
     </svg>
   );
+}
+
+/**
+ * The watermark over the picture on screen, drawn by the same function as the export's (watermark.ts), at
+ * the picture's place and size in device pixels, so what is seen is what is written.
+ */
+function WatermarkOverlay({ layout, size }: { layout: { offset: { x: number; y: number }; outSize: { width: number; height: number } }; size: { width: number; height: number; dpr: number } }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const adj = useSession((s) => s.sidecar.adjustments);
+  const wm = adj.enabled ? adj.watermark : undefined;
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const W = Math.round(size.width * size.dpr), H = Math.round(size.height * size.dpr);
+    if (c.width !== W) c.width = W;
+    if (c.height !== H) c.height = H;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, W, H);
+    if (wm) drawWatermark(ctx, layout.offset.x, layout.offset.y, layout.outSize.width, layout.outSize.height, wm);
+  }, [wm, layout.offset.x, layout.offset.y, layout.outSize.width, layout.outSize.height, size.width, size.height, size.dpr]);
+  return <canvas ref={ref} className="canvas-overlay" style={{ width: size.width, height: size.height }} aria-hidden="true" />;
 }

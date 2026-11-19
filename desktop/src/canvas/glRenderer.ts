@@ -40,6 +40,8 @@ uniform vec2 uOffset;        // device px, top-left of the output
 uniform vec2 uOutSize;       // device px of the output on screen
 uniform bool uOffscreen;     // render the output itself (navigator, histogram)
 uniform float uSurround;
+uniform vec4 uBorder;        // device px round the output: left, top, right, bottom (0 = none)
+uniform float uBorderTone;   // its grey, 0 black .. 1 white
 
 // geometry (display) — GeometryUniform
 uniform vec2 gCentre;
@@ -66,6 +68,13 @@ uniform float lExposure;
 uniform float lContrast;
 uniform float lBrightness;
 uniform float lSaturation;
+uniform float lVibrance;
+uniform bool lHslActive;
+uniform float lHslHue[8];
+uniform float lHslSat[8];
+uniform float lHslLum[8];
+uniform bool lMixActive;
+uniform mat3 lMix;           // columns are the matrix's rows (uploaded transposed): c' = c * lMix
 uniform float lHighlights;
 uniform float lShadows;
 uniform float lBlack;
@@ -117,6 +126,38 @@ float curve(float x, int row) {
   return texture(uCurves, vec2(u, (float(row) + 0.5) / 5.0)).r;
 }
 
+// 5b. Vibrance (Layer2Kernel.swift l2Vibrance; shared/adjustments.ts vibranceOf).
+vec3 l2Vibrance(vec3 c, float v) {
+  float mx = max(max(c.r, c.g), c.b), mn = min(min(c.r, c.g), c.b);
+  float s = mx > 1e-4 ? clamp((mx - mn) / mx, 0.0, 1.0) : 0.0;
+  float l = luma(c);
+  return l + (c - l) * max(1.0 + v * (1.0 - s), 0.0);
+}
+// 5c. HSL (l2Hsl; hslOf): between two of the eight colours, turned, scaled and lightened by both.
+vec3 l2Hsl(vec3 c) {
+  float l = luma(c);
+  vec3 d = c - l;
+  vec2 p = vec2(d.r - 0.5 * (d.g + d.b), 0.8660254 * (d.g - d.b));
+  float chroma = length(p);
+  if (chroma < 1e-6) return c;
+  float h = atan(p.y, p.x) * 57.29577951;
+  if (h < 0.0) h += 360.0;
+  float centres[9] = float[9](0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 270.0, 300.0, 360.0);
+  int i = 0;
+  for (int k = 0; k < 7; ++k) if (h >= centres[k + 1]) i = k + 1;
+  int j = (i + 1) % 8;
+  float t = clamp((h - centres[i]) / (centres[i + 1] - centres[i]), 0.0, 1.0);
+  t = t * t * (3.0 - 2.0 * t);
+  float turn = mix(lHslHue[i], lHslHue[j], t), scale = max(1.0 + mix(lHslSat[i], lHslSat[j], t), 0.0);
+  float lift = mix(lHslLum[i], lHslLum[j], t);
+  float cs = cos(turn), sn = sin(turn);
+  vec2 q2 = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs) * scale;
+  float q = q2.y / 0.8660254;
+  float s = -2.0 * 0.2126 * q2.x - (0.7152 - 0.0722) * q;
+  c = l + vec3(q2.x + 0.5 * s, 0.5 * (s + q), 0.5 * (s - q));
+  return c * (1.0 + 0.5 * lift * smoothstep(0.0, 0.2, chroma));
+}
+
 vec3 layer2(vec3 c, vec2 suv) {
   if (!lEnabled) return c;
   c *= lWb;
@@ -129,6 +170,11 @@ vec3 layer2(vec3 c, vec2 suv) {
   c = (c - lBlack) / max(1.0 - lBlack - lWhite, 0.05);
   l = luma(c);
   c = l + (c - l) * lSaturation;
+  bool moved = false;
+  if (lVibrance != 0.0) { c = l2Vibrance(c, lVibrance); moved = true; }
+  if (lHslActive) { c = l2Hsl(c); moved = true; }
+  if (lMixActive) { c = c * lMix; moved = true; }
+  if (moved) l = luma(c);
   float ls = clamp(tonePosition(l, lMidGrey), 0.0, 1.0);
   float wS = (1.0 - ls) * (1.0 - ls);
   float wH = ls * ls;
@@ -154,14 +200,19 @@ vec3 layer2(vec3 c, vec2 suv) {
 }
 
 void main() {
-  vec2 ouv;
-  if (uOffscreen) {
-    ouv = vUv;
-  } else {
-    vec2 px = vUv * uViewport;
-    ouv = (px - uOffset) / uOutSize;
+  vec2 px = vUv * uViewport;
+  vec2 ouv = uOffscreen ? vUv : (px - uOffset) / uOutSize;
+  // How much the picture is shrunk here (the mip level), taken before any pixel returns: GLSL's own
+  // derivatives are undefined where a neighbouring pixel has left (the border, the surround), and at
+  // the picture's edge that picked a wrong level -- a dotted line along the border (2026-11-19).
+  vec2 sAll = geometryMap(ouv);
+  vec2 gx = dFdx(sAll), gy = dFdy(sAll);
+  if (!uOffscreen) {
     if (ouv.x < 0.0 || ouv.y < 0.0 || ouv.x > 1.0 || ouv.y > 1.0) {
-      outColor = vec4(vec3(uSurround), 1.0);
+      // The border (Adjustments.border) round the picture, then the surround.
+      vec2 lo = uOffset - uBorder.xy, hi = uOffset + uOutSize + uBorder.zw;
+      bool inBorder = px.x >= lo.x && px.y >= lo.y && px.x <= hi.x && px.y <= hi.y;
+      outColor = vec4(vec3(inBorder ? uBorderTone : uSurround), 1.0);
       return;
     }
   }
@@ -173,9 +224,9 @@ void main() {
   bool before = uCompare == 2 || (uCompare == 1 && ouv.x < uSplit);
   vec3 c;
   if (before && uHasOriginal) {
-    c = texture(uOriginal, suv).rgb;
+    c = textureGrad(uOriginal, suv, gx, gy).rgb;
   } else if (uHasImage) {
-    c = layer2(texture(uImage, suv).rgb, suv);
+    c = layer2(textureGrad(uImage, suv, gx, gy).rgb, suv);
   } else {
     c = vec3(uSurround);
   }
@@ -199,6 +250,9 @@ export interface DrawState {
   compare: 0 | 1 | 2;
   split: number;
   surround: number;
+  /** The border round the output on screen, device px; none when absent. */
+  border?: { left: number; top: number; right: number; bottom: number };
+  borderTone?: number;
 }
 
 export class GLRenderer {
@@ -230,8 +284,13 @@ export class GLRenderer {
     const a = gl.getAttribLocation(this.program, 'aPos');
     gl.enableVertexAttribArray(a);
     gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
-    this.image = this.texture(gl.LINEAR);
-    this.original = this.texture(gl.LINEAR);
+    // The picture and the original are drawn smaller than they are whenever the view is zoomed out (a
+    // 3,400 px preview in a 700 px window). With a plain LINEAR filter each screen pixel reads 4 of the
+    // ~25-64 pixels it covers, so grain and fine detail alias and look far stronger than in the export
+    // (measured on an exported Portra 400, 2026-11-19). Mipmaps average every pixel in, as an image viewer
+    // does; at 100 % and above the full-resolution level is the one read, as before.
+    this.image = this.texture(gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR);
+    this.original = this.texture(gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR);
     this.curves = this.texture(gl.LINEAR);
   }
 
@@ -252,12 +311,12 @@ export class GLRenderer {
     return p;
   }
 
-  private texture(filter: number): WebGLTexture {
+  private texture(filter: number, mag: number = filter): WebGLTexture {
     const gl = this.gl;
     const t = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
@@ -276,6 +335,8 @@ export class GLRenderer {
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, img.width, img.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
+    // The averaged smaller copies the zoomed-out view reads (see the constructor).
+    gl.generateMipmap(gl.TEXTURE_2D);
     return true;
   }
 
@@ -327,6 +388,9 @@ export class GLRenderer {
     gl.uniform2f(this.u('uOutSize'), s.outSize.width, s.outSize.height);
     gl.uniform1i(this.u('uOffscreen'), offscreen ? 1 : 0);
     gl.uniform1f(this.u('uSurround'), s.surround);
+    const b = offscreen ? undefined : s.border;
+    gl.uniform4f(this.u('uBorder'), b?.left ?? 0, b?.top ?? 0, b?.right ?? 0, b?.bottom ?? 0);
+    gl.uniform1f(this.u('uBorderTone'), s.borderTone ?? 1);
     this.setGeometry('g', uniform(s.display, s.sourceSize));
     const crop = s.editingCrop ? uniform(s.editingCrop, s.sourceSize) : uniform(GEOMETRY_DEFAULT, s.sourceSize);
     gl.uniform1i(this.u('uEditingCrop'), s.editingCrop && !offscreen ? 1 : 0);
@@ -355,6 +419,14 @@ export class GLRenderer {
     gl.uniform1f(this.u('lVignetteMid'), l.vignetteMidpoint);
     gl.uniform1f(this.u('lMidGrey'), l.midGrey);
     gl.uniform1i(this.u('lCurves'), l.curvesActive ? 1 : 0);
+    gl.uniform1f(this.u('lVibrance'), l.vibrance);
+    gl.uniform1i(this.u('lHslActive'), l.hslActive ? 1 : 0);
+    gl.uniform1fv(this.u('lHslHue'), l.hslHue);
+    gl.uniform1fv(this.u('lHslSat'), l.hslSat);
+    gl.uniform1fv(this.u('lHslLum'), l.hslLum);
+    gl.uniform1i(this.u('lMixActive'), l.mixerActive ? 1 : 0);
+    // c * M with M's columns the rows: column-major upload of the row-major matrix, untransposed.
+    gl.uniformMatrix3fv(this.u('lMix'), false, l.mix);
   }
 
   draw(s: DrawState) {

@@ -10,6 +10,7 @@ import {
   featureGate,
   filmFormatMM,
   fullDelta,
+  withFrameSeed,
   printExposure,
   wire,
 } from './params';
@@ -86,5 +87,92 @@ describe('the wire', () => {
     expect(filmFormatMM('long', 36, 1.5)).toBe(36);
     expect(filmFormatMM('short', 56, 1)).toBe(56);
     expect(filmFormatMM('short', 56, 70 / 56)).toBeCloseTo(70);
+  });
+});
+
+describe('light leak and lens (SpektraLab 2 LensEdge.swift)', () => {
+  const names = new Set((schema as { name: string }[]).map((f) => f.name));
+  const on = {
+    ...FILM_PARAMS_DEFAULT,
+    leak: { kind: 'band', amount: 2, edge: 1.5, seed: 77 },
+    lens: { filter: 'cinebloom', strength: 0.25, character: 'plastic', amount: 0.5 },
+  };
+  it('sends only fields the engine has', () => {
+    for (const f of [...Object.keys(fullDelta(FILM_PARAMS_DEFAULT)), ...Object.keys(fullDelta(on))]) expect(names.has(f), f).toBe(true);
+  });
+  it('is off by default, its switches still sent', () => {
+    const d = fullDelta(FILM_PARAMS_DEFAULT);
+    expect(d.leak_kind).toBe('off');
+    expect(d.leak_edge).toBe(0);
+    expect(d.diffusion_filter_active).toBe(false);
+    expect(d.lens_aberrations_active).toBe(false);
+    expect('diffusion_filter_family' in d).toBe(false);
+    expect('lens_coma_um' in d).toBe(false);
+  });
+  it('lays a leak on a 135 gate with the film edge off', () => {
+    const d = fullDelta(on, { ...ALL_FEATURES, overscan: false, dateImprint: false });
+    expect(d).toMatchObject({ leak_kind: 'band', leak_amount: 2, leak_edge: 1.5, leak_seed: 77, overscan_format: '135' });
+    expect(d.overscan_camera_seed).toBe(FILM_PARAMS_DEFAULT.filmEdge.cameraSeed);
+    expect('overscan_active' in d).toBe(false);
+  });
+  it('scales the character by its amount, the field shape is the lens own', () => {
+    const d = fullDelta(on);
+    expect(d).toMatchObject({ diffusion_filter_active: true, diffusion_filter_family: 'cinebloom', diffusion_filter_strength: 0.25 });
+    expect(d).toMatchObject({ lens_aberrations_active: true, lens_field_curvature_um: 17.5, lens_lateral_ca_r: 0.75, lens_lateral_ca_b: -0.75 });
+    expect(d).toMatchObject({ lens_spherical_amount: 0.125, lens_spherical_um: 120, lens_loca_um: 5, lens_loca_sign: 'purple' });
+  });
+  it('decodes unknown names as off', () => {
+    const p = decodeFilmParams({ leak: { kind: 'laser' }, lens: { filter: 'vaseline', character: 'fisheye' } });
+    expect(p.leak.kind).toBe('off');
+    expect(p.lens.filter).toBeNull();
+    expect(p.lens.character).toBeNull();
+  });
+  it('turning a leak off reaches the engine', () => {
+    const { delta: d } = delta(FILM_PARAMS_DEFAULT, on);
+    expect(d).toMatchObject({ leak_kind: 'off', leak_edge: 0, diffusion_filter_active: false, lens_aberrations_active: false });
+  });
+});
+
+describe('each photo its own leak (withFrameSeed)', () => {
+  it('draws a frame seed once, the first time a leak is on', () => {
+    const off = FILM_PARAMS_DEFAULT;
+    expect(withFrameSeed(off, () => 0.5)).toBe(off);
+    const on = { ...off, leak: { ...off.leak, kind: 'band' } };
+    const a = withFrameSeed(on, () => 0.5);
+    expect(a.filmEdge.seeded).toBe(true);
+    expect(a.filmEdge.frameSeed).not.toBe(off.filmEdge.frameSeed);
+    expect(withFrameSeed(a, () => 0.9)).toBe(a);
+    const edge = withFrameSeed({ ...off, leak: { ...off.leak, edge: 1 } }, () => 0.25);
+    expect(edge.filmEdge.seeded).toBe(true);
+  });
+});
+
+describe('a film edge cuts the picture to its gate (filmEdgeCutAspect)', () => {
+  it('asks for the gate shape only while the film edge is on', async () => {
+    const { filmEdgeCutAspect } = await import('./params');
+    const { decodeWire } = await import('./whiteBalance');
+    const off = FILM_PARAMS_DEFAULT;
+    expect(filmEdgeCutAspect(off)).toBeNull();
+    const half = { ...off, filmEdge: { ...off.filmEdge, active: true, format: '135_half' } };
+    expect(filmEdgeCutAspect(half)).toBeCloseTo(24 / 18, 9);
+    expect(filmEdgeCutAspect({ ...half, filmEdge: { ...half.filmEdge, format: '120_6x6' } })).toBe(1);
+    expect(filmEdgeCutAspect(half, { ...ALL_FEATURES, overscan: false })).toBeNull();
+    expect(decodeWire({ whiteBalance: 'As Shot', temperature: 5500, tint: 0, lensCorrection: false, lens: null }, false, 1)).toEqual({ cut: { aspect: 1 } });
+  });
+});
+
+describe('a half-frame pair (Develop)', () => {
+  it('is 37 mm of film, printed as 135 half with both frames, and never cut to a gate', async () => {
+    const { filmEdgeCutAspect, pairDecode } = await import('./params');
+    const { decodeWire } = await import('./whiteBalance');
+    const p = { ...FILM_PARAMS_DEFAULT, pairWith: '/photos/b.ARW', filmEdge: { ...FILM_PARAMS_DEFAULT.filmEdge, active: true, format: '120_6x6' } };
+    const d = fullDelta(p);
+    expect(d).toMatchObject({ film_format_mm: 37, overscan_format: '135_half', overscan_pair: true });
+    expect(filmEdgeCutAspect(p)).toBeNull();
+    expect(pairDecode(p)).toEqual({ second: '/photos/b.ARW', swap: false });
+    expect(decodeWire({ whiteBalance: 'As Shot', temperature: 5500, tint: 0, lensCorrection: false, lens: null }, false, null, pairDecode(p))).toEqual({
+      pair: { second: '/photos/b.ARW', swap: false },
+    });
+    expect(pairDecode(FILM_PARAMS_DEFAULT)).toBeNull();
   });
 });

@@ -61,7 +61,6 @@ export function browserPlatform(): Platform {
     pickFiles: async () => entries(ROLL).slice(0, 3).map((e) => e.path),
     pickSave: async (_t, defaultPath) => defaultPath,
     reveal: async (p) => console.info('reveal', p),
-    openUrl: async (u) => void window.open(u, '_blank'),
     message: async (title, text) => window.alert(`${title}\n\n${text}`),
     confirm: async (title, text) => window.confirm(`${title}\n\n${text}`),
     onOpenPaths(cb) {

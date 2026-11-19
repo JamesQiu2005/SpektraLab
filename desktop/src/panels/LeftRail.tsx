@@ -36,7 +36,9 @@ import {
 import { clamp } from '@shared/params';
 import { useOutput } from '../canvas/output';
 import { StockList } from './StockList';
+import { edgeTextFor } from '@shared/stocks';
 import { unsupportedReason } from './gate';
+import { platform } from '../platform';
 
 export function LeftRail() {
   const { t: tr } = useI18n();
@@ -49,6 +51,8 @@ export function LeftRail() {
         <ClipboardSection />
         <FilmSection />
         <FilmEdgeSection />
+        <PairSection />
+        <DoubleSection />
         <DateBackSection />
         <PrintSection />
         <CropSection />
@@ -144,6 +148,8 @@ const GROUP_LABEL: Record<ClipboardGroup, () => string> = {
   filmEffects: () => t('clipFilmEffects'),
   printEffects: () => t('clipPrintEffects'),
   scenePlacement: () => t('clipScenePlacement'),
+  lensCorrection: () => tz('Lens Correction', '镜头校正'),
+  localLayers: () => tz('Local Layers', '局部图层'),
 };
 
 function ClipboardSection() {
@@ -185,7 +191,14 @@ function FilmSection() {
   const film = useSession((s) => s.sidecar.params.filmStock);
   const rows = catalog.filmGroups().flatMap((g) => [
     { id: '__g' + g.title, name: g.title === 'Positive' ? t('filmGroupPositive') : t('filmGroupNegative'), header: true },
-    ...g.films.map((f) => ({ id: f.id, name: f.name, cine: f.use === 'cine', cover: catalog.coverURL(f.id) })),
+    ...g.films.map((f) => ({
+      id: f.id,
+      name: f.name,
+      cine: f.use === 'cine',
+      cover: catalog.coverURL(f.id),
+      swatch: f.swatch ?? null,
+      iso: f.iso ?? null,
+    })),
   ]);
   return (
     <Section
@@ -202,7 +215,22 @@ function FilmSection() {
         },
       ]}
     >
-      <StockList rows={rows} selected={film} onSelect={(id) => setParams((p) => ({ ...p, filmStock: id }))} testId="film-list" />
+      <StockList
+        rows={rows}
+        selected={film}
+        // Selecting a film brings its recommended paper and is scanned if it is a slide
+        // (Stock.swift `FilmParams.load(film:)`); a later explicit paper choice is kept.
+        onSelect={(id) =>
+          setParams((p) => ({
+            ...p,
+            filmStock: id,
+            scanFilm: catalog.isSlide(id),
+            printStock: catalog.ownPaper(id) ?? catalog.paperPrinting(id, p.printStock),
+            digitalIntermediate: false,
+          }))
+        }
+        testId="film-list"
+      />
     </Section>
   );
 }
@@ -212,15 +240,23 @@ function FilmSection() {
 function FilmEdgeSection() {
   const gate = useSession((s) => s.gate);
   const fe = useSession((s) => s.sidecar.params.filmEdge);
+  const film = useSession((s) => s.sidecar.params.filmStock);
+  const catalog = useSession((s) => s.catalog);
   const reason = unsupportedReason('overscan', gate.overscan);
+  const setFe = (patch: Partial<typeof fe>) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, ...patch } }));
+  const roll = () => 1 + Math.floor(Math.random() * 2147483646);
+  const is120 = fe.format.startsWith('120');
   return (
     <Section id="filmEdge" title={t('sectionFilmEdge')} unsupported={reason}>
-      <ToggleRow label={t('sectionFilmEdge')} on={fe.active} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, active: v } }))} />
+      <ToggleRow label={t('sectionFilmEdge')} on={fe.active} onChange={(v) => setFe({ active: v })} />
       <PillMenu
         label={t('edgeFormat')}
         value={fe.format}
-        options={['135', '135_half', '135_xpan', '120_645', '120_6x6', '120_6x7', '120_6x8', '120_6x9', '120_6x12', '120_6x17'].map((v) => ({ value: v, label: v.replace('_', ' ') }))}
-        onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, format: v } }))}
+        options={['135', '135_half', '135_xpan', '135_sprocket', '120_645', '120_6x6', '120_6x7', '120_6x8', '120_6x9', '120_6x12', '120_6x17'].map((v) => ({
+          value: v,
+          label: v === '135_sprocket' ? tz('135 full width', '135 全幅') : v.replace('_', ' '),
+        }))}
+        onChange={(v) => setFe({ format: v })}
       />
       <PillMenu
         label={t('edgeView')}
@@ -229,10 +265,174 @@ function FilmEdgeSection() {
           { value: 'strip', label: t('edgeViewStrip') },
           { value: 'filed', label: t('edgeViewFiled') },
         ]}
-        onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, view: v } }))}
+        onChange={(v) => setFe({ view: v })}
       />
-      <ScrubSlider label={t('edgeFog')} value={fe.fog} range={[0, 4]} zero={1} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, fog: v } }))} />
-      <ScrubSlider label={t('edgeLeaks')} value={fe.leaks} range={[0, 4]} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, leaks: v } }))} />
+      <PillMenu
+        label={t('edgeGate')}
+        value={fe.gate}
+        options={(['auto', 'square', 'rounded', 'eared', 'shouldered', 'kicked'] as const).map((g) => ({
+          value: g,
+          label: t(('edgeGate' + g[0]!.toUpperCase() + g.slice(1)) as 'edgeGateAuto'),
+        }))}
+        onChange={(v) => setFe({ gate: v })}
+      />
+      <PillMenu
+        label={t('edgeHoles')}
+        value={fe.holes}
+        options={[
+          { value: 'white', label: t('edgeHolesWhite') },
+          { value: 'black', label: t('edgeHolesBlack') },
+        ]}
+        onChange={(v) => setFe({ holes: v })}
+      />
+      <PillMenu
+        label={tz('Carrier', '片夹')}
+        value={fe.carrier ?? 'none'}
+        options={[
+          { value: 'none', label: tz('None', '无') },
+          { value: 'black', label: tz('Black', '黑') },
+          { value: 'open', label: tz('Open (light)', '透光') },
+        ]}
+        onChange={(v) => setFe({ carrier: v })}
+      />
+      <ScrubSlider label={t('edgeFog')} value={fe.fog} range={[0, 4]} zero={1} onChange={(v) => setFe({ fog: v })} />
+      <ScrubSlider label={t('edgeLeaks')} value={fe.leaks} range={[0, 4]} onChange={(v) => setFe({ leaks: v })} />
+      <ScrubSlider
+        label={tz('Lens Falloff', '镜头暗角')}
+        sublabel={tz('darker corners, as a wide lens on full-width film', '边角变暗，如全幅胶片上的广角镜')}
+        value={fe.falloff ?? 0}
+        range={[0, 1.5]}
+        zero={0}
+        snap={0.05}
+        format={(v) => v.toFixed(2)}
+        onChange={(v) => setFe({ falloff: v })}
+      />
+      {is120 && (
+        <ToggleRow
+          label={tz('65 mm Keyholes', '65mm 钥匙孔齿孔')}
+          sublabel={tz('120 cut from 65 mm cine film', '由 65mm 电影胶片裁成的 120')}
+          on={fe.perforation === 'ks65'}
+          onChange={(v) => setFe({ perforation: v ? 'ks65' : 'none' })}
+        />
+      )}
+      <div className="row" style={{ gap: 8 }}>
+        <span className="row-label">{tz('Edge Text', '边缘文字')}</span>
+        <input
+          className="unit-field"
+          style={{ flex: 1, minWidth: 0 }}
+          value={fe.edgeText}
+          placeholder={edgeTextFor(catalog, film, fe.format)}
+          onChange={(e) => setFe({ edgeText: e.target.value.toUpperCase().slice(0, 40) })}
+          title={tz('Empty: the film’s own words', '留空：使用胶片自己的文字')}
+          data-testid="edge-text"
+        />
+      </div>
+      <ScrubSlider
+        label={tz('Frame Number', '帧号')}
+        sublabel={fe.frameNumber === 0 ? tz('0: the roll decides', '0：由胶卷决定') : undefined}
+        value={fe.frameNumber}
+        range={[0, 99]}
+        zero={0}
+        snap={1}
+        format={(v) => (v === 0 ? tz('Auto', '自动') : v.toFixed(0))}
+        onChange={(v) => setFe({ frameNumber: Math.round(v) })}
+      />
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn" onClick={() => setFe({ cameraSeed: roll() })} title={tz('Another camera: its gate’s shape and wobble, its spool leaks', '换一台相机：片门形状与抖动、漏光')}>
+          {tz('New Camera', '换相机')}
+        </button>
+        <button className="btn" onClick={() => setFe({ frameSeed: roll(), seeded: true })} title={tz('Another frame on the same roll', '同一卷中的另一帧')}>
+          {tz('New Frame', '换一帧')}
+        </button>
+      </div>
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------- Half-Frame Pair
+// Develop's half-frame pair (SpektraLab 2's Pair): this photograph and another on one piece of 135, each
+// cut to the half frame's 18 x 24 and at its own exposure, the 1 mm of film between them. The host makes
+// the piece (decode.pair); with the film edge on it is printed as a pair on one strip.
+
+function PairSection() {
+  const p = useSession((s) => s.sidecar.params);
+  const selection = useSession((s) => s.selection);
+  const pairWith = p.pairWith ?? '';
+  const name = (path: string) => path.split(/[\\/]/).pop() ?? path;
+  const choose = async () => {
+    const files = await platform().pickFiles(tz('Pair with another photograph', '与另一张照片组成双格'));
+    const second = files[0];
+    if (!second || second === selection) return;
+    setParams((q) => ({ ...q, pairWith: second, pairSwap: false }));
+  };
+  return (
+    <Section id="pair" title={tz('Half-Frame Pair', '半格双拼')}>
+      <div className="caption">
+        {pairWith
+          ? tz(`Paired with ${name(pairWith)}`, `已与 ${name(pairWith)} 组成双格`)
+          : tz('Two photographs side by side on one frame of 135, as a half-frame camera makes them.', '两张照片并排在一格 135 胶片上，如半格相机所拍。')}
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn" disabled={!selection} onClick={() => void choose()} data-testid="pair-with">
+          {pairWith ? tz('Change…', '更换…') : tz('Pair with…', '组成双格…')}
+        </button>
+        <button className="btn" disabled={!pairWith} onClick={() => setParams((q) => ({ ...q, pairSwap: !q.pairSwap }))} title={tz('Swap which photograph comes first', '交换先后顺序')}>
+          {tz('Swap', '交换')}
+        </button>
+        <button className="btn" disabled={!pairWith} onClick={() => setParams((q) => ({ ...q, pairWith: '', pairSwap: false }))}>
+          {tz('Unpair', '取消双格')}
+        </button>
+      </div>
+      {pairWith && !p.filmEdge.active && (
+        <div className="caption">{tz('Tick Film Edge to see the pair on its strip.', '勾选胶片边缘即可看到胶片条上的双格。')}</div>
+      )}
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------ Double Exposure
+// Develop's double exposure (SpektraLab 2's Double, RFC-048): a second photograph's light added over this
+// frame on the same piece of film, each metered alone; Balance is the second's share of the light.
+
+function DoubleSection() {
+  const p = useSession((s) => s.sidecar.params);
+  const selection = useSession((s) => s.selection);
+  const second = p.doubleWith ?? '';
+  const name = (path: string) => path.split(/[\\/]/).pop() ?? path;
+  const choose = async () => {
+    const files = await platform().pickFiles(tz('Expose another photograph over this one', '在此照片上叠加曝光另一张'));
+    const f = files[0];
+    if (!f || f === selection) return;
+    setParams((q) => ({ ...q, doubleWith: f, doubleBalance: q.doubleBalance || 0.5 }));
+  };
+  return (
+    <Section id="double" title={tz('Double Exposure', '双重曝光')}>
+      <div className="caption">
+        {second
+          ? tz(`Exposed with ${name(second)}`, `已与 ${name(second)} 叠加曝光`)
+          : tz('Two exposures on one frame: the second photograph’s light added to this one’s.', '一格胶片两次曝光：第二张照片的光叠加在此照片上。')}
+      </div>
+      {p.pairWith && <div className="caption">{tz('Not with a half-frame pair: unpair first.', '半格双拼时不可用：请先取消双格。')}</div>}
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn" disabled={!selection || !!p.pairWith} onClick={() => void choose()} data-testid="double-with">
+          {second ? tz('Change…', '更换…') : tz('Expose with…', '叠加曝光…')}
+        </button>
+        <button className="btn" disabled={!second} onClick={() => setParams((q) => ({ ...q, doubleWith: '' }))}>
+          {tz('Remove', '移除')}
+        </button>
+      </div>
+      <ScrubSlider
+        label={tz('Balance', '平衡')}
+        sublabel={tz('the second exposure’s share of the light', '第二次曝光所占的光量')}
+        value={Math.round((p.doubleBalance ?? 0.5) * 100)}
+        range={[10, 90]}
+        zero={50}
+        snap={5}
+        format={(v) => `${v.toFixed(0)} %`}
+        disabled={!second}
+        onChange={(v) => setParams((q) => ({ ...q, doubleBalance: Math.min(0.9, Math.max(0.1, v / 100)) }))}
+        testId="double-balance"
+      />
     </Section>
   );
 }
@@ -284,7 +484,11 @@ function PrintSection() {
       g.papers.length
         ? [
             { id: '__g' + g.title, name: g.title === 'Still' ? t('printGroupStill') : t('printGroupCine'), header: true },
-            ...g.papers.map((s) => ({ id: s.id, name: s.name, cine: s.use === 'cine', disabled: positive, reason: positiveReason })),
+            ...g.papers.map((s) => {
+              // Silver on silver, colour on colour (Stock.swift `canPrint`): the other kind waits.
+              const why = catalog.whyNotPrinted(p.filmStock, s.id);
+              return { id: s.id, name: s.name, cine: s.use === 'cine', disabled: positive || !!why, reason: why ?? positiveReason };
+            }),
           ]
         : [],
     ),
@@ -303,7 +507,8 @@ function PrintSection() {
         onSelect={(id) => {
           if (id === POSITIVE_ID) setParams((q) => ({ ...q, scanFilm: true, digitalIntermediate: false }));
           else if (id === DIGITAL_ID) setParams((q) => ({ ...q, scanFilm: false, digitalIntermediate: true }));
-          else if (!positive) setParams((q) => ({ ...q, printStock: id, scanFilm: false, digitalIntermediate: false }));
+          else if (!positive && catalog.canPrint(p.filmStock, id))
+            setParams((q) => ({ ...q, printStock: id, scanFilm: false, digitalIntermediate: false }));
         }}
       />
       <ToggleRow label={t('printEffects')} on={p.printEffects} onChange={(v) => setParams((q) => ({ ...q, printEffects: v }))} />

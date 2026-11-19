@@ -34,7 +34,7 @@ async function loadRecipes(): Promise<ExportRecipe[]> {
   }
 }
 
-function waitForDeveloped(path: string, timeoutMs = 600_000): Promise<boolean> {
+export function waitForDeveloped(path: string, timeoutMs = 600_000): Promise<boolean> {
   return new Promise((resolve) => {
     const ok = () => {
       const s = sessionStore.getState();
@@ -181,7 +181,7 @@ export function ExportPage() {
                 { label: tz('Restore the built-in recipes', '恢复内置方案'), onSelect: () => save(DEFAULT_RECIPES) },
                 {
                   label: tz('Export the print as a .cube LUT…', '将相纸导出为 .cube LUT…'),
-                  onSelect: () => void exportCube(params.printStock, `${params.printStock}.cube`).catch((e) => platform().message('SpektraLab', String(e), 'error')),
+                  onSelect: () => void exportCube(params.printStock, `${params.printStock}.cube`).catch((e) => platform().message('Develop', String(e), 'error')),
                 },
               ]}
             >
@@ -302,6 +302,7 @@ export function ExportPage() {
                 options={[
                   { value: 'sRGB', label: 'sRGB' },
                   { value: 'display-p3', label: 'Display P3' },
+                  { value: 'adobe-rgb', label: 'Adobe RGB (1998)' },
                   { value: 'prophoto', label: 'ProPhoto RGB' },
                 ]}
                 onChange={(v) => edit({ colorSpace: v })}
