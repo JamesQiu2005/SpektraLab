@@ -2,6 +2,12 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
+> *"I shoot both mirrorless and film, and I can honestly say the results from Develop look like real
+> film. It doesn't paint a film look over a photo with curves and LUTs: it exposes the film's dye layers
+> to the scene's light, develops them, and prints the negative onto paper, the way a darkroom does. What
+> comes out isn't an imitation of film. It's what that film would have made of the same light."*
+> **jegly**, photographer and author of Develop
+
 A film-emulation darkroom for Linux. Open a RAW or a JPEG, pick a film and a paper, and get a
 physically modelled print: light traced through the film's dye layers and the paper's, with grain,
 halation, DIR couplers and the enlarger's filter pack, rendered on your GPU through Vulkan.
