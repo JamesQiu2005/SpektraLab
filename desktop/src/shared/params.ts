@@ -330,6 +330,11 @@ export const FILM_EDGE_GATES: Record<string, readonly [number, number]> = {
  * the gate and refuses one of another shape, so with the film edge on the host cuts the picture to the
  * gate's shape first (the long side over the short; the picture keeps its orientation). Null: no cut.
  */
+/** The double exposure the host composes (whiteBalance.ts decodeWire), or null. A pair takes precedence. */
+export function doubleDecode(p: FilmParams): { second: string; balance: number } | null {
+  return p.doubleWith && !p.pairWith ? { second: p.doubleWith, balance: clamp(p.doubleBalance ?? 0.5, 0.1, 0.9) } : null;
+}
+
 /** The pair the host composes (whiteBalance.ts decodeWire), or null. */
 export function pairDecode(p: FilmParams): { second: string; swap: boolean } | null {
   return p.pairWith ? { second: p.pairWith, swap: !!p.pairSwap } : null;
@@ -458,6 +463,10 @@ export interface FilmParams {
   pairWith: string;
   /** The second picture first along the film. */
   pairSwap: boolean;
+  /** Develop's double exposure: a second picture's light added over this frame ('' none). */
+  doubleWith: string;
+  /** Its share of the frame's light, 0.1-0.9 (SpektraLab 2's Balance). */
+  doubleBalance: number;
   effects: EffectStrengths;
   linuxAdvanced: AdvancedParams;
   leak: LeakSettings;
@@ -494,6 +503,8 @@ export const FILM_PARAMS_DEFAULT: FilmParams = {
   pairSplit: 0,
   pairWith: '',
   pairSwap: false,
+  doubleWith: '',
+  doubleBalance: 0.5,
   effects: EFFECTS_DEFAULT,
   linuxAdvanced: ADVANCED_DEFAULT,
   leak: LEAK_DEFAULT,

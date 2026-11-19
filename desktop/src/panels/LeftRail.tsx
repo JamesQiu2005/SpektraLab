@@ -52,6 +52,7 @@ export function LeftRail() {
         <FilmSection />
         <FilmEdgeSection />
         <PairSection />
+        <DoubleSection />
         <DateBackSection />
         <PrintSection />
         <CropSection />
@@ -384,6 +385,53 @@ function PairSection() {
       {pairWith && !p.filmEdge.active && (
         <div className="caption">{tz('Tick Film Edge to see the pair on its strip.', '勾选胶片边缘即可看到胶片条上的双格。')}</div>
       )}
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------ Double Exposure
+// Develop's double exposure (SpektraLab 2's Double, RFC-048): a second photograph's light added over this
+// frame on the same piece of film, each metered alone; Balance is the second's share of the light.
+
+function DoubleSection() {
+  const p = useSession((s) => s.sidecar.params);
+  const selection = useSession((s) => s.selection);
+  const second = p.doubleWith ?? '';
+  const name = (path: string) => path.split(/[\\/]/).pop() ?? path;
+  const choose = async () => {
+    const files = await platform().pickFiles(tz('Expose another photograph over this one', '在此照片上叠加曝光另一张'));
+    const f = files[0];
+    if (!f || f === selection) return;
+    setParams((q) => ({ ...q, doubleWith: f, doubleBalance: q.doubleBalance || 0.5 }));
+  };
+  return (
+    <Section id="double" title={tz('Double Exposure', '双重曝光')}>
+      <div className="caption">
+        {second
+          ? tz(`Exposed with ${name(second)}`, `已与 ${name(second)} 叠加曝光`)
+          : tz('Two exposures on one frame: the second photograph’s light added to this one’s.', '一格胶片两次曝光：第二张照片的光叠加在此照片上。')}
+      </div>
+      {p.pairWith && <div className="caption">{tz('Not with a half-frame pair: unpair first.', '半格双拼时不可用：请先取消双格。')}</div>}
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn" disabled={!selection || !!p.pairWith} onClick={() => void choose()} data-testid="double-with">
+          {second ? tz('Change…', '更换…') : tz('Expose with…', '叠加曝光…')}
+        </button>
+        <button className="btn" disabled={!second} onClick={() => setParams((q) => ({ ...q, doubleWith: '' }))}>
+          {tz('Remove', '移除')}
+        </button>
+      </div>
+      <ScrubSlider
+        label={tz('Balance', '平衡')}
+        sublabel={tz('the second exposure’s share of the light', '第二次曝光所占的光量')}
+        value={Math.round((p.doubleBalance ?? 0.5) * 100)}
+        range={[10, 90]}
+        zero={50}
+        snap={5}
+        format={(v) => `${v.toFixed(0)} %`}
+        disabled={!second}
+        onChange={(v) => setParams((q) => ({ ...q, doubleBalance: Math.min(0.9, Math.max(0.1, v / 100)) }))}
+        testId="double-balance"
+      />
     </Section>
   );
 }

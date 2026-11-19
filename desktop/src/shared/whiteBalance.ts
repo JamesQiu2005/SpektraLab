@@ -98,6 +98,8 @@ export interface WireDecode {
   cut?: { aspect: number };
   /** Develop: a half-frame pair's second picture (params.ts `pairDecode`). */
   pair?: { second: string; swap: boolean };
+  /** Develop: a double exposure's second picture and its share of the light (params.ts `doubleDecode`). */
+  double?: { second: string; balance: number };
 }
 
 /**
@@ -109,10 +111,12 @@ export function decodeWire(
   isRaw: boolean,
   cutAspect: number | null = null,
   pair: { second: string; swap: boolean } | null = null,
+  double: { second: string; balance: number } | null = null,
 ): WireDecode | null {
   const out: WireDecode = {};
   if (cutAspect) out.cut = { aspect: cutAspect };
   if (pair) out.pair = pair;
+  if (double) out.double = double;
   if (isRaw) {
     if (modeOf(d) === 'As Shot') out.white_balance = { mode: 'as_shot' };
     else {

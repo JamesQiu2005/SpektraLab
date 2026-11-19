@@ -472,6 +472,10 @@ struct HostDecode : DecodeOptions {
     // piece of 135 film (two 18 x 24 frames and the 1 mm between them). Empty: no pair.
     std::string pair_second;
     bool pair_swap = false;   // the second picture first along the film
+    // A double exposure (SpektraLab 2's `DoubleDevelop`, RFC-048): a second picture's light added over the
+    // whole frame. `double_balance` is its share of the light (Balance, 0.1-0.9). Empty: none.
+    std::string double_second;
+    double double_balance = 0.5;
 };
 
 // --- a half-frame pair's piece ---------------------------------------------------------
@@ -536,6 +540,34 @@ FloatImage piece(FloatImage a, FloatImage b) {
             }
     return out;
 }
+// A double exposure: the second picture cut to cover the first's frame (centred), both metered alike and
+// added, the second at `share` of the light and the first at the rest -- each "metered, halved" at 50 %.
+FloatImage added(FloatImage a, FloatImage b, double share) {
+    const double fa = double(a.width) / a.height, fb = double(b.width) / b.height;
+    // the second's largest cut of the first's shape, then to its size
+    uint32_t w = b.width, h = b.height;
+    if (fb > fa) w = uint32_t(std::lround(double(h) * fa));
+    else h = uint32_t(std::lround(double(w) / fa));
+    w = std::max<uint32_t>(1, std::min(w, b.width));
+    h = std::max<uint32_t>(1, std::min(h, b.height));
+    FloatImage c;
+    c.width = w; c.height = h; c.rgb.resize(size_t(w) * h * 3);
+    const uint32_t x0 = (b.width - w) / 2, y0 = (b.height - h) / 2;
+    for (uint32_t y = 0; y < h; ++y)
+        std::copy_n(b.rgb.data() + (size_t(y0 + y) * b.width + x0) * 3, size_t(w) * 3, c.rgb.data() + size_t(y) * w * 3);
+    if (c.width != a.width || c.height != a.height) {
+        std::vector<float> out;
+        resize_area(c.rgb.data(), c.width, c.height, 3, a.width, a.height, out);
+        c.rgb.swap(out);
+        c.width = a.width; c.height = a.height;
+    }
+    const double la = log_average(a), lb = log_average(c), common = std::sqrt(la * lb);
+    const double s = std::clamp(share, 0.1, 0.9);
+    const float ka = float(2.0 * (1.0 - s) * common / std::max(la, 1e-9)), kb = float(2.0 * s * common / std::max(lb, 1e-9));
+    // (x 2 then halved by the shares: at 50 % each exposure is half the light it was metered for, the sum one)
+    for (size_t i = 0; i < a.rgb.size(); ++i) a.rgb[i] = 0.5f * (ka * a.rgb[i] + kb * c.rgb[i]);
+    return a;
+}
 }  // namespace pairing
 
 double optional_number(const Json& o, const char* key, double fallback, double lo, double hi, const char* what) {
@@ -577,6 +609,12 @@ HostDecode decode_options(const Json& decode) {
             if (!pr.is_object()) throw HostError{"bad_request", "decode.pair must be an object"};
             options.pair_second = require_string(pr, "second");
             options.pair_swap = pr.at("swap").as_bool(false);
+        } else if (kv.first == "double") {
+            const Json& dx = kv.second;
+            if (dx.is_null()) continue;
+            if (!dx.is_object()) throw HostError{"bad_request", "decode.double must be an object"};
+            options.double_second = require_string(dx, "second");
+            options.double_balance = optional_number(dx, "balance", 0.5, 0.1, 0.9, "decode.double.balance");
         } else if (kv.first == "cut") {
             const Json& c = kv.second;
             if (c.is_null()) continue;
@@ -651,6 +689,22 @@ Decoded decode_frame(const fs::path& path, const HostDecode& options) {
             lens.set("error", str(why));
         }
         d.lens = std::move(lens);
+    }
+    if (!options.double_second.empty()) {
+        // The double's second exposure, decoded as shot, its light added over this frame (before any gate cut).
+        const fs::path second = utf8_path(options.double_second);
+        std::error_code ec3;
+        if (!fs::exists(second, ec3)) throw HostError{"not_found", "the double exposure's second picture is not there: " + options.double_second};
+        DecodeOptions plain;
+        plain.raw_mode = options.raw_mode;
+        FloatImage b;
+        Probe pb;
+        if (!decode_linear_prophoto(second, plain, b, pb, error)) throw HostError{"decode_failed", "the double exposure's second picture: " + error};
+        d.frame = pairing::added(std::move(d.frame), std::move(b), options.double_balance);
+        Json dbl = Json::object();
+        dbl.set("second", str(options.double_second));
+        dbl.set("balance", number(options.double_balance));
+        d.pair = std::move(dbl);
     }
     if (!options.pair_second.empty()) {
         // The pair's second picture, decoded as shot (its own white balance, no lens of this one's), and the
