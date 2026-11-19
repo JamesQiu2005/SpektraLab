@@ -11,6 +11,7 @@
 import {
   type Adjustments,
   PROPHOTO_MID_GREY,
+  ADOBE_MID_GREY,
   SRGB_MID_GREY,
   borderCode,
   borderPixels,
@@ -111,7 +112,7 @@ export function withBorder(
   px: Uint16Array,
   size: { width: number; height: number },
   a: Adjustments,
-  space: 'sRGB' | 'display-p3' | 'prophoto',
+  space: 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb',
 ): { px: Uint16Array; width: number; height: number } {
   const b = borderPixels(a.enabled ? a.border : undefined, size.width, size.height);
   if (!b.left && !b.top && !b.right && !b.bottom) return { px, ...size };
@@ -158,7 +159,7 @@ export async function exportFrame(r: ExportRecipe, f: FrameToExport, catalog: St
       const info = rr.result.image as { width: number; height: number; row_bytes: number };
       const src = new Uint16Array(rr.payload.buffer.slice(rr.payload.byteOffset, rr.payload.byteOffset + info.width * info.height * 8));
       const out = outputFor(r, f.geometry, { width: info.width, height: info.height });
-      const midGrey = r.colorSpace === 'prophoto' ? PROPHOTO_MID_GREY : SRGB_MID_GREY;
+      const midGrey = r.colorSpace === 'prophoto' ? PROPHOTO_MID_GREY : r.colorSpace === 'adobe-rgb' ? ADOBE_MID_GREY : SRGB_MID_GREY;
       const picture = filePixels(src, { width: info.width, height: info.height }, f.geometry, f.adjustments, out, midGrey);
       const framed = withBorder(picture, out, f.adjustments, r.colorSpace);
       const w = await host().transport.request(

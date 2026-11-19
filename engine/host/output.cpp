@@ -23,6 +23,7 @@ std::string engine_space_name(const std::string& wire) {
     if (w == "srgb") return "sRGB";
     if (w == "display-p3" || w == "display p3" || w == "p3") return "Display P3";
     if (w == "prophoto" || w == "prophoto rgb" || w == "romm") return "ProPhoto RGB";
+    if (w == "adobe-rgb" || w == "adobe rgb" || w == "adobe rgb (1998)" || w == "adobergb") return "Adobe RGB (1998)";
     return {};
 }
 
@@ -449,6 +450,13 @@ bool icc_for(const std::string& space, const std::filesystem::path& resources, s
     if (space == "sRGB") return read_file(resources / "io" / "sRGB.icc", icc, error);
     if (space == "Display P3") { icc = make_icc("Display P3", display_p3_space().to_xyz_d50, 0); return true; }
     if (space == "ProPhoto RGB") { icc = make_icc("ProPhoto RGB (ROMM)", linear_prophoto_space().to_xyz_d50, 1); return true; }
+    if (space == "Adobe RGB (1998)") {
+        // Adobe RGB (1998)'s colorants, Bradford-adapted to D50 as an ICC profile carries them; its gamma 563/256.
+        icc = make_icc("Adobe RGB (1998)", {0.6097559, 0.2052401, 0.1492240,
+                                            0.3111242, 0.6256560, 0.0632197,
+                                            0.0194811, 0.0608902, 0.7448387}, 2);
+        return true;
+    }
     error = "no ICC profile for '" + space + "'";
     return false;
 }

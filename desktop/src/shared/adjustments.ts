@@ -114,10 +114,12 @@ export function borderPixels(b: Border | undefined, w: number, h: number) {
  * space here, so only the transfer curve differs: sRGB and Display P3 share sRGB's; ProPhoto (ROMM)
  * has its own 1.8 with a linear toe below 1/512.
  */
-export function borderCode(tone: number, space: 'sRGB' | 'display-p3' | 'prophoto'): number {
+export function borderCode(tone: number, space: 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb'): number {
   const t = Math.min(Math.max(tone, 0), 1);
-  if (space !== 'prophoto') return t;
+  if (space === 'sRGB' || space === 'display-p3') return t;
   const lin = t <= 0.04045 ? t / 12.92 : Math.pow((t + 0.055) / 1.055, 2.4);
+  // Adobe RGB (1998): gamma 563/256 (the engine's Cctf::Adobe).
+  if (space === 'adobe-rgb') return Math.pow(lin, 256 / 563);
   return lin < 1 / 512 ? lin * 16 : Math.pow(lin, 1 / 1.8);
 }
 
@@ -275,6 +277,8 @@ export function removePoint(c: Curve, i: number): Curve {
 export const PROPHOTO_MID_GREY = 0.3857;
 /** The same through the sRGB curve — what the canvas's sRGB frame carries. */
 export const SRGB_MID_GREY = 0.4614;
+/** `pow(0.18, 256/563)`: mid-grey through Adobe RGB's gamma 563/256. */
+export const ADOBE_MID_GREY = 0.4585;
 
 export interface Layer2Uniforms {
   wbGain: [number, number, number];

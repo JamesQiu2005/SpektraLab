@@ -168,7 +168,7 @@ export interface ExportImageParams {
   path: string;
   format: 'tiff16' | 'tiff8' | 'jpeg' | 'png';
   quality?: number;
-  color_space?: 'sRGB' | 'display-p3' | 'prophoto';
+  color_space?: 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb';
   long_edge?: number;
   overwrite?: boolean;
 }

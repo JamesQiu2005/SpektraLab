@@ -3,7 +3,7 @@
 // Pure; `recipes.test.ts` pins the naming.
 
 export type ExportFormat = 'jpeg' | 'png' | 'tiff' | 'di';
-export type ExportSpace = 'sRGB' | 'display-p3' | 'prophoto';
+export type ExportSpace = 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb';
 export type NameToken = 'originalName' | 'filmStock' | 'printStock' | 'date';
 export const NAME_TOKENS: NameToken[] = ['originalName', 'filmStock', 'printStock', 'date'];
 export type ExistingPolicy = 'addSuffix' | 'overwrite' | 'skip';

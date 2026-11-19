@@ -142,7 +142,7 @@ export class Host {
     path: string;
     format: 'tiff16' | 'tiff8' | 'jpeg' | 'png';
     quality?: number;
-    color_space?: 'sRGB' | 'display-p3' | 'prophoto';
+    color_space?: 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb';
     long_edge?: number;
     overwrite?: boolean;
   }): Promise<{ path: string; width: number; height: number; bytes: number }> {

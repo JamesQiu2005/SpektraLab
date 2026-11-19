@@ -302,6 +302,7 @@ export function ExportPage() {
                 options={[
                   { value: 'sRGB', label: 'sRGB' },
                   { value: 'display-p3', label: 'Display P3' },
+                  { value: 'adobe-rgb', label: 'Adobe RGB (1998)' },
                   { value: 'prophoto', label: 'ProPhoto RGB' },
                 ]}
                 onChange={(v) => edit({ colorSpace: v })}
