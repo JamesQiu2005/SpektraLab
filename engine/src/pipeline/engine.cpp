@@ -360,8 +360,7 @@ struct spk_engine {
         // These upstream effects still require kernels or Apple services that
         // have not been ported. Defaults stay usable; explicit requests fail.
         Json unported = Json::array();
-        for (const char* feature : {"scan_hdr"})
-            unported.push(Json(std::string(feature)));
+        // Every upstream effect now renders on Vulkan (scan_hdr was the last, 2026-11-19).
         backend.set("unsupported_features", std::move(unported));
 #endif
         // Concurrent entry is safe: there is no numba here, and renders on

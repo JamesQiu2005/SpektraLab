@@ -139,7 +139,7 @@ if(NOT APPLE)
             spk_lens_pyr_out spk_lens_gauss_1d spk_lens_rows_put spk_lens_cctf_encode
             spk_leak_frame spk_overscan_canvas spk_overscan_add_mask spk_overscan_picture_weight
             spk_edr_weighted spk_overscan_film_present spk_overscan_light
-            spk_scene_layers
+            spk_scene_layers spk_scan_hdr_expand
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")

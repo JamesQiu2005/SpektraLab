@@ -18,8 +18,8 @@ inline const char* windows_unported_error(bool di, bool latitude, bool mask,
     // (spk_overscan_*.comp) and their imprints are drawn without CoreText (edge_raster.cpp).
     (void)overscan;
     (void)date;
-    // `scan_hdr` (2026-11-06): `spk_scan_hdr_expand` is Metal only.
-    if (scan_hdr) return "scan_hdr is not implemented by the Windows Vulkan backend yet";
+    // `scan_hdr` renders on Vulkan since spk_scan_hdr_expand was ported (spk_scan_hdr_expand.comp).
+    (void)scan_hdr;
     return nullptr;
 }
 

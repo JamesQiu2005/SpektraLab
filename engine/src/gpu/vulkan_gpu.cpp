@@ -122,6 +122,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_overscan_light", 4, kWorkgroup},
     // RFC-052's scene layers (scene_layers.metal)
     {"spk_scene_layers", 13, kWorkgroup},
+    {"spk_scan_hdr_expand", 4, kWorkgroup},
 };
 
 const KernelSpec* find_kernel(const char* name) {

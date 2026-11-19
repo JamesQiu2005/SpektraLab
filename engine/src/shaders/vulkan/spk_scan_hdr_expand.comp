@@ -1,0 +1,25 @@
+#version 450
+// spk_scan_hdr_expand -- ported expression for expression from nodes.metal's kernel of the same name.
+// `scan_hdr` (2026-11-06): each layer's density read back from the develop's squeezed range -- below its
+// knee's density dk the layer is expanded about dk by s, so the clear base goes below zero by the layer's
+// lift. At and above dk the density is copied as it is. hdr = {dk0, s0, dk1, s1, dk2, s2}; n[0] is the
+// pixel count.
+
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Cmy { float value[]; } cmy;
+layout(set = 0, binding = 1, std430) readonly buffer Hdr { float value[]; } hdr;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } n;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } out_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= n.value[0]) return;
+    for (uint c = 0u; c < 3u; ++c) {
+        float v = cmy.value[3u * i + c], dk = hdr.value[2u * c];
+        out_data.value[3u * i + c] = v < dk ? dk - (dk - v) * hdr.value[2u * c + 1u] : v;
+    }
+}
