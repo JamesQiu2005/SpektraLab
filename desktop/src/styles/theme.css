@@ -147,6 +147,9 @@ input {
   /* Keep the scrollbar's own column: GTK's overlay scrollbar otherwise appears on top of the
      controls at the rail's right edge and takes their clicks (the curve's top-right point). */
   scrollbar-gutter: stable;
+  /* and a clear margin before it: WebKitGTK's scrollbar takes clicks a few pixels wider than it is
+     drawn, so a tick box at the rail's edge (Film Edge's switch) clicked the scrollbar instead. */
+  padding-right: 10px;
 }
 .hairline {
   height: 1px;
