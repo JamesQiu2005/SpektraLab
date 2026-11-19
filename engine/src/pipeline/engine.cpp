@@ -1990,11 +1990,6 @@ spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* lay
         return SPK_ERR_INVALID_ARG;
     }
     if (count > 0 && !layers) { g_error = "spk_set_scene_layers: layers is null"; return SPK_ERR_INVALID_ARG; }
-#ifndef __APPLE__
-    (void)frame_to_source; (void)stamp;
-    g_error = "scene layers are not implemented by the Windows Vulkan backend yet";
-    return SPK_ERR_UNSUPPORTED;
-#else
     std::lock_guard<std::mutex> guard(session->lock);
     g_error.clear();
     spk_engine* engine = session->engine;
@@ -2030,7 +2025,17 @@ spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* lay
         }
         std::string error;
         const size_t bytes = size_t(in.width) * size_t(in.height) * sizeof(uint16_t);
+#ifdef __APPLE__
         layer.plane = engine->gpu->borrow(in.plane, bytes, error);
+#else
+        // Off Apple the plane is the host's memory, copied to the device (Vulkan has no borrowed buffers
+        // here); padded to whole 32-bit words, which the kernel reads it as.
+        {
+            std::vector<uint16_t> copy(size_t(in.width) * in.height + 1, 0);
+            std::memcpy(copy.data(), in.plane, bytes);
+            layer.plane = engine->gpu->upload_persistent(copy.data(), ((bytes + 3) / 4) * 4, error);
+        }
+#endif
         if (!layer.plane) { g_error = name + error; return SPK_ERR_INVALID_ARG; }
         layer.width = in.width;
         layer.height = in.height;
@@ -2053,9 +2058,11 @@ spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* lay
     session->pipeline->set_scene_layers(set);
     for (auto& kv : session->tiers)
         if (kv.second.has_negative) retire_negative(kv.second);
+#ifdef __APPLE__
     session->checkpoint_after_grain_edit = false;
     session->observed_prefix_key.clear();
     DiskCheckpoint::shared().release(session->session_id);
+#endif
 
     Json out = Json::object();
     out.set("stamp", Json(set->stamp));
@@ -2076,7 +2083,6 @@ spk_status spk_set_scene_layers(spk_session* session, const spk_scene_layer* lay
     out.set("frame_to_source", row(set->frame_to_source));
     if (out_json) *out_json = dup_json(out);
     return SPK_OK;
-#endif
 }
 
 spk_status spk_set_params(spk_session* session, const char* params_delta_json, char** out_json) {

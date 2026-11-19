@@ -61,11 +61,13 @@ add_library(spektralab_pipeline OBJECT
     # (spk_leak_frame.comp, spk_overscan_*.comp; edge_raster.cpp draws the imprints off Apple)
     src/pipeline/overscan.cpp
     src/pipeline/edge_raster.cpp
+    # and RFC-052's scene layers (spk_scene_layers.comp)
+    src/pipeline/scene_layers.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(APPLE)
     target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/scene_layers.cpp)
+)
 else()
     target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp)
 endif()
@@ -137,6 +139,7 @@ if(NOT APPLE)
             spk_lens_pyr_out spk_lens_gauss_1d spk_lens_rows_put spk_lens_cctf_encode
             spk_leak_frame spk_overscan_canvas spk_overscan_add_mask spk_overscan_picture_weight
             spk_edr_weighted spk_overscan_film_present spk_overscan_light
+            spk_scene_layers
             CACHE INTERNAL "")
         set(vulkan_spirv)
         file(GLOB vulkan_includes "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/vulkan/*.glsl")
@@ -266,6 +269,12 @@ if(NOT APPLE)
             add_test(NAME spk_vulkan_smoke
                 COMMAND spk_vulkan_smoke "${vulkan_resource_dir}")
 
+            # RFC-052's scene layers through the public API with host-memory planes (Develop)
+            add_executable(spk_scene_layers_vulkan tests/scene_layers_vulkan.cpp)
+            target_include_directories(spk_scene_layers_vulkan PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+            target_link_libraries(spk_scene_layers_vulkan PRIVATE spektralab_engine)
+            add_dependencies(spk_scene_layers_vulkan spektralab_vulkan_resources)
+            add_test(NAME spk_scene_layers_vulkan COMMAND spk_scene_layers_vulkan "${vulkan_resource_dir}")
             foreach(probe grain pointwise resample transfer geometry lut_di negative_hue minilab di_encode scene mask)
                 add_executable(spk_vulkan_${probe} tests/gpu_vulkan_${probe}.cpp)
                 target_include_directories(spk_vulkan_${probe} PRIVATE

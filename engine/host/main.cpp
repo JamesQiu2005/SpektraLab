@@ -374,7 +374,7 @@ Json m_hello(const Request&) {
     r.set("capabilities", std::move(caps));
     Json methods = Json::array();
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
-                          "probe", "thumbnail", "lenses", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
+                          "probe", "thumbnail", "lenses", "scene_layers", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
                           "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress",
                           "export_image", "export_cube", "export_di", "write_image"})
         methods.push(str(m));
@@ -878,6 +878,41 @@ Json m_get_params(const Request& q) {
     return r;
 }
 
+// RFC-052's scene layers (Develop): the app's masks for the session. params {stamp, layers: [{width, height,
+// log_gain: [3], coverage}]}; the payload is every layer's 16-bit plane in turn, width * height uint16 each,
+// row-major, top row first, in source space S (the decoded frame's normalised coordinates). The engine
+// copies them; the wire then names the stamp (`scene_layers`). No layers clears them.
+Json m_scene_layers(const Request& q) {
+    auto s = find_session(q.params);
+    const std::string stamp = optional_string(q.params, "stamp", "");
+    const Json& ls = q.params.at("layers");
+    std::vector<spk_scene_layer> layers;
+    size_t at = 0;
+    if (ls.is_array()) {
+        for (const Json& l : ls.items()) {
+            spk_scene_layer x{};
+            const double w = l.at("width").as_double(0), h = l.at("height").as_double(0);
+            if (!(w >= 1 && w <= 16384 && h >= 1 && h <= 16384)) throw HostError{"bad_request", "scene_layers: a plane's size is out of range"};
+            x.width = uint32_t(w);
+            x.height = uint32_t(h);
+            const size_t bytes = size_t(x.width) * x.height * 2;
+            if (at + bytes > q.payload.size()) throw HostError{"bad_request", "scene_layers: the payload is shorter than the planes"};
+            x.plane = const_cast<uint8_t*>(q.payload.data() + at);
+            at += bytes;
+            const Json& g = l.at("log_gain");
+            for (int c = 0; c < 3; ++c)
+                x.log_gain[c] = float(g.is_array() && g.items().size() > size_t(c) ? g.items()[size_t(c)].as_double(0) : 0.0);
+            x.coverage = float(std::clamp(l.at("coverage").as_double(1.0), 0.0, 1.0));
+            layers.push_back(x);
+        }
+    }
+    char* reply = nullptr;
+    const spk_status st = spk_set_scene_layers(s->handle, layers.empty() ? nullptr : layers.data(), uint32_t(layers.size()),
+                                               nullptr, stamp.c_str(), &reply);
+    if (st != SPK_OK) engine_fail(st, "scene_layers");
+    return take_json(reply);
+}
+
 Json m_solve(const Request& q) {
     auto s = find_session(q.params);
     const std::string target = optional_string(q.params, "target", "both");
@@ -1181,6 +1216,7 @@ void dispatch(const Request& q) {
     else if (m == "probe") result = m_probe(q);
     else if (m == "thumbnail") result = m_thumbnail(q, payload);
     else if (m == "lenses") result = m_lenses(q);
+    else if (m == "scene_layers") result = m_scene_layers(q);
     else if (m == "open") result = m_open(q);
     else if (m == "close") result = m_close(q);
     else if (m == "redecode") result = m_redecode(q);
