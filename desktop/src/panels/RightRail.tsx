@@ -49,6 +49,7 @@ import {
   withTint,
 } from '@shared/whiteBalance';
 import { CurveEditor } from './CurveEditor';
+import { activeCatalog } from '@shared/stocks';
 import { LensCorrectionPart } from './LensPicker';
 import { unsupportedReason } from './gate';
 import { host, HostCallError } from '../host/client';
@@ -390,6 +391,9 @@ function AdvancedSection() {
   const range = (k: keyof typeof ADVANCED_RANGES) => [...ADVANCED_RANGES[k]] as [number, number];
   // Highlight headroom only acts on a film with no anti-halation layer (CineStill 800T, or the
   // layer switched off above).
+  // A slide scanned directly has no scanner black/white correction in the engine.
+  const slideScan = p.scanFilm && activeCatalog().isPositive(p.filmStock);
+  const slideReason = tz('Not available for a slide film scanned directly', '直接扫描的反转片不可用');
   const headroomApplies = p.halationActive && (p.effects.antihalationRemoved || p.filmStock === 'cinestill_800t');
   return (
     <Section id="advanced" title={tz('Advanced', '高级')} onReset={() => setParams((q) => ({ ...q, linuxAdvanced: ADVANCED_DEFAULT }))} resetHelp={tz('Put every advanced setting back to the engine’s own value.', '将所有高级设置恢复为引擎默认值。')}>
@@ -438,8 +442,8 @@ function AdvancedSection() {
         onChange={(v) => setA({ headroomEV: v })}
         testId="adv-headroom"
       />
-      <ToggleRow label={tz('Scanner White Point', '扫描仪白点校正')} on={a.scannerWhite} onChange={(v) => setA({ scannerWhite: v })} />
-      <ToggleRow label={tz('Scanner Black Point', '扫描仪黑点校正')} on={a.scannerBlack} onChange={(v) => setA({ scannerBlack: v })} />
+      <ToggleRow label={tz('Scanner White Point', '扫描仪白点校正')} on={a.scannerWhite && !slideScan} onChange={(v) => setA({ scannerWhite: v })} disabled={slideScan} reason={slideReason} />
+      <ToggleRow label={tz('Scanner Black Point', '扫描仪黑点校正')} on={a.scannerBlack && !slideScan} onChange={(v) => setA({ scannerBlack: v })} disabled={slideScan} reason={slideReason} />
     </Section>
   );
 }

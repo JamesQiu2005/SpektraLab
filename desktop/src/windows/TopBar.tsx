@@ -8,7 +8,7 @@ import { BeforeAfter, Crop, Cursor, Export, Import, SidebarLeft, SidebarRight, Z
 import { t, tz } from '../i18n';
 import { currentFitZoom, setOriginal, setPages, setTool, solveNow, toggleCompare, useSession, zoomStep, zoomTo, zoomToFit } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
-import { openDialog } from './actions';
+import { openFilesDialog } from './actions';
 import { baseName } from '../platform';
 
 export function TopBar() {
@@ -36,7 +36,9 @@ export function TopBar() {
         <SidebarLeft />
       </button>
       <span style={{ width: 14 }} />
-      <button className="icon-btn" title={t('helpOpen') + ' (Ctrl+O)'} onClick={() => void openDialog()} data-testid="open-button">
+      {/* Photographs, any kind, one or many (the folder is File › Open Folder…, Ctrl+O): a folder picker here
+          greyed every file out, and its "Open a folder or image" promised both (the owner, 2026-11-19). */}
+      <button className="icon-btn" title={tz('Open photographs (Ctrl+Shift+O)', '打开照片（Ctrl+Shift+O）')} onClick={() => void openFilesDialog()} data-testid="open-button">
         <Import />
       </button>
       <button className="icon-btn" title={t('helpExport') + ' (Ctrl+E)'} disabled={!selection} onClick={() => setPages({ exportOpen: true })} data-testid="export-button">

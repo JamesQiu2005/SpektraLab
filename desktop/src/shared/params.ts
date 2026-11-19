@@ -662,8 +662,10 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
     { name: 'density_curve_gamma', value: clamp(a.developGamma, ar.developGamma[0], ar.developGamma[1]), layer: 'shoot' },
     { name: 'halation_headroom_ev', value: clamp(a.headroomEV, ar.headroomEV[0], ar.headroomEV[1]), layer: 'shoot' },
     { name: 'scanner_lens_blur', value: clamp(a.scannerBlur, ar.scannerBlur[0], ar.scannerBlur[1]), layer: 'print' },
-    { name: 'scanner_white_correction', value: a.scannerWhite, layer: 'print' },
-    { name: 'scanner_black_correction', value: a.scannerBlack, layer: 'print' },
+    // The engine has no black/white correction for a slide scanned directly (it refuses the render), so
+    // there they stay off whatever the switch says (the Advanced section greys them).
+    { name: 'scanner_white_correction', value: a.scannerWhite && !(p.scanFilm && cat.isPositive(p.filmStock)), layer: 'print' },
+    { name: 'scanner_black_correction', value: a.scannerBlack && !(p.scanFilm && cat.isPositive(p.filmStock)), layer: 'print' },
   );
   if (gate.digitalIntermediate) {
     f.push(
