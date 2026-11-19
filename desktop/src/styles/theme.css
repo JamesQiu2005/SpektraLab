@@ -981,3 +981,9 @@ input {
 .lens-row:hover { background: var(--hover, rgba(127, 127, 127, 0.15)); }
 .lens-row .name { font-size: 12px; }
 .lens-row .sub { font-size: 10.5px; opacity: 0.6; }
+
+/* Develop: HSL's eight colours (panels/RightRail.tsx HslSection) */
+.hsl-swatches { display: flex; gap: 6px; justify-content: space-between; }
+.hsl-swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; position: relative; }
+.hsl-swatch.on { border-color: var(--text, #fff); }
+.hsl-swatch.moved::after { content: ''; position: absolute; right: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent, #f0a030); }

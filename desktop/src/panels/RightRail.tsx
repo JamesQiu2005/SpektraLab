@@ -33,7 +33,7 @@ import {
   aeMethodOf,
   applyAEMethod,
 } from '@shared/params';
-import { type ColorZone, type CurveChannel, BORDER_DEFAULT, BORDER_RANGES, CURVE_CHANNELS, isNeutral } from '@shared/adjustments';
+import { type ColorZone, type CurveChannel, type HSLBand, type HSLHue, type MixerChannel, BORDER_DEFAULT, BORDER_RANGES, CURVE_CHANNELS, HSL_DEFAULT, HSL_HUES, MIXER_CHANNELS, MIXER_DEFAULT, hslNeutral, isNeutral, mixerNeutral } from '@shared/adjustments';
 import {
   type AsShot,
   TEMPERATURE_RANGE,
@@ -85,6 +85,8 @@ export function RightRail() {
             <WhiteBalanceSection />
             <ExposureSection />
             <CurveSection />
+            <HslSection />
+            <ChannelMixerSection />
             <ColorBalanceSection />
             <BorderSection />
           </>
@@ -656,20 +658,21 @@ function WhiteBalanceSection() {
 
 function ExposureSection() {
   const a = useSession((s) => s.sidecar.adjustments);
-  const row = (label: string, key: 'exposure' | 'contrast' | 'brightness' | 'saturation' | 'highlights' | 'shadows' | 'blackPoint' | 'whitePoint', range: [number, number], digits: number, snap: number) => (
+  const row = (label: string, key: 'exposure' | 'contrast' | 'brightness' | 'saturation' | 'vibrance' | 'highlights' | 'shadows' | 'blackPoint' | 'whitePoint', range: [number, number], digits: number, snap: number) => (
     <ScrubSlider key={key} label={label} value={a[key]} range={range} snap={snap} format={signed(digits)} onChange={(v) => setAdjustments((q) => ({ ...q, [key]: v }))} testId={'adj-' + key} />
   );
   return (
     <Section
       id="exposure2"
       title={t('sectionExposure')}
-      onReset={() => setAdjustments((q) => ({ ...q, exposure: 0, contrast: 0, brightness: 0, saturation: 0, highlights: 0, shadows: 0, blackPoint: 0, whitePoint: 0 }))}
+      onReset={() => setAdjustments((q) => ({ ...q, exposure: 0, contrast: 0, brightness: 0, saturation: 0, vibrance: 0, highlights: 0, shadows: 0, blackPoint: 0, whitePoint: 0 }))}
       resetHelp={t('helpReset')}
     >
       {row(t('clipExposure'), 'exposure', [-3, 3], 2, 1 / 3)}
       {row(t('exposureContrast'), 'contrast', [-50, 50], 0, 5)}
       {row(t('exposureBrightness'), 'brightness', [-50, 50], 0, 5)}
       {row(t('exposureSaturation'), 'saturation', [-100, 100], 0, 5)}
+      {row(tz('Vibrance', '自然饱和度'), 'vibrance', [-100, 100], 0, 5)}
       {row(t('exposureHighlights'), 'highlights', [-100, 100], 0, 5)}
       {row(t('exposureShadows'), 'shadows', [-100, 100], 0, 5)}
       {/* SpektraLab 2's Whites and Blacks (Adjustments.swift `blacks`, `whites`): two-way, -50..+50.
@@ -795,6 +798,86 @@ function BorderSection() {
         onChange={(v) => set({ bottomExtra: v })}
         testId="border-bottom"
       />
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------- HSL
+// SpektraLab 2's HSL (Adjustments.swift HSLSet): pick one of eight colours, then its hue, saturation and
+// luminance, −100…100 each. ±100 hue turns the colour a third of the way to the next primary.
+
+const HSL_LABEL: Record<HSLHue, () => string> = {
+  red: () => tz('Red', '红'),
+  orange: () => tz('Orange', '橙'),
+  yellow: () => tz('Yellow', '黄'),
+  green: () => tz('Green', '绿'),
+  aqua: () => tz('Aqua', '青'),
+  blue: () => tz('Blue', '蓝'),
+  purple: () => tz('Purple', '紫'),
+  magenta: () => tz('Magenta', '品红'),
+};
+const HSL_SWATCH: Record<HSLHue, string> = {
+  red: '#e0403a', orange: '#e8862e', yellow: '#e2c93a', green: '#4caf50', aqua: '#36b5c4', blue: '#3a6fe0', purple: '#8a4fd8', magenta: '#d64fb8',
+};
+
+function HslSection() {
+  const hsl = useSession((s) => s.sidecar.adjustments.hsl) ?? HSL_DEFAULT;
+  const [pick, setPick] = useState<HSLHue>('red');
+  const band = hsl[pick];
+  const setBand = (patch: Partial<HSLBand>) =>
+    setAdjustments((q) => ({ ...q, hsl: { ...(q.hsl ?? HSL_DEFAULT), [pick]: { ...(q.hsl ?? HSL_DEFAULT)[pick], ...patch } } }));
+  return (
+    <Section id="hsl" title="HSL" onReset={() => setAdjustments((q) => ({ ...q, hsl: HSL_DEFAULT }))} resetEnabled={!hslNeutral(hsl)} resetHelp={t('helpReset')}>
+      <div className="row hsl-swatches" role="radiogroup" aria-label={tz('Colour', '颜色')}>
+        {HSL_HUES.map((h) => {
+          const b = hsl[h];
+          const moved = b.hue !== 0 || b.saturation !== 0 || b.luminance !== 0;
+          return (
+            <button
+              key={h}
+              role="radio"
+              aria-checked={h === pick}
+              title={HSL_LABEL[h]()}
+              className={'hsl-swatch' + (h === pick ? ' on' : '') + (moved ? ' moved' : '')}
+              style={{ background: HSL_SWATCH[h] }}
+              onClick={() => setPick(h)}
+              data-testid={'hsl-' + h}
+            />
+          );
+        })}
+      </div>
+      <div className="caption">{HSL_LABEL[pick]()}</div>
+      <ScrubSlider label={tz('Hue', '色相')} value={band.hue} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setBand({ hue: v })} testId="hsl-hue" />
+      <ScrubSlider label={tz('Saturation', '饱和度')} value={band.saturation} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setBand({ saturation: v })} testId="hsl-saturation" />
+      <ScrubSlider label={tz('Luminance', '明度')} value={band.luminance} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setBand({ luminance: v })} testId="hsl-luminance" />
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------- Channel Mixer
+// SpektraLab 2's 通道 (ChannelMixer): each output channel takes some of each input, as an offset in
+// percent from the channel itself; zero is the channel as it was.
+
+function ChannelMixerSection() {
+  const mx = useSession((s) => s.sidecar.adjustments.channelMixer) ?? MIXER_DEFAULT;
+  const [out, setOut] = useState<MixerChannel>('red');
+  const label: Record<MixerChannel, string> = { red: tz('Red', '红'), green: tz('Green', '绿'), blue: tz('Blue', '蓝') };
+  const setIn = (inp: MixerChannel, v: number) =>
+    setAdjustments((q) => {
+      const m = q.channelMixer ?? MIXER_DEFAULT;
+      return { ...q, channelMixer: { ...m, [out]: { ...m[out], [inp]: v } } };
+    });
+  return (
+    <Section id="channelMixer" title={tz('Channel Mixer', '通道混合器')} onReset={() => setAdjustments((q) => ({ ...q, channelMixer: MIXER_DEFAULT }))} resetEnabled={!mixerNeutral(mx)} resetHelp={t('helpReset')}>
+      <SegmentedSwitch
+        value={out}
+        onChange={(v) => setOut(v)}
+        options={MIXER_CHANNELS.map((c) => ({ value: c, label: label[c], marked: MIXER_CHANNELS.some((i) => mx[c][i] !== 0) }))}
+      />
+      <div className="caption">{tz(`How much of each colour goes into ${label[out].toLowerCase()}`, `每种颜色混入${label[out]}的量`)}</div>
+      {MIXER_CHANNELS.map((inp) => (
+        <ScrubSlider key={inp} label={label[inp]} value={mx[out][inp]} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setIn(inp, v)} testId={`mixer-${out}-${inp}`} />
+      ))}
     </Section>
   );
 }

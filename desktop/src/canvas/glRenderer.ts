@@ -68,6 +68,13 @@ uniform float lExposure;
 uniform float lContrast;
 uniform float lBrightness;
 uniform float lSaturation;
+uniform float lVibrance;
+uniform bool lHslActive;
+uniform float lHslHue[8];
+uniform float lHslSat[8];
+uniform float lHslLum[8];
+uniform bool lMixActive;
+uniform mat3 lMix;           // columns are the matrix's rows (uploaded transposed): c' = c * lMix
 uniform float lHighlights;
 uniform float lShadows;
 uniform float lBlack;
@@ -119,6 +126,38 @@ float curve(float x, int row) {
   return texture(uCurves, vec2(u, (float(row) + 0.5) / 5.0)).r;
 }
 
+// 5b. Vibrance (Layer2Kernel.swift l2Vibrance; shared/adjustments.ts vibranceOf).
+vec3 l2Vibrance(vec3 c, float v) {
+  float mx = max(max(c.r, c.g), c.b), mn = min(min(c.r, c.g), c.b);
+  float s = mx > 1e-4 ? clamp((mx - mn) / mx, 0.0, 1.0) : 0.0;
+  float l = luma(c);
+  return l + (c - l) * max(1.0 + v * (1.0 - s), 0.0);
+}
+// 5c. HSL (l2Hsl; hslOf): between two of the eight colours, turned, scaled and lightened by both.
+vec3 l2Hsl(vec3 c) {
+  float l = luma(c);
+  vec3 d = c - l;
+  vec2 p = vec2(d.r - 0.5 * (d.g + d.b), 0.8660254 * (d.g - d.b));
+  float chroma = length(p);
+  if (chroma < 1e-6) return c;
+  float h = atan(p.y, p.x) * 57.29577951;
+  if (h < 0.0) h += 360.0;
+  float centres[9] = float[9](0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 270.0, 300.0, 360.0);
+  int i = 0;
+  for (int k = 0; k < 7; ++k) if (h >= centres[k + 1]) i = k + 1;
+  int j = (i + 1) % 8;
+  float t = clamp((h - centres[i]) / (centres[i + 1] - centres[i]), 0.0, 1.0);
+  t = t * t * (3.0 - 2.0 * t);
+  float turn = mix(lHslHue[i], lHslHue[j], t), scale = max(1.0 + mix(lHslSat[i], lHslSat[j], t), 0.0);
+  float lift = mix(lHslLum[i], lHslLum[j], t);
+  float cs = cos(turn), sn = sin(turn);
+  vec2 q2 = vec2(p.x * cs - p.y * sn, p.x * sn + p.y * cs) * scale;
+  float q = q2.y / 0.8660254;
+  float s = -2.0 * 0.2126 * q2.x - (0.7152 - 0.0722) * q;
+  c = l + vec3(q2.x + 0.5 * s, 0.5 * (s + q), 0.5 * (s - q));
+  return c * (1.0 + 0.5 * lift * smoothstep(0.0, 0.2, chroma));
+}
+
 vec3 layer2(vec3 c, vec2 suv) {
   if (!lEnabled) return c;
   c *= lWb;
@@ -131,6 +170,11 @@ vec3 layer2(vec3 c, vec2 suv) {
   c = (c - lBlack) / max(1.0 - lBlack - lWhite, 0.05);
   l = luma(c);
   c = l + (c - l) * lSaturation;
+  bool moved = false;
+  if (lVibrance != 0.0) { c = l2Vibrance(c, lVibrance); moved = true; }
+  if (lHslActive) { c = l2Hsl(c); moved = true; }
+  if (lMixActive) { c = c * lMix; moved = true; }
+  if (moved) l = luma(c);
   float ls = clamp(tonePosition(l, lMidGrey), 0.0, 1.0);
   float wS = (1.0 - ls) * (1.0 - ls);
   float wH = ls * ls;
@@ -375,6 +419,14 @@ export class GLRenderer {
     gl.uniform1f(this.u('lVignetteMid'), l.vignetteMidpoint);
     gl.uniform1f(this.u('lMidGrey'), l.midGrey);
     gl.uniform1i(this.u('lCurves'), l.curvesActive ? 1 : 0);
+    gl.uniform1f(this.u('lVibrance'), l.vibrance);
+    gl.uniform1i(this.u('lHslActive'), l.hslActive ? 1 : 0);
+    gl.uniform1fv(this.u('lHslHue'), l.hslHue);
+    gl.uniform1fv(this.u('lHslSat'), l.hslSat);
+    gl.uniform1fv(this.u('lHslLum'), l.hslLum);
+    gl.uniform1i(this.u('lMixActive'), l.mixerActive ? 1 : 0);
+    // c * M with M's columns the rows: column-major upload of the row-major matrix, untransposed.
+    gl.uniformMatrix3fv(this.u('lMix'), false, l.mix);
   }
 
   draw(s: DrawState) {
