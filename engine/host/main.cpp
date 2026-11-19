@@ -468,7 +468,75 @@ struct HostDecode : DecodeOptions {
     // so the picture is cut to the gate's shape first -- the largest cut about the middle, in the
     // picture's own orientation. The long side over the short; 0: no cut.
     double cut_aspect = 0;
+    // A half-frame pair (SpektraLab 2's `PairDevelop`): the second picture, laid beside this one on one
+    // piece of 135 film (two 18 x 24 frames and the 1 mm between them). Empty: no pair.
+    std::string pair_second;
+    bool pair_swap = false;   // the second picture first along the film
 };
+
+// --- a half-frame pair's piece ---------------------------------------------------------
+namespace pairing {
+// The centred cut of the half frame's shape, 18 wide by 24 tall.
+FloatImage half_cut(const FloatImage& f) {
+    const double a = 18.0 / 24.0;   // width over height
+    uint32_t w = f.width, h = f.height;
+    if (double(w) / double(h) > a) w = uint32_t(std::lround(double(h) * a));
+    else h = uint32_t(std::lround(double(w) / a));
+    FloatImage out;
+    out.width = std::max<uint32_t>(1, w);
+    out.height = std::max<uint32_t>(1, h);
+    out.rgb.resize(size_t(out.width) * out.height * 3);
+    const uint32_t x0 = (f.width - out.width) / 2, y0 = (f.height - out.height) / 2;
+    for (uint32_t y = 0; y < out.height; ++y)
+        std::copy_n(f.rgb.data() + (size_t(y0 + y) * f.width + x0) * 3, size_t(out.width) * 3,
+                    out.rgb.data() + size_t(y) * out.width * 3);
+    return out;
+}
+// The picture's log-average luminance (linear ProPhoto's Y), what it is metered by.
+double log_average(const FloatImage& f) {
+    double acc = 0;
+    size_t n = 0;
+    const size_t step = std::max<size_t>(1, (size_t(f.width) * f.height) / 200000);
+    for (size_t i = 0; i < size_t(f.width) * f.height; i += step) {
+        const float* p = f.rgb.data() + 3 * i;
+        const double y = 0.2880402 * p[0] + 0.7118741 * p[1] + 0.0000857 * p[2];
+        acc += std::log(std::max(y, 1e-6));
+        ++n;
+    }
+    return n ? std::exp(acc / double(n)) : 0.18;
+}
+// Both frames at one height, each at its own exposure: scaled so both meter alike (the geometric mean of the
+// two), which the engine's meter then reads as one roll. The 1 mm between the frames is unexposed film.
+FloatImage piece(FloatImage a, FloatImage b) {
+    a = half_cut(a);
+    b = half_cut(b);
+    const uint32_t h = std::min(a.height, b.height), w = uint32_t(std::lround(double(h) * 18.0 / 24.0));
+    auto fit = [&](FloatImage& f) {
+        if (f.width == w && f.height == h) return;
+        std::vector<float> out;
+        resize_area(f.rgb.data(), f.width, f.height, 3, w, h, out);
+        f.rgb.swap(out);
+        f.width = w;
+        f.height = h;
+    };
+    fit(a);
+    fit(b);
+    const double la = log_average(a), lb = log_average(b), common = std::sqrt(la * lb);
+    const float ka = float(common / std::max(la, 1e-9)), kb = float(common / std::max(lb, 1e-9));
+    const uint32_t gap = std::max<uint32_t>(1, uint32_t(std::lround(double(h) / 24.0)));
+    FloatImage out;
+    out.width = 2 * w + gap;
+    out.height = h;
+    out.rgb.assign(size_t(out.width) * h * 3, 0.0f);
+    for (uint32_t y = 0; y < h; ++y)
+        for (uint32_t x = 0; x < w; ++x)
+            for (int c = 0; c < 3; ++c) {
+                out.rgb[(size_t(y) * out.width + x) * 3 + c] = a.rgb[(size_t(y) * w + x) * 3 + c] * ka;
+                out.rgb[(size_t(y) * out.width + w + gap + x) * 3 + c] = b.rgb[(size_t(y) * w + x) * 3 + c] * kb;
+            }
+    return out;
+}
+}  // namespace pairing
 
 double optional_number(const Json& o, const char* key, double fallback, double lo, double hi, const char* what) {
     const Json& v = o.at(key);
@@ -503,6 +571,12 @@ HostDecode decode_options(const Json& decode) {
             options.lens_correction = kv.second.as_bool(false);
             if (options.lens_correction && !lens_correction_available())
                 throw HostError{"unsupported", "lens correction at decode is not available in this host"};
+        } else if (kv.first == "pair") {
+            const Json& pr = kv.second;
+            if (pr.is_null()) continue;
+            if (!pr.is_object()) throw HostError{"bad_request", "decode.pair must be an object"};
+            options.pair_second = require_string(pr, "second");
+            options.pair_swap = pr.at("swap").as_bool(false);
         } else if (kv.first == "cut") {
             const Json& c = kv.second;
             if (c.is_null()) continue;
@@ -541,6 +615,7 @@ struct Decoded {
     Probe probe;
     double decode_ms = 0;
     Json lens = Json();   // what lens correction did, or why it did not (null: not asked)
+    Json pair = Json();   // a half-frame pair's piece (null: not a pair)
 };
 
 Decoded decode_frame(const fs::path& path, const HostDecode& options) {
@@ -577,7 +652,24 @@ Decoded decode_frame(const fs::path& path, const HostDecode& options) {
         }
         d.lens = std::move(lens);
     }
-    if (options.cut_aspect >= 1) {
+    if (!options.pair_second.empty()) {
+        // The pair's second picture, decoded as shot (its own white balance, no lens of this one's), and the
+        // piece made of both: the cut below is not a pair's (the piece is already the gate and an advance).
+        const fs::path second = utf8_path(options.pair_second);
+        std::error_code ec2;
+        if (!fs::exists(second, ec2)) throw HostError{"not_found", "the pair's second picture is not there: " + options.pair_second};
+        DecodeOptions plain;
+        plain.raw_mode = options.raw_mode;
+        FloatImage b;
+        Probe pb;
+        if (!decode_linear_prophoto(second, plain, b, pb, error)) throw HostError{"decode_failed", "the pair's second picture: " + error};
+        d.frame = options.pair_swap ? pairing::piece(std::move(b), std::move(d.frame))
+                                    : pairing::piece(std::move(d.frame), std::move(b));
+        Json pair = Json::object();
+        pair.set("second", str(options.pair_second));
+        pair.set("frame_width", number(double((d.frame.width - 1) / 2)));
+        d.pair = std::move(pair);
+    } else if (options.cut_aspect >= 1) {
         // The largest cut of the gate's shape about the middle, landscape or portrait as the picture is.
         FloatImage& f = d.frame;
         const bool portrait = f.height > f.width;
@@ -629,6 +721,7 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
     timings.set("decode", number(d.decode_ms));
     timings.set("open", number(open_ms));
     if (!d.lens.is_null()) r.set("lens_correction", d.lens);
+    if (!d.pair.is_null()) r.set("pair", d.pair);
     r.set("timings_ms", std::move(timings));
     return r;
 }
