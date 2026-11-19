@@ -17,6 +17,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <bit>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -30,6 +31,7 @@
 #include <vector>
 
 #include "image_io.hpp"
+#include "lens_correct.hpp"
 #include "json.hpp"
 #include "output.hpp"
 #include "platform.hpp"
@@ -270,6 +272,17 @@ struct Result {
 };
 
 // Engine pixels -> the requested wire format. Fills `image` and `payload`.
+// 16-bit samples as little-endian bytes (desktop/HOST-PROTOCOL.md): on a little-endian machine that is
+// the memory itself, so one copy instead of a byte at a time (~0.5 s on a 24 MP frame, single-threaded).
+void put_le16(const uint16_t* src, size_t count, std::vector<uint8_t>& out, size_t at = 0) {
+    if (out.size() < at + count * 2) out.resize(at + count * 2);
+    if constexpr (std::endian::native == std::endian::little) {
+        std::memcpy(out.data() + at, src, count * 2);
+    } else {
+        for (size_t i = 0; i < count; ++i) { out[at + 2 * i] = uint8_t(src[i]); out[at + 2 * i + 1] = uint8_t(src[i] >> 8); }
+    }
+}
+
 void package_pixels(const spk_result& r, const std::string& source_space, const Json& params, Json& image,
                     std::vector<uint8_t>& payload) {
     const std::string format = optional_string(params, "format", "rgba8");
@@ -283,11 +296,8 @@ void package_pixels(const spk_result& r, const std::string& source_space, const 
     image.set("format", str(format));
     if (format == "rgba16" && display.empty()) {
         payload.resize(size_t(w) * h * 8);
-        for (uint32_t y = 0; y < h; ++y) {
-            const uint16_t* row = r.rgba16 + size_t(y) * stride * 4;
-            uint8_t* out = &payload[size_t(y) * w * 8];
-            for (size_t i = 0; i < size_t(w) * 4; ++i) { out[2 * i] = uint8_t(row[i]); out[2 * i + 1] = uint8_t(row[i] >> 8); }
-        }
+        for (uint32_t y = 0; y < h; ++y)
+            put_le16(r.rgba16 + size_t(y) * stride * 4, size_t(w) * 4, payload, size_t(y) * w * 8);
         image.set("color_space", str(source_space));
         image.set("row_bytes", number(double(w) * 8));
         return;
@@ -303,8 +313,7 @@ void package_pixels(const spk_result& r, const std::string& source_space, const 
     } else {
         std::vector<uint16_t> px;
         t.encode_rgba16(lin, px);
-        payload.resize(px.size() * 2);
-        for (size_t i = 0; i < px.size(); ++i) { payload[2 * i] = uint8_t(px[i]); payload[2 * i + 1] = uint8_t(px[i] >> 8); }
+        put_le16(px.data(), px.size(), payload);
         image.set("row_bytes", number(double(w) * 8));
     }
     image.set("color_space", str(target));
@@ -365,7 +374,7 @@ Json m_hello(const Request&) {
     r.set("capabilities", std::move(caps));
     Json methods = Json::array();
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report",
-                          "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
+                          "probe", "thumbnail", "lenses", "scene_layers", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
                           "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress",
                           "export_image", "export_cube", "export_di", "write_image"})
         methods.push(str(m));
@@ -393,6 +402,42 @@ Json m_probe(const Request& q) {
     return r;
 }
 
+// The lens database for a desktop lens picker (lens_correct.cpp): every lens, and the camera's crop factor.
+// params: {make?, model?} (the camera, for its crop factor). No database: available false.
+Json m_lenses(const Request& q) {
+    Json r = Json::object();
+    r.set("available", Json(lens_correction_available()));
+    Json list = Json::array();
+    if (lens_correction_available()) {
+        std::vector<LensEntry> lenses;
+        double crop = 1;
+        bool known = false;
+        std::string error;
+        if (!lens_list(optional_string(q.params, "make", ""), optional_string(q.params, "model", ""), lenses, crop,
+                       known, error))
+            throw HostError{"unsupported", error};
+        for (const LensEntry& e : lenses) {
+            Json o = Json::object();
+            o.set("maker", str(e.maker));
+            o.set("model", str(e.model));
+            o.set("min_focal", number(e.min_focal));
+            o.set("max_focal", number(e.max_focal));
+            if (e.min_aperture > 0) o.set("min_aperture", number(e.min_aperture));
+            Json mounts = Json::array();
+            for (const std::string& m : e.mounts) mounts.push(str(m));
+            o.set("mounts", std::move(mounts));
+            o.set("distortion", Json(e.distortion));
+            o.set("tca", Json(e.tca));
+            o.set("vignetting", Json(e.vignetting));
+            list.push(std::move(o));
+        }
+        r.set("crop_factor", number(crop));
+        r.set("camera_known", Json(known));
+    }
+    r.set("lenses", std::move(list));
+    return r;
+}
+
 Json m_thumbnail(const Request& q, std::vector<uint8_t>& payload) {
     const fs::path path = utf8_path(require_string(q.params, "path"));
     const uint32_t long_edge = uint32_t(std::max(1, q.params.at("long_edge").as_int(256)));
@@ -415,8 +460,126 @@ Json m_thumbnail(const Request& q, std::vector<uint8_t>& payload) {
     return r;
 }
 
-DecodeOptions decode_options(const Json& decode) {
-    DecodeOptions options;
+// The decode request: LibRaw's options, and lens correction after it (lens_correct.cpp).
+struct HostDecode : DecodeOptions {
+    bool lens_correction = false;
+    LensChoice lens;
+    // A film edge's gate (SpektraLab 2's `HostCut`): the engine takes the frame it is handed as the gate,
+    // so the picture is cut to the gate's shape first -- the largest cut about the middle, in the
+    // picture's own orientation. The long side over the short; 0: no cut.
+    double cut_aspect = 0;
+    // A half-frame pair (SpektraLab 2's `PairDevelop`): the second picture, laid beside this one on one
+    // piece of 135 film (two 18 x 24 frames and the 1 mm between them). Empty: no pair.
+    std::string pair_second;
+    bool pair_swap = false;   // the second picture first along the film
+    // A double exposure (SpektraLab 2's `DoubleDevelop`, RFC-048): a second picture's light added over the
+    // whole frame. `double_balance` is its share of the light (Balance, 0.1-0.9). Empty: none.
+    std::string double_second;
+    double double_balance = 0.5;
+};
+
+// --- a half-frame pair's piece ---------------------------------------------------------
+namespace pairing {
+// The centred cut of the half frame's shape, 18 wide by 24 tall.
+FloatImage half_cut(const FloatImage& f) {
+    const double a = 18.0 / 24.0;   // width over height
+    uint32_t w = f.width, h = f.height;
+    if (double(w) / double(h) > a) w = uint32_t(std::lround(double(h) * a));
+    else h = uint32_t(std::lround(double(w) / a));
+    FloatImage out;
+    out.width = std::max<uint32_t>(1, w);
+    out.height = std::max<uint32_t>(1, h);
+    out.rgb.resize(size_t(out.width) * out.height * 3);
+    const uint32_t x0 = (f.width - out.width) / 2, y0 = (f.height - out.height) / 2;
+    for (uint32_t y = 0; y < out.height; ++y)
+        std::copy_n(f.rgb.data() + (size_t(y0 + y) * f.width + x0) * 3, size_t(out.width) * 3,
+                    out.rgb.data() + size_t(y) * out.width * 3);
+    return out;
+}
+// The picture's log-average luminance (linear ProPhoto's Y), what it is metered by.
+double log_average(const FloatImage& f) {
+    double acc = 0;
+    size_t n = 0;
+    const size_t step = std::max<size_t>(1, (size_t(f.width) * f.height) / 200000);
+    for (size_t i = 0; i < size_t(f.width) * f.height; i += step) {
+        const float* p = f.rgb.data() + 3 * i;
+        const double y = 0.2880402 * p[0] + 0.7118741 * p[1] + 0.0000857 * p[2];
+        acc += std::log(std::max(y, 1e-6));
+        ++n;
+    }
+    return n ? std::exp(acc / double(n)) : 0.18;
+}
+// Both frames at one height, each at its own exposure: scaled so both meter alike (the geometric mean of the
+// two), which the engine's meter then reads as one roll. The 1 mm between the frames is unexposed film.
+FloatImage piece(FloatImage a, FloatImage b) {
+    a = half_cut(a);
+    b = half_cut(b);
+    const uint32_t h = std::min(a.height, b.height), w = uint32_t(std::lround(double(h) * 18.0 / 24.0));
+    auto fit = [&](FloatImage& f) {
+        if (f.width == w && f.height == h) return;
+        std::vector<float> out;
+        resize_area(f.rgb.data(), f.width, f.height, 3, w, h, out);
+        f.rgb.swap(out);
+        f.width = w;
+        f.height = h;
+    };
+    fit(a);
+    fit(b);
+    const double la = log_average(a), lb = log_average(b), common = std::sqrt(la * lb);
+    const float ka = float(common / std::max(la, 1e-9)), kb = float(common / std::max(lb, 1e-9));
+    const uint32_t gap = std::max<uint32_t>(1, uint32_t(std::lround(double(h) / 24.0)));
+    FloatImage out;
+    out.width = 2 * w + gap;
+    out.height = h;
+    out.rgb.assign(size_t(out.width) * h * 3, 0.0f);
+    for (uint32_t y = 0; y < h; ++y)
+        for (uint32_t x = 0; x < w; ++x)
+            for (int c = 0; c < 3; ++c) {
+                out.rgb[(size_t(y) * out.width + x) * 3 + c] = a.rgb[(size_t(y) * w + x) * 3 + c] * ka;
+                out.rgb[(size_t(y) * out.width + w + gap + x) * 3 + c] = b.rgb[(size_t(y) * w + x) * 3 + c] * kb;
+            }
+    return out;
+}
+// A double exposure: the second picture cut to cover the first's frame (centred), both metered alike and
+// added, the second at `share` of the light and the first at the rest -- each "metered, halved" at 50 %.
+FloatImage added(FloatImage a, FloatImage b, double share) {
+    const double fa = double(a.width) / a.height, fb = double(b.width) / b.height;
+    // the second's largest cut of the first's shape, then to its size
+    uint32_t w = b.width, h = b.height;
+    if (fb > fa) w = uint32_t(std::lround(double(h) * fa));
+    else h = uint32_t(std::lround(double(w) / fa));
+    w = std::max<uint32_t>(1, std::min(w, b.width));
+    h = std::max<uint32_t>(1, std::min(h, b.height));
+    FloatImage c;
+    c.width = w; c.height = h; c.rgb.resize(size_t(w) * h * 3);
+    const uint32_t x0 = (b.width - w) / 2, y0 = (b.height - h) / 2;
+    for (uint32_t y = 0; y < h; ++y)
+        std::copy_n(b.rgb.data() + (size_t(y0 + y) * b.width + x0) * 3, size_t(w) * 3, c.rgb.data() + size_t(y) * w * 3);
+    if (c.width != a.width || c.height != a.height) {
+        std::vector<float> out;
+        resize_area(c.rgb.data(), c.width, c.height, 3, a.width, a.height, out);
+        c.rgb.swap(out);
+        c.width = a.width; c.height = a.height;
+    }
+    const double la = log_average(a), lb = log_average(c), common = std::sqrt(la * lb);
+    const double s = std::clamp(share, 0.1, 0.9);
+    const float ka = float(2.0 * (1.0 - s) * common / std::max(la, 1e-9)), kb = float(2.0 * s * common / std::max(lb, 1e-9));
+    // (x 2 then halved by the shares: at 50 % each exposure is half the light it was metered for, the sum one)
+    for (size_t i = 0; i < a.rgb.size(); ++i) a.rgb[i] = 0.5f * (ka * a.rgb[i] + kb * c.rgb[i]);
+    return a;
+}
+}  // namespace pairing
+
+double optional_number(const Json& o, const char* key, double fallback, double lo, double hi, const char* what) {
+    const Json& v = o.at(key);
+    if (v.is_null()) return fallback;
+    const double x = v.as_double(fallback);
+    if (!(x >= lo && x <= hi)) throw HostError{"bad_request", std::string(what) + " is out of range"};
+    return x;
+}
+
+HostDecode decode_options(const Json& decode) {
+    HostDecode options;
     if (decode.is_null()) return options;
     if (!decode.is_object()) throw HostError{"bad_request", "decode must be an object"};
     options.raw_mode = optional_string(decode, "raw_mode", "compatible16");
@@ -436,10 +599,48 @@ DecodeOptions decode_options(const Json& decode) {
             options.temperature_k = t;
             options.tint = tint;
         } else if (kv.first == "lens_correction") {
-            // LibRaw carries no lens profiles (Core Image reads the maker's
-            // own correction data; nothing portable here does).
-            if (kv.second.as_bool(false))
+            // LibRaw carries no lens profiles; lensfun's database does (lens_correct.cpp).
+            options.lens_correction = kv.second.as_bool(false);
+            if (options.lens_correction && !lens_correction_available())
                 throw HostError{"unsupported", "lens correction at decode is not available in this host"};
+        } else if (kv.first == "pair") {
+            const Json& pr = kv.second;
+            if (pr.is_null()) continue;
+            if (!pr.is_object()) throw HostError{"bad_request", "decode.pair must be an object"};
+            options.pair_second = require_string(pr, "second");
+            options.pair_swap = pr.at("swap").as_bool(false);
+        } else if (kv.first == "double") {
+            const Json& dx = kv.second;
+            if (dx.is_null()) continue;
+            if (!dx.is_object()) throw HostError{"bad_request", "decode.double must be an object"};
+            options.double_second = require_string(dx, "second");
+            options.double_balance = optional_number(dx, "balance", 0.5, 0.1, 0.9, "decode.double.balance");
+        } else if (kv.first == "cut") {
+            const Json& c = kv.second;
+            if (c.is_null()) continue;
+            if (!c.is_object()) throw HostError{"bad_request", "decode.cut must be an object"};
+            options.cut_aspect = optional_number(c, "aspect", 0, 1, 20, "decode.cut.aspect");
+        } else if (kv.first == "lens") {
+            // Which lens (a desktop lens picker): a database lens by maker and model, or a custom one by its
+            // numbers; focal length and f-number when the file has none. Absent: the EXIF lens.
+            const Json& l = kv.second;
+            if (l.is_null()) continue;
+            if (!l.is_object()) throw HostError{"bad_request", "decode.lens must be an object"};
+            options.lens.maker = optional_string(l, "maker", "");
+            options.lens.model = optional_string(l, "model", "");
+            options.lens.focal_mm = optional_number(l, "focal_mm", 0, 0, 5000, "decode.lens.focal_mm");
+            options.lens.aperture = optional_number(l, "aperture", 0, 0, 128, "decode.lens.aperture");
+            options.lens.distance_m = optional_number(l, "distance_m", 10, 0.01, 100000, "decode.lens.distance_m");
+            const Json& c = l.at("custom");
+            if (c.is_object()) {
+                options.lens.custom = true;
+                options.lens.numbers.distortion = optional_number(c, "distortion", 0, -0.2, 0.2, "decode.lens.custom.distortion");
+                options.lens.numbers.vignetting = optional_number(c, "vignetting", 0, -0.95, 0.95, "decode.lens.custom.vignetting");
+                options.lens.numbers.tca_r = optional_number(c, "tca_r", 1, 0.99, 1.01, "decode.lens.custom.tca_r");
+                options.lens.numbers.tca_b = optional_number(c, "tca_b", 1, 0.99, 1.01, "decode.lens.custom.tca_b");
+            } else if (!c.is_null()) {
+                throw HostError{"bad_request", "decode.lens.custom must be an object"};
+            }
         } else {
             throw HostError{"unsupported", "decode." + kv.first + " is not supported by this host"};
         }
@@ -451,9 +652,11 @@ struct Decoded {
     FloatImage frame;
     Probe probe;
     double decode_ms = 0;
+    Json lens = Json();   // what lens correction did, or why it did not (null: not asked)
+    Json pair = Json();   // a half-frame pair's piece (null: not a pair)
 };
 
-Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
+Decoded decode_frame(const fs::path& path, const HostDecode& options) {
     std::error_code ec;
     if (!fs::exists(path, ec)) throw HostError{"not_found", "not found: " + path_utf8(path)};
     const auto t0 = Clock::now();
@@ -463,6 +666,82 @@ Decoded decode_frame(const fs::path& path, const DecodeOptions& options) {
         const std::string prefix = kUnsupportedPrefix;
         if (error.rfind(prefix, 0) == 0) throw HostError{"unsupported", error.substr(prefix.size())};
         throw HostError{"decode_failed", error};
+    }
+    if (options.lens_correction) {
+        // A photo that cannot be corrected still opens, uncorrected; the reply says why.
+        const Metadata& m = d.probe.metadata;
+        LensApplied a;
+        std::string why;
+        Json lens = Json::object();
+        if (lens_correct(d.frame, m.make, m.model, options.lens, m.lens, m.focal_mm.value_or(0),
+                         m.aperture.value_or(0), a, why)) {
+            lens.set("applied", Json(true));
+            lens.set("maker", str(a.maker));
+            lens.set("model", str(a.model));
+            lens.set("focal_mm", number(a.focal_mm));
+            if (a.aperture > 0) lens.set("aperture", number(a.aperture));
+            lens.set("crop_factor", number(a.crop_factor));
+            lens.set("distortion", Json(a.distortion));
+            lens.set("tca", Json(a.tca));
+            lens.set("vignetting", Json(a.vignetting));
+        } else {
+            lens.set("applied", Json(false));
+            lens.set("error", str(why));
+        }
+        d.lens = std::move(lens);
+    }
+    if (!options.double_second.empty()) {
+        // The double's second exposure, decoded as shot, its light added over this frame (before any gate cut).
+        const fs::path second = utf8_path(options.double_second);
+        std::error_code ec3;
+        if (!fs::exists(second, ec3)) throw HostError{"not_found", "the double exposure's second picture is not there: " + options.double_second};
+        DecodeOptions plain;
+        plain.raw_mode = options.raw_mode;
+        FloatImage b;
+        Probe pb;
+        if (!decode_linear_prophoto(second, plain, b, pb, error)) throw HostError{"decode_failed", "the double exposure's second picture: " + error};
+        d.frame = pairing::added(std::move(d.frame), std::move(b), options.double_balance);
+        Json dbl = Json::object();
+        dbl.set("second", str(options.double_second));
+        dbl.set("balance", number(options.double_balance));
+        d.pair = std::move(dbl);
+    }
+    if (!options.pair_second.empty()) {
+        // The pair's second picture, decoded as shot (its own white balance, no lens of this one's), and the
+        // piece made of both: the cut below is not a pair's (the piece is already the gate and an advance).
+        const fs::path second = utf8_path(options.pair_second);
+        std::error_code ec2;
+        if (!fs::exists(second, ec2)) throw HostError{"not_found", "the pair's second picture is not there: " + options.pair_second};
+        DecodeOptions plain;
+        plain.raw_mode = options.raw_mode;
+        FloatImage b;
+        Probe pb;
+        if (!decode_linear_prophoto(second, plain, b, pb, error)) throw HostError{"decode_failed", "the pair's second picture: " + error};
+        d.frame = options.pair_swap ? pairing::piece(std::move(b), std::move(d.frame))
+                                    : pairing::piece(std::move(d.frame), std::move(b));
+        Json pair = Json::object();
+        pair.set("second", str(options.pair_second));
+        pair.set("frame_width", number(double((d.frame.width - 1) / 2)));
+        d.pair = std::move(pair);
+    } else if (options.cut_aspect >= 1) {
+        // The largest cut of the gate's shape about the middle, landscape or portrait as the picture is.
+        FloatImage& f = d.frame;
+        const bool portrait = f.height > f.width;
+        const double a = portrait ? 1.0 / options.cut_aspect : options.cut_aspect;   // width over height
+        uint32_t w = f.width, h = f.height;
+        if (double(w) / double(h) > a) w = uint32_t(std::lround(double(h) * a));
+        else h = uint32_t(std::lround(double(w) / a));
+        w = std::max<uint32_t>(1, std::min(w, f.width));
+        h = std::max<uint32_t>(1, std::min(h, f.height));
+        if (w != f.width || h != f.height) {
+            const uint32_t x0 = (f.width - w) / 2, y0 = (f.height - h) / 2;
+            std::vector<float> cut(size_t(w) * h * 3);
+            for (uint32_t y = 0; y < h; ++y)
+                std::copy_n(f.rgb.data() + (size_t(y0 + y) * f.width + x0) * 3, size_t(w) * 3, cut.data() + size_t(y) * w * 3);
+            f.rgb.swap(cut);
+            f.width = w;
+            f.height = h;
+        }
     }
     d.decode_ms = ms_since(t0);
     return d;
@@ -495,6 +774,8 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
     Json timings = Json::object();
     timings.set("decode", number(d.decode_ms));
     timings.set("open", number(open_ms));
+    if (!d.lens.is_null()) r.set("lens_correction", d.lens);
+    if (!d.pair.is_null()) r.set("pair", d.pair);
     r.set("timings_ms", std::move(timings));
     return r;
 }
@@ -502,7 +783,7 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
 Json m_open(const Request& q) {
     need_engine();
     const fs::path path = utf8_path(require_string(q.params, "path"));
-    const DecodeOptions options = decode_options(q.params.at("decode"));
+    const HostDecode options = decode_options(q.params.at("decode"));
     Decoded d = decode_frame(path, options);
     std::string delta;
     const Json& params = q.params.at("params");
@@ -534,7 +815,7 @@ Json m_open(const Request& q) {
 // negative); on any failure the old one is untouched.
 Json m_redecode(const Request& q) {
     auto s = find_session(q.params);
-    const DecodeOptions options = decode_options(q.params.at("decode"));
+    const HostDecode options = decode_options(q.params.at("decode"));
     Decoded d = decode_frame(utf8_path(s->path), options);
     char* current = nullptr;
     const spk_status st = spk_get_params(s->handle, &current);
@@ -595,6 +876,41 @@ Json m_get_params(const Request& q) {
     Json r = Json::object();
     r.set("params", take_json(reply));
     return r;
+}
+
+// RFC-052's scene layers: the app's masks for the session. params {stamp, layers: [{width, height,
+// log_gain: [3], coverage}]}; the payload is every layer's 16-bit plane in turn, width * height uint16 each,
+// row-major, top row first, in source space S (the decoded frame's normalised coordinates). The engine
+// copies them; the wire then names the stamp (`scene_layers`). No layers clears them.
+Json m_scene_layers(const Request& q) {
+    auto s = find_session(q.params);
+    const std::string stamp = optional_string(q.params, "stamp", "");
+    const Json& ls = q.params.at("layers");
+    std::vector<spk_scene_layer> layers;
+    size_t at = 0;
+    if (ls.is_array()) {
+        for (const Json& l : ls.items()) {
+            spk_scene_layer x{};
+            const double w = l.at("width").as_double(0), h = l.at("height").as_double(0);
+            if (!(w >= 1 && w <= 16384 && h >= 1 && h <= 16384)) throw HostError{"bad_request", "scene_layers: a plane's size is out of range"};
+            x.width = uint32_t(w);
+            x.height = uint32_t(h);
+            const size_t bytes = size_t(x.width) * x.height * 2;
+            if (at + bytes > q.payload.size()) throw HostError{"bad_request", "scene_layers: the payload is shorter than the planes"};
+            x.plane = const_cast<uint8_t*>(q.payload.data() + at);
+            at += bytes;
+            const Json& g = l.at("log_gain");
+            for (int c = 0; c < 3; ++c)
+                x.log_gain[c] = float(g.is_array() && g.items().size() > size_t(c) ? g.items()[size_t(c)].as_double(0) : 0.0);
+            x.coverage = float(std::clamp(l.at("coverage").as_double(1.0), 0.0, 1.0));
+            layers.push_back(x);
+        }
+    }
+    char* reply = nullptr;
+    const spk_status st = spk_set_scene_layers(s->handle, layers.empty() ? nullptr : layers.data(), uint32_t(layers.size()),
+                                               nullptr, stamp.c_str(), &reply);
+    if (st != SPK_OK) engine_fail(st, "scene_layers");
+    return take_json(reply);
 }
 
 Json m_solve(const Request& q) {
@@ -899,6 +1215,8 @@ void dispatch(const Request& q) {
     else if (m == "memory_report") result = m_memory_report(q);
     else if (m == "probe") result = m_probe(q);
     else if (m == "thumbnail") result = m_thumbnail(q, payload);
+    else if (m == "lenses") result = m_lenses(q);
+    else if (m == "scene_layers") result = m_scene_layers(q);
     else if (m == "open") result = m_open(q);
     else if (m == "close") result = m_close(q);
     else if (m == "redecode") result = m_redecode(q);

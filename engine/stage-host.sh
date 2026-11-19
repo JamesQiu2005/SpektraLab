@@ -28,6 +28,16 @@ cp "$host" "$stage.partial/"
 cp -R "$build/engine/resources/." "$stage.partial/engine/"
 [[ -f "$stage.partial/engine/io/sRGB.icc" ]] || { echo "io/sRGB.icc missing from resources" >&2; exit 1; }
 ls "$stage.partial/engine/vulkan/"*.spv >/dev/null
+# The product's own profiles (black and white, Portra NC/VC, CineStill 800T, Multigrade paper) go
+# in beside spektrafilm's, as engine/build.sh bundle and build_engine_mac.sh lay them for the Mac:
+# the engine opens a stock from one profiles/ directory, and the desktop app lists these stocks.
+# Without them choosing one failed with "no profile 'fujifilm_neopan_acros_100_ii'".
+if [[ -d "$here/resources_product/profiles" ]]; then
+  cp "$here/resources_product/profiles/"*.json "$stage.partial/engine/profiles/"
+  cp "$here/resources_product/NOTICE.md" "$stage.partial/engine/PRODUCT_PROFILES_NOTICE.md"
+  # the product colour films' neutral packs, which the engine lays under spektrafilm's table
+  cp "$here/resources_product/neutral_print_filters_colour.json" "$stage.partial/engine/"
+fi
 
 lic="$stage.partial/licenses"
 cp "$repo/license/LICENSE" "$lic/SpektraLab-GPL-3.0.txt"
@@ -39,6 +49,7 @@ cp "$deps/LibRaw-0.22.2/COPYRIGHT" "$lic/LibRaw-COPYRIGHT.txt"
 cp "$here/third_party/stb/LICENSE" "$lic/stb-LICENSE.txt"
 cp "$here/third_party/volk/LICENSE.md" "$lic/volk-LICENSE.txt"
 cp "$deps/Vulkan-Headers/LICENSE.md" "$lic/Vulkan-Headers-LICENSE.txt"
+[[ -f "$here/resources_product/NOTICE.md" ]] && cp "$here/resources_product/NOTICE.md" "$lic/Product-profiles-NOTICE.md"
 cat > "$lic/README.txt" <<'EOF'
 spektralab-host is free software under the GNU General Public License,
 version 3 or (at your option) any later version (SpektraLab-GPL-3.0.txt).

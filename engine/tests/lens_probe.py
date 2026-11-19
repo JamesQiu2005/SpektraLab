@@ -27,7 +27,10 @@ _lib = None
 def lib(dylib: Path | None = None):
     global _lib
     if _lib is None:
-        _lib = ctypes.CDLL(str(dylib or ENGINE / "build" / "libspektralab_engine.dylib"))
+        # SPEKTRALAB_ENGINE_LIBRARY (spk_test_paths) picks the library on any platform.
+        from spk_test_paths import resolve_library
+        _lib = ctypes.CDLL(str(dylib or (resolve_library() if os.environ.get("SPEKTRALAB_ENGINE_LIBRARY")
+                                         else ENGINE / "build" / "libspektralab_engine.dylib")))
         f = _lib.spk_lens_probe
         f.restype = ctypes.c_int
         f.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_float),

@@ -78,6 +78,13 @@ constexpr double kMinLevelPx = 3.0;             // its coarsest level's short si
 constexpr int kMaxCoreRadius = 5;               // `spk_lens_pyr_out`'s threadgroup tile
 constexpr int kCoreRadius = 5;
 constexpr int kCoreLevel = 2;
+// The filter's pyramid levels: fp16 on Metal; on Vulkan fp32 holding fp16-rounded
+// values (spk_lens.glsl `spk_q16`), the same numbers without a 16-bit storage feature.
+#ifdef __APPLE__
+constexpr size_t kLevelBytes = 2;
+#else
+constexpr size_t kLevelBytes = 4;
+#endif
 
 double tent_variance(uint32_t f) {
     const double c = 0.5 * double(f - 1);
@@ -404,7 +411,7 @@ bool Pipeline::lens_filter_fast(const Image& E, Image& out, std::string& error) 
         const Image& in = L[size_t(k - 1)];
         Image& o = L[size_t(k)];
         o.h = (in.h + 1) / 2; o.w = (in.w + 1) / 2; o.c = 3;
-        o.buf = gpu_->alloc_persistent(size_t(o.h) * o.w * 3u * 2u, error);
+        o.buf = gpu_->alloc_persistent(size_t(o.h) * o.w * 3u * kLevelBytes, error);
         if (!o.buf) return false;
         const uint32_t meta[4] = {in.h, in.w, o.h, o.w};
         const bool ok = k == 1
@@ -524,7 +531,7 @@ bool Pipeline::lens_glow_fast(const Image& X, Image& out, std::string& error) {
         const Image& in = L[size_t(j - 1)];
         Image& o = L[size_t(j)];
         o.h = (in.h + 1) / 2; o.w = (in.w + 1) / 2; o.c = 3;
-        o.buf = gpu_->alloc_persistent(size_t(o.h) * o.w * 3u * 2u, error);
+        o.buf = gpu_->alloc_persistent(size_t(o.h) * o.w * 3u * kLevelBytes, error);
         if (!o.buf) return false;
         const uint32_t meta[4] = {in.h, in.w, o.h, o.w};
         const bool ok = j == 1
@@ -539,7 +546,7 @@ bool Pipeline::lens_glow_fast(const Image& X, Image& out, std::string& error) {
         const Image& Lk = L[size_t(k)];
         Image t;
         t.h = Lk.h; t.w = Lk.w; t.c = 3;
-        t.buf = gpu_->alloc_persistent(size_t(t.h) * t.w * 3u * 2u, error);
+        t.buf = gpu_->alloc_persistent(size_t(t.h) * t.w * 3u * kLevelBytes, error);
         if (!t.buf) return false;
         const uint32_t m0[4] = {Lk.h, Lk.w, uint32_t(r), 0u}, m1[4] = {Lk.h, Lk.w, uint32_t(r), 1u};
         if (!gpu_->dispatch("spk_lens_gauss_1d", {gpu::Arg::buf(Lk.buf), gpu::Arg::buf(taps_buf),
@@ -892,8 +899,9 @@ bool Pipeline::lens_source(const Params& params, const Image& src, bool file_bac
         const Image& E = fresh ? F : src;
         if (exact) {
             Image x;
-            if (!lens_filter_exact(E, x, error) || !gpu_->flush(error)) return false;
-            std::memcpy(gpu_->contents(F.buf.get()), gpu_->contents(x.buf.get()), F.bytes());
+            // `copy`, not a memcpy of `contents()`: a Vulkan device buffer has no host mapping.
+            if (!lens_filter_exact(E, x, error) || !gpu_->flush(error) ||
+                !gpu_->copy(F.buf.get(), 0, x.buf.get(), 0, F.bytes(), error)) return false;
         } else if (!lens_filter_fast(E, F, error)) {
             return false;
         }
@@ -950,6 +958,7 @@ bool Pipeline::lens_probe(const Params& params, double pixel_um, const Image& in
 // times, each over the last one's output as a slider's drag is, the fastest
 // reported as `ms` -- the first, into fresh pages, as `ms_first`).
 #include <chrono>
+#include <cstdlib>
 
 #include "gpu/gpu.hpp"
 #include "json.hpp"
@@ -965,7 +974,18 @@ extern "C" int spk_lens_probe(const char* metallib, const char* params_json, con
         if (err && err_len) { std::snprintf(err, err_len, "%s", e.c_str()); }
         return 1;
     };
+#ifdef __APPLE__
     if (!g) g = gpu::Gpu::create_metal(nullptr, metallib ? metallib : "", error);
+#else
+    // Off Apple the first argument names the engine's resources (its `vulkan`
+    // folder holds the kernels); SPEKTRALAB_ENGINE_RESOURCES overrides it, so
+    // `lens_probe.py`'s Metal path can stand as it is.
+    if (!g) {
+        const char* env = std::getenv("SPEKTRALAB_ENGINE_RESOURCES");
+        std::string dir = env && *env ? env : (metallib ? metallib : "");
+        g = gpu::Gpu::create_vulkan(dir + "/vulkan", error);
+    }
+#endif
     if (!g) return fail(error);
     Json pj, oj;
     if (!Json::parse(params_json ? params_json : "{}", pj, error)) return fail(error);
@@ -997,7 +1017,7 @@ extern "C" int spk_lens_probe(const char* metallib, const char* params_json, con
             const double t = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             if (r == 0) ms_first = t;
             ms = std::min(ms, t);
-            if (ok && r == repeat - 1) std::memcpy(out, g->contents(o.buf.get()), size_t(h) * w * 3 * sizeof(float));
+            if (ok && r == repeat - 1) ok = g->read(o.buf.get(), 0, out, size_t(h) * w * 3 * sizeof(float), error);
         }
     }
     g->end_frame();

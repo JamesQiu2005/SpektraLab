@@ -93,8 +93,10 @@ void main() {
     if (active_channels.value[channel] == 0u) {
         for (uint i = 0u; i < length; ++i) {
             uint index = base + i * stride;
-            precise float mixed = accumulator.value[index] + mix_weights.value[channel] * image_data.value[index];
-            output_data.value[index] = accumulate != 0u ? mixed : image_data.value[index];
+            // accumulate as in spk_sep_fir_acc.comp: 2 is acc = 0, and its accumulator is not read
+            precise float weighted = mix_weights.value[channel] * image_data.value[index];
+            output_data.value[index] = accumulate == 1u ? accumulator.value[index] + weighted
+                                     : (accumulate == 2u ? weighted : image_data.value[index]);
         }
         return;
     }
@@ -116,8 +118,9 @@ void main() {
         v = df_add(v, df_mul(B1, y1));
         v = df_add(v, df_mul(B2, y2));
         v = df_add(v, df_mul(B3, y3));
-        precise float mixed = accumulator.value[index] + mix_weights.value[channel] * v.x;
-        output_data.value[index] = accumulate != 0u ? mixed : v.x;
+        precise float weighted = mix_weights.value[channel] * v.x;
+        output_data.value[index] = accumulate == 1u ? accumulator.value[index] + weighted
+                                 : (accumulate == 2u ? weighted : v.x);
         y3 = y2; y2 = y1; y1 = v;
     }
 }

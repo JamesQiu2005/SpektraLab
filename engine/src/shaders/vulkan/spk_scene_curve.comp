@@ -1,0 +1,53 @@
+#version 450
+
+// scene_latitude.metal's `spk_scene_curve`, expression for expression: the Decode curve (API-SPEC
+// §17), the person's tone curve on the scene, as a gain on the linear signal: each value's stops
+// about mid-grey (plus Film Exposure, c) read through a table over [-S, +S], the value scaled by
+// 2^(f(E) - E); past the ends the end's gain holds. Luma first (a gain on Y), then the rgb row on
+// each channel, then each channel's own row. A value that is not positive and finite passes as it
+// came. p: 0 n, 1 S, 2 n_ref, 3..5 the Y row, 6 c. t: five rows of n (rgb, luma, r, g, b).
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Rgb { float value[]; } rgb;
+layout(set = 0, binding = 1, std430) readonly buffer Params { float value[]; } p;
+layout(set = 0, binding = 2, std430) readonly buffer Table { float value[]; } t;
+layout(set = 0, binding = 3, std430) readonly buffer Count { uint value[]; } count_data;
+layout(set = 0, binding = 4, std430) writeonly buffer Output { float value[]; } out_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+float metal_max0(float x) { return (isnan(x) || x < 0.0) ? 0.0 : x; }
+
+float scene_curve_gain(float v, uint row, uint n, float S, float n_ref, float c) {
+    if (!(v > 0.0) || isinf(v)) return 1.0;
+    float E = log2(v / n_ref) + c;
+    float u = clamp((E + S) / (2.0 * S), 0.0, 1.0);
+    float x = u * float(n - 1u);
+    uint i = min(uint(x), n - 2u);
+    float f = x - float(i);
+    uint r = row * n;
+    float y = mix(t.value[r + i], t.value[r + i + 1u], f);
+    // At the clamp, u is the end's: the gain there is held beyond it.
+    float d = 2.0 * S * (y - u);
+    return clamp(exp2(d), exp2(-30.0), exp2(30.0));
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= count_data.value[0]) return;
+    uint n = uint(p.value[0]);
+    float S = p.value[1], n_ref = p.value[2], ec = p.value[6];
+    vec3 c = vec3(rgb.value[3u * i], rgb.value[3u * i + 1u], rgb.value[3u * i + 2u]);
+    float y = p.value[3] * metal_max0(c.r) + p.value[4] * metal_max0(c.g) + p.value[5] * metal_max0(c.b);
+    c *= scene_curve_gain(y, 1u, n, S, n_ref, ec);
+    c = vec3(c.r * scene_curve_gain(c.r, 0u, n, S, n_ref, ec),
+             c.g * scene_curve_gain(c.g, 0u, n, S, n_ref, ec),
+             c.b * scene_curve_gain(c.b, 0u, n, S, n_ref, ec));
+    c = vec3(c.r * scene_curve_gain(c.r, 2u, n, S, n_ref, ec),
+             c.g * scene_curve_gain(c.g, 3u, n, S, n_ref, ec),
+             c.b * scene_curve_gain(c.b, 4u, n, S, n_ref, ec));
+    out_data.value[3u * i] = c.r;
+    out_data.value[3u * i + 1u] = c.g;
+    out_data.value[3u * i + 2u] = c.b;
+}

@@ -1,6 +1,7 @@
 #include "output.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -22,6 +23,7 @@ std::string engine_space_name(const std::string& wire) {
     if (w == "srgb") return "sRGB";
     if (w == "display-p3" || w == "display p3" || w == "p3") return "Display P3";
     if (w == "prophoto" || w == "prophoto rgb" || w == "romm") return "ProPhoto RGB";
+    if (w == "adobe-rgb" || w == "adobe rgb" || w == "adobe rgb (1998)" || w == "adobergb") return "Adobe RGB (1998)";
     return {};
 }
 
@@ -96,18 +98,23 @@ bool OutputTransform::fetch(spk_engine* engine, const std::string& src, const st
     return true;
 }
 
-// `Canvas/Shaders.metal` cam16ucsInto / `shaders/gamut.metal`, line for line.
+// `Canvas/Shaders.metal` cam16ucsInto / `shaders/gamut.metal`, line for line, with one shortcut:
+// a pixel the compression leaves alone (chroma at or under the threshold, lightness not
+// compressed, a real chroma to invert) returns its input instead of running the inverse model.
+// The inverse of an unchanged J and M is the input itself, so this only drops float rounding
+// from the round trip; measured on a 24 MP ARW against the full path: identical rgba8, rgba16 at
+// most a code or two apart in a handful of samples. Most pixels of a photograph take it, which
+// roughly halves the cost of the display transform (the CPU half of every render).
+// `e_c` and `inv_FL4` depend only on the viewing conditions, so the caller computes them once.
 static inline void cam16ucs_into(float rgb[3], const std::array<float, 9>& m2x, const std::array<float, 9>& m2r,
                                  const std::array<float, 22>& k, const float* cmax, uint32_t nL, uint32_t nh,
-                                 bool lc_active) {
+                                 bool lc_active, float e_c, float inv_FL4) {
     using std::pow; using std::fabs; using std::sqrt; using std::log; using std::exp;
-    const float F_L = k[0], N_bb = k[1], N_cb = k[2], n_ = k[3], z = k[4], A_w = k[5], c_ = k[6], N_c = k[7];
+    const float F_L = k[0], N_bb = k[1], N_cb = k[2], z = k[4], A_w = k[5], c_ = k[6], N_c = k[7];
     const float L_grid0 = k[8], L_grid1 = k[9], h_grid0 = k[10], h_step = k[11];
     const float threshold = k[12], limit = k[13], power_ = k[14];
     const float lc_threshold = k[15], lc_limit = k[16], lc_power = k[17], L_white = k[18];
     const float D0 = k[19], D1 = k[20], D2 = k[21];
-    const float e_c = pow(1.64f - pow(0.29f, n_), 0.73f);
-    const float inv_FL4 = pow(F_L, 0.25f);
 
     const float r = rgb[0], g = rgb[1], b_ = rgb[2];
     float X = m2x[0] * r + m2x[1] * g + m2x[2] * b_;
@@ -147,10 +154,12 @@ static inline void cam16ucs_into(float rgb[3], const std::array<float, 9>& m2x, 
 
     const float Mp = (1.0f / 0.0228f) * log(1.0f + 0.0228f * M);
     float Jp = 1.7f * J / (1.0f + 0.007f * J);
+    bool lightness_moved = false;
 
     if (lc_active) {
         float Ln = Jp / L_white;
         if (Ln > lc_threshold) {
+            lightness_moved = true;
             const float lsc = lc_limit - lc_threshold;
             const float lx = (Ln - lc_threshold) / lsc;
             const float ly = lx / pow(1.0f + pow(lx, lc_power), 1.0f / lc_power);
@@ -176,6 +185,9 @@ static inline void cam16ucs_into(float rgb[3], const std::array<float, 9>& m2x, 
     const float safe = Cmax > 1e-9f ? Cmax : 1e-9f;
 
     float d = Mp / safe;
+    // Nothing compressed: J and M go back unchanged, and the inverse of the forward model is the
+    // input. t > 0 and sq > 0 keep the achromatic branch (t2 == 0 below) on the full path.
+    if (d <= threshold && !lightness_moved && t > 0.0f && sq > 0.0f && C > 0.0f) return;
     if (d > threshold) {
         const float sc = limit - threshold;
         const float xk = (d - threshold) / sc;
@@ -253,6 +265,8 @@ void OutputTransform::to_linear(const uint16_t* rgba16, uint32_t w, uint32_t h, 
     // One decode per code value: the source is 16-bit.
     std::vector<float> decode(65536);
     for (uint32_t i = 0; i < 65536; ++i) decode[i] = cctf_decode_mode(float(i) / 65535.0f, src_mode_);
+    const float e_c = std::pow(1.64f - std::pow(0.29f, k_[3]), 0.73f);
+    const float inv_FL4 = std::pow(k_[0], 0.25f);
     parallel(h, [&](uint32_t y0, uint32_t y1) {
         for (uint32_t y = y0; y < y1; ++y) {
             const uint16_t* row = rgba16 + size_t(y) * stride * 4;
@@ -265,7 +279,7 @@ void OutputTransform::to_linear(const uint16_t* rgba16, uint32_t w, uint32_t h, 
                 } else {
                     for (int i = 0; i < 3; ++i)
                         lin[i] = matrix_[i * 3] * v[0] + matrix_[i * 3 + 1] * v[1] + matrix_[i * 3 + 2] * v[2];
-                    if (cam16_) cam16ucs_into(lin, m2x_, m2r_, k_, cmax_, nl_, nh_, lightness_);
+                    if (cam16_) cam16ucs_into(lin, m2x_, m2r_, k_, cmax_, nl_, nh_, lightness_, e_c, inv_FL4);
                 }
                 out[x * 3] = lin[0]; out[x * 3 + 1] = lin[1]; out[x * 3 + 2] = lin[2];
             }
@@ -273,15 +287,47 @@ void OutputTransform::to_linear(const uint16_t* rgba16, uint32_t w, uint32_t h, 
     });
 }
 
+static inline uint8_t quantise8(float v, uint32_t mode) {
+    return uint8_t(std::lround(std::clamp(cctf_encode_mode(v, mode), 0.0f, 1.0f) * 255.0f));
+}
+
+// The 8-bit code is a step function of the linear value: for v >= 0 every encoding here is
+// non-decreasing, so the code of v is the number of steps at or below it. The 255 step points are
+// found once by bisection on the float's bits (exact, no tolerance), then checked: each step must
+// give its code and the float just below it the code before. If any check fails the table is not
+// used. A lookup is ~8 comparisons instead of a pow per channel; the result is the same byte.
+static bool build_steps8(uint32_t mode, std::array<float, 255>& steps) {
+    auto as_float = [](uint32_t bits) { float f; std::memcpy(&f, &bits, 4); return f; };
+    const uint32_t inf_bits = 0x7f800000u;
+    if (quantise8(as_float(inf_bits), mode) != 255) return false;
+    for (int k = 1; k <= 255; ++k) {
+        uint32_t lo = 0, hi = inf_bits;   // quantise8(lo) < k <= quantise8(hi), unless k is reached at 0
+        if (quantise8(0.0f, mode) >= k) { steps[k - 1] = 0.0f; continue; }
+        while (hi - lo > 1) {
+            const uint32_t mid = lo + (hi - lo) / 2;
+            if (quantise8(as_float(mid), mode) >= k) hi = mid; else lo = mid;
+        }
+        steps[k - 1] = as_float(hi);
+        if (quantise8(as_float(hi), mode) < k || quantise8(as_float(lo), mode) >= k) return false;
+    }
+    for (int k = 1; k < 255; ++k) if (steps[k] < steps[k - 1]) return false;
+    return true;
+}
+
 void OutputTransform::encode_rgba8(const std::vector<float>& rgb, std::vector<uint8_t>& rgba) const {
     const size_t n = rgb.size() / 3;
     rgba.resize(n * 4);
+    std::array<float, 255> steps{};
+    const bool stepped = build_steps8(dst_mode_, steps);
     const uint32_t rows = uint32_t((n + 4095) / 4096);
     parallel(rows, [&](uint32_t r0, uint32_t r1) {
         for (size_t p = size_t(r0) * 4096; p < std::min(n, size_t(r1) * 4096); ++p) {
             for (int c = 0; c < 3; ++c) {
-                const float e = cctf_encode_mode(rgb[p * 3 + c], dst_mode_);
-                rgba[p * 4 + c] = uint8_t(std::lround(std::clamp(e, 0.0f, 1.0f) * 255.0f));
+                const float v = rgb[p * 3 + c];
+                // Negative and NaN values keep the original arithmetic (pow of a negative, clamp of NaN).
+                rgba[p * 4 + c] = (stepped && v >= 0.0f)
+                    ? uint8_t(std::upper_bound(steps.begin(), steps.end(), v) - steps.begin())
+                    : quantise8(v, dst_mode_);
             }
             rgba[p * 4 + 3] = 255;
         }
@@ -404,6 +450,13 @@ bool icc_for(const std::string& space, const std::filesystem::path& resources, s
     if (space == "sRGB") return read_file(resources / "io" / "sRGB.icc", icc, error);
     if (space == "Display P3") { icc = make_icc("Display P3", display_p3_space().to_xyz_d50, 0); return true; }
     if (space == "ProPhoto RGB") { icc = make_icc("ProPhoto RGB (ROMM)", linear_prophoto_space().to_xyz_d50, 1); return true; }
+    if (space == "Adobe RGB (1998)") {
+        // Adobe RGB (1998)'s colorants, Bradford-adapted to D50 as an ICC profile carries them; its gamma 563/256.
+        icc = make_icc("Adobe RGB (1998)", {0.6097559, 0.2052401, 0.1492240,
+                                            0.3111242, 0.6256560, 0.0632197,
+                                            0.0194811, 0.0608902, 0.7448387}, 2);
+        return true;
+    }
     error = "no ICC profile for '" + space + "'";
     return false;
 }

@@ -37,7 +37,7 @@ version="$(git -C "$repo" describe --always --dirty 2>/dev/null || echo unknown)
 cmake -S "$repo" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DSPEKTRALAB_BUILD_NATIVE_RAW=ON -DSPEKTRALAB_BUILD_HOST=ON \
   -DSPEKTRALAB_REQUIRE_VULKAN=ON -DSPEKTRALAB_STATIC_RUNTIME=ON \
-  -DSPEKTRALAB_HOST_VERSION="0.1.0+$version"
+  -DSPEKTRALAB_HOST_VERSION="0.1.0+$version" ${SPEKTRALAB_CMAKE_ARGS:-}   # e.g. -DSPEKTRALAB_LENSFUN=ON
 ninja -C "$build"
 
 "$here/stage-host.sh" "$build" "$stage" spektralab-host

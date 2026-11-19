@@ -231,12 +231,27 @@ def extras(host, sid, path, tmp, label, raw, probe):
     check(h["ok"] and h["result"].get("valid") is False, f"{label}: overscan_geometry (refused feature -> invalid)")
     h, _ = host.call("progress", {"session": sid})
     check(h["ok"] and "pct" in h["result"], f"{label}: progress", h.get("error"))
-    # The five refused features are refused by name, and leave the session usable.
-    for field in ("contrast_mask_active", "scene_latitude_active", "overscan_active", "date_imprint_active",
-                  "digital_intermediate"):
+    # The film edge and the date back are ported (spk_overscan_*.comp, edge_raster.cpp): accepted, and
+    # set back off. (This fixture is not the 135 gate's shape, so a film edge would refuse to render on it:
+    # overscan_checks.py and cine_edge_checks.py render them.)
+    # On Windows they wait for fonts (edge_raster.cpp reads the Linux font folders): refused by name there.
+    for field in ("overscan_active", "date_imprint_active"):
         h, _ = host.call("set_params", {"session": sid, "delta": {field: True}})
-        check(not h["ok"] and h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
-              f"{label}: {field} refused", h.get("error", {}).get("message", "accepted?!"))
+        if not h["ok"] and "Windows Vulkan backend" in h["error"]["message"]:
+            check(h["error"]["code"] == "bad_request" and "not implemented" in h["error"]["message"],
+                  f"{label}: {field} refused on Windows", h["error"]["message"])
+            continue
+        check(h["ok"], f"{label}: {field} accepted", h.get("error"))
+        h, _ = host.call("set_params", {"session": sid, "delta": {field: False}})
+        check(h["ok"], f"{label}: {field} set back", h.get("error"))
+    # The Digital Intermediate is ported (spk_di_encode): accepted, rendered, and switched off again.
+    h, _ = host.call("set_params", {"session": sid, "delta": {"digital_intermediate": True}})
+    if check(h["ok"], f"{label}: digital_intermediate accepted", h.get("error")):
+        h, px = host.call("render", {"session": sid, "tier": "live", "format": "rgba16"})
+        check(h["ok"] and len(px) == h["result"]["image"]["width"] * h["result"]["image"]["height"] * 8,
+              f"{label}: digital_intermediate renders", h.get("error"))
+        h, _ = host.call("set_params", {"session": sid, "delta": {"digital_intermediate": False}})
+        check(h["ok"], f"{label}: digital_intermediate off again", h.get("error"))
     h, _ = host.call("print_lut_catalog")
     stock = sorted(h["result"].keys())[0]
     h, px = host.call("preview_stock_lut", {"session": sid, "print_stock": stock, "tier": "live",
@@ -282,7 +297,13 @@ def extras(host, sid, path, tmp, label, raw, probe):
                 check(w[0] - w[2] > b[0] - b[2], f"{label}: a higher Kelvin renders warmer",
                       f"R-B {b[0] - b[2]:.1f} -> {w[0] - w[2]:.1f}")
         h, _ = host.call("redecode", {"session": sid, "decode": {"lens_correction": True}})
-        check(not h["ok"] and h["error"]["code"] == "unsupported", f"{label}: lens correction unsupported")
+        # Linux: lensfun corrects at decode where the host was built with it; a file with no
+        # lens recorded still opens, and the reply says why it was not corrected. Elsewhere: refused.
+        if h["ok"]:
+            lc = h["result"].get("lens_correction") or {}
+            check("applied" in lc, f"{label}: lens correction reported", lc)
+        else:
+            check(h["error"]["code"] == "unsupported", f"{label}: lens correction unsupported")
     else:
         h, _ = host.call("redecode", {"session": sid, "decode": {"white_balance": {"mode": "custom",
                                                                                   "temperature_k": 5000}}})

@@ -104,7 +104,9 @@ bool check_fir_boundaries(spk::gpu::Gpu* gpu, std::string& error) {
             if (!w) return false;
             for (uint32_t axis = 0; axis < 2; ++axis)
                 for (uint32_t mirror = 0; mirror < 2; ++mirror)
-                    for (uint32_t accumulate = 0; accumulate < 2; ++accumulate) {
+                    // accumulate 2 (Blur::mixture's first component, 2.4.0): acc = 0, so the
+                    // accumulator, which holds non-zero values here, must not be read.
+                    for (uint32_t accumulate = 0; accumulate < 3; ++accumulate) {
                         auto dst = gpu->upload(initial.data(), initial.size() * sizeof(float), error);
                         const uint32_t meta[6] = {height, width, radius, axis, accumulate, mirror};
                         if (!dst || !gpu->dispatch("spk_sep_fir_acc",
@@ -121,8 +123,9 @@ bool check_fir_boundaries(spk::gpu::Gpu* gpu, std::string& error) {
                                 const size_t from = axis ? (size_t(y) * width + coordinate) * 3 + c
                                                          : (size_t(coordinate) * width + x) * 3 + c;
                                 const size_t at = (size_t(y) * width + x) * 3 + c;
-                                const float expected = accumulate ? accumulated[at] + mix[c] * input[from]
-                                                                  : input[from];
+                                const float expected = accumulate == 1 ? accumulated[at] + mix[c] * input[from]
+                                                     : accumulate == 2 ? mix[c] * input[from]
+                                                                       : input[from];
                                 if (actual[at] != expected) {
                                     char detail[384];
                                     std::snprintf(detail, sizeof detail,
@@ -150,7 +153,7 @@ std::vector<float> reference_iir(const std::vector<float>& input,
                                 uint32_t height, uint32_t width, uint32_t axis,
                                 const double coefficients[3][4], uint32_t active_mask,
                                 const std::vector<float>& accumulator,
-                                const float weights[3], bool accumulate) {
+                                const float weights[3], uint32_t accumulate) {
     std::vector<float> out(input.size());
     const uint32_t length = axis == 0 ? height : width;
     const uint32_t lines = axis == 0 ? width : height;
@@ -164,7 +167,8 @@ std::vector<float> reference_iir(const std::vector<float>& input,
                 for (uint32_t i = 0; i < length; ++i) {
                     const size_t index = base + i * stride;
                     const float weighted = weights[channel] * input[index];
-                    out[index] = accumulate ? accumulator[index] + weighted : input[index];
+                    out[index] = accumulate == 1 ? accumulator[index] + weighted
+                               : accumulate == 2 ? weighted : input[index];
                 }
                 continue;
             }
@@ -182,7 +186,8 @@ std::vector<float> reference_iir(const std::vector<float>& input,
                                      b[1] * state[0] + b[2] * state[1] + b[3] * state[2];
                 const float weighted = weights[channel] * float(value);
                 const size_t index = base + i * stride;
-                out[index] = accumulate ? accumulator[index] + weighted : float(value);
+                out[index] = accumulate == 1 ? accumulator[index] + weighted
+                           : accumulate == 2 ? weighted : float(value);
                 state = {value, state[0], state[1]};
             }
         }
@@ -239,7 +244,7 @@ bool check_iir(spk::gpu::Gpu* gpu, std::string& error) {
                     }
             for (uint32_t axis = 0; axis < 2; ++axis)
                 for (uint32_t mask : masks)
-                    for (uint32_t accumulate = 0; accumulate < 2; ++accumulate)
+                    for (uint32_t accumulate = 0; accumulate < 3; ++accumulate)   // 2: acc = 0, unread
                         for (uint32_t in_place = 0; in_place < 2; ++in_place) {
                             const uint32_t active[3] = {mask & 1u, (mask >> 1) & 1u, (mask >> 2) & 1u};
                             const uint32_t meta[4] = {height, width, accumulate, axis};
@@ -256,7 +261,7 @@ bool check_iir(spk::gpu::Gpu* gpu, std::string& error) {
                                     size_t(axis == 0 ? width : height) * 3, error) ||
                                 !gpu->flush(error)) return false;
                             const auto expected = reference_iir(input, height, width, axis, coefficients,
-                                                                mask, accumulator, weights, accumulate != 0);
+                                                                mask, accumulator, weights, accumulate);
                             std::vector<float> actual_readback;
                             if (!read_test_buffer(gpu, output_buffer, actual_readback, error)) return false;
                             const float* actual = actual_readback.data();
@@ -269,8 +274,9 @@ bool check_iir(spk::gpu::Gpu* gpu, std::string& error) {
                                 // boundaries, independent of the reference recurrence.
                                 const uint32_t channel = uint32_t(i % 3);
                                 const float weighted_constant = weights[channel] * constants[channel];
-                                const float analytic = accumulate ? accumulator[i] + weighted_constant
-                                                                  : constants[channel];
+                                const float analytic = accumulate == 1 ? accumulator[i] + weighted_constant
+                                                     : accumulate == 2 ? weighted_constant
+                                                                       : constants[channel];
                                 const bool constant_wrong = pattern == 0 &&
                                     std::fabs(double(actual[i]) - analytic) > tolerance;
                                 if (!std::isfinite(actual[i]) || delta > tolerance || constant_wrong) {
