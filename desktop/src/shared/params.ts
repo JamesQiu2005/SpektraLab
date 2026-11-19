@@ -322,6 +322,7 @@ export const FILM_EDGE_GATES: Record<string, readonly [number, number]> = {
   '120_6x9': [84, 56],
   '120_6x12': [112, 56],
   '120_6x17': [168, 56],
+  '135_sprocket': [72, 36],
 };
 
 /**
@@ -352,6 +353,12 @@ export interface FilmEdgeSettings {
   framing: string;
   pair: boolean;
   seeded: boolean;
+  /** The scan's carrier past the film's long edges: none (the film's width), black, open (light). */
+  carrier: string;
+  /** 120 cut from 65 mm cine film: its keyhole perforations ('ks65'), else 'none'. */
+  perforation: string;
+  /** The taking lens's light falloff towards the corners (135 full width), 0…1.5. */
+  falloff: number;
 }
 export const FILM_EDGE_DEFAULT: FilmEdgeSettings = {
   active: false,
@@ -369,6 +376,9 @@ export const FILM_EDGE_DEFAULT: FilmEdgeSettings = {
   framing: '',
   pair: false,
   seeded: false,
+  carrier: 'none',
+  perforation: 'none',
+  falloff: 0,
 };
 
 export interface DateBackSettings {
@@ -720,6 +730,10 @@ export function wire(p0: FilmParams, gate: FeatureGate = ALL_FEATURES): WireFiel
         // The film's own edge words unless the photo set its own (SpektraLab 2's `Stock.edgeText(gauge:)`).
         { name: 'overscan_edge_text', value: fe.edgeText || edgeTextFor(cat, p.filmStock, fe.format), layer: 'shoot' },
         { name: 'overscan_f_number', value: clamp(fe.fNumber, 0, 64), layer: 'shoot' },
+        { name: 'overscan_carrier', value: ['none', 'black', 'open'].includes(fe.carrier) ? fe.carrier : 'none', layer: 'shoot' },
+        // 65 mm keyholes only on 120; the engine draws them nowhere else.
+        { name: 'overscan_perforation', value: fe.perforation === 'ks65' && fe.format.startsWith('120') ? 'ks65' : 'none', layer: 'shoot' },
+        { name: 'overscan_falloff', value: clamp(fe.falloff, 0, 1.5), layer: 'shoot' },
       );
     }
   }

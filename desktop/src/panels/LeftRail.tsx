@@ -36,6 +36,7 @@ import {
 import { clamp } from '@shared/params';
 import { useOutput } from '../canvas/output';
 import { StockList } from './StockList';
+import { edgeTextFor } from '@shared/stocks';
 import { unsupportedReason } from './gate';
 
 export function LeftRail() {
@@ -235,15 +236,23 @@ function FilmSection() {
 function FilmEdgeSection() {
   const gate = useSession((s) => s.gate);
   const fe = useSession((s) => s.sidecar.params.filmEdge);
+  const film = useSession((s) => s.sidecar.params.filmStock);
+  const catalog = useSession((s) => s.catalog);
   const reason = unsupportedReason('overscan', gate.overscan);
+  const setFe = (patch: Partial<typeof fe>) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, ...patch } }));
+  const roll = () => 1 + Math.floor(Math.random() * 2147483646);
+  const is120 = fe.format.startsWith('120');
   return (
     <Section id="filmEdge" title={t('sectionFilmEdge')} unsupported={reason}>
-      <ToggleRow label={t('sectionFilmEdge')} on={fe.active} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, active: v } }))} />
+      <ToggleRow label={t('sectionFilmEdge')} on={fe.active} onChange={(v) => setFe({ active: v })} />
       <PillMenu
         label={t('edgeFormat')}
         value={fe.format}
-        options={['135', '135_half', '135_xpan', '120_645', '120_6x6', '120_6x7', '120_6x8', '120_6x9', '120_6x12', '120_6x17'].map((v) => ({ value: v, label: v.replace('_', ' ') }))}
-        onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, format: v } }))}
+        options={['135', '135_half', '135_xpan', '135_sprocket', '120_645', '120_6x6', '120_6x7', '120_6x8', '120_6x9', '120_6x12', '120_6x17'].map((v) => ({
+          value: v,
+          label: v === '135_sprocket' ? tz('135 full width', '135 全幅') : v.replace('_', ' '),
+        }))}
+        onChange={(v) => setFe({ format: v })}
       />
       <PillMenu
         label={t('edgeView')}
@@ -252,10 +261,86 @@ function FilmEdgeSection() {
           { value: 'strip', label: t('edgeViewStrip') },
           { value: 'filed', label: t('edgeViewFiled') },
         ]}
-        onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, view: v } }))}
+        onChange={(v) => setFe({ view: v })}
       />
-      <ScrubSlider label={t('edgeFog')} value={fe.fog} range={[0, 4]} zero={1} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, fog: v } }))} />
-      <ScrubSlider label={t('edgeLeaks')} value={fe.leaks} range={[0, 4]} onChange={(v) => setParams((p) => ({ ...p, filmEdge: { ...p.filmEdge, leaks: v } }))} />
+      <PillMenu
+        label={t('edgeGate')}
+        value={fe.gate}
+        options={(['auto', 'square', 'rounded', 'eared', 'shouldered', 'kicked'] as const).map((g) => ({
+          value: g,
+          label: t(('edgeGate' + g[0]!.toUpperCase() + g.slice(1)) as 'edgeGateAuto'),
+        }))}
+        onChange={(v) => setFe({ gate: v })}
+      />
+      <PillMenu
+        label={t('edgeHoles')}
+        value={fe.holes}
+        options={[
+          { value: 'white', label: t('edgeHolesWhite') },
+          { value: 'black', label: t('edgeHolesBlack') },
+        ]}
+        onChange={(v) => setFe({ holes: v })}
+      />
+      <PillMenu
+        label={tz('Carrier', '片夹')}
+        value={fe.carrier ?? 'none'}
+        options={[
+          { value: 'none', label: tz('None', '无') },
+          { value: 'black', label: tz('Black', '黑') },
+          { value: 'open', label: tz('Open (light)', '透光') },
+        ]}
+        onChange={(v) => setFe({ carrier: v })}
+      />
+      <ScrubSlider label={t('edgeFog')} value={fe.fog} range={[0, 4]} zero={1} onChange={(v) => setFe({ fog: v })} />
+      <ScrubSlider label={t('edgeLeaks')} value={fe.leaks} range={[0, 4]} onChange={(v) => setFe({ leaks: v })} />
+      <ScrubSlider
+        label={tz('Lens Falloff', '镜头暗角')}
+        sublabel={tz('darker corners, as a wide lens on full-width film', '边角变暗，如全幅胶片上的广角镜')}
+        value={fe.falloff ?? 0}
+        range={[0, 1.5]}
+        zero={0}
+        snap={0.05}
+        format={(v) => v.toFixed(2)}
+        onChange={(v) => setFe({ falloff: v })}
+      />
+      {is120 && (
+        <ToggleRow
+          label={tz('65 mm Keyholes', '65mm 钥匙孔齿孔')}
+          sublabel={tz('120 cut from 65 mm cine film', '由 65mm 电影胶片裁成的 120')}
+          on={fe.perforation === 'ks65'}
+          onChange={(v) => setFe({ perforation: v ? 'ks65' : 'none' })}
+        />
+      )}
+      <div className="row" style={{ gap: 8 }}>
+        <span className="row-label">{tz('Edge Text', '边缘文字')}</span>
+        <input
+          className="unit-field"
+          style={{ flex: 1, minWidth: 0 }}
+          value={fe.edgeText}
+          placeholder={edgeTextFor(catalog, film, fe.format)}
+          onChange={(e) => setFe({ edgeText: e.target.value.toUpperCase().slice(0, 40) })}
+          title={tz('Empty: the film’s own words', '留空：使用胶片自己的文字')}
+          data-testid="edge-text"
+        />
+      </div>
+      <ScrubSlider
+        label={tz('Frame Number', '帧号')}
+        sublabel={fe.frameNumber === 0 ? tz('0: the roll decides', '0：由胶卷决定') : undefined}
+        value={fe.frameNumber}
+        range={[0, 99]}
+        zero={0}
+        snap={1}
+        format={(v) => (v === 0 ? tz('Auto', '自动') : v.toFixed(0))}
+        onChange={(v) => setFe({ frameNumber: Math.round(v) })}
+      />
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn" onClick={() => setFe({ cameraSeed: roll() })} title={tz('Another camera: its gate’s shape and wobble, its spool leaks', '换一台相机：片门形状与抖动、漏光')}>
+          {tz('New Camera', '换相机')}
+        </button>
+        <button className="btn" onClick={() => setFe({ frameSeed: roll(), seeded: true })} title={tz('Another frame on the same roll', '同一卷中的另一帧')}>
+          {tz('New Frame', '换一帧')}
+        </button>
+      </div>
     </Section>
   );
 }
