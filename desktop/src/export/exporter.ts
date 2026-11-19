@@ -8,6 +8,7 @@
 // the file whole. Without it, `export_image` writes the engine's print and the
 // page says that the crop and the grade are not in the file.
 
+import { WATERMARK_DEFAULT, blendWatermark } from '@shared/watermark';
 import {
   type Adjustments,
   PROPHOTO_MID_GREY,
@@ -162,6 +163,12 @@ export async function exportFrame(r: ExportRecipe, f: FrameToExport, catalog: St
       const midGrey = r.colorSpace === 'prophoto' ? PROPHOTO_MID_GREY : r.colorSpace === 'adobe-rgb' ? ADOBE_MID_GREY : SRGB_MID_GREY;
       const picture = filePixels(src, { width: info.width, height: info.height }, f.geometry, f.adjustments, out, midGrey);
       const framed = withBorder(picture, out, f.adjustments, r.colorSpace);
+      // The watermark over the picture, inside the border (watermark.ts), as the canvas draws it.
+      {
+        const b = borderPixels(f.adjustments.enabled ? f.adjustments.border : undefined, out.width, out.height);
+        blendWatermark(framed.px, framed.width, framed.height, { x: b.left, y: b.top, width: out.width, height: out.height },
+          f.adjustments.enabled ? f.adjustments.watermark : WATERMARK_DEFAULT, (tone) => borderCode(tone, r.colorSpace));
+      }
       const w = await host().transport.request(
         'write_image',
         {

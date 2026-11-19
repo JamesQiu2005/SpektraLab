@@ -49,6 +49,7 @@ import {
   withTint,
 } from '@shared/whiteBalance';
 import { CurveEditor } from './CurveEditor';
+import { type Watermark, type WatermarkPosition, WATERMARK_DEFAULT, WATERMARK_POSITIONS } from '@shared/watermark';
 import { activeCatalog } from '@shared/stocks';
 import { LensCorrectionPart } from './LensPicker';
 import { unsupportedReason } from './gate';
@@ -89,6 +90,7 @@ export function RightRail() {
             <ChannelMixerSection />
             <ColorBalanceSection />
             <BorderSection />
+            <WatermarkSection />
           </>
         )}
       </div>
@@ -878,6 +880,59 @@ function ChannelMixerSection() {
       {MIXER_CHANNELS.map((inp) => (
         <ScrubSlider key={inp} label={label[inp]} value={mx[out][inp]} range={[-100, 100]} snap={5} format={signed(0)} onChange={(v) => setIn(inp, v)} testId={`mixer-${out}-${inp}`} />
       ))}
+    </Section>
+  );
+}
+
+// -------------------------------------------------------------------- Watermark
+// Develop's text watermark (shared/watermark.ts): on the picture, inside any border, drawn the same way on
+// the canvas and in every export.
+
+const WM_POSITION_LABEL: Record<WatermarkPosition, string> = {
+  tl: '↖', tc: '↑', tr: '↗', ml: '←', mc: '•', mr: '→', bl: '↙', bc: '↓', br: '↘',
+};
+
+function WatermarkSection() {
+  const wm = useSession((s) => s.sidecar.adjustments.watermark) ?? WATERMARK_DEFAULT;
+  const setWm = (patch: Partial<Watermark>) =>
+    setAdjustments((q) => ({ ...q, watermark: { ...(q.watermark ?? WATERMARK_DEFAULT), ...patch } }));
+  return (
+    <Section id="watermark" title={tz('Watermark', '水印')} onReset={() => setAdjustments((q) => ({ ...q, watermark: WATERMARK_DEFAULT }))} resetEnabled={wm.enabled || !!wm.text} resetHelp={t('helpReset')}>
+      <ToggleRow label={tz('Watermark', '水印')} on={wm.enabled} onChange={(v) => setWm({ enabled: v })} testId="wm-on" />
+      <div className="row" style={{ gap: 8 }}>
+        <input
+          className="unit-field"
+          style={{ flex: 1, minWidth: 0 }}
+          value={wm.text}
+          placeholder={tz('© Your Name 2026', '© 你的名字 2026')}
+          onChange={(e) => setWm({ text: e.target.value.slice(0, 200), enabled: true })}
+          data-testid="wm-text"
+        />
+      </div>
+      <PillMenu
+        label={tz('Font', '字体')}
+        value={wm.font}
+        fill
+        options={[
+          { value: 'sans', label: tz('Sans', '无衬线') },
+          { value: 'serif', label: tz('Serif', '衬线') },
+          { value: 'mono', label: tz('Typewriter', '打字机') },
+          { value: 'script', label: tz('Script', '手写') },
+        ]}
+        onChange={(v) => setWm({ font: v as Watermark['font'] })}
+      />
+      <ToggleRow label={tz('Bold', '粗体')} on={wm.bold} onChange={(v) => setWm({ bold: v })} />
+      <ScrubSlider label={tz('Size', '大小')} value={wm.size} range={[1, 15]} zero={3} snap={0.5} format={(v) => v.toFixed(1)} onChange={(v) => setWm({ size: v })} />
+      <ScrubSlider label={tz('Tone', '明暗')} sublabel={tz('0 black · 100 white', '0 黑 · 100 白')} value={wm.tone * 100} range={[0, 100]} zero={100} snap={5} format={(v) => v.toFixed(0)} onChange={(v) => setWm({ tone: v / 100 })} />
+      <ScrubSlider label={tz('Opacity', '不透明度')} value={wm.opacity * 100} range={[0, 100]} zero={70} snap={5} format={(v) => `${v.toFixed(0)} %`} onChange={(v) => setWm({ opacity: v / 100 })} />
+      <ScrubSlider label={tz('Margin', '边距')} value={wm.margin} range={[0, 15]} zero={3} snap={0.5} format={(v) => v.toFixed(1)} onChange={(v) => setWm({ margin: v })} />
+      <div className="wm-grid" role="radiogroup" aria-label={tz('Position', '位置')}>
+        {WATERMARK_POSITIONS.map((pos) => (
+          <button key={pos} role="radio" aria-checked={wm.position === pos} className={'btn' + (wm.position === pos ? ' on' : '')} onClick={() => setWm({ position: pos })}>
+            {WM_POSITION_LABEL[pos]}
+          </button>
+        ))}
+      </div>
     </Section>
   );
 }

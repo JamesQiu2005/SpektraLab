@@ -28,6 +28,7 @@ import {
 import { clamp } from '@shared/params';
 import { type Border, borderPixels } from '@shared/adjustments';
 import { GLRenderer, type DrawState } from './glRenderer';
+import { drawWatermark } from '@shared/watermark';
 import { frameImages } from '../state/frames';
 import {
   beginGesture,
@@ -385,6 +386,7 @@ export function Canvas() {
       data-testid="canvas"
     >
       <canvas ref={canvas} className="canvas-gl" />
+      {layout && <WatermarkOverlay layout={layout} size={size} />}
       {glError && <div className="canvas-message">{tz('This display cannot draw the picture (WebGL2): ', '此显示无法绘制画面（WebGL2）：') + glError}</div>}
       {!selection && !glError && <div className="canvas-message">{tz('Open a folder or drop photographs here (Ctrl+O).', '打开文件夹或把照片拖到这里（Ctrl+O）。')}</div>}
       {layout && cropping && <CropOverlay layout={layout} geometry={geometry} dpr={size.dpr} />}
@@ -462,4 +464,26 @@ function CropOverlay({ layout, geometry, dpr }: { layout: Layout; geometry: Geom
       })}
     </svg>
   );
+}
+
+/**
+ * The watermark over the picture on screen, drawn by the same function as the export's (watermark.ts), at
+ * the picture's place and size in device pixels, so what is seen is what is written.
+ */
+function WatermarkOverlay({ layout, size }: { layout: { offset: { x: number; y: number }; outSize: { width: number; height: number } }; size: { width: number; height: number; dpr: number } }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const adj = useSession((s) => s.sidecar.adjustments);
+  const wm = adj.enabled ? adj.watermark : undefined;
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const W = Math.round(size.width * size.dpr), H = Math.round(size.height * size.dpr);
+    if (c.width !== W) c.width = W;
+    if (c.height !== H) c.height = H;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, W, H);
+    if (wm) drawWatermark(ctx, layout.offset.x, layout.offset.y, layout.outSize.width, layout.outSize.height, wm);
+  }, [wm, layout.offset.x, layout.offset.y, layout.outSize.width, layout.outSize.height, size.width, size.height, size.dpr]);
+  return <canvas ref={ref} className="canvas-overlay" style={{ width: size.width, height: size.height }} aria-hidden="true" />;
 }

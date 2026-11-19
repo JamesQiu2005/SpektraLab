@@ -12,6 +12,7 @@
 //   → black/white point → saturation → colour balance → curves → vignette
 
 import { clamp } from './params';
+import { type Watermark, WATERMARK_DEFAULT, decodeWatermark, watermarkShows } from './watermark';
 
 export interface ColorZone {
   hue: number;
@@ -59,6 +60,8 @@ export interface Adjustments {
   hsl: HSLSet;
   /** SpektraLab 2's channel mixer: each output channel's offsets from itself, −100…100 each. */
   channelMixer: ChannelMixer;
+  /** Develop's text watermark (watermark.ts), on the canvas and in every export. */
+  watermark: Watermark;
 }
 
 export const HSL_HUES = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'] as const;
@@ -156,6 +159,7 @@ export const ADJUSTMENTS_DEFAULT: Adjustments = {
   vibrance: 0,
   hsl: HSL_DEFAULT,
   channelMixer: MIXER_DEFAULT,
+  watermark: WATERMARK_DEFAULT,
 };
 
 export const curveIsIdentity = (c: Curve) =>
@@ -184,7 +188,8 @@ export function isNeutral(a: Adjustments): boolean {
     !a.border?.enabled &&
     !a.vibrance &&
     hslNeutral(a.hsl ?? HSL_DEFAULT) &&
-    mixerNeutral(a.channelMixer ?? MIXER_DEFAULT)
+    mixerNeutral(a.channelMixer ?? MIXER_DEFAULT) &&
+    !watermarkShows(a.watermark)
   );
 }
 
@@ -622,6 +627,7 @@ export function decodeAdjustments(raw: unknown): Adjustments {
         return [out, Object.fromEntries(MIXER_CHANNELS.map((inp) => [inp, Math.min(100, Math.max(-100, num(row[inp], 0)))]))];
       }),
     ) as ChannelMixer,
+    watermark: decodeWatermark(o.watermark),
     vignette: { amount: num(v.amount, 0), midpoint: num(v.midpoint, 50) },
     border: (() => {
       const b = obj(o.border);

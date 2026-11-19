@@ -987,3 +987,8 @@ input {
 .hsl-swatch { width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; position: relative; }
 .hsl-swatch.on { border-color: var(--text, #fff); }
 .hsl-swatch.moved::after { content: ''; position: absolute; right: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent, #f0a030); }
+
+/* Develop: the watermark over the picture (canvas/Canvas.tsx WatermarkOverlay) */
+.canvas-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+.wm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px 0; }
+.wm-grid .btn.on { outline: 1px solid var(--accent, #f0a030); }
