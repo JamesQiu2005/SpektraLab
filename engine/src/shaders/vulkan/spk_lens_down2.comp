@@ -9,12 +9,14 @@ layout(std430, binding = 0) readonly buffer Img { float img[]; };
 layout(std430, binding = 1) readonly buffer Meta { uint meta[]; };
 layout(std430, binding = 2) writeonly buffer Out { float dst[]; };
 
+// PowerVR: no runtime index into a constant array (it silently writes nothing); same weights.
+float spk_c4(int t) { return (t == 0 || t == 3) ? 0.125 : 0.375; }
+
 void main() {
     uint i = spk_global_index();
     uint Hin = meta[0], Win = meta[1], I0in = meta[2], Hout = meta[3], Wout = meta[4], I0out = meta[5];
     if (i >= Hout * Wout) return;
     uint r = i / Wout, j = i % Wout;
-    const float c[4] = float[4](0.125, 0.375, 0.375, 0.125);
     int fy = 2 * int(I0out + r) - 1 - int(I0in), fx = 2 * int(j) - 1;
     vec3 s = vec3(0.0);
     for (int a = 0; a < 4; ++a) {
@@ -22,9 +24,9 @@ void main() {
         vec3 row = vec3(0.0);
         for (int b = 0; b < 4; ++b) {
             uint xx = uint(clamp(fx + b, 0, int(Win) - 1));
-            row += c[b] * SPK_LD3(img, yy * Win + xx);
+            row += spk_c4(b) * SPK_LD3(img, yy * Win + xx);
         }
-        s += c[a] * row;
+        s += spk_c4(a) * row;
     }
     SPK_ST3(dst, i, s);
 }
