@@ -201,19 +201,27 @@ public:
         create.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create.pApplicationInfo = &app;
         // A portability driver (MoltenVK) is enumerated only when the instance
-        // asks for it. Requested only when the loader offers the extension,
-        // so Windows and Linux drivers see the same instance as before.
+        // asks for it. Memory diagnostics also need an optional instance
+        // extension so the compute backend can still target Vulkan 1.0.
         std::vector<const char*> instance_extensions;
+        bool has_memory_properties2 = false;
         {
             uint32_t n_ext = 0;
             if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, nullptr) == VK_SUCCESS && n_ext) {
                 std::vector<VkExtensionProperties> ext(n_ext);
-                if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, ext.data()) == VK_SUCCESS)
-                    for (const auto& e : ext)
+                if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, ext.data()) == VK_SUCCESS) {
+                    ext.resize(n_ext);
+                    for (const auto& e : ext) {
                         if (std::strcmp(e.extensionName, "VK_KHR_portability_enumeration") == 0) {
                             instance_extensions.push_back("VK_KHR_portability_enumeration");
                             create.flags |= 0x00000001;   // VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
                         }
+                        if (std::strcmp(e.extensionName, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME) == 0) {
+                            has_memory_properties2 = true;
+                            instance_extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+                        }
+                    }
+                }
             }
         }
         create.enabledExtensionCount = uint32_t(instance_extensions.size());
@@ -300,12 +308,20 @@ public:
             uint32_t n_ext = 0;
             if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, nullptr) == VK_SUCCESS && n_ext) {
                 std::vector<VkExtensionProperties> ext(n_ext);
-                if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, ext.data()) == VK_SUCCESS)
-                    for (const auto& e : ext)
+                if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, ext.data()) == VK_SUCCESS) {
+                    ext.resize(n_ext);
+                    for (const auto& e : ext) {
                         if (std::strcmp(e.extensionName, portability_subset) == 0) {
                             device_create.enabledExtensionCount = 1;
                             device_create.ppEnabledExtensionNames = &portability_subset;
                         }
+                        if (has_memory_properties2 && std::strcmp(e.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0) {
+                            // This extension is queried at the physical-device level.
+                            memory_budget_query_ = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties2KHR>(
+                                vkGetInstanceProcAddr(instance_, "vkGetPhysicalDeviceMemoryProperties2KHR"));
+                        }
+                    }
+                }
             }
         }
         result = vkCreateDevice(physical_, &device_create, nullptr, &device_);
@@ -322,6 +338,38 @@ public:
     }
 
     std::string device_name() const override { return properties_.deviceName; }
+
+    const char* device_type() const override {
+        switch (properties_.deviceType) {
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return "discrete";
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return "integrated";
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return "virtual";
+        case VK_PHYSICAL_DEVICE_TYPE_CPU: return "cpu";
+        default: return "other";
+        }
+    }
+
+    std::vector<MemoryHeap> memory_heaps() const override {
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{};
+        if (memory_budget_query_) {
+            budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+            VkPhysicalDeviceMemoryProperties2 props{};
+            props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+            props.pNext = &budget;
+            memory_budget_query_(physical_, &props);
+        }
+
+        std::vector<MemoryHeap> heaps;
+        heaps.reserve(memory_properties_.memoryHeapCount);
+        for (uint32_t i = 0; i < memory_properties_.memoryHeapCount; ++i) {
+            const auto& heap = memory_properties_.memoryHeaps[i];
+            MemoryHeap sample{heap.size, bool(heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT), std::nullopt};
+            if (budget.heapBudget[i] > 0 && budget.heapBudget[i] <= heap.size)
+                sample.budget = MemoryHeap::Budget{budget.heapBudget[i], budget.heapUsage[i]};
+            heaps.push_back(sample);
+        }
+        return heaps;
+    }
 
     bool check_math_mode(std::string& detail) override {
         if (!math_checked_) {
@@ -1313,6 +1361,7 @@ private:
     bool math_checked_ = false;
     std::string math_detail_;
     VkPhysicalDeviceMemoryProperties memory_properties_{};
+    PFN_vkGetPhysicalDeviceMemoryProperties2KHR memory_budget_query_ = nullptr;
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
     uint32_t queue_family_ = 0;

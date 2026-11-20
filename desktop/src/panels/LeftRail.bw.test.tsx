@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionState } from '../state/session';
 import type { SettingsStore } from '../state/settings';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 import { StockCatalog } from '@shared/stocks';
 import { newSidecar } from '@shared/sidecar';
 import { featureGate } from '@shared/params';

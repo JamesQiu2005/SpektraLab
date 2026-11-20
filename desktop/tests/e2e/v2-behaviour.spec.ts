@@ -161,6 +161,57 @@ test('the Library on the mock helper: open a catalog, pick three; the browser ke
   expect(await page.getByTestId('browser').locator('.v2-lib-tile.picked').count()).toBe(3);
 });
 
+test('the Library shows visible source previews and the viewer follows the selected frame', async ({ page }) => {
+  await page.goto('/?thumbDelay=100');
+  await page.getByTestId('mode-library').click();
+  await openCatalog(page);
+  const tiles = page.getByTestId('browser').getByTestId('library-tile');
+  const far = tiles.filter({ hasNotText: 'Offline' }).last();
+  const viewer = page.getByTestId('library-viewer-image');
+  await tiles.first().click();
+  const first = tiles.first().locator('img');
+  await expect.poll(() => first.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  await expect(viewer).toHaveAttribute('src', (await first.getAttribute('src'))!);
+  await expect(page.getByTestId('viewer-strip')).toContainText('Camera preview');
+  await expect(far.locator('img')).toHaveCount(0);
+
+  await tiles.nth(1).click();
+  const second = tiles.nth(1).locator('img');
+  await expect.poll(() => second.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  await expect(viewer).toHaveAttribute('src', (await second.getAttribute('src'))!);
+  expect(await viewer.getAttribute('src')).not.toBe(await first.getAttribute('src'));
+
+  await far.scrollIntoViewIfNeeded();
+  await expect.poll(() => far.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  await expect(first).toHaveCount(0);
+  await expect(viewer).toBeVisible();
+  const offline = tiles.filter({ hasText: 'Offline' }).first();
+  await offline.scrollIntoViewIfNeeded();
+  await expect(offline).toContainText('Offline');
+  await expect(offline.locator('img')).toHaveCount(0);
+});
+
+test('a photo folder reopens from Recent with its rating and original identity', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('mode-library').click();
+  await page.getByTestId('first-add-folder').click();
+  const tiles = page.getByTestId('library-tile');
+  await expect(tiles).toHaveCount(8);
+  await expect(page.getByTestId('source-well')).toContainText('8 photos');
+  const first = tiles.first();
+  const id = (await first.getAttribute('data-uuid'))!;
+  await first.click();
+  await page.keyboard.press('4');
+  const rating = () => state<number | null>(page, `l.images.find(i => i.uuid === ${JSON.stringify(id)})?.rating ?? null`);
+  await expect.poll(rating).toBe(4);
+  await page.getByTestId('source-well').click();
+  await page.getByTestId('source-menu').getByRole('menuitem', { name: 'Close Library' }).click();
+  await expect(page.getByTestId('first-run')).toBeVisible();
+  await page.getByTestId('recent-libraries').getByRole('button', { name: /Roll 01/ }).click();
+  await expect(tiles).toHaveCount(8);
+  await expect.poll(rating).toBe(4);
+});
+
 test('a browser row opens its picture in Develop and in Edit; ← → walk the rows', async ({ page }) => {
   await page.addInitScript(() => { try { localStorage.clear(); } catch { /* none */ } });
   await page.goto('/');
@@ -239,6 +290,97 @@ test('the shared bar: the column, the split and the full grid; the browser’s w
   expect(Math.round((await page.getByTestId('browser').boundingBox())!.width)).toBe(430);
 });
 
+test('Ctrl+P is canceled even when a text field has focus', async ({ page }) => {
+  await page.goto('/');
+  await openCatalog(page);
+  await page.evaluate(() => {
+    document.body.dataset.printKeys = '';
+    window.addEventListener('keydown', (event) => {
+      if (event.ctrlKey && event.key.toLowerCase() === 'p') {
+        document.body.dataset.printKeys += event.defaultPrevented ? '1' : '0';
+      }
+    });
+  });
+  await page.keyboard.press('Control+p');
+  const search = page.getByTestId('browser-search');
+  await search.focus();
+  await page.keyboard.press('Control+p');
+  await expect(page.locator('body')).toHaveAttribute('data-print-keys', '11');
+  await expect(search).toBeFocused();
+});
+
+test('F5 keeps the focused library search and cancels browser reload', async ({ page }) => {
+  await page.goto('/');
+  await openCatalog(page);
+  const search = page.getByTestId('browser-search');
+  await search.fill('DSCF');
+  await page.evaluate(() => {
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'F5') document.body.dataset.refreshCanceled = String(event.defaultPrevented);
+    });
+  });
+  await page.keyboard.press('F5');
+  await expect(page.locator('body')).toHaveAttribute('data-refresh-canceled', 'true');
+  await expect(search).toHaveValue('DSCF');
+  await expect(search).toBeFocused();
+});
+
+test('a window blur releases a held Original shortcut and preserves a latched Original', async ({ page }) => {
+  await open(page);
+  const original = page.getByTestId('tb-original');
+  const showing = () => state<boolean>(page, 's.showingOriginal');
+  const blur = () => page.evaluate(() => window.dispatchEvent(new Event('blur')));
+
+  await page.keyboard.down('Space');
+  await expect.poll(showing).toBe(true);
+  // Windows can deliver the keyup to the next focused window instead.
+  await blur();
+  await expect.poll(showing, { timeout: 1000 }).toBe(false);
+  await page.keyboard.up('Space');
+
+  await page.keyboard.down('Backslash');
+  await expect.poll(showing).toBe(true);
+  await page.keyboard.up('Backslash');
+  await expect.poll(showing).toBe(false);
+
+  await original.click();
+  await expect.poll(() => state<boolean>(page, 'u.originalLatched')).toBe(true);
+  await page.keyboard.down('Space');
+  await blur();
+  await page.keyboard.up('Space');
+  await expect.poll(showing).toBe(true);
+  await original.click();
+  await expect.poll(showing).toBe(false);
+});
+
+test('Ctrl+F opens the browser and focuses search when a narrow window folds it', async ({ page }) => {
+  await page.goto('/');
+  await openCatalog(page);
+  await page.setViewportSize({ width: 960, height: 720 });
+  const browser = page.getByTestId('browser');
+  const search = page.getByTestId('browser-search');
+  await expect(browser).toBeHidden();
+  await page.keyboard.press('Control+f');
+  await expect(browser).toHaveAttribute('data-mode', 'over');
+  await expect(search).toBeFocused();
+  await search.fill('DSCF');
+  await expect(search).toHaveValue('DSCF');
+  await page.keyboard.press('Control+f');
+  await expect(search).toBeFocused();
+  await expect(browser).toHaveAttribute('data-mode', 'over');
+  await search.blur();
+  await page.keyboard.press('F8');
+  await expect(browser).toBeHidden();
+
+  await page.setViewportSize({ width: 1536, height: 816 });
+  await expect(browser).toHaveAttribute('data-mode', 'docked');
+  await page.getByTestId('bar-split').click();
+  await expect(browser).toBeHidden();
+  await page.keyboard.press('Control+f');
+  await expect(browser).toHaveAttribute('data-mode', 'docked');
+  await expect(search).toBeFocused();
+});
+
 test('a Capture One source is read-only: a rating key says so and writes nothing', async ({ page }) => {
   await page.goto('/');
   await openCatalog(page, 'Archive');
@@ -248,6 +390,19 @@ test('a Capture One source is read-only: a rating key says so and writes nothing
   await page.keyboard.press('3');
   await expect(page.getByTestId('library-message')).toContainText('Ratings are set in Capture One');
   expect(await state(page, 'l.images[0].rating')).toBe(before);
+});
+
+test('a linked Capture One original can be located from its offline viewer', async ({ page }) => {
+  await page.goto('/');
+  await openCatalog(page, 'Archive');
+  const photo = page.getByRole('button', { name: 'DSC_0001.NEF, Offline' });
+  const uuid = await photo.getAttribute('data-uuid');
+  await photo.click();
+  await expect(page.getByTestId('viewer-strip')).toContainText('Offline');
+  await page.getByRole('button', { name: 'Locate Folder…' }).click();
+  await expect(page.getByTestId('viewer-strip')).not.toContainText('Offline');
+  await expect(page.getByTestId('show-in-explorer')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'DSC_0001.NEF, selected', exact: true })).toHaveAttribute('data-uuid', uuid!);
 });
 
 test('the source menu; the light table and the contact sheet stand above the shell', async ({ page }) => {
@@ -283,6 +438,16 @@ test('menus and keys: Alt shows access keys, F10 opens File, a checked View item
   await expect(page.getByTestId('menu-file-list')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('menu-file-list')).toHaveCount(0);
+  await page.keyboard.press('Alt+f');
+  await expect(page.getByTestId('menu-file-list')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Film Exposure, value').focus();
+  await page.keyboard.press('Control+Alt+f');
+  await expect(page.getByTestId('menu-file-list')).toHaveCount(0);
+  await page.keyboard.press('Alt+f');
+  await expect(page.getByTestId('menu-file-list')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Film Exposure, value').blur();
   // Ctrl+B (and F7) is the left column (PRD-W5 R5).
   await page.keyboard.press('Control+b');
   await expect(page.getByTestId('rail-left')).toHaveCount(0);
@@ -295,6 +460,76 @@ test('menus and keys: Alt shows access keys, F10 opens File, a checked View item
   expect(await state(page, 's.selection')).toContain('DSC_0001');
   expect(await state(page, 's.tool')).toBe('select');
 });
+
+test('title menus keep arrow navigation in the menu and restore focus on Escape', async ({ page }) => {
+  await open(page);
+  // A camera exposure can have more precision than its one-decimal display.
+  await page.evaluate(async () => {
+    const { setCameraExposureTotal } = await import('/src/state/session.ts' as string);
+    setCameraExposureTotal(1.674);
+  });
+  const field = page.getByLabel('Film Exposure, value');
+  await field.focus();
+  await page.keyboard.press('Alt+v');
+  const view = page.getByTestId('menu-view-list');
+  const left = view.locator('[data-command="leftColumn"]');
+  const browser = view.locator('[data-command="browser"]');
+  await expect(left).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(browser).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(left).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(view).toHaveCount(0);
+  expect(await state(page, 's.sidecar.params.exposureBaselineEV + s.sidecar.params.exposureCompensationEV')).toBeCloseTo(1.674, 6);
+  await expect(field).toBeFocused();
+
+  await page.keyboard.press('Alt+v');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(view).toHaveCount(0);
+  await expect(page.getByTestId('browser')).toBeHidden();
+  expect(await state(page, 's.selection')).toContain('DSC_0001');
+  await field.fill('1.2');
+  await field.press('Enter');
+  expect(await state(page, 's.sidecar.params.exposureBaselineEV + s.sidecar.params.exposureCompensationEV')).toBeCloseTo(1.2, 6);
+});
+
+
+test('browser harness models double-click maximize on the title bar', async ({ page }) => {
+  await open(page);
+  const title = await page.getByTestId('window-title').boundingBox();
+  expect(title).not.toBeNull();
+  const surface = page.getByTestId('v2-window');
+  await page.mouse.dblclick(title!.x + title!.width / 2, title!.y + title!.height / 2);
+  await expect(surface).toHaveClass(/\bsquare\b/);
+  await page.mouse.dblclick(title!.x + title!.width / 2, title!.y + title!.height / 2);
+  await expect(surface).not.toHaveClass(/\bsquare\b/);
+});
+
+
+test('folded title menu enters and exits submenus with the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 540, height: 816 });
+  await open(page);
+  const trigger = page.getByTestId('menu-fold');
+  await trigger.click();
+  const file = page.getByTestId('menubar').locator('[data-submenu="file"]');
+  await expect(file).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  const openPhoto = file.locator('[data-command="open"]');
+  await expect(openPhoto).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(openPhoto).toHaveCount(0);
+  await expect(file).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(openPhoto).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(file).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(file).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
 
 test('capability gating: a refused feature is absent, a supported one is in its place', async ({ page }) => {
   await open(page);
@@ -359,6 +594,30 @@ test('narrow windows fold the browser first, then the column; a folded pane come
   await expect(page.getByTestId('tb-compare')).toHaveCount(0);
   await page.getByTestId('tb-more').click();
   await expect(page.getByTestId('more-menu')).toContainText('Compare');
+});
+
+test('an overlay clears when its pane docks on a wider window', async ({ page }) => {
+  await open(page);
+  const browser = page.getByTestId('browser');
+  await page.setViewportSize({ width: 960, height: 720 });
+  await expect(browser).toBeHidden();
+  await page.keyboard.press('F8');
+  await expect(browser).toHaveAttribute('data-mode', 'over');
+  await page.setViewportSize({ width: 1536, height: 816 });
+  await expect(browser).toHaveAttribute('data-mode', 'docked');
+  await page.keyboard.press('F8');
+  await expect(browser).toBeHidden();
+  await page.keyboard.press('F8');
+  await expect(browser).toHaveAttribute('data-mode', 'docked');
+
+  await page.setViewportSize({ width: 768, height: 720 });
+  const column = page.getByTestId('rail-left');
+  await page.keyboard.press('F7');
+  await expect(column).toHaveAttribute('data-mode', 'over');
+  await page.setViewportSize({ width: 1536, height: 816 });
+  await expect(column).toHaveAttribute('data-mode', 'docked');
+  await page.setViewportSize({ width: 768, height: 720 });
+  await expect(column).toHaveCount(0);
 });
 
 test('1080p at 150 %: the column and the browser, the Navigator folded to one line', async ({ browser }) => {

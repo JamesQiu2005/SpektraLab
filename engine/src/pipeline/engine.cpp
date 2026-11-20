@@ -81,8 +81,13 @@ constexpr const char* kRenderCore = "native-metal";
 struct Tier {
     const char* name;
     uint32_t long_edge;   // 0 = the frame's own resolution
+    Pipeline::RandomStream random_stream;
 };
-constexpr Tier kTiers[] = {{"live", 1600}, {"preview", 3400}, {"full", 0}};
+constexpr Tier kTiers[] = {
+    {"live", 1600, Pipeline::RandomStream::live},
+    {"preview", 3400, Pipeline::RandomStream::preview},
+    {"full", 0, Pipeline::RandomStream::full},
+};
 
 // RFC-015 P.1: the auto-exposure meter's own resolution. Each tier used to
 // meter its own image, so an export was exposed differently from the canvas
@@ -343,6 +348,7 @@ struct spk_engine {
         backend.set("spectral", Json(std::string("native")));
         backend.set("gpu", Json(gpu ? gpu->device_name() : std::string("none")));
         backend.set("gpu_available", Json(gpu != nullptr));
+        if (gpu) backend.set("device_type", Json(std::string(gpu->device_type())));
         backend.set("working_precision", Json(std::string("float32")));
         // Contract §6 / RFC-014 §5.1 trap 6: what the engine *loaded*, not
         // what the process could reach. `render_core` was a probe of
@@ -520,6 +526,25 @@ struct spk_engine {
         out.set("pool", std::move(pool_json));
         out.set("persistent", std::move(persistent));
         out.set("pressure", std::move(pressure));
+        if (gpu) {
+            const auto heaps = gpu->memory_heaps();
+            if (!heaps.empty()) {
+                Json rows = Json::array();
+                for (const auto& heap : heaps) {
+                    Json row = Json::object();
+                    row.set("size_bytes", Json(double(heap.size_bytes)));
+                    row.set("device_local", Json(heap.device_local));
+                    if (heap.budget) {
+                        row.set("budget_bytes", Json(double(heap.budget->budget_bytes)));
+                        row.set("usage_bytes", Json(double(heap.budget->usage_bytes)));
+                    }
+                    rows.push(std::move(row));
+                }
+                Json device = Json::object();
+                device.set("heaps", std::move(rows));
+                out.set("gpu_memory", std::move(device));
+            }
+        }
         return out;
     }
 };
@@ -1200,22 +1225,24 @@ struct MemoryEstimateTrace {
     }
 };
 
-bool run_film_for(spk_session* session, const Image& source, Image& negative,
+bool run_film_for(spk_session* session, const Tier& tier, const Image& source, Image& negative,
                   Progress* progress, std::string& error) {
     MemoryEstimateTrace trace(session, "film", "miss", source, 5);
+    session->pipeline->set_random_stream(tier.random_stream);
     if (session->params.settings.striped) {
         return trace.success = session->pipeline->run_film_striped(source, negative, progress, error);
     }
     return trace.success = session->pipeline->run_film(source, negative, progress, error);
 }
 
-bool run_print_for(spk_session* session, const Image& negative, Image& rgb,
+bool run_print_for(spk_session* session, const Tier& tier, const Image& negative, Image& rgb,
                    Progress* progress, std::string& error) {
     // Conservative cross-size model: IIR glare can still need four RGB planes;
     // consuming the default FIR field lowers that path to three. Pool
     // oversizing and small-frame fixed costs remain outside this model.
     MemoryEstimateTrace trace(session, "print", "miss", negative,
                               session->params.print_render.glare.active ? 4 : 3);
+    session->pipeline->set_random_stream(tier.random_stream);
     if (session->params.settings.striped) {
         return trace.success = session->pipeline->run_print_striped(negative, rgb, progress, error);
     }
@@ -1241,7 +1268,7 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
         camera.auto_exposure ? std::optional<double>(session->meter.evs.of(camera.auto_exposure_method))
                              : std::nullopt);
     Image negative;
-    if (!run_film_for(session, source, negative, progress, error)) return false;
+    if (!run_film_for(session, tier, source, negative, progress, error)) return false;
     state.applied_ev = session->pipeline->last_auto_exposure_ev();
     session->pipeline->overscan_frame(state.overscan_frame_w, state.overscan_frame_h);
     if (progress) progress->auto_exposure_ev = state.applied_ev;
@@ -1378,7 +1405,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
         const spk_session::TierState& state = session->tiers[tier->name];
         ok = session->pipeline->set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error);
     }
-    if (ok) ok = run_print_for(session, negative, rgb, &session->progress, error);
+    if (ok) ok = run_print_for(session, *tier, negative, rgb, &session->progress, error);
     if (ok) ok = materialise(session, rgb, out, error);
     gpu->end_frame();
 
@@ -1783,7 +1810,7 @@ static bool pair_layers(spk_session* session, const Tier& tier, const Image& sou
                 if(!negative_for(session,tier,&session->progress,negative,error))return false;
                 struct RestorePrint { Pipeline* pipeline; const Json& values; ~RestorePrint(){pipeline->apply_live_delta(values);} } reset{session->pipeline.get(),restore};
                 session->pipeline->apply_live_delta(layer.delta);
-                if(!run_print_for(session,negative,rgb,&session->progress,error))return false;
+                if(!run_print_for(session,tier,negative,rgb,&session->progress,error))return false;
                 input.w=rgb.w;input.h=rgb.h;input.c=2;input.buf=gpu->alloc(input.bytes(),error);
                 if(!input.buf)return false;
                 uint32_t m[]={uint32_t(rgb.pixels()),rgb.w,rgb.w};
@@ -1871,7 +1898,7 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
                 !(params.settings.striped ? pipeline.run_print_striped(negative, rgb, &session->progress, error)
                                           : pipeline.run_print(negative, rgb, &session->progress, error))) return false;
         } else if (!session->pipeline->set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error) ||
-                   !run_print_for(session, negative, rgb, &session->progress, error)) return false;
+                   !run_print_for(session, *tier, negative, rgb, &session->progress, error)) return false;
         Image packed; packed.w = rgb.w; packed.h = rgb.h; packed.c = 2;
         packed.buf = gpu->alloc_persistent(packed.bytes(), error);
         if (!packed.buf) return false;

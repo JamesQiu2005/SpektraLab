@@ -7,7 +7,7 @@ import { DEFAULT_RECIPES } from './recipes';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { newHole, newPair, pairFitRegion } from '@shared/pair';
 import type * as PlatformModule from '../platform';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({
   request: vi.fn(), renderProof: vi.fn(), open: vi.fn(), close: vi.fn(), probe: vi.fn(),

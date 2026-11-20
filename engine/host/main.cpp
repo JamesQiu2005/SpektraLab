@@ -421,6 +421,7 @@ Json m_hello(const Request&) {
     const Json& b = caps.at("backend");
     backend.set("available", Json(true));
     backend.set("device_name", str(b.at("gpu").as_string()));
+    backend.set("device_type", b.at("device_type"));
     backend.set("math_mode", str(b.at("math_mode").as_string()));
     backend.set("render_core", str(b.at("render_core").as_string()));
     r.set("backend", std::move(backend));

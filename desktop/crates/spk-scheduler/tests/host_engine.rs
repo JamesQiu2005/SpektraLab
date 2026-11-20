@@ -1,9 +1,7 @@
 //! T4 — `HostEngine` against a scripted link: the requests each job kind makes, a cancel during a
 //! render, every host error code, a host that dies mid-job, superseded edits folding into the newest.
 //! On tokio's paused clock: the link's "render time" is virtual.
-//!
-//! macOS only by design (README, "Tests").
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", windows))]
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};

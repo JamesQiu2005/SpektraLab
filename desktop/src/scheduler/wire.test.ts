@@ -16,7 +16,7 @@ import { frontendMsg, type BudgetReadingWire, type JobSnapshotWire, type JobSpec
 /** Every ```json wire-example <Type> block of WIRE.md, parsed. */
 function examples(type: string): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
-  const re = /```json wire-example (\w+)\n([\s\S]*?)```/g;
+  const re = /```json wire-example (\w+)\r?\n([\s\S]*?)```/g;
   for (let m = re.exec(wireMd); m; m = re.exec(wireMd)) if (m[1] === type) out.push(JSON.parse(m[2]!) as Record<string, unknown>);
   return out;
 }

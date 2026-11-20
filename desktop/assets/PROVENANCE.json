@@ -1,0 +1,128 @@
+{
+  "sourceRepository": "JamesQiu2005/SpektraLab",
+  "sourceCommit": "f87c5212773c7a3b899bde26b3c56cf83b2dcc91",
+  "note": "Windows inputs relocated from the Windows v2 baseline. A separate sourceSha256 records an adapted file's original hash. Text hashes use LF line endings.",
+  "files": [
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json",
+      "path": "desktop/assets/StockCatalog.json",
+      "sha256": "b58e96c99cc82aed8517f3595aa330b6bf5aa338a97435c452405a3fb6ddfeac"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/fujifilm_provia_100f.jpg",
+      "path": "desktop/assets/FilmCovers/fujifilm_provia_100f.jpg",
+      "sha256": "8cfa5b8deb2f9453980df65b3a56d440660ea632767ca23842bca642242b88f2"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/fujifilm_velvia_100.jpg",
+      "path": "desktop/assets/FilmCovers/fujifilm_velvia_100.jpg",
+      "sha256": "f64db420fb4d9ef953711d3385592e4b067c8c91dd20ace540ab3c05d3b7c8e1"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/fujifilm_xtra_400.jpg",
+      "path": "desktop/assets/FilmCovers/fujifilm_xtra_400.jpg",
+      "sha256": "fa62e716c9df700606197051f5ccd2bd116df68c962b9f1ef3924662161f86f2"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_ektachrome_100.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_ektachrome_100.jpg",
+      "sha256": "21045ee75844751f4579adfebd1e9809cef0666c21ac83338b56ed80ca6a2627"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_gold_200.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_gold_200.jpg",
+      "sha256": "0cd832fa4f223b53d830ea49bcddc67dbc3d97e269acb4e3d28d41eedf2364c0"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_portra_160.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_portra_160.jpg",
+      "sha256": "9bc6806e976c05ed636672f32b90cbaca5b8c2a0bffac88d71bae2a35e023704"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_portra_400.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_portra_400.jpg",
+      "sha256": "0cd832fa4f223b53d830ea49bcddc67dbc3d97e269acb4e3d28d41eedf2364c0"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_portra_800.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_portra_800.jpg",
+      "sha256": "230fc30c6370465989f39a97830cc5f8233febbc8b87dbfaedd51965ba3e9ada"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_portra_800_push1.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_portra_800_push1.jpg",
+      "sha256": "230fc30c6370465989f39a97830cc5f8233febbc8b87dbfaedd51965ba3e9ada"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_portra_800_push2.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_portra_800_push2.jpg",
+      "sha256": "230fc30c6370465989f39a97830cc5f8233febbc8b87dbfaedd51965ba3e9ada"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/FilmCovers/kodak_ultramax_400.jpg",
+      "path": "desktop/assets/FilmCovers/kodak_ultramax_400.jpg",
+      "sha256": "86f5fd5e50898cf61a09a81522ceb69a23991550c66e3189c764465a0e4c6a06"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/Profiles-and-LUTs-CC-BY-SA-4.0.txt",
+      "path": "license/profiles/Profiles-and-LUTs-CC-BY-SA-4.0.txt",
+      "sha256": "76d629501783ae52e8d63aee1e054c1e1a9713b9fe7d36fb306e25b1d14b24e9"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/Profiles-and-LUTs-CHANGELOG.txt",
+      "path": "license/profiles/Profiles-and-LUTs-CHANGELOG.txt",
+      "sha256": "1459853d9082b4a8bec21d0161fe5fb3a602367f5ac871a8f0a909dd497026b7"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/README.txt",
+      "path": "license/profiles/README.txt",
+      "sourceSha256": "3089b9c482a57c5a707d0309c57157a551effce8ad968b5e738708ac33b09c36",
+      "sha256": "ad241900897482cccd3825dee5d25c515bb62a80fe61fc6cfaadd08f0fc071ac"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/SpektraLab-GPL-3.0.txt",
+      "path": "license/profiles/SpektraLab-GPL-3.0.txt",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/DI/SpektraLab DI view, Cineon to ProPhoto RGB.cube",
+      "path": "engine/resources/DI/SpektraLab DI view, Cineon to ProPhoto RGB.cube",
+      "sha256": "db9b3a2a2c37ddfbb6506ba5645584183fc071e1a149051b48604af013953278"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/Resources/DI/SpektraLab DI view, Cineon to Rec709.cube",
+      "path": "engine/resources/DI/SpektraLab DI view, Cineon to Rec709.cube",
+      "sha256": "7ae19cb8ed1f7c48b20bea6cbfd7dc182ed1af2d4d619a990bc793d62da49073"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon/Assets/1.background.svg",
+      "path": "desktop/assets/icon/1.background.svg",
+      "sha256": "887ad2c3372e439e786fc7e6aac7d83f1c760939471bff9fcba97a1ffce525e4"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon/Assets/2.2 – layer.svg",
+      "path": "desktop/assets/icon/2.2 – layer.svg",
+      "sha256": "6e81e04a1420b2686727a194023769a905cd32716373aaf384a82f4381a9a4dd"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon/Assets/3.4 – layer.svg",
+      "path": "desktop/assets/icon/3.4 – layer.svg",
+      "sha256": "02782a24c476289c1761919ed5d4451dd1f3998a1112aad9b3089f08206a1b21"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon/Assets/4.1 – layer.svg",
+      "path": "desktop/assets/icon/4.1 – layer.svg",
+      "sha256": "fbdd4211aeb4cdcc4d6427da9ab95433613a93e91c0b83d133e358eab3f732a1"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon/Assets/5.app icon shape.svg",
+      "path": "desktop/assets/icon/5.app icon shape.svg",
+      "sha256": "f0ed87c1a075d30e580e9d9b13ee8dcb0cd440b1b0c63be14fc595832c8ccf88"
+    },
+    {
+      "source": "modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon/Assets/资源 1.svg",
+      "path": "desktop/assets/icon/资源 1.svg",
+      "sha256": "f0c084d7293d02d9b40bbf17bf39de9d01ed0ec30d6c56c0c0930c13eeabf8a1"
+    }
+  ]
+}

@@ -87,6 +87,7 @@ export interface HelloResult {
   backend: {
     api: string;
     device_name: string;
+    device_type?: 'discrete' | 'integrated' | 'virtual' | 'cpu' | 'other';
     driver?: string;
     vram_mb?: number;
     /** False when the engine could not start (no Vulkan device); `error` says why. */
@@ -113,6 +114,18 @@ export interface HelloResult {
   frame_options?: string[];
   /** Frontend-side: true when the mock host answered. */
   mock?: boolean;
+}
+
+export interface GpuMemoryHeap {
+  size_bytes: number;
+  device_local: boolean;
+  budget_bytes?: number;
+  usage_bytes?: number;
+}
+
+export interface MemoryReport {
+  total_bytes?: number;
+  gpu_memory?: { heaps: GpuMemoryHeap[] };
 }
 
 export interface SchemaField {

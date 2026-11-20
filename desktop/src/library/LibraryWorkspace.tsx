@@ -13,17 +13,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { tz } from '../i18n';
 import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
+import { isRawPath } from '@shared/whiteBalance';
 import { Glyph as G, type GlyphName } from '../theme/Glyph';
 import type { Collection } from './client';
 import { setLibraryView, setUi, useUi } from '../app/ui';
 import { developFromLibrary, showInExplorer, commands } from '../app/commands';
 import { MenuList } from '../app/TitleBar';
-import { toggleFavourite, addFolder, newAlbum, chooseCollection, closeLibrary, kindWords, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
+import { toggleFavourite, addFolder, newAlbum, chooseCollection, closeLibrary, kindWords, locateOriginalFolder, newLibrary, openCaptureOneDialog, openLibrary, openLibraryDialog, originalLocation, setLibrary, setSearch, useLibrary, type LibraryState } from './store';
 import type { ImageRow } from './client';
 import { useSession } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import type { StockCatalog } from '@shared/stocks';
 import { platform } from '../platform';
+import { useLibraryPreview } from './previews';
 
 export const DAY = (d: string | null) => (d ? d.slice(0, 10) : '');
 export function dayWords(day: string, today = new Date()): [string, string] {
@@ -49,7 +51,7 @@ export function filmDot(catalog: StockCatalog, film: string): string {
   return '#D8A27A';
 }
 
-/** A frame's picture until the helper serves previews (PARITY.md): a tone of its own, the same in the grid and the Info well. */
+/** The same placeholder in the grid and the viewer until a picture is available. */
 function picture(uuid: string): string {
   const hue = [...uuid].reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
   return `linear-gradient(160deg, hsl(${hue} 22% 34%), hsl(${(hue + 40) % 360} 18% 14%))`;
@@ -60,14 +62,15 @@ function picture(uuid: string): string {
  * dot at its foot for the film it was developed through, a white ring when
  * picked. No hearts: Favourites is a row of the sidebar.
  */
-export function LibraryTile({ img, picked, focus, film, onClick, onOpen }: { img: ImageRow; picked: boolean; focus?: boolean; film: string | null; onClick: (e: React.MouseEvent) => void; onOpen: () => void }) {
+export function LibraryTile({ img, picked, focus, visible, film, onClick, onOpen }: { img: ImageRow; picked: boolean; focus?: boolean; visible: boolean; film: string | null; onClick: (e: React.MouseEvent) => void; onOpen: () => void }) {
   const offline = img.exists === false;
   const catalog = useSession((s) => s.catalog);
+  const preview = useLibraryPreview(visible && !offline ? img.path : null);
   return (
     <button className={'v2-lib-tile' + (picked ? ' picked' : '') + (focus ? ' focus' : '') + (offline ? ' offline' : '')} data-testid="library-tile" data-uuid={img.uuid}
       aria-pressed={picked} aria-label={`${img.file_name}${offline ? `, ${tz('Offline', '离线')}` : ''}${picked ? `, ${tz('selected', '已选中')}` : ''}`}
       onClick={onClick} onDoubleClick={onOpen}>
-      <span className="v2-lib-pic" style={{ background: picture(img.uuid) }} />
+      {preview ? <img className="v2-lib-pic" src={preview} alt="" /> : <span className="v2-lib-pic" style={{ background: picture(img.uuid) }} />}
       {offline && <span className="v2-offline">{tz('Offline', '离线')}</span>}
       {film && !offline && <i className="v2-lib-dot" style={{ background: filmDot(catalog, film) }} title={catalog.stock(film)?.name ?? film} />}
     </button>
@@ -237,6 +240,7 @@ function Viewer() {
   const c1 = s.source?.kind === 'captureOneCatalog' || s.source?.kind === 'captureOneSession';
   const f = s.images.find((i) => i.uuid === s.focus);
   const several = s.source ? s.picked.length : folderPicked.length;
+  const preview = useLibraryPreview(s.source && several <= 1 && f?.exists !== false ? f?.path ?? null : null, true);
   if (several > 1) {
     return (
       <div className="v2-viewer" data-testid="info-picked">
@@ -272,6 +276,7 @@ function Viewer() {
   const film = s.filmOf[f.uuid];
   const print = film ? catalog.stock(film)?.name.replace(/^(Kodak|Fujifilm|Ilford|Fuji) (Professional )?/, '') ?? '' : f.variants[0]?.edit_revision ? tz('Developed', '已冲洗') : '';
   const parts = [
+    f.exists === false ? tz('Offline', '离线') : '',
     dims(f.width, f.height),
     f.camera?.model ?? '',
     ex ? `${ex.shutter} s · f/${ex.aperture} · ISO ${ex.iso}` : '',
@@ -280,11 +285,18 @@ function Viewer() {
   ].filter((x) => x && x !== '—');
   return (
     <div className="v2-viewer" data-testid="info-one">
-      <div className="v2-viewer-well"><span className="v2-viewer-pic" style={{ background: picture(f.uuid) }} /></div>
+      <div className="v2-viewer-well">
+        {preview ? <img className="v2-viewer-image" src={preview} alt={f.file_name} data-testid="library-viewer-image" />
+          : <span className="v2-viewer-pic" style={{ background: picture(f.uuid) }} />}
+      </div>
       <div className="v2-viewer-strip" data-testid="viewer-strip">
         <b title={f.path}>{f.file_name}</b>
+        {preview && <span className="v2-preview-origin">{isRawPath(f.path) ? tz('Camera preview', '相机预览') : tz('Original preview', '原片预览')}</span>}
         <span className="dim">{parts.join('  ·  ')}</span>
-        <button className="v2-button" data-testid="show-in-explorer" onClick={showInExplorer}>{tz('Show in File Explorer', '在文件资源管理器中显示')}</button>
+        {c1 && originalLocation(f, s.locations)
+          ? <button className="v2-button" data-testid="locate-original-folder" disabled={s.locating || s.phase !== 'open'}
+              onClick={() => void locateOriginalFolder(f)}>{tz('Locate Folder…', '定位文件夹…')}</button>
+          : <button className="v2-button" data-testid="show-in-explorer" disabled={f.exists === false} onClick={showInExplorer}>{tz('Show in File Explorer', '在文件资源管理器中显示')}</button>}
       </div>
     </div>
   );

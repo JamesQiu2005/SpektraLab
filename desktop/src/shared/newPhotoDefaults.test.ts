@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { NEW_PHOTO_DEFAULTS, newPhotoSidecar, newPhotoStocks } from './newPhotoDefaults';
 import { EMPTY_CATALOG, StockCatalog } from './stocks';
 import { newSidecar } from './sidecar';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 
 const catalog = new StockCatalog(stockData.stocks);
 

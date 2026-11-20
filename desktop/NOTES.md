@@ -28,7 +28,7 @@ borrowed full view. The section below says what was built and decided; phase 2's
 - `app/AppWindow.tsx` is the shell, mounted once: the title bar; the LEFT COLUMN (`Column`: the mode row in its
   head, then the mode's tools — `LibraryColumn`; or the Latitude meter, then `DevelopTools` / `EditTools`);
   the picture (`Toolbar` = the shared bar + the mode's half; `Picture` + `InfoStrip`, or `LibraryCentre`);
-  the BROWSER (`library/Browser.tsx`) in a slot that is mounted in every mode (hidden when folded), so its
+  the BROWSER (`library/LibraryBrowser.tsx`) in a slot that is mounted in every mode (hidden when folded), so its
   scroll is kept. Every column page stays mounted too (`hidden`), for the same reason.
 - `app/modes.ts` is the mode row's logic (`chooseMode`, `modeUnavailable`); `app/Shell.tsx` its view
   (`ModeRow`), the `SharedBar` and the `Wall`s. `ui.workspace` is `'library' | 'develop' | 'edit'`.
@@ -137,7 +137,11 @@ renders, full views, exports and thumbnails on it (or opened its own). Now:
   takes its lock for every job. Only the browser mock and the tests run the mock.
 - `FAILED_RENDER_KEEPS_EDITED_CONTROLS` (`state/session.ts`) is the review's one switch.
 - A folder source's library lives in the helper's store (`Folders/<name>-<fnv>.spkcatalog`), never in
-  the person's folder.
+  the person's folder. Recent entries retain the photo folder for display and the catalogue path
+  for reopening without another import. Older entries resolve the existing catalogue by folder key.
+- Tauri library handles identify the helper launch. After a crash the browser reopens the current
+  catalogue by path and compares its UUID before using the new handle. Transport failures and
+  timeouts leave write status unknown, so writes in that state are never repeated automatically.
 - `--selftest` exists only in a debug or `selftest`-feature build (`cfg`), so no package carries it.
 
 **Phase 2 — the gate** (`SPEKTRALAB_GATE_PHASE=2 SPEKTRALAB_RAW_FIXTURES=… SPKLIB_SRC=<repo>/build/spklib

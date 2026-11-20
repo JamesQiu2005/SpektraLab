@@ -33,15 +33,13 @@ if [[ ! -f "$deps/input-codecs/install-mac/include/lcms2.h" || ! -f "$deps/lens-
   python3 "$repo/engine/setup-lens-codecs.py" --sources "$deps/lens-codecs" --build "$build/lens-codecs" \
     --install "$deps/lens-codecs/install-mac" --generator Ninja
 fi
-mkdir -p "$src/modern_UI/Spektrafilm/Spektrafilm/Resources" "$src/license"
+mkdir -p "$src/license"
 cp "$repo/CMakeLists.txt" "$src/CMakeLists.txt"
 rsync -a --delete --exclude build "$repo/engine/" "$src/engine/"
-rsync -a --delete "$repo/modern_UI/Spektrafilm/Spektrafilm/Resources/DI/" "$src/modern_UI/Spektrafilm/Spektrafilm/Resources/DI/"
-rsync -a --delete "$repo/modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/" "$src/modern_UI/Spektrafilm/Spektrafilm/Resources/Licenses/"
 rsync -a --delete "$repo/license/" "$src/license/"
 sed -i '' 's/^#ifndef __APPLE__$/#if !defined(__APPLE__) || defined(SPK_VULKAN_BACKEND)/' "$src/engine/src/pipeline/engine.cpp"
 cmake -S "$src" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DSPEKTRALAB_VULKAN_ON_APPLE=ON -DSPEKTRALAB_REQUIRE_VULKAN=ON -DSPEKTRALAB_VULKAN_HEADERS="$deps/Vulkan-Headers/include" \
+  -DSPEKTRALAB_REQUIRE_VULKAN=ON -DSPEKTRALAB_VULKAN_HEADERS="$deps/Vulkan-Headers/include" \
   -DSPEKTRALAB_BUILD_NATIVE_RAW=ON -DSPEKTRALAB_BUILD_HOST=ON -DSPEKTRALAB_LIBRAW_OPENMP=OFF \
   -DSPEKTRALAB_DEPS_DIR="$deps" \
   -DSPEKTRALAB_INPUT_CODEC_PREFIX="$deps/input-codecs/install-mac" \

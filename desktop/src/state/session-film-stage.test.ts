@@ -7,7 +7,7 @@ import type * as SessionModule from './session';
 import { StockCatalog } from '@shared/stocks';
 import { decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
 import type { FileEntry } from '../platform';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({
   onState: null as ((state: HostState) => void) | null,

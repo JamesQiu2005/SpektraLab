@@ -40,8 +40,6 @@
   "bundle": {
     "active": true,
     "targets": [
-      "deb",
-      "appimage",
       "nsis"
     ],
     "publisher": "SpektraLab contributors",
@@ -99,16 +97,6 @@
         "mimeType": "image/tiff"
       }
     ],
-    "linux": {
-      "deb": {
-        "section": "graphics",
-        "depends": [],
-        "desktopTemplate": "linux/spektralab.desktop"
-      },
-      "appimage": {
-        "bundleMediaFramework": false
-      }
-    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

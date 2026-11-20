@@ -2,9 +2,9 @@
 
 The Windows port uses the existing C++20 film/print pipeline with a Vulkan
 compute backend. It includes a native RAW-to-TIFF command-line host and a
-minimal Win32 viewer, plus a Qt Quick editor. These executables do not require Python at runtime. The
-macOS `build.sh`, Metal implementation and Xcode frontend retain their own
-build paths.
+minimal Win32 viewer, plus a Qt Quick editor. These executables do not require Python at runtime.
+The [upstream macOS branch](https://github.com/JamesQiu2005/SpektraLab/tree/main)
+contains the Metal implementation and Xcode frontend.
 
 The port began at `8a3187434ced21253940f84c746b94128860a2f8` and is integrated
 with the author's `Windows_Port` starting point, `61bfc49a38e92b9d7915754982de3af13245403f`.
@@ -138,16 +138,16 @@ $env:SPEKTRALAB_NODE_RUNTIME = 'D:\path\to\node-v24.19.0-win-x64\node.exe'
 npm run package:win   # from desktop/
 ```
 
-Without it packaging stops at `Packaging needs the verified Node v24.19.0
-runtime (SPEKTRALAB_NODE_RUNTIME)`. The installer is built from the staged host
+The builder may also use Node v24.19.0 x64 on `PATH` as the bundled runtime.
+The installer is built from the staged host
 in `build/host-win-x64`, so rebuild and restage that host after engine changes
 (`engine/stage-host.sh` needs Git Bash on Windows and
 `SPEKTRALAB_DEPS_DIR` pointing at the LibRaw and Vulkan-Headers trees).
 
 ### TypeScript desktop shell
 
-The current Windows/Linux editor is the Tauri application under `desktop/`;
-follow [its build instructions](../desktop/README.md) and build its web assets
+The Windows v2 editor is the Tauri application under `desktop/`;
+follow [the installer instructions](../desktop/docs/WINDOWS-INSTALLER.md) and build its web assets
 before compiling with `tauri/custom-protocol`. Its Rust library is an `rlib`
 used by the desktop executable and unit tests. It has no public Rust C ABI or
 mobile library target, so the template's unused `staticlib`/`cdylib` outputs

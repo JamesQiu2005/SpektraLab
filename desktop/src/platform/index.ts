@@ -53,6 +53,7 @@ export interface Platform {
   confirm(title: string, text: string, kind?: 'info' | 'warning'): Promise<boolean>;
   onOpenPaths(cb: (paths: string[]) => void): () => void;
   onDrop(cb: (paths: string[]) => void): () => void;
+  onWindowBlur(cb: () => void): () => void;
   setTitle(title: string): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   toggleFullscreen(): Promise<void>;

@@ -1,9 +1,7 @@
 //! The facade is called from threads that are not inside the tokio runtime: Tauri runs a non-async
 //! command on such a thread. Only `Scheduler::new` (and `HostEngine::connect`, `ProcessHostLink::spawn`)
 //! need a runtime context; every other entry point must work from a plain `std::thread`.
-//!
-//! macOS only by design (README, "Tests").
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", windows))]
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

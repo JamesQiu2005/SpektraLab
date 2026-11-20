@@ -342,30 +342,50 @@ impl LibraryHost {
     }
 
     pub fn call_with_timeout(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, LibraryError> {
+        self.call_on_launch_with_timeout(method, params, None, timeout).map(|(_, result)| result)
+    }
+
+    /// Send a request only to the helper that issued its handle. The launch
+    /// is checked under the same lock as the write to the helper's pipe.
+    /// With no expected launch, returns the launch that served the request.
+    pub fn call_on_launch(&self, method: &str, params: Value, expected: Option<u64>) -> Result<(u64, Value), LibraryError> {
+        self.call_on_launch_with_timeout(method, params, expected, self.launch.call_timeout)
+    }
+
+    fn call_on_launch_with_timeout(&self, method: &str, params: Value, expected: Option<u64>, timeout: Duration) -> Result<(u64, Value), LibraryError> {
         let params = match params {
             Value::Null => Value::Object(Map::new()),
             p @ Value::Object(_) => p,
             _ => return Err(LibraryError::new(ErrorCode::InvalidParams, "params must be a JSON object")),
         };
+        #[cfg(windows)]
+        let params = normalize_picker_paths(method, params);
         guard_capture_one(method, &params)?;
-        let rx = {
+        let (launch, rx) = {
             let mut st = lock(&self.state);
-            self.ensure(&mut st)?;
-            match self.send(&mut st, method, params.clone()) {
-                Ok(rx) => rx,
-                // The request never reached a helper that had just died: it is
-                // safe to start a new one and send it once more.
-                Err(e) if e.code == ErrorCode::Unavailable => {
-                    Self::kill(&mut st);
-                    self.spawn(&mut st)?;
-                    self.send(&mut st, method, params)?
+            if let Some(expected) = expected {
+                Self::reap(&mut st);
+                if st.running.is_none() || st.launches != expected {
+                    return Err(LibraryError::new(ErrorCode::StaleLibrary, "the library must be reopened after the helper stopped"));
                 }
-                Err(e) => return Err(e),
+            } else {
+                self.ensure(&mut st)?;
+            }
+            match self.send(&mut st, method, params) {
+                Ok(rx) => (st.launches, rx),
+                Err(e) => {
+                    if e.code == ErrorCode::Unavailable {
+                        // A pipe error can occur after bytes were written.
+                        // Leave any retry decision to a caller that knows the operation.
+                        Self::kill(&mut st);
+                    }
+                    return Err(e);
+                }
             }
         };
         let deadline = Instant::now() + timeout;
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(reply) => reply,
+            Ok(reply) => reply.map(|result| (launch, result)),
             Err(mpsc::RecvTimeoutError::Timeout) => Err(LibraryError::new(
                 ErrorCode::Timeout,
                 format!("{method}: no reply within {} s", timeout.as_secs_f64()),
@@ -470,6 +490,23 @@ fn reader(stdout: std::process::ChildStdout, shared: Arc<Mutex<Shared>>, alive: 
     }
 }
 
+/// The webview sends native picker paths through the raw RPC bridge, bypassing
+/// the typed client. Translate before the helper reads or stores a path.
+#[cfg(windows)]
+fn normalize_picker_paths(method: &str, mut params: Value) -> Value {
+    let keys: &[&str] = match method {
+        "capture_one.link" | "capture_one.copy" => &["source", "path"],
+        "capture_one.probe" | "location.relink" | "library.open" | "library.create" | "folders.add" => &["path"],
+        _ => &[],
+    };
+    for key in keys {
+        if let Some(Value::String(path)) = params.get_mut(*key) {
+            *path = paths::to_helper(path, paths::NATIVE);
+        }
+    }
+    params
+}
+
 /// R-B5, on this side too: a call that creates or writes at a path is refused
 /// before it is sent when that path is inside a Capture One catalog or session.
 /// The helper refuses these itself; the client does not ask. Reading a catalog
@@ -493,15 +530,42 @@ fn guard_capture_one(method: &str, params: &Value) -> Result<(), LibraryError> {
     Ok(())
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn the_store_is_where_the_mac_app_keeps_it() {
         let home = |k: &str| (k == "HOME").then(|| PathBuf::from("/Users/me"));
         assert_eq!(store_from(home), Some(PathBuf::from("/Users/me/Library/Application Support/SpektraLab/Libraries")));
         assert_eq!(store_from(|_| None), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_store_uses_local_app_data_on_windows() {
+        let var = |key: &str| match key {
+            "LOCALAPPDATA" => Some(PathBuf::from(r"C:\Users\me\AppData\Local")),
+            "APPDATA" => Some(PathBuf::from(r"C:\Users\me\AppData\Roaming")),
+            _ => None,
+        };
+        assert_eq!(store_from(var), Some(PathBuf::from(r"C:\Users\me\AppData\Local\SpektraLab\Libraries")));
+        assert_eq!(store_from(|key| (key != "LOCALAPPDATA").then(|| var(key)).flatten()), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_rpc_bridge_translates_windows_picker_paths() {
+        let local = r"\\?\d:\图册\Capture One";
+        let share = r"\\?\UNC\NAS\照片\原片";
+        assert_eq!(normalize_picker_paths("capture_one.probe", json!({"path": local})),
+                   json!({"path": "D:/图册/Capture One"}));
+        assert_eq!(normalize_picker_paths("capture_one.link", json!({"source": local})),
+                   json!({"source": "D:/图册/Capture One"}));
+        assert_eq!(normalize_picker_paths("location.relink", json!({"library": "L1", "path": share})),
+                   json!({"library": "L1", "path": "//NAS/照片/原片"}));
+        assert_eq!(normalize_picker_paths("location.relink", json!({"path": null})), json!({"path": null}));
     }
 
     #[test]

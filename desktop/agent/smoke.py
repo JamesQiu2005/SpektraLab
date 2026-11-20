@@ -27,8 +27,11 @@ class Lines:
 def run(app,host,resources,extra_inputs=()):
     with tempfile.TemporaryDirectory(prefix='spektralab-agent-smoke-') as temp:
         root=Path(temp);image=root/'源图.png';png(image);digest=hashlib.sha256(image.read_bytes()).hexdigest()
-        profile=root/'profile';data=profile/'app.spektralab.desktop';access=data/'Agents/access.json'
-        env=dict(os.environ,APPDATA=str(profile),XDG_DATA_HOME=str(profile),SPEKTRALAB_AGENT_APP=str(app/'spektralab.exe'),SPEKTRALAB_AGENT_HOST=str(host),SPEKTRALAB_AGENT_RESOURCES=str(resources))
+        config=json.loads((Path(__file__).resolve().parents[1]/'src-tauri/tauri.windows.conf.json').read_text(encoding='utf-8'))
+        app_exe=app/(config['mainBinaryName']+'.exe')
+        profile=root/'profile';data=profile/config['identifier'];access=data/'Agents/access.json'
+        env=dict(os.environ,APPDATA=str(profile),XDG_DATA_HOME=str(profile),SPEKTRALAB_AGENT_HOST=str(host),SPEKTRALAB_AGENT_RESOURCES=str(resources))
+        env.pop('SPEKTRALAB_AGENT_APP',None)
         cmd=[str(app/'agents/node.exe'),str(app/'agents/agent.mjs')]
         def cli(*args,code=0):
             p=subprocess.run(cmd+list(args),env=env,text=True,encoding='utf-8',capture_output=True,timeout=120)
@@ -76,7 +79,7 @@ def run(app,host,resources,extra_inputs=()):
                 info=good('describe_image',{'path':str(source)});assert info['width']>0 and info['height']>0
                 good('preview_image',{'path':str(source),'output':str(root/f'extra-{index}.jpg'),'long_edge':128})
             # Another process's lease is refused; killing that process releases it.
-            f=Lines([str(app/'spektralab.exe'),'--agent-files'],env,log);assert f.send('begin')['ok']
+            f=Lines([str(app_exe),'--agent-files'],env,log);assert f.send('begin')['ok']
             assert tool('get_edit',{'path':str(image)})['isError'];f.p.kill();f.p.wait(timeout=10)
             assert good('get_edit',{'path':str(image)})['adjustments']['exposure']==.25
             access.write_text('{"enabled":false}');assert tool('get_edit',{'path':str(image)})['isError']

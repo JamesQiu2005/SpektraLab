@@ -5,7 +5,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Refused } from './schema';
 export const here=dirname(fileURLToPath(import.meta.url));
-export const appExe=process.env.SPEKTRALAB_AGENT_APP??[join(here,'..',process.platform==='win32'?'spektralab.exe':'spektralab'),
+export const appExe=process.env.SPEKTRALAB_AGENT_APP??[
+  ...(process.platform==='win32'?[join(here,'..','spektralab-v2.exe')]:[]),
+  join(here,'..',process.platform==='win32'?'spektralab.exe':'spektralab'),
   ...(process.platform==='linux'?[join(process.env.APPDIR??'','usr/bin/spektralab'),'/usr/bin/spektralab']:[])].find(p=>existsSync(p))??join(here,'..','spektralab.exe');
 interface Reply<T=unknown> { result:T; payload:Buffer }
 interface Header { id?:number; ok?:boolean; result?:unknown; error?:string|{message?:string;code?:string} }

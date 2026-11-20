@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SpektraLab v2",
+  "mainBinaryName": "spektralab-v2",
+  "identifier": "app.spektralab.desktop.v2",
+  "bundle": {
+    "targets": ["nsis"],
+    "useLocalToolsDir": true,
+    "fileAssociations": [],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "startMenuFolder": "SpektraLab v2"
+      }
+    }
+  }
+}

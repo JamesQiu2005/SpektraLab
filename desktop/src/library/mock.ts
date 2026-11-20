@@ -8,7 +8,7 @@
 //
 // The pictures' paths are the browser mock host's: any path develops there.
 
-import { LibraryError, type Collection, type ImageRow, type LibraryClient, type LibraryInfo, type LibraryState } from './client';
+import { LibraryError, type Collection, type ImageRow, type LibraryClient, type LibraryInfo, type LibraryState, type Location } from './client';
 
 const FILMS = ['kodak_portra_400', 'kodak_gold_200', 'kodak_ektar_100', 'fujifilm_pro_400h', 'kodak_portra_160'];
 
@@ -19,6 +19,7 @@ interface MockLibraryData {
   members: Record<string, string[]>;
   images: ImageRow[];
   offline: Set<string>;
+  locations?: Location[];
 }
 
 function img(root: string, name: string, i: number, day: string, hour: number, extra: Partial<ImageRow> = {}): ImageRow {
@@ -70,7 +71,8 @@ function darkroom(): MockLibraryData {
 }
 
 function archive(): MockLibraryData {
-  const images = Array.from({ length: 14 }, (_, k) => img('E:/Archive/2024-09', `_DSC${2650 + k}.NEF`, 2650 + k, k < 10 ? '2024-09-17' : '2025-10-03', 11, { origin: 'capture_one', rating: 4 }));
+  const images = Array.from({ length: 14 }, (_, k) => img(k < 12 ? 'E:/Archive/2024-09' : 'C:/Archive/Originals',
+    k < 12 ? `_DSC${2650 + k}.NEF` : `DSC_000${k - 11}.NEF`, 2650 + k, k < 10 ? '2024-09-17' : '2025-10-03', 11, { origin: 'capture_one', rating: 4 }));
   const all = images.map((i) => i.uuid);
   const collections = [
     coll('all', 'all_images', 'All Images', images.length, { origin: 'capture_one' }),
@@ -83,6 +85,7 @@ function archive(): MockLibraryData {
   return {
     info: { uuid: 'lib-archive', kind: 'catalog', name: 'Archive', path: 'C:/Users/Photographer/Pictures/Archive.cocatalog', origin: { kind: 'capture_one.catalog', path: 'C:/Users/Photographer/Pictures/Archive.cocatalog', write_back: false }, counts: { images: images.length } },
     readOnly: true, collections, images, offline: new Set(all.slice(12)),
+    locations: [{ uuid: 'archive-originals', base: 'absolute', path: 'C:/Archive/Originals', volume: 'C:', relinked: false, origin: 'capture_one', image_count: 2, online: false }],
     members: { all, recent: all.slice(0, 4), autumn: all.slice(0, 6), portfolio: all.slice(6, 10), c: all.slice(10), e: all.slice(0, 10) },
   };
 }
@@ -119,7 +122,7 @@ export const MOCK_LIBRARY_PATHS = {
 
 export class MockLibrary implements LibraryClient {
   private open = new Map<string, MockLibraryData>();
-  private handles = new Map<string, string>();
+  private catalogues = new Map<string, MockLibraryData>();
   private next = 1;
   calls: string[] = [];
   /** A helper that is not there: folder sources only (README §8.2 (4)). */
@@ -146,10 +149,10 @@ export class MockLibrary implements LibraryClient {
   private openData(path: string, make: () => MockLibraryData) {
     for (const [h, l] of this.open) if (l.info.path === path) return { library: h, info: l.info };
     const h = `L${this.next++}`;
-    const d = make();
+    const d = this.catalogues.get(path) ?? make();
+    this.catalogues.set(path, d);
     this.open.set(h, d);
-    this.handles.set(path, h);
-    return { library: h, info: d.info };
+    return { library: h, info: { ...d.info, counts: { ...d.info.counts, images: d.images.length } } };
   }
 
   private dispatch(method: string, p: Record<string, unknown>): unknown {
@@ -157,6 +160,8 @@ export class MockLibrary implements LibraryClient {
       case 'sdk.version': return { version: '0.3.1', abi: 1, schema: 3, capture_one: { write_back: false, previews: false } };
       case 'library.open': {
         const path = String(p.path ?? '');
+        const saved = this.catalogues.get(path);
+        if (saved) return this.openData(path, () => saved);
         if (path === MOCK_LIBRARY_PATHS.catalog || /Darkroom/.test(path)) return this.openData(MOCK_LIBRARY_PATHS.catalog, darkroom);
         if (/\.cocatalog/.test(path)) return this.openData(MOCK_LIBRARY_PATHS.captureOne, archive);
         if (/cosession|Coast 2026/.test(path)) return this.openData(MOCK_LIBRARY_PATHS.session, session);
@@ -174,12 +179,16 @@ export class MockLibrary implements LibraryClient {
       }
       case 'library.create': {
         const path = String(p.path ?? '');
+        if (this.catalogues.has(path)) throw new LibraryError('exists', `${path}: library already exists`);
         const name = String(p.name ?? path.split(/[\\/]/).pop()?.replace(/\.spk\w+$/, '') ?? 'Untitled');
         return this.openData(path, () => ({ info: { uuid: `lib-${name}`, kind: (p.kind as 'catalog' | 'session') ?? 'catalog', name, path, origin: null, counts: { images: 0 } },
           readOnly: false, images: [], offline: new Set(), collections: [coll('all', 'all_images', 'All Photos', 0, { origin: 'fixed' })], members: { all: [] } }));
       }
       case 'library.close': { this.open.delete(String(p.library)); return { closed: true }; }
-      case 'library.info': return this.lib(p).info;
+      case 'library.info': {
+        const l = this.lib(p);
+        return { ...l.info, counts: { ...l.info.counts, images: l.images.length } };
+      }
       case 'collections.list': return { collections: this.lib(p).collections };
       case 'images.list': {
         const l = this.lib(p);
@@ -238,9 +247,20 @@ export class MockLibrary implements LibraryClient {
       case 'folders.sync': return { added: 0, moved: 0, removed: 0, restored: 0, folders: [] };
       case 'locations.list': {
         const l = this.lib(p);
-        return { locations: l.collections.filter((c) => c.kind === 'folder').map((c) => ({ uuid: c.uuid, base: c.folder ?? '', path: c.folder ?? '', volume: c.name, relinked: false, origin: c.origin, image_count: c.image_count ?? 0, online: !(c.uuid === 'travel' || c.uuid === 'c') })) };
+        return { locations: l.locations ?? [] };
       }
-      case 'location.relink': return { path: p.path, online: true, relinked: [p.location] };
+      case 'location.relink': {
+        const l = this.lib(p);
+        const location = l.locations?.find((loc) => loc.uuid === p.location);
+        if (!location || typeof p.path !== 'string') throw new LibraryError('not_found', 'No such location');
+        const path = p.path.replaceAll('\\', '/').replace(/\/+$/, '');
+        for (const row of l.images) if (row.path.startsWith(`${location.path}/`)) {
+          row.path = path + row.path.slice(location.path.length);
+          l.offline.delete(row.uuid);
+        }
+        Object.assign(location, { path, online: true, relinked: true });
+        return { path, online: true, relinked: [location.uuid] };
+      }
       case 'images.add': {
         const l = this.lib(p);
         if (l.readOnly) throw new LibraryError('read_only', "Capture One's library is read-only");

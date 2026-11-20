@@ -6,7 +6,7 @@ import { fullDelta } from '@shared/params';
 import { StockCatalog } from '@shared/stocks';
 import type { HelloResult, PairInfo } from '@shared/protocol';
 import type * as SessionModule from './session';
-import stocks from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stocks from '../../assets/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({ sidecars: new Map<string, unknown>(), pairs: new Map<string, unknown>(),
   load: vi.fn(), save: vi.fn(), pairSave: vi.fn(), create: vi.fn(), list: vi.fn(), open: vi.fn(), update: vi.fn(), render: vi.fn(), latitude: vi.fn(),

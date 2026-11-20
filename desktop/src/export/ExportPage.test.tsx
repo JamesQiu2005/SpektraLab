@@ -33,7 +33,7 @@ vi.mock('../controls/controls', () => ({
   Checkbox: () => null, NumberField: () => null, PillMenu: () => null, ScrubSlider: () => null,
 }));
 vi.mock('../i18n', () => ({ t: (key: string) => key, tz: (english: string) => english, isChinese: () => false }));
-import { ExportPage } from './ExportPage';
+import { ExportPage, exportRun } from './ExportPage';
 import { sessionStore } from '../state/session';
 
 let root: Root;
@@ -170,6 +170,22 @@ describe('export page batch integration', () => {
     await settle();
     expect(fake.confirm).not.toHaveBeenCalled();
     expect(fake.message).not.toHaveBeenCalled();
+  });
+  it('finishes the active frame when the toolbar asks to stop after it', async () => {
+    const pending = deferred<ReturnType<typeof reply>>();
+    fake.request.mockReturnValueOnce(pending.promise);
+    await mount();
+    await click(div.querySelector('[data-testid=export-run]')!);
+    expect(fake.request).toHaveBeenCalledOnce();
+    const stop = exportRun.getState().stop;
+    expect(stop).not.toBeNull();
+    await act(async () => { stop!(); });
+    expect(fake.cancel).not.toHaveBeenCalled();
+    expect(sessionStore.getState().batchExporting).toBe(true);
+    await act(async () => { pending.resolve(reply()); });
+    expect(fake.request).toHaveBeenCalledOnce();
+    expect(exportRun.getState().progress).toMatchObject({ done: 1, total: 2, stopped: true });
+    expect(fake.workspaceEnd).toHaveBeenCalledExactlyOnceWith(71);
   });
   it('does not start any export or release an unowned lease when another process owns the workspace', async () => {
     fake.workspaceBegin.mockRejectedValue(new Error('Workspace busy'));

@@ -5,7 +5,7 @@ import { newSidecar, decodeSidecar, encodeSidecar } from '@shared/sidecar';
 import { StockCatalog } from '@shared/stocks';
 import { FILM_FRAME_CUSTOM } from '@shared/params';
 import type * as SessionModule from './session';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 const fake = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(async (_path: string, _sidecar: unknown) => ''), params: vi.fn(async () => ({})),
   render: vi.fn(async () => ({ width: 600, height: 420, nativeSize: { width: 6100, height: 4200 }, data: new Uint8Array(0), colorSpace: 'sRGB', ms: 1, tier: 'preview' })),
   source: vi.fn(async () => ({ width: 600, height: 400, data: new Uint8Array(0), colorSpace: 'sRGB' })),

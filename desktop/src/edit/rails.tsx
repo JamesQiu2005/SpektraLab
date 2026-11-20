@@ -248,7 +248,12 @@ export function FilmExposure() {
         <input className="v2-value" aria-label={tz('Film Exposure, value', '胶片曝光数值')} disabled={!ready} key={value}
           defaultValue={`${signed(1)(value)} EV`}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { (e.target as HTMLInputElement).value = `${signed(1)(value)} EV`; (e.target as HTMLInputElement).blur(); } }}
-          onBlur={(e) => { const n = Number.parseFloat(e.target.value.replace('−', '-')); if (Number.isFinite(n) && n !== value) { beginGesture(); set(n, false); } }} />
+          onBlur={(e) => {
+            const { value: text, defaultValue } = e.currentTarget;
+            if (text === defaultValue) return;
+            const n = Number.parseFloat(text.replace('−', '-'));
+            if (Number.isFinite(n) && n !== value) { beginGesture(); set(n, false); }
+          }} />
       </div>
       <div className="v2-ruler" role="slider" aria-label={tz('Film Exposure', '胶片曝光')} aria-valuemin={-8} aria-valuemax={8} aria-valuenow={value}
         aria-valuetext={`${signed(1)(value)} EV`} tabIndex={0}

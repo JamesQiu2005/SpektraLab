@@ -1,55 +1,31 @@
-# Windows releases
+# Windows v2 test packages
 
-Windows has an independent prerelease line. For example:
+Windows v2 has an independent version line. The Windows 1.x prereleases remain available to users who need to roll back. The v2 development branch does not publish public releases.
 
-- App / npm / Tauri / Cargo version: `1.3.4-beta.3`
-- GitHub tag: `spektralab-windows-v1.3.4-beta.3`
-- Release title: `beta.3`
+1. Run `npm run check` in `desktop/` and review the [first-run checklist](WINDOWS-V2-CHECKLIST.md).
+2. On GitHub, run the packaging workflow for `Windows_Linux_v2`. It checks the frontend and scheduler, builds the engine with MSVC and MinGW, and makes a Windows NSIS installer. The runner installs in a fresh directory, checks both installed helpers, verifies the extracted portable ZIP against its manifest, and starts its render host. It verifies that both desktop executables load the main window in WebView2 and close cleanly before uninstalling the test copy. The installer and ZIP upload only after those checks pass. The verification step has a 10-minute limit. On failure, look for the `spektralab-windows-package-logs` artifact with the build and verification output captured so far.
+3. On a Windows PC with a Vulkan GPU, verify install, RAW editing, export, library data and uninstall. Extract the portable to a new directory and verify that it starts and renders. A hosted runner does not replace these tests.
+4. Before a public release, verify data migration and rollback, the reproducibility of the library helper and legal notices. Keep the exact source, versioned filenames, checksums and notes with the artifact.
 
-Keep the title short. Put changes, validation and limitations in
-`desktop/docs/releases/beta.3.md`, not in the title. Never attach a new
-Windows build to a macOS release just because the numeric version matches.
+See [Windows installer](WINDOWS-INSTALLER.md) for local packaging instructions. The dependency archives follow the npm and Rust lockfiles; rebuild the notices when the locks change. Never overwrite a published version or attach Windows binaries to a macOS tag.
 
-**SpektraLab 2 (2.0.0-alpha.1 and later)** is a separate line: its installer carries two helpers
-(`spektralab-host.exe`, built from the tree by `npm run package:win`, and the vendored
-`spklib-host.exe`, checked against its `.sha256`; `docs/WINDOWS-INSTALLER.md`). Before publishing one:
-the Mac gate (`SPEKTRALAB_GATE_PHASE=2 … scripts/gate-mac.sh`) green, `check-installer` green on the
-exact installer to publish, and `docs/WINDOWS-V2-CHECKLIST.md` walked on a real Windows PC — nothing in
-the 2.0 line has run on Windows before that.
+Windows installers built from a Git checkout contain a build record at `host/windows-build.json`. The portable packager checks it against the source tree, version and installed render host before copying any files. The portable `BUILD-MANIFEST.json` records the source tree ID and render host SHA-256 alongside the base commit.
 
-## Prepare and check
+To repeat the package check from the repository root in PowerShell 7, use a test Windows account without a v2 installation and an empty output directory. Use Python 3 and Node.js on PATH, and run `npm ci` in `desktop/` first to install the Playwright client. Use an interactive Windows session with WebView2 installed.
 
-1. Start from reviewed `Windows_Linux` sources. Update the version in
-   `desktop/package.json`, both root entries in `package-lock.json`,
-   `src-tauri/tauri.conf.json`, `Cargo.toml` and the app entry in `Cargo.lock`.
-   Do not alter dependencies merely to bump the app version.
-2. Add the notes named for the short prerelease title.
-3. Run the relevant local checks. Pushes and pull requests run the CI checks
-   and produce artifacts without publishing a public release.
-4. Verify the installed app and portable on a real Windows GPU as well.
-   Hosted Windows runners have no Vulkan device. Record what was actually
-   tested separately from older camera/performance measurements.
+```powershell
+$out = New-Item -ItemType Directory -Path "$env:TEMP\spk-verified-artifacts"
+./.github/scripts/windows-package-check.ps1 -Installer '<path to the v2 setup.exe>' `
+  -ArtifactDirectory $out.FullName -ScratchRoot $env:TEMP -VerifyDesktop
+```
 
-## Publish
+## Upgrade and roll back a test build
 
-On the **Desktop (Linux, Windows)** workflow, select **Windows_Linux** and
-explicitly enable **publish_windows**. The default is false. The release job
-waits for Linux, Windows cross-build, native MSVC, frontend and both package
-jobs. It publishes an independent Windows prerelease without changing
-GitHub's Latest macOS release.
+1. Close SpektraLab and back up the v2 library and its referenced RAW files. Keep the installer for the current version.
+2. Run the newer installer and use the existing install location. Reopen the test library and verify an existing edit and rating. Open and render a referenced RAW.
+3. To roll back, close SpektraLab, uninstall the newer build with the app data checkbox clear, and install the saved older build. Verify the restored version and reopen the test library. Use the pre-upgrade backup when the newer build has changed the catalog schema.
 
-The Windows package job stages a portable from the same installed app that
-passed the install check, checks its host and packages the whole directory.
-The publisher checks version agreement and portable source identity, creates
-the corresponding source ZIP, SHA-256 file and build manifest, uploads to a
-draft, and only makes it public after verifying all uploaded digests.
+## Try a saved Windows 1.x edit
 
-A published version cannot be replaced. A retry can resume only a draft
-whose source commit and existing file digests match exactly. To fix a public
-binary, use a new prerelease number. Do not move its tag or use
-`gh release upload --clobber`.
-
-Keep beta.2 and older releases available for rollback. Update download links
-when publishing a new milestone, rather than silently replacing an old
-release's installer.
+Copy the RAW to a test folder. Find its saved edit under `%APPDATA%\app.spektralab.desktop\Sidecars` by matching the JSON's `source.path`. Copy that JSON beside the test photo as `<filename-with-extension>.spektra.json`. Open the copy in v2. On first read, v2 imports the edit into its own app data. The adjacent file stays available, and subsequent edits go to the v2 copy. Check the crop, exposure and export against the old build before using the same edit in production.
 

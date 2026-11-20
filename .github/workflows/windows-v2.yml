@@ -1,0 +1,96 @@
+name: Windows v2
+
+on:
+  workflow_call:
+    inputs:
+      package-build:
+        description: The caller builds the production frontend during Windows packaging
+        type: boolean
+        default: false
+  push:
+    branches: [Windows_Linux_v2]
+  pull_request:
+    branches: [Windows_Linux_v2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-v2-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Windows v2 checks
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Check which files changed
+        id: scope
+        shell: pwsh
+        env:
+          COMPARE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          $docsOnly = $false
+          $base = $env:COMPARE_BASE
+          # New branches and unavailable comparison objects get the full gate.
+          if ($env:GITHUB_EVENT_NAME -in @('push', 'pull_request') -and
+              $base -cmatch '^[0-9a-f]{40}$' -and $base -cnotmatch '^0+$') {
+            $PSNativeCommandUseErrorActionPreference = $false
+            git cat-file -t $base 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) { git fetch --quiet --no-tags --depth=1 origin $base }
+            if ($LASTEXITCODE -eq 0) {
+              # Report both paths of a rename so moving code to docs still runs the gate.
+              $files = @(git -c core.quotePath=false diff --no-renames --name-only $base HEAD --)
+              $docsOnly = $LASTEXITCODE -eq 0 -and $files.Count -gt 0 -and
+                  @($files | Where-Object { $_ -cnotmatch '^(README(\.zh-CN)?|desktop/docs/.+)\.md$' }).Count -eq 0
+            }
+          }
+          "docs-only=$($docsOnly.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($docsOnly) { 'Documentation-only change. Frontend and Rust checks skipped.' }
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.docs-only != 'true'
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Test Windows package metadata
+        if: steps.scope.outputs.docs-only != 'true'
+        run: node --test .github/scripts/windows-build-source.test.mjs .github/scripts/windows-release.test.mjs
+      - name: Install frontend dependencies
+        if: steps.scope.outputs.docs-only != 'true'
+        working-directory: desktop
+        run: npm ci
+      - name: Check frontend
+        if: steps.scope.outputs.docs-only != 'true'
+        working-directory: desktop
+        run: npm run check
+      - name: Build frontend
+        if: steps.scope.outputs.docs-only != 'true' && !inputs.package-build
+        working-directory: desktop
+        run: npm run build:web
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.scope.outputs.docs-only != 'true'
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        if: steps.scope.outputs.docs-only != 'true'
+        with:
+          workspaces: desktop/src-tauri
+      - name: Test scheduler wire, threading and scripted host
+        if: steps.scope.outputs.docs-only != 'true'
+        working-directory: desktop/src-tauri
+        run: cargo test --locked --target x86_64-pc-windows-msvc -p spk-scheduler --test wire --test facade_threads --test host_engine
+      - name: Test library client path and source guards
+        if: steps.scope.outputs.docs-only != 'true'
+        working-directory: desktop/src-tauri
+        shell: pwsh
+        run: |
+          cargo test --locked --target x86_64-pc-windows-msvc -p spk-library --lib | Tee-Object -Variable results
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($results -match '^test result: ok\. [1-9][0-9]* passed;')) {
+            throw 'No spk-library unit tests ran on Windows'
+          }

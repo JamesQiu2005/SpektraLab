@@ -139,6 +139,7 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [sample, setSample] = useState('');
   const stop = useRef(false);
+  const abort = useRef(false);
   const active = useRef<ExportJob | null>(null);
   const proof = useRef<HTMLCanvasElement>(null);
 
@@ -253,7 +254,7 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
   useEffect(() => {
     const files = picked.length ? picked : selection ? [selection] : [];
     exportRun.setState({ progress, file: batch && files.length ? baseName(files[Math.min(log.length, files.length - 1)]!) : null,
-      format: r.format.toUpperCase(), colour: r.colorSpace, stop: batch ? () => stopRef.current?.() : null });
+      format: r.format.toUpperCase(), colour: r.colorSpace, stop: batch && !stop.current ? () => stopRef.current?.() : null });
   }, [progress, log.length, batch, picked, selection, r.format, r.colorSpace]);
   if (!open) return null;
   const frames = picked.length ? picked : selection ? [selection] : [];
@@ -280,6 +281,7 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
       pair: state.pair, pairInfo: state.pairInfo,
     } : null;
     stop.current = false;
+    abort.current = false;
     setLog([]);
     setProgress({ done: 0, total: paths.length, fraction: 0, stage: null });
     sessionStore.setState({ batchExporting: true });
@@ -304,7 +306,7 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
           : await exportFrame(recipe, item.frame, state.catalog, methods, {
             tiffOptions: state.hello?.tiff_options,
             frameOptions: state.hello?.frame_options,
-            cancelled: () => stop.current, active: (job) => { active.current = job; },
+            cancelled: () => abort.current, active: (job) => { active.current = job; },
           });
         platform().log(outcome.kind === 'failed' ? 'error' : 'info', `export ${baseName(item.path)}: ${JSON.stringify(outcome)}`);
         setLog((l) => [...l, { name: baseName(item.path), outcome }]);
@@ -329,14 +331,19 @@ export function ExportPage({ v2 = false }: { v2?: boolean } = {}) {
     if (!stop.current) await reportFinished(outcomes).catch((e) => platform().log('error', `export report: ${String(e)}`));
   };
 
-  const cancel = () => {
+  const stopAfterFrame = () => {
     stop.current = true;
     exportRun.setState({ stop: null });
+  };
+
+  const cancel = () => {
+    stopAfterFrame();
+    abort.current = true;
     const job = active.current;
     if (job) void cancelJob(job).catch((e) => platform().log('error', `export cancel: ${String(e)}`));
   };
 
-  stopRef.current = cancel;
+  stopRef.current = stopAfterFrame;
   if (v2) {
     const spaces = ['sRGB', 'display-p3', 'prophoto', ...(hello?.export_spaces ?? [])];
     return (

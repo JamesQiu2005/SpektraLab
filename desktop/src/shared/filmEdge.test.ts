@@ -4,7 +4,7 @@ import { GEOMETRY_DEFAULT, outputSize } from './geometry';
 import { StockCatalog } from './stocks';
 import { captureDate, shootingText, edgeText, resolveFilmEdgeParams, canvasGeometryFor, sourceGeometryFor, gateFramed, datePrints, dateEffective, edgeEffective, geometryInNegative } from './filmEdge';
 import { decodeSidecar, encodeSidecar, newSidecar } from './sidecar';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 const catalog = new StockCatalog(stockData.stocks);
 const native = { width: 6000, height: 4000 };
 const crop = { ...GEOMETRY_DEFAULT, crop: { x: .1, y: .1, width: .6, height: .7 }, angle: 3, quarterTurns: 1, flipH: true };

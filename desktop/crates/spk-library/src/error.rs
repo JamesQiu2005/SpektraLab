@@ -23,10 +23,12 @@ pub enum ErrorCode {
     Io,
     Internal,
     UnknownMethod,
-    /// The helper could not be started, has stopped, or wrote something that is
-    /// not a reply. A call that failed this way may be retried: the next call
-    /// starts a new helper (and every library handle must be reopened by path).
+    /// The helper could not start, stopped, or wrote something that is not a
+    /// reply. Reads may be retried after reopening by path; a write's result
+    /// can be unknown.
     Unavailable,
+    /// The handle belongs to another launch. The operation was not sent.
+    StaleLibrary,
     /// No reply within the call's timeout. The helper is left running: it
     /// answers in order, so the late reply is dropped when it arrives.
     Timeout,
@@ -52,6 +54,7 @@ impl ErrorCode {
             ErrorCode::Internal => "internal",
             ErrorCode::UnknownMethod => "unknown_method",
             ErrorCode::Unavailable => "unavailable",
+            ErrorCode::StaleLibrary => "stale_library",
             ErrorCode::Timeout => "timeout",
             ErrorCode::Other(s) => s,
         }
@@ -74,6 +77,7 @@ impl ErrorCode {
             "internal" => ErrorCode::Internal,
             "unknown_method" => ErrorCode::UnknownMethod,
             "unavailable" => ErrorCode::Unavailable,
+            "stale_library" => ErrorCode::StaleLibrary,
             "timeout" => ErrorCode::Timeout,
             other => ErrorCode::Other(other.to_string()),
         }
@@ -127,7 +131,7 @@ impl fmt::Display for LibraryError {
 
 impl std::error::Error for LibraryError {}
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -135,7 +139,7 @@ mod tests {
     fn codes_round_trip_and_unknown_codes_survive() {
         for code in ["not_found", "invalid_params", "read_only", "last_variant", "conflict", "source_busy",
                      "unsupported", "exists", "in_use", "ambiguous", "cross_volume", "io", "internal",
-                     "unknown_method", "unavailable", "timeout"] {
+                     "unknown_method", "unavailable", "stale_library", "timeout"] {
             assert_eq!(ErrorCode::parse(code).as_str(), code);
             assert!(!matches!(ErrorCode::parse(code), ErrorCode::Other(_)), "{code} is a known code");
         }

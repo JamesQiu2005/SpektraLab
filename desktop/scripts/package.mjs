@@ -1,6 +1,5 @@
 // package.mjs — build the installers.
 //
-//   node scripts/package.mjs linux                 → release/linux/*.deb, *.AppImage
 //   node scripts/package.mjs windows [--host-dir D] → release/windows/*-setup.exe (NSIS)
 //   (`win` is the same as `windows`.)
 //
@@ -43,9 +42,13 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifiedWindowsRuntimeNotices } from '../../.github/scripts/windows-runtime-notices.mjs';
+import { hostSha256, windowsBuildSource } from '../../.github/scripts/windows-build-source.mjs';
+import { verifyWindowsHostArtifact } from '../../.github/scripts/windows-host-artifact.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktop = resolve(here, '..');
@@ -76,14 +79,6 @@ const winToolchain = process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'gnu'
   : onWindows ? 'native' : process.env.SPEKTRALAB_WIN_TOOLCHAIN === 'msvc' ? 'msvc' : 'gnu';
 
 const TARGETS = {
-  linux: {
-    hostDir: join(buildDir, 'host-linux-x64'),
-    exe: 'spektralab-host',
-    triple: 'x86_64-unknown-linux-gnu',
-    bundles: 'deb,appimage',
-    out: 'linux',
-    extra: [],
-  },
   windows: {
     hostDir: join(buildDir, 'host-win-x64'),
     exe: 'spektralab-host.exe',
@@ -98,7 +93,7 @@ const TARGETS = {
 
 const t = TARGETS[which];
 const hostGiven = !!hostDirArg;
-if (!t) die('usage: node scripts/package.mjs linux | windows [--host-dir <staged host dir>]');
+if (!t) die('usage: node scripts/package.mjs windows [--host-dir <staged host dir>]');
 if (hostDirArg) t.hostDir = resolve(hostDirArg);
 
 const env = { ...process.env };
@@ -143,9 +138,9 @@ function prepareWindowsCross() {
   }
 }
 
-function stage() {
+function stage(source) {
   const exe = join(t.hostDir, t.exe);
-  if (!existsSync(exe)) die(`no engine host at ${exe}. Build it first (engine/build-windows-cross.sh / engine/build-linux.sh) or pass --host-dir; refusing to package an app without its engine.`);
+  if (!existsSync(exe)) die(`no engine host at ${exe}. Build it first (engine/build-windows-cross.sh) or pass --host-dir; refusing to package an app without its engine.`);
   if (!existsSync(join(t.hostDir, 'engine'))) die(`no engine resources at ${join(t.hostDir, 'engine')}`);
   const bin = join(tauriDir, 'binaries');
   const staging = join(tauriDir, 'host-staging');
@@ -168,11 +163,17 @@ function stage() {
     console.log(`package: spklib-host.exe ${got} (matches spklib-host.exe.sha256)`);
   }
   cpSync(join(t.hostDir, 'engine'), join(staging, 'engine'), { recursive: true });
+  if (which === 'windows' && !existsSync(join(t.hostDir, 'licenses', 'LibRaw-SOURCE.txt'))) {
+    die(`no LibRaw source notice at ${t.hostDir}; use engine/stage-host.sh before packaging`);
+  }
   if (existsSync(join(t.hostDir, 'licenses'))) cpSync(join(t.hostDir, 'licenses'), join(staging, 'licenses'), { recursive: true });
   else mkdirSync(join(staging, 'licenses'), { recursive: true });
   if (which === 'windows') {
     cpSync(join(desktop, 'licenses', 'spklib-LICENSE.txt'), join(staging, 'licenses', 'spklib-LICENSE.txt'));
     cpSync(join(repo, 'vendor', 'spklib', 'windows-x64', 'VERSION'), join(staging, 'licenses', 'spklib-VERSION.txt'));
+    const { version } = JSON.parse(readFileSync(join(tauriDir, 'tauri.conf.json'), 'utf8'));
+    const notices = verifiedWindowsRuntimeNotices(repo, version);
+    cpSync(notices, join(staging, 'licenses', 'windows-v2-runtime-notices.zip'));
   }
   // The user command needs no separately installed Node/npm. The same native
   // app provides the locked sidecar service used by the GUI and by the CLI.
@@ -184,6 +185,13 @@ function stage() {
   }
   execFileSync(process.execPath, agentArgs, { stdio: 'inherit', windowsHide: true, env });
   const resources = { 'host-staging/engine': 'host/engine', 'host-staging/licenses': 'host/licenses', 'host-staging/agents': 'agents' };
+  if (source) {
+    const { version } = JSON.parse(readFileSync(join(tauriDir, 'tauri.conf.json'), 'utf8'));
+    const host = join(bin, `spektralab-host-${t.triple}${ext}`);
+    const record = { schema: 1, version, ...source, hostSha256: hostSha256(host) };
+    writeFileSync(join(staging, 'windows-build.json'), JSON.stringify(record, null, 2) + '\n');
+    resources['host-staging/windows-build.json'] = 'host/windows-build.json';
+  }
   const conf = { bundle: { externalBin, resources } };
   const confPath = join(tauriDir, 'tauri.bundle.json');
   writeFileSync(confPath, JSON.stringify(conf, null, 2));
@@ -207,28 +215,22 @@ function windowsNode() {
 }
 
 function collect() {
+  const base = JSON.parse(readFileSync(join(tauriDir, 'tauri.conf.json'), 'utf8'));
+  const windows = JSON.parse(readFileSync(join(tauriDir, 'tauri.windows.conf.json'), 'utf8'));
+  const { productName, version } = { ...base, ...windows };
+  const filename = `${productName}_${version}_x64-setup.exe`;
+  const targetDir = env.CARGO_TARGET_DIR ? resolve(env.CARGO_TARGET_DIR) : join(tauriDir, 'target');
+  // The Cargo target can retain installers from other versions.
+  const installer = join(targetDir, t.triple, 'release', 'bundle', 'nsis', filename);
+  const info = statSync(installer, { throwIfNoEntry: false });
+  if (!info?.isFile()) die(`the build finished but did not produce ${installer}`);
+
   const release = join(desktop, 'release', t.out);
   rmSync(release, { recursive: true, force: true });
   mkdirSync(release, { recursive: true });
-  // A cross build lands under target/<triple>/; a native one under target/release/.
-  const targetDir = env.CARGO_TARGET_DIR ? resolve(env.CARGO_TARGET_DIR) : join(tauriDir, 'target');
-  const roots = which === 'linux' ? [join(targetDir, 'release', 'bundle')] : [join(targetDir, t.triple, 'release', 'bundle')];
-  const found = [];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    for (const kind of readdirSync(root)) {
-      for (const f of readdirSync(join(root, kind))) {
-        const p = join(root, kind, f);
-        if (statSync(p).isFile() && /\.(deb|AppImage|exe|rpm)$/.test(f)) {
-          cpSync(p, join(release, f));
-          found.push(`${join('release', t.out, f)} (${(statSync(p).size / 1e6).toFixed(1)} MB)`);
-        }
-      }
-    }
-  }
-  if (!found.length) die(`the build finished but no installer was found under ${roots.join(', ')}`);
+  cpSync(installer, join(release, filename));
   console.log(`package: host from ${t.hostDir}`);
-  console.log('package: wrote\n  ' + found.join('\n  '));
+  console.log(`package: wrote ${join('release', t.out, filename)} (${(info.size / 1e6).toFixed(1)} MB)`);
 }
 
 if (which === 'windows' && !onWindows) {
@@ -239,10 +241,21 @@ if (which === 'windows' && !onWindows) {
     execFileSync(join(repo, 'engine', 'build-windows-cross.sh'), [], { stdio: 'inherit', env });
   }
 }
-const conf = stage();
-if (which === 'linux') env.NO_STRIP = env.NO_STRIP ?? 'true'; // linuxdeploy's strip cannot read newer ELF notes
-// On Windows `npx` is npx.cmd, which needs a shell; the shell then needs a
-// quoted path if the checkout's path has a space in it.
-const arg = (a) => (onWindows && /\s/.test(a) ? `"${a}"` : a);
-execFileSync('npx', ['tauri', 'build', '--config', conf, '--bundles', t.bundles, ...t.extra].map(arg), { cwd: desktop, stdio: 'inherit', env, shell: onWindows });
+const source = which === 'windows' && existsSync(join(repo, '.git')) ? windowsBuildSource(repo) : null;
+if (which === 'windows' && env.GITHUB_SHA && (!source || source.dirty || source.commit !== env.GITHUB_SHA)) {
+  die('CI packaging requires a clean checkout at GITHUB_SHA');
+}
+if (which === 'windows' && env.GITHUB_SHA) verifyWindowsHostArtifact(t.hostDir, source.commit);
+const conf = stage(source);
+// Run the npm-installed CLI directly so Windows paths are passed as arguments.
+const tauriCli = createRequire(import.meta.url).resolve('@tauri-apps/cli/tauri.js');
+execFileSync(process.execPath, [tauriCli, 'build', '--config', conf, '--bundles', t.bundles, ...t.extra], {
+  cwd: desktop, stdio: 'inherit', windowsHide: true, env,
+});
+if (source) {
+  const after = windowsBuildSource(repo);
+  if (after.commit !== source.commit || after.sourceTree !== source.sourceTree) {
+    die('Source changed while building the installer');
+  }
+}
 collect();

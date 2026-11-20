@@ -5,7 +5,7 @@ import type { HelloResult, HostState } from '@shared/protocol';
 import type * as SessionModule from './session';
 import { StockCatalog } from '@shared/stocks';
 import { decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({
   setParams: vi.fn(async () => ({})),

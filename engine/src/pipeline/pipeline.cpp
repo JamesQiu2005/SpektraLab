@@ -86,8 +86,9 @@ uint32_t Pipeline::fresh_seed() {
     // splitmix64, so the stochastic grain sampler gets a fresh realisation per
     // render without pulling in a platform RNG. The seeded sampler
     // (`grain_sampler = "exact"`) does not come through here at all.
-    rng_state_ += 0x9E3779B97F4A7C15ull;
-    uint64_t z = rng_state_;
+    auto& state = rng_states_[static_cast<size_t>(random_stream_)];
+    state += 0x9E3779B97F4A7C15ull;
+    uint64_t z = state;
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
     z = z ^ (z >> 31);

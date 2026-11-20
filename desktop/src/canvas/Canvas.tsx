@@ -108,7 +108,7 @@ export function computeLayout(
 }
 
 /** `fitMargin`: the black kept round a fitted picture (v2: 18 epx, PC-E1; v1: none). */
-export function Canvas({ fitMargin = 0 }: { fitMargin?: number } = {}) {
+export function Canvas({ fitMargin = 0, legacyOriginalShortcut = false }: { fitMargin?: number; legacyOriginalShortcut?: boolean } = {}) {
   const { tz } = useI18n();
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -484,8 +484,9 @@ export function Canvas({ fitMargin = 0 }: { fitMargin?: number } = {}) {
     setView({ fit: false, zoom, cx, cy });
   };
 
-  // Space held: the original (one draw).
+  // The v2 window handles both Original shortcuts and owns its latch.
   useEffect(() => {
+    if (!legacyOriginalShortcut) return;
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat && !isTyping(e.target)) {
         e.preventDefault();
@@ -501,7 +502,7 @@ export function Canvas({ fitMargin = 0 }: { fitMargin?: number } = {}) {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
-  }, []);
+  }, [legacyOriginalShortcut]);
 
   const cursor = cropping || tool === 'neutral' ? 'crosshair' : tool === 'hand' || pairPlacing ? 'grab' : 'default';
   const css = (v: number) => v / size.dpr;

@@ -8,6 +8,7 @@ import type {
   HelloResult,
   HostState,
   ImageInfo,
+  MemoryReport,
   OpenResult,
   ParamsSchema,
   ProbeResult,
@@ -62,8 +63,8 @@ export class Host {
   diagnostics() {
     return this.transport.diagnostics();
   }
-  async memoryReport(): Promise<Record<string, unknown>> {
-    return (await this.call<Record<string, unknown>>('memory_report', {}, 30_000)).result;
+  async memoryReport(): Promise<MemoryReport> {
+    return (await this.call<MemoryReport>('memory_report', {}, 30_000)).result;
   }
 
   async hello(): Promise<HelloResult> {

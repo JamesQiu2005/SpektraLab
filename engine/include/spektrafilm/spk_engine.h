@@ -179,8 +179,13 @@ const char* spk_params_schema(spk_engine* engine);
  * `spk_open_device`, or a Core Image decode -- which the caller accounts for
  * (RFC-019 `DecodeResidency`).
  *
- * Cheap enough for a UI timer: a sum over a few dozen handles under one lock,
- * with no Metal object walked or queried. Cannot fail.
+ * Vulkan adds `gpu_memory.heaps`, the size and device-local flag of each
+ * heap, in heap-index order. When the driver provides a valid estimate,
+ * rows additionally carry `budget_bytes` and `usage_bytes` for this process.
+ * These estimates are independent of the tracked engine allocations above.
+ *
+ * Intended for periodic samples between render jobs. Vulkan additionally
+ * queries the driver for current budgets where available.
  */
 const char* spk_memory_report(spk_engine* engine);
 

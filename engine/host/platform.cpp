@@ -17,13 +17,45 @@
 
 namespace spkhost {
 
+#ifdef _WIN32
+static std::filesystem::path extended_windows_path(std::filesystem::path path) {
+    if (path.native().size() < MAX_PATH) return path;
+    path.make_preferred();
+    const auto& wide = path.native();
+    if (wide.starts_with(LR"(\\?\)") || wide.starts_with(LR"(\\.\)")) return path;
+    // Win32 skips dot-segment and slash normalization after the prefix.
+    const bool unc = wide.starts_with(LR"(\\)");
+    if (!unc && !path.is_absolute()) return path;
+    const DWORD capacity = GetFullPathNameW(wide.c_str(), 0, nullptr, nullptr);
+    if (!capacity) return path;
+    std::wstring normal(capacity, L'\0');
+    const DWORD length = GetFullPathNameW(wide.c_str(), capacity, normal.data(), nullptr);
+    if (!length || length >= capacity) return path;
+    normal.resize(length);
+    return unc ? std::filesystem::path(LR"(\\?\UNC\)" + normal.substr(2))
+               : std::filesystem::path(LR"(\\?\)" + normal);
+}
+#endif
+
 std::filesystem::path utf8_path(const std::string& utf8) {
     std::u8string u(utf8.begin(), utf8.end());
+#ifdef _WIN32
+    return extended_windows_path(std::filesystem::path(u));
+#else
     return std::filesystem::path(u);
+#endif
 }
 
 std::string path_utf8(const std::filesystem::path& path) {
-    const std::u8string u = path.u8string();
+    std::u8string u = path.u8string();
+#ifdef _WIN32
+    // Keep the implementation's Win32 namespace spelling off the wire.
+    if (u.starts_with(u8R"(\\?\UNC\)")) {
+        u = u8R"(\\)" + u.substr(8);
+    } else if (u.starts_with(u8R"(\\?\)") && u.size() >= 7 && u[5] == u8':' && u[6] == u8'\\') {
+        u.erase(0, 4);
+    }
+#endif
     return std::string(u.begin(), u.end());
 }
 
@@ -86,9 +118,12 @@ bool write_file_atomic(const std::filesystem::path& path,
         error = "destination folder does not exist: " + path_utf8(dir);
         return false;
     }
-    const fs::path partial = dir / utf8_path("." + path_utf8(path.filename()) + ".partial-" +
-                                             std::to_string(process_id()) + "-" +
-                                             std::to_string(counter++));
+    auto partial = dir / utf8_path("." + path_utf8(path.filename()) + ".partial-" +
+                                    std::to_string(process_id()) + "-" +
+                                    std::to_string(counter++));
+#ifdef _WIN32
+    partial = extended_windows_path(std::move(partial));
+#endif
     std::FILE* f = open_file(partial, "wb");
     if (!f) { error = "cannot create " + path_utf8(partial); return false; }
     bool wrote = false;
