@@ -34,7 +34,13 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef __APPLE__
 #include <dispatch/dispatch.h>
+#else
+#include <atomic>
+#include <thread>
+#include <vector>
+#endif
 
 #include "pipeline.hpp"
 
@@ -100,9 +106,24 @@ void box(const std::vector<double>& in, std::vector<double>& out, uint32_t w, ui
 // 0.03 and ~600 of 631 at 0.093.
 template <class F>
 void for_each_line(uint32_t lines, F&& fn) {
+#ifdef __APPLE__
     struct Ctx { F* fn; } ctx{&fn};
     dispatch_apply_f(lines, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &ctx,
                      [](void* c, size_t line) { (*static_cast<Ctx*>(c)->fn)(uint32_t(line)); });
+#else
+    // The same contract over std::thread (engine/PORT_PLAN.md §3): a shared counter hands out whole
+    // lines, so each line is still written by one thread in the serial order -- bit-identical to
+    // the serial loop and to GCD.
+    const unsigned workers = std::max(1u, std::min(std::thread::hardware_concurrency(), lines));
+    if (workers <= 1) { for (uint32_t line = 0; line < lines; ++line) fn(line); return; }
+    std::atomic<uint32_t> next{0};
+    auto work = [&] { for (uint32_t line; (line = next.fetch_add(1)) < lines;) fn(line); };
+    std::vector<std::thread> pool;
+    pool.reserve(workers - 1);
+    for (unsigned t = 1; t < workers; ++t) pool.emplace_back(work);
+    work();
+    for (auto& th : pool) th.join();
+#endif
 }
 
 void gaussian(const std::vector<double>& in, std::vector<double>& out, uint32_t w, uint32_t h,

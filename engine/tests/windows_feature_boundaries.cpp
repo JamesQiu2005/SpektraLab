@@ -53,45 +53,50 @@ int main(int argc, char** argv) {
         render(engine.get(), session.get());
         const std::string before = params(session.get());
 
-        struct Feature { const char* key; const char* label; };
-        const std::array<Feature, 5> features{{
-            {"digital_intermediate", "digital intermediate"},
-            {"scene_latitude_active", "scene latitude mapping"},
-            {"contrast_mask_active", "contrast mask"},
-            {"overscan_active", "overscan"},
-            {"date_imprint_active", "date imprint"},
-        }};
-        for (const Feature& feature : features) {
-            // Include a supported change to catch partial application before
-            // the unsupported field is rejected.
-            const std::string delta = std::string("{\"") + feature.key +
-                                      "\":true,\"print_exposure\":1.25}";
-            const spk_status status = spk_set_params(session.get(), delta.c_str(), nullptr);
-            const std::string error = spk_last_error(engine.get());
-            require(status == SPK_ERR_USER && error.find(feature.label) != std::string::npos &&
-                    error.find("Windows Vulkan backend") != std::string::npos,
-                    std::string("unclear feature refusal: ") + feature.key + ": " + error);
-            require(params(session.get()) == before, std::string("refused delta mutated params: ") + feature.key);
-            render(engine.get(), session.get());
-
-            spk_session* rejected = spk_open(engine.get(), &input, delta.c_str(), nullptr);
-            const std::string open_error = spk_last_error(engine.get());
-            if (rejected) spk_session_release(rejected);
-            require(!rejected && open_error.find(feature.label) != std::string::npos,
-                    std::string("open accepted an unported effect: ") + feature.key);
+        // The film edge and the date back render on Vulkan since overscan.metal's kernels were ported and
+        // their imprints are drawn without CoreText (edge_raster.cpp); the DI, scene latitude and the
+        // contrast mask before them. Each is set, rendered, and set back.
+        // A frame of the 135 gate's shape (36.25 x 24.3) for the film edge: it refuses any other.
+        std::vector<float> gate(149 * 100 * 3);
+        for (size_t i = 0; i < gate.size(); ++i) gate[i] = 0.025f + float(i % 29) * 0.025f;
+        const spk_image gate_input{gate.data(), 149, 100, 3};
+        std::unique_ptr<spk_session, decltype(&spk_session_release)> edge_session(
+            spk_open(engine.get(), &gate_input, nullptr, nullptr), spk_session_release);
+        require(bool(edge_session), std::string("135-shaped open failed: ") + spk_last_error(engine.get()));
+        for (const char* delta : {"{\"overscan_active\":true,\"overscan_format\":\"135\",\"overscan_edge_text\":\"PORTRA 400\"}",
+                                  "{\"date_imprint_active\":true,\"date_imprint_text\":\"'25 11 19\",\"date_imprint_placement\":\"frame\"}"}) {
+#ifdef _WIN32
+            // Windows has no edge fonts yet (edge_raster.cpp reads the Linux font folders): a clear refusal
+            // that leaves the session as it was.
+            const spk_status refused = spk_set_params(edge_session.get(), delta, nullptr);
+            const std::string refusal = spk_last_error(engine.get());
+            require(refused == SPK_ERR_USER && refusal.find("Windows Vulkan backend") != std::string::npos,
+                    std::string("unclear refusal: ") + delta + ": " + refusal);
+            continue;
+#endif
+            require(spk_set_params(edge_session.get(), delta, nullptr) == SPK_OK,
+                    std::string("refused: ") + delta + ": " + spk_last_error(engine.get()));
+            spk_result shown{};
+            const spk_status st = spk_render(edge_session.get(), "full", &shown);
+            const bool ok = st == SPK_OK && shown.rgba16 && shown.width > 0 && shown.height > 0;
+            const std::string why = spk_last_error(engine.get());
+            spk_result_free(&shown);
+            require(ok, std::string("did not render: ") + delta + ": " + why);
+            require(spk_set_params(edge_session.get(), "{\"overscan_active\":false,\"date_imprint_active\":false}", nullptr) == SPK_OK,
+                    "could not set the film edge back");
         }
+        render(engine.get(), session.get());
+        require(params(session.get()) == before, "the film edge and date did not set back");
 
         spk_result di{};
         char* di_json = nullptr;
         const spk_status di_status = spk_render_digital_intermediate(session.get(), &di, &di_json);
         const std::string di_error = spk_last_error(engine.get());
-        const bool empty = !di.texture && !di.rgba16 && !di_json;
+        const bool rendered = di.rgba16 && di.width == 32 && di.height == 16;
         spk_result_free(&di);
         spk_string_free(di_json);
-        require(di_status == SPK_ERR_USER && empty &&
-                di_error.find("digital intermediate") != std::string::npos,
-                "DI API did not return a clear refusal and empty result");
-        require(params(session.get()) == before, "DI refusal mutated the session");
+        require(di_status == SPK_OK && rendered, "DI did not render on Vulkan: " + di_error);
+        require(params(session.get()) == before, "a DI render mutated the session");
         render(engine.get(), session.get());
 
         const float* mask = nullptr;
@@ -111,7 +116,7 @@ int main(int argc, char** argv) {
         require(latitude_status == SPK_OK && latitude_valid, "latitude analysis failed: " + latitude_error);
         require(params(session.get()) == before, "latitude analysis mutated the session");
         render(engine.get(), session.get());
-        std::cout << "Windows feature boundaries passed (5 flags, DI refusal, mask off, latitude analysis)\n";
+        std::cout << "Windows feature boundaries passed (film edge and date render, DI renders, mask off, latitude analysis)\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

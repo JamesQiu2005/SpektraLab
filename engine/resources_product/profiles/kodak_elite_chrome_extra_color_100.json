@@ -1,0 +1,10 @@
+{
+  "derived_from": "kodak_ektachrome_e100vs",
+  "metadata": {
+    "what": "Kodak Elite Chrome Extra Color 100: Kodak's consumer edition of the film in kodak_ektachrome_e100vs.",
+    "data": "None of its own. KODAK ELITE Chrome Extra Color 100 Film (publication E-126) publishes the same spectral sensitivity, characteristic and dye density curves as KODAK PROFESSIONAL EKTACHROME Film E100VS (E-163): digitised from both sheets they agree to within 0.0002 (log sensitivity, density). The engine loads kodak_ektachrome_e100vs and overrides only the name."
+  },
+  "info": {
+    "name": "Kodak Elite Chrome Extra Color 100"
+  }
+}

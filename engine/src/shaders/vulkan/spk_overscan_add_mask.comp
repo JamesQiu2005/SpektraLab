@@ -1,0 +1,27 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// overscan.metal spk_overscan_add_mask: a rasterised imprint (coverage, canvas-aligned) added as
+// exposure. M = {x0, y0, mw, mh, cw, ch, e_r, e_g, e_b}; n: {mask pixels}
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer Mask { float mask[]; };
+layout(std430, binding = 1) readonly buffer Mbuf { float M[]; };
+layout(std430, binding = 2) readonly buffer N { uint n[]; };
+layout(std430, binding = 3) buffer Canvas { float canvas[]; };
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    const uint i = spk_global_index();
+    if (i >= n[0]) return;
+    const uint mw = uint(M[2]);
+    const int x = int(M[0]) + int(i % mw), y = int(M[1]) + int(i / mw);
+    if (x < 0 || y < 0 || x >= int(M[4]) || y >= int(M[5])) return;
+    const float c = mask[i];
+    if (c <= 0.0) return;
+    const uint o = 3u * (uint(y) * uint(M[4]) + uint(x));
+    canvas[o] += c * M[6];
+    canvas[o + 1u] += c * M[7];
+    canvas[o + 2u] += c * M[8];
+}

@@ -1,0 +1,70 @@
+#version 450
+
+// scene_latitude.metal's `spk_scene_latitude`, expression for expression: RFC-023's Scene Latitude
+// Mapping, a positive scalar gain per pixel computed on the stop axis and applied to the linear
+// triple. p's layout is the Metal file's (0 K_h, 1 H_h, 2 K_s, 3 H_s, 4 m, 5 L_max, 6 norm,
+// 7..9 the Y row, 10 n_ref, 11 width, 12 height, 13 split, 14..17 the second frame's knees and
+// rooms, 18 the image's first row in the frame). A pathological norm (zero, negative, NaN,
+// infinite) takes k = 1. Metal's max(x, 0) is fmax (NaN -> 0); spelled out here.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Rgb { float value[]; } rgb;
+layout(set = 0, binding = 1, std430) readonly buffer Params { float value[]; } p;
+layout(set = 0, binding = 2, std430) readonly buffer Count { uint value[]; } n;
+layout(set = 0, binding = 3, std430) writeonly buffer Output { float value[]; } out_data;
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+float metal_max0(float x) { return (isnan(x) || x < 0.0) ? 0.0 : x; }
+bool spk_isfinite(float x) { return !isnan(x) && !isinf(x); }
+
+// g_m(D) - D, the branch's departure, in the forms that do not cancel near the knee.
+float slm_departure(float D, float H, float m) {
+    if (!(D > 0.0)) return 0.0;
+    if (m == 2.0) {
+        float r = sqrt(H * H + D * D);
+        return -(D * D * D) / (r * (H + r));
+    }
+    if (m == 1.0) return -(D * D) / (H + D);
+    return D * (H / pow(pow(H, m) + pow(D, m), 1.0 / m) - 1.0);
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= n.value[0]) return;
+    float r = rgb.value[3u * i], g = rgb.value[3u * i + 1u], b = rgb.value[3u * i + 2u];
+    float cr = metal_max0(r), cg = metal_max0(g), cb = metal_max0(b);
+
+    float v;
+    uint norm = uint(p.value[6]);
+    if (norm == 1u) {
+        v = p.value[7] * cr + p.value[8] * cg + p.value[9] * cb;
+    } else if (norm == 2u) {
+        v = max(cr, max(cg, cb));
+    } else {
+        float s2 = cr * cr + cg * cg + cb * cb;
+        v = s2 > 0.0 ? (cr * cr * cr + cg * cg * cg + cb * cb * cb) / s2 : 0.0;
+    }
+
+    float k = 1.0;
+    if (v > 0.0 && spk_isfinite(v)) {
+        float n_ref = p.value[10];
+        float E = clamp(log2(max(v, n_ref * exp2(-24.0)) / n_ref), -24.0, 24.0);
+        float d = 0.0;
+        // A half-frame pair: from `split` along the long edge, the second frame's knees and rooms.
+        float Kh = p.value[0], Hh = p.value[1], Ks = p.value[2], Hs = p.value[3];
+        if (p.value[13] > 0.0) {
+            uint w = uint(p.value[11]), h = uint(p.value[12]);
+            float along = w >= h ? (float(i % w) + 0.5) / float(w) : (float(i / w) + p.value[18] + 0.5) / float(h);
+            if (along >= p.value[13]) { Kh = p.value[14]; Hh = p.value[15]; Ks = p.value[16]; Hs = p.value[17]; }
+        }
+        if (Hh > 0.0 && E > Kh) d = slm_departure(E - Kh, Hh, p.value[4]);
+        else if (Hs > 0.0 && E < Ks) d = -slm_departure(Ks - E, Hs, p.value[4]);
+        if (d > 0.0) { float L = p.value[5]; d = d * L / sqrt(L * L + d * d); }
+        k = clamp(exp2(d), exp2(-30.0), exp2(30.0));
+    }
+    out_data.value[3u * i] = r * k;
+    out_data.value[3u * i + 1u] = g * k;
+    out_data.value[3u * i + 2u] = b * k;
+}

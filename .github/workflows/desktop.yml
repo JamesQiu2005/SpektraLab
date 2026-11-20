@@ -62,7 +62,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build nasm glslang-tools \
-            libvulkan1 mesa-vulkan-drivers vulkan-tools python3 python3-venv pkg-config
+            libvulkan1 mesa-vulkan-drivers vulkan-tools python3 python3-venv pkg-config \
+            fonts-urw-base35 fonts-liberation-sans-narrow fonts-dejavu-core   # the film edge's imprints (edge_raster.cpp)
           python3 -m venv "$RUNNER_TEMP/spk-build-python"
           "$RUNNER_TEMP/spk-build-python/bin/pip" install meson==1.9.2
           echo "$RUNNER_TEMP/spk-build-python/bin" >> "$GITHUB_PATH"

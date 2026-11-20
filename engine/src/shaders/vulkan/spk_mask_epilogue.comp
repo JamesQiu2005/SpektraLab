@@ -1,0 +1,51 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// contrast_mask.metal's `spk_mask_epilogue`: spk_spectral_epilogue's integral with the mask's gain
+// on the image exposure before the pre-flash offset, E = max(2^delta * (a * gain) + flash, 0) + 1e-10,
+// logged. The base is a * x + b, (a, b) bilinear from the analysis grid at the frame's coordinates
+// (row0: a band's first row). meta: pixels, wavelengths, W, H, row0, gw, gh.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer Cmy { float value[]; } cmy;
+layout(set = 0, binding = 1, std430) readonly buffer Chd { float value[]; } chd;
+layout(set = 0, binding = 2, std430) readonly buffer Base { float value[]; } base_data;
+layout(set = 0, binding = 3, std430) readonly buffer Ixs { float value[]; } ixs;
+layout(set = 0, binding = 4, std430) readonly buffer Params { float value[]; } p;
+layout(set = 0, binding = 5, std430) readonly buffer Coef { float value[]; } coef;
+layout(set = 0, binding = 6, std430) readonly buffer Meta { uint value[]; } meta;
+layout(set = 0, binding = 7, std430) writeonly buffer Output { float value[]; } out_data;
+
+#include "spk_mask.glsl"
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+void main() {
+    uint n = meta.value[0], nl = meta.value[1], W = meta.value[2], H = meta.value[3], row0 = meta.value[4];
+    uint gw = meta.value[5], gh = meta.value[6];
+    uint i = spk_global_index();
+    if (i >= n) return;
+    vec3 a = mask_image_exposure(i, nl);
+
+    uint px = i % W, py = row0 + i / W;
+    float u = clamp((float(px) + 0.5) * float(gw) / float(W) - 0.5, 0.0, float(gw - 1u));
+    float v = clamp((float(py) + 0.5) * float(gh) / float(H) - 0.5, 0.0, float(gh - 1u));
+    uint u0 = uint(floor(u)), v0 = uint(floor(v));
+    uint u1 = min(u0 + 1u, gw - 1u), v1 = min(v0 + 1u, gh - 1u);
+    float tu = u - float(u0), tv = v - float(v0);
+    vec2 c00 = vec2(coef.value[2u * (v0 * gw + u0)], coef.value[2u * (v0 * gw + u0) + 1u]);
+    vec2 c01 = vec2(coef.value[2u * (v0 * gw + u1)], coef.value[2u * (v0 * gw + u1) + 1u]);
+    vec2 c10 = vec2(coef.value[2u * (v1 * gw + u0)], coef.value[2u * (v1 * gw + u0) + 1u]);
+    vec2 c11 = vec2(coef.value[2u * (v1 * gw + u1)], coef.value[2u * (v1 * gw + u1) + 1u]);
+    vec2 ab = mix(mix(c00, c01, tu), mix(c10, c11, tu), tv);
+
+    float b = ab.x * mask_x(a) + ab.y;
+    float k = exp2(mask_delta(b));
+    float e0 = mask_max0(k * a.x + p.value[6]) + 1e-10;
+    float e1 = mask_max0(k * a.y + p.value[7]) + 1e-10;
+    float e2 = mask_max0(k * a.z + p.value[8]) + 1e-10;
+    out_data.value[3u * i] = log2(e0) * 0.30102999566398120;
+    out_data.value[3u * i + 1u] = log2(e1) * 0.30102999566398120;
+    out_data.value[3u * i + 2u] = log2(e2) * 0.30102999566398120;
+}

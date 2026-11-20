@@ -1,0 +1,180 @@
+#version 450
+// scene_layers.metal spk_scene_layers (RFC-052 §6): a local amount of Film Exposure (and of a filter on the
+// light) before the film. Each layer: a 16-bit mask in source space S, a coverage and a gain (log2 for the
+// scalar path, three natural-log cone gains for the colour path). A pixel is mapped back through the
+// engine's cut with the same double-float arithmetic as spk_geometry_resample_df (copied below, so the
+// mask is laid on the picture the cut made), then into S by frame_to_source. The planes are uint16, read
+// here as 32-bit words (the engine pads them to whole words).
+//
+// meta: 0 pixels, 1 width, 2 first row (a band), 3 SH, 4 SW, 5 OH, 6 OW, 7 turns, 8 flips, 9 count, 10 colour
+// p:    0..8 frame_to_source, 9..17 C, 18..26 C^-1, 27 + 8i: coverage, e_i, g_i (3), plane w, plane h, 0
+layout(local_size_x = 256) in;
+layout(constant_id = 0) const bool SPK_FUSED_FMA = true;
+layout(std430, binding = 0) readonly buffer Img { float img[]; };
+layout(std430, binding = 1) readonly buffer Geometry { float value[]; } geometry;
+layout(std430, binding = 2) readonly buffer Meta { uint meta[]; };
+layout(std430, binding = 3) readonly buffer Pb { float p[]; };
+layout(std430, binding = 4) readonly buffer M0 { uint m0[]; };
+layout(std430, binding = 5) readonly buffer M1 { uint m1[]; };
+layout(std430, binding = 6) readonly buffer M2 { uint m2[]; };
+layout(std430, binding = 7) readonly buffer M3 { uint m3[]; };
+layout(std430, binding = 8) readonly buffer M4 { uint m4[]; };
+layout(std430, binding = 9) readonly buffer M5 { uint m5[]; };
+layout(std430, binding = 10) readonly buffer M6 { uint m6[]; };
+layout(std430, binding = 11) readonly buffer M7 { uint m7[]; };
+layout(std430, binding = 12) writeonly buffer Out { float dst[]; };
+
+uint spk_global_index() {
+    return gl_GlobalInvocationID.y * (gl_NumWorkGroups.x * gl_WorkGroupSize.x) + gl_GlobalInvocationID.x;
+}
+
+vec2 two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float bb = s - a;
+    precise float e = (a - (s - bb)) + (b - bb);
+    return vec2(s, e);
+}
+
+vec2 quick_two_sum(float a, float b) {
+    precise float s = a + b;
+    precise float e = b - (s - a);
+    return vec2(s, e);
+}
+
+vec2 two_prod(float a, float b) {
+    precise float p = a * b;
+    if (SPK_FUSED_FMA) {
+        precise float e = fma(a, b, -p);
+        return vec2(p, e);
+    }
+    // A device that does not fuse fma (lavapipe) would return e == 0 above
+    // and lose the low word. Veltkamp/Dekker splitting gives the same exact
+    // error term with plain products, so both paths produce identical pairs.
+    precise float ca = 4097.0 * a;
+    precise float ahi = ca - (ca - a);
+    precise float alo = a - ahi;
+    precise float cb = 4097.0 * b;
+    precise float bhi = cb - (cb - b);
+    precise float blo = b - bhi;
+    precise float e = ((ahi * bhi - p) + ahi * blo + alo * bhi) + alo * blo;
+    return vec2(p, e);
+}
+
+vec2 df_add(vec2 a, vec2 b) {
+    vec2 s = two_sum(a.x, b.x);
+    vec2 t = two_sum(a.y, b.y);
+    precise float lo = s.y + t.x;
+    s = quick_two_sum(s.x, lo);
+    precise float final_lo = s.y + t.y;
+    return quick_two_sum(s.x, final_lo);
+}
+
+vec2 df_sub(vec2 a, vec2 b) { return df_add(a, -b); }
+
+vec2 df_mul(vec2 a, vec2 b) {
+    vec2 p = two_prod(a.x, b.x);
+    precise float cross_terms = a.x * b.y + a.y * b.x;
+    precise float lo = p.y + cross_terms;
+    return quick_two_sum(p.x, lo);
+}
+
+vec2 df_mul_f(vec2 a, float b) {
+    vec2 p = two_prod(a.x, b);
+    precise float lo = p.y + a.y * b;
+    return quick_two_sum(p.x, lo);
+}
+
+vec2 pair_at(uint index) {
+    return vec2(geometry.value[2u * index], geometry.value[2u * index + 1u]);
+}
+
+
+// A plane's 16-bit value n (little-endian halves of a 32-bit word).
+uint plane_value(uint l, uint n) {
+    uint w;
+    uint k = n >> 1u;
+    if (l == 0u) w = m0[k]; else if (l == 1u) w = m1[k]; else if (l == 2u) w = m2[k]; else if (l == 3u) w = m3[k];
+    else if (l == 4u) w = m4[k]; else if (l == 5u) w = m5[k]; else if (l == 6u) w = m6[k]; else w = m7[k];
+    return (n & 1u) == 0u ? (w & 0xffffu) : (w >> 16u);
+}
+
+// The plane's value at S = (s, t), bilinear on texel centres, 0 outside S.
+float scene_layer_sample(uint l, float pw, float ph, float s, float t) {
+    if (!(s >= 0.0 && s <= 1.0 && t >= 0.0 && t <= 1.0)) return 0.0;
+    uint W = uint(pw), H = uint(ph);
+    float x = clamp(s * pw - 0.5, 0.0, pw - 1.0);
+    float y = clamp(t * ph - 0.5, 0.0, ph - 1.0);
+    float x0f = floor(x), y0f = floor(y);
+    float tx = x - x0f, ty = y - y0f;
+    uint x0 = uint(x0f), y0 = uint(y0f);
+    uint x1 = min(x0 + 1u, W - 1u), y1 = min(y0 + 1u, H - 1u);
+    float a = float(plane_value(l, y0 * W + x0)), b = float(plane_value(l, y0 * W + x1));
+    float c = float(plane_value(l, y1 * W + x0)), d = float(plane_value(l, y1 * W + x1));
+    float top = a + (b - a) * tx;
+    float bot = c + (d - c) * tx;
+    return (top + (bot - top) * ty) * (1.0 / 65535.0);
+}
+
+void main() {
+    uint i = spk_global_index();
+    if (i >= meta[0]) return;
+    uint W = meta[1];
+    uint ox = i % W, oy = meta[2] + i / W;
+    float SH = float(meta[3]), SW = float(meta[4]);
+    uint oh = meta[5], ow = meta[6], turns = meta[7], flips = meta[8];
+    // spk_geometry_source_px (spk_common.h), as spk_geometry_resample_df computes it
+    precise float u = float(ox) + 0.5;
+    precise float v = float(oy) + 0.5;
+    if ((flips & 1u) != 0u) u = float(ow) - u;
+    if ((flips & 2u) != 0u) v = float(oh) - v;
+    float tt;
+    switch (turns) {
+        case 1u: tt = u; u = v; v = float(ow) - tt; break;
+        case 2u: u = float(ow) - u; v = float(oh) - v; break;
+        case 3u: tt = u; u = float(oh) - v; v = tt; break;
+        default: break;
+    }
+    vec2 px = df_sub(df_mul_f(pair_at(0u), u), pair_at(2u));
+    vec2 py = df_sub(df_mul_f(pair_at(1u), v), pair_at(3u));
+    vec2 ca = pair_at(6u), sa = pair_at(7u);
+    vec2 fx = df_add(pair_at(4u), df_sub(df_mul(px, ca), df_mul(py, sa)));
+    vec2 fy = df_add(pair_at(5u), df_add(df_mul(px, sa), df_mul(py, ca)));
+    // the handed frame's normalised coordinates: pixel centre j at (j + 0.5) / N
+    float fu = ((fx.x + 0.5) + fx.y) / SW;
+    float fv = ((fy.x + 0.5) + fy.y) / SH;
+    float s = p[0] * fu + p[1] * fv + p[2];
+    float t = p[3] * fu + p[4] * fv + p[5];
+    float w = p[6] * fu + p[7] * fv + p[8];
+    if (w != 1.0) { s /= w; t /= w; }
+
+    uint count = meta[9];
+    bool colour = meta[10] != 0u;
+    float E = 0.0;
+    vec3 G = vec3(0.0);
+    for (uint l = 0u; l < count; ++l) {
+        uint L = 27u + 8u * l;
+        float k = p[L] * scene_layer_sample(l, p[L + 5u], p[L + 6u], s, t);
+        if (k == 0.0) continue;
+        E += k * p[L + 1u];
+        G += k * vec3(p[L + 2u], p[L + 3u], p[L + 4u]);
+    }
+    float r = img[3u * i], gg = img[3u * i + 1u], b = img[3u * i + 2u];
+    if (!colour) {
+        float gain = exp2(E);
+        dst[3u * i] = r * gain;
+        dst[3u * i + 1u] = gg * gain;
+        dst[3u * i + 2u] = b * gain;
+        return;
+    }
+    if (G.x == 0.0 && G.y == 0.0 && G.z == 0.0) {
+        dst[3u * i] = r; dst[3u * i + 1u] = gg; dst[3u * i + 2u] = b;
+        return;
+    }
+    vec3 e = exp(G);
+    float l0 = (p[9] * r + p[10] * gg + p[11] * b) * e.x;
+    float l1 = (p[12] * r + p[13] * gg + p[14] * b) * e.y;
+    float l2 = (p[15] * r + p[16] * gg + p[17] * b) * e.z;
+    dst[3u * i] = p[18] * l0 + p[19] * l1 + p[20] * l2;
+    dst[3u * i + 1u] = p[21] * l0 + p[22] * l1 + p[23] * l2;
+    dst[3u * i + 2u] = p[24] * l0 + p[25] * l1 + p[26] * l2;
+}

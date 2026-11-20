@@ -46,11 +46,9 @@ public:
     // Set once before this engine is published to callers.
     bool set_resources_dir(const std::string& dir, std::string& error) {
         cam16_baked_dir_ = dir + "/cam16";
-#ifdef __APPLE__
+        // On every backend since spk_minilab was ported to Vulkan: off Apple the catalog was never
+        // read, so every lookup found no table and the catalogued pairs printed optically.
         return minilab_.init(dir, error);
-#else
-        (void)error; return true;
-#endif
     }
     const MinilabCatalog& minilab() const { return minilab_; }
     // The CAM16-UCS setup for one output colourspace, table included. Depends

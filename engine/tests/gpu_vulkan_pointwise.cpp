@@ -280,6 +280,52 @@ bool check_decode(Gpu* gpu, std::string& error) {
 }
 }  // namespace
 
+// spk_highlight_headroom (Metal nodes.metal) transcribed into double: from each pixel's
+// brightest channel m, two smoothsteps in stops (near the clip, over a floor) and the pixel
+// scaled by 2^(headroom * s). Covers m <= 0 (left alone), m under the floor, inside both
+// ramps, at and over the clip, and coloured highlights clipped in one channel.
+bool check_headroom(Gpu* gpu, std::string& error) {
+    const double clip = 4.0, mid = 0.184;
+    // {1/clip, clip_from, clip_inv_span, headroom, 1/mid-grey, floor_from, floor_inv_span}
+    const float p[7] = {float(1.0 / clip), -1.5f, float(1.0 / 1.5), 3.0f, float(1.0 / mid), 2.0f, float(1.0 / 3.0)};
+    auto p_buffer = gpu->upload(p, sizeof p, error);
+    if (!p_buffer) return false;
+    auto smooth = [](double t) { t = std::clamp(t, 0.0, 1.0); return t * t * (3.0 - 2.0 * t); };
+    const uint32_t pixel_counts[] = {1, 255, 256, 257, 1025};
+    for (uint32_t pixels : pixel_counts) {
+        std::vector<float> x(size_t(pixels) * 3);
+        for (uint32_t i = 0; i < pixels; ++i) {
+            // m from -0.5 to ~5.1 in uneven steps, with one channel leading and the others below
+            const float m = -0.5f + 5.6f * float((i * 37u) % 1000u) / 1000.0f;
+            x[3 * i] = m;
+            x[3 * i + 1] = m * 0.5f;
+            x[3 * i + 2] = (i % 5 == 0) ? m : m * 0.25f;
+        }
+        if (pixels > 3) { x[0] = x[1] = x[2] = 0.0f; x[3] = float(clip); x[4] = x[5] = 0.1f; }
+        std::vector<double> expected(x.size());
+        for (uint32_t i = 0; i < pixels; ++i) {
+            const double r = x[3 * i], g = x[3 * i + 1], b = x[3 * i + 2];
+            const double m = std::max(r, std::max(g, b));
+            double gain = 1.0;
+            if (m > 0.0) {
+                const double lm = std::log2(m);
+                const double near_clip = smooth((lm + std::log2(double(p[0])) - p[1]) * double(p[2]));
+                const double over_floor = smooth((lm + std::log2(double(p[4])) - p[5]) * double(p[6]));
+                gain = std::exp2(double(p[3]) * near_clip * over_floor);
+            }
+            expected[3 * i] = r * gain; expected[3 * i + 1] = g * gain; expected[3 * i + 2] = b * gain;
+        }
+        auto input = gpu->upload(x.data(), x.size() * sizeof(float), error);
+        auto output = output_buffer(gpu, x.size(), error);
+        const uint32_t n[] = {pixels};
+        if (!input || !output ||
+            !gpu->dispatch("spk_highlight_headroom", {Arg::buf(input), Arg::buf(p_buffer),
+                           Arg::inline_bytes(n, 1), Arg::buf(output)}, pixels, error) ||
+            !check_values(gpu, output, expected, "highlight_headroom", 1e-7, 2e-6, error)) return false;
+    }
+    return true;
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) { std::fprintf(stderr, "usage: spk_vulkan_pointwise <resources>\n"); return 2; }
     std::string error;
@@ -287,7 +333,8 @@ int main(int argc, char** argv) {
     if (!gpu) { std::fprintf(stderr, "Vulkan device: %s\n", error.c_str()); return 1; }
     std::printf("Vulkan device: %s\n", gpu->device_name().c_str());
     if (!check_mul_glare_boost(gpu.get(), error) || !check_reduce(gpu.get(), error) ||
-        !check_bw(gpu.get(), error) || !check_edr(gpu.get(), error) || !check_decode(gpu.get(), error)) {
+        !check_bw(gpu.get(), error) || !check_edr(gpu.get(), error) || !check_decode(gpu.get(), error) ||
+        !check_headroom(gpu.get(), error)) {
         std::fprintf(stderr, "pointwise: %s\n", error.c_str()); return 1;
     }
     std::printf("pointwise: %zu analytic/float64 cases, max abs error %.9g, "
