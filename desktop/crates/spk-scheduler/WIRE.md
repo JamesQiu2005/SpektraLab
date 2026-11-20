@@ -117,8 +117,9 @@ A `fullView` of any other frame opens its own session: price it as an export (`d
 export); a call that takes no `progress_id` (`thumbnail`, `preview_stock_lut`, `open`) finishes and its
 result is discarded. Either way the job ends `cancelled`.
 
-**Bands.** The v1 host renders whole frames. A job the planner put in bands is run whole and recorded as
-such (`ran: "whole"`), exactly as the Mac desktop's engine does.
+**Bands.** The native host renders whole frames. Its jobs are planned without bands.
+An automatic `fullView` that cannot fit in memory ends as `cancelled` and leaves the live
+preview visible. With a known GPU budget, even the export queue's fallback must fit it.
 
 ## JobSnapshotWire — `scheduler_snapshot` and the `scheduler://job` event
 

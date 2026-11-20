@@ -91,7 +91,7 @@ pub enum Binding {
     Allowance,
     /// The host is: other processes and wired memory hold the rest (the Swift's name).
     Phone,
-    /// **Desktop PC only**: the GPU's own memory is (`MemoryReading::gpu_available`).
+    /// **Desktop PC only**: the GPU budget reported by the driver is the tightest side.
     Gpu,
 }
 
@@ -152,8 +152,8 @@ impl MemoryBudget {
         let keep = 1.0 - if asked { tuning.asked_margin } else { tuning.margin };
         let mut tighter = app_side.min(phone_side);
         let mut binding = if app_side <= phone_side { Binding::Allowance } else { Binding::Phone };
-        // A PC's GPU memory of its own is a third side: no reserve here, the reading's is already
-        // net of the engine's own and of `DevicePolicy`'s GPU reserve.
+        // A driver's remaining GPU budget is a third side. The probe takes
+        // current usage out of it, so only the planning margin is applied here.
         let gpu_side = reading.gpu_available;
         if let Some(gpu) = gpu_side {
             if gpu < tighter {
@@ -175,12 +175,16 @@ impl MemoryBudget {
     }
 
     /// Whether a job of this cost may run. `derate` is how much of the budget the job is trusted with
-    /// after a pressure event (1 otherwise). On a PC with GPU memory of its own the job's peak is also
+    /// after a pressure event (1 otherwise). With a driver budget the job's peak is also
     /// held to that memory: the engine's planes live there.
     pub fn fits(&self, cost: &CostEstimate, derate: f64) -> bool {
         let d = clamp(derate, 0.1, 1.0);
         cost.peak_bytes as f64 <= self.app_bytes as f64 * d
             && cost.phone_bytes as f64 <= self.phone_bytes as f64 * d
-            && self.gpu_bytes.map_or(true, |g| cost.peak_bytes as f64 <= g as f64 * d)
+            && self.fits_gpu(cost, d)
+    }
+
+    pub(crate) fn fits_gpu(&self, cost: &CostEstimate, derate: f64) -> bool {
+        self.gpu_bytes.map_or(true, |g| cost.peak_bytes as f64 <= g as f64 * derate)
     }
 }

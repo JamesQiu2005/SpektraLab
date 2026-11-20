@@ -557,3 +557,54 @@ async fn the_webview_s_calls_run_on_the_editing_session() {
     assert_eq!(link.methods(), ["close"]);
     assert_eq!(link.open_sessions(), 0);
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_whole_frame_host_skips_an_optional_full_view_that_does_not_fit() {
+    let (link, _engine, q) = setup().await;
+    q.set_read_memory(|| MemoryReading {
+        gpu_available: Some(4 << 30),
+        ..MemoryReading::windows(18 << 30, 18 << 30, 0)
+    });
+    let frame = FrameId::new("fuji");
+    assert!(q.outcome(q.submit(canvas_job(JobKind::CanvasDevelop, &frame, "/p/fuji.RAF"))).await.is_finished());
+    link.clear();
+    let full = RenderJob::new(frame.clone(), JobKind::FullView, RenderTier::Full, PixelSize::new(11662, 8746))
+        .with_request(Some(request("render_view", Some(source("/p/fuji.RAF")), view("full"))));
+    assert_eq!(q.outcome(q.submit(full)).await, JobOutcome::Cancelled);
+    let record = q.records().pop().unwrap();
+    assert_eq!(record.mode, "wait(memory)");
+    assert_eq!(record.outcome, "cancelled: memory");
+    assert!(record.ran.is_none());
+    assert!(link.methods().is_empty(), "{:?}", link.methods());
+    assert_eq!(link.open_sessions(), 1);
+    assert!(q.outcome(q.submit(canvas_job(JobKind::CanvasReprint, &frame, "/p/fuji.RAF"))).await.is_finished());
+    assert_eq!(link.methods(), ["render_view"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn export_does_not_force_a_whole_frame_over_the_gpu_budget() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let (link, _engine, q) = setup().await;
+    let available = Arc::new(AtomicU64::new(4 << 30));
+    let read = available.clone();
+    q.set_read_memory(move || MemoryReading {
+        gpu_available: Some(read.load(Ordering::Relaxed)),
+        ..MemoryReading::windows(18 << 30, 18 << 30, 0)
+    });
+    let job = RenderJob::new(FrameId::new("fuji"), JobKind::Export, RenderTier::Full, PixelSize::new(11662, 8746))
+        .decoding(true)
+        .with_request(Some(request("export_frame", Some(source("/p/fuji.RAF")), json!({"path": "/out/fuji.tif"}))));
+    let id = q.submit(job);
+    assert!(tokio::time::timeout(Duration::from_secs(8), q.outcome(id)).await.is_err());
+    assert!(link.methods().is_empty(), "{:?}", link.methods());
+    assert_eq!(q.snapshot_of(id).unwrap().state, SnapshotState::Waiting(spk_scheduler::types::WaitReason::Memory));
+
+    available.store(12 << 30, Ordering::Relaxed);
+    let result = tokio::time::timeout(Duration::from_secs(2), q.outcome(id)).await.unwrap();
+    assert!(result.is_finished());
+    assert_eq!(link.methods(), ["export_frame"]);
+    let record = q.records().pop().unwrap();
+    assert_eq!(record.mode, "whole");
+    assert_eq!(record.ran.as_deref(), Some("whole"));
+}

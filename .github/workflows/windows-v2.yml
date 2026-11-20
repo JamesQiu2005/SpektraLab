@@ -84,13 +84,13 @@ jobs:
         if: steps.scope.outputs.docs-only != 'true'
         working-directory: desktop/src-tauri
         run: cargo test --locked --target x86_64-pc-windows-msvc -p spk-scheduler --test wire --test facade_threads --test host_engine
-      - name: Test library client path and source guards
+      - name: Test Windows desktop and library units
         if: steps.scope.outputs.docs-only != 'true'
         working-directory: desktop/src-tauri
         shell: pwsh
         run: |
-          cargo test --locked --target x86_64-pc-windows-msvc -p spk-library --lib | Tee-Object -Variable results
+          cargo test --locked --target x86_64-pc-windows-msvc -p spektralab -p spk-library --lib | Tee-Object -Variable results
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not ($results -match '^test result: ok\. [1-9][0-9]* passed;')) {
-            throw 'No spk-library unit tests ran on Windows'
+          if (@($results -match '^test result: ok\. [1-9][0-9]* passed;').Count -ne 2) {
+            throw 'Both Windows desktop and library unit test suites must run'
           }

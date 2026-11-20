@@ -721,7 +721,9 @@ async function renderFull(gen: number) {
     await refreshThumb();
     scheduleLatitudeRefresh();
   } catch (e) {
-    if (gen === wantedGen && get().engineSession === sid) noteError(tz('Full render', '全尺寸渲染'), e);
+    if (gen === wantedGen && get().engineSession === sid && !(e instanceof JobEnded && e.cancelled)) {
+      noteError(tz('Full render', '全尺寸渲染'), e);
+    }
   } finally {
     inFlight = false;
     resumePreviewsWhenIdle();

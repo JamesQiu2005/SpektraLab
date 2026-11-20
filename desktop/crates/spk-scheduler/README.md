@@ -78,7 +78,7 @@ non-async command (`tests/facade_threads.rs`).
 - A record's `at` is the queue's clock mapped to a wall date (virtual in tests).
 - The simulated engine's ±8 % spread is derived from the job id (reproducible), not `random`.
 - `HostEngine` reports no measured peak (0: the host gives a ledger, not a footprint), so the cost model
-  learns time from the host but never a peak; a banded plan is run whole and recorded `ran: "whole"`.
+  learns time from the host but never a peak. The host accepts whole-frame plans only.
 
 ## The desktop PC policy (R2) — unmeasured on Windows
 

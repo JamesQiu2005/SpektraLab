@@ -42,6 +42,40 @@ const STDERR_TAIL: usize = 80;
 // larger, but a non-reading child must not hold the connection lock forever.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[cfg(windows)]
+const GPU_BUDGET_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(windows)]
+const GPU_BUDGET_MAX_AGE: Duration = Duration::from_secs(4);
+
+#[cfg(windows)]
+struct GpuBudget {
+    generation: u64,
+    observed_at: Instant,
+    available: u64,
+}
+
+#[cfg(windows)]
+impl GpuBudget {
+    fn from_reply(generation: u64, observed_at: Instant, header: &Value) -> Option<Self> {
+        if header["ok"].as_bool() != Some(true) { return None; }
+        let heaps = header["result"]["gpu_memory"]["heaps"].as_array()?;
+        let mut local = heaps.iter().filter(|heap| heap["device_local"].as_bool() == Some(true));
+        let heap = local.next()?;
+        // The wire reports heap budgets but cannot identify which of several
+        // device-local heaps a compute allocation would use.
+        if local.next().is_some() { return None; }
+        let budget = heap["budget_bytes"].as_u64()?;
+        let usage = heap["usage_bytes"].as_u64()?;
+        if budget == 0 || budget > heap["size_bytes"].as_u64()? { return None; }
+        Some(Self { generation, observed_at, available: budget.saturating_sub(usage) })
+    }
+
+    fn available(&self, generation: u64, now: Instant) -> Option<u64> {
+        (self.generation == generation && now.saturating_duration_since(self.observed_at) <= GPU_BUDGET_MAX_AGE)
+            .then_some(self.available)
+    }
+}
+
 /// A reply as the core hands it on: the full response header and the payload.
 pub type Reply = Result<(Value, Vec<u8>), HostError>;
 
@@ -141,6 +175,8 @@ pub struct HostManager<R: Runtime = Wry> {
     events: broadcast::Sender<Value>,
     /// The running host's process id (0: none).
     pid: AtomicU32,
+    #[cfg(windows)]
+    gpu_budget: Mutex<Option<GpuBudget>>,
 }
 
 impl<R: Runtime> HostManager<R> {
@@ -161,6 +197,8 @@ impl<R: Runtime> HostManager<R> {
             launch: Mutex::new(None),
             events: broadcast::channel(EVENT_BACKLOG).0,
             pid: AtomicU32::new(0),
+            #[cfg(windows)]
+            gpu_budget: Mutex::new(None),
         })
     }
 
@@ -172,6 +210,14 @@ impl<R: Runtime> HostManager<R> {
     /// The running host's process id, for the memory probe.
     pub fn pid(&self) -> Option<u32> {
         Some(self.pid.load(Ordering::SeqCst)).filter(|p| *p != 0)
+    }
+
+    #[cfg(windows)]
+    pub fn gpu_available(&self) -> Option<u64> {
+        let budget = self.gpu_budget.lock().unwrap();
+        if self.shutting_down.load(Ordering::SeqCst) { return None; }
+        self.pid()?;
+        budget.as_ref()?.available(self.generation(), Instant::now())
     }
 
     /// The host's unsolicited frames, as they arrive.
@@ -334,7 +380,14 @@ impl<R: Runtime> HostManager<R> {
                 if launch.mock {
                     hello["mock"] = json!(true);
                 }
+                #[cfg(windows)]
+                let monitor_budget = !launch.mock && hello["backend"]["api"] == "vulkan"
+                    && hello["backend"]["available"].as_bool() == Some(true);
                 self.set_state(json!({"phase": "ready", "hello": hello}));
+                #[cfg(windows)]
+                if monitor_budget {
+                    self.monitor_gpu_budget(generation);
+                }
             }
             Ok((header, _)) => {
                 let msg = header["error"]["message"].as_str().unwrap_or("hello refused").to_string();
@@ -351,6 +404,36 @@ impl<R: Runtime> HostManager<R> {
         }
     }
 
+    #[cfg(windows)]
+    fn monitor_gpu_budget(self: &Arc<Self>, generation: u64) {
+        let weak = Arc::downgrade(self);
+        tauri::async_runtime::spawn(async move {
+            loop {
+                let Some(host) = weak.upgrade() else { return; };
+                if host.generation() != generation || host.pid().is_none() || host.shutting_down.load(Ordering::SeqCst) {
+                    return;
+                }
+                // The queue already requests a report after each render. Poll
+                // when idle so a job waiting for memory can see it recover.
+                if !host.is_busy() {
+                    let (reply, _) = host.request_inner(
+                        "memory_report", json!({}), Vec::new(), Duration::from_secs(2), None, Some(generation),
+                    ).await;
+                    if let Ok((header, _)) = reply {
+                        if header["ok"].as_bool() == Some(false)
+                            || header["result"]["gpu_memory"]["heaps"].as_array().is_none()
+                        {
+                            // Older hosts can render without Vulkan heap diagnostics.
+                            return;
+                        }
+                    }
+                }
+                drop(host);
+                tokio::time::sleep(GPU_BUDGET_INTERVAL).await;
+            }
+        });
+    }
+
     async fn fail_and_kill(self: &Arc<Self>, reason: String) {
         let detail = self.stderr_tail.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n");
         // Bump the generation first so the exit watcher does not restart it.
@@ -361,7 +444,17 @@ impl<R: Runtime> HostManager<R> {
 
     fn dispatch(&self, generation: u64, header: Value, payload: Vec<u8>) {
         if let Some(id) = header.get("id").and_then(Value::as_u64) {
-            self.pending.lock().unwrap().complete(generation, id as u32, Ok((header, payload)));
+            let mut pending = self.pending.lock().unwrap();
+            #[cfg(windows)]
+            if pending.0.contains_key(&(generation, id as u32)) {
+                if let Some(sample) = GpuBudget::from_reply(generation, Instant::now(), &header) {
+                    let mut budget = self.gpu_budget.lock().unwrap();
+                    if self.generation() == generation {
+                        *budget = Some(sample);
+                    }
+                }
+            }
+            pending.complete(generation, id as u32, Ok((header, payload)));
         } else if let Some(ev) = header.get("event").and_then(Value::as_str) {
             if generation != self.generation.load(Ordering::SeqCst) { return; }
             if ev == "log" {
@@ -391,6 +484,7 @@ impl<R: Runtime> HostManager<R> {
         let mut current = self.conn.lock().await;
         if expected.is_some_and(|g| current.as_ref().map_or(true, |c| c.generation != g)) { return; }
         let connection = current.take();
+        if connection.is_some() { self.pid.store(0, Ordering::SeqCst); }
         drop(current);
         if let Some(conn) = connection {
             let _ = conn.stop.send(());
@@ -646,6 +740,113 @@ mod tests {
         let root = std::env::temp_dir().join(format!("spk-host-lease-{}-{}", std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         (root.clone(), Workspace::new(root))
+    }
+
+    #[cfg(windows)]
+    fn gpu_report(usage: u64) -> Value {
+        json!({"ok": true, "result": {"gpu_memory": {"heaps": [
+            {"device_local": false, "size_bytes": 4096, "budget_bytes": 4096, "usage_bytes": 0},
+            {"device_local": true, "size_bytes": 2048, "budget_bytes": 1024, "usage_bytes": usage}
+        ]}}})
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn gpu_budget_requires_one_valid_local_heap_and_a_current_sample() {
+        let now = Instant::now();
+        let sample = GpuBudget::from_reply(4, now, &gpu_report(768)).unwrap();
+        assert_eq!(sample.available(4, now), Some(256));
+        assert_eq!(sample.available(5, now), None);
+        assert_eq!(sample.available(4, now + GPU_BUDGET_MAX_AGE + Duration::from_secs(1)), None);
+        assert_eq!(GpuBudget::from_reply(4, now, &gpu_report(1536)).unwrap().available, 0);
+
+        let mut invalid = gpu_report(100);
+        invalid["result"]["gpu_memory"]["heaps"][1]["budget_bytes"] = json!(4096);
+        assert!(GpuBudget::from_reply(4, now, &invalid).is_none());
+        let mut multi = gpu_report(100);
+        multi["result"]["gpu_memory"]["heaps"][0]["device_local"] = json!(true);
+        assert!(GpuBudget::from_reply(4, now, &multi).is_none());
+        assert!(GpuBudget::from_reply(4, now, &json!({"ok": true, "result": {"total_bytes": 1}})).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_late_gpu_report_cannot_replace_the_new_hosts_budget() {
+        let app = tauri::test::mock_builder().build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+        let host = HostManager::new(app.handle().clone());
+        host.pid.store(123, Ordering::SeqCst);
+        host.generation.store(4, Ordering::SeqCst);
+        let dispatch = |generation, id, usage| {
+            let (waiter, _rx) = oneshot::channel();
+            host.pending.lock().unwrap().0.insert((generation, id), Pending { waiter, _lease: None });
+            let mut reply = gpu_report(usage);
+            reply["id"] = json!(id);
+            host.dispatch(generation, reply, vec![]);
+        };
+
+        dispatch(4, 7, 768);
+        assert_eq!(host.gpu_available(), Some(256));
+        host.generation.store(5, Ordering::SeqCst);
+        assert_eq!(host.gpu_available(), None);
+        dispatch(5, 8, 0);
+        dispatch(4, 9, 512);
+        assert_eq!(host.gpu_available(), Some(1024));
+        host.pid.store(0, Ordering::SeqCst);
+        assert_eq!(host.gpu_available(), None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires a staged Vulkan host with heap diagnostics; set SPEKTRALAB_HOST_DIR"]
+    async fn actual_vulkan_budget_is_visible_to_the_windows_scheduler() {
+        use crate::scheduler::{SchedulerHub, SchedulerPaths};
+
+        assert!(std::env::var_os("SPEKTRALAB_HOST_DIR").is_some());
+        let app = tauri::test::mock_builder().build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+        let host = HostManager::new(app.handle().clone());
+        host.start().await;
+        let (root, _) = workspace();
+        let hub = SchedulerHub::new(
+            host.clone(), None, SchedulerPaths { logs: root.join("logs"), data: root.join("data") }, |_| {},
+        );
+
+        let mut first_generation = 0;
+        for run in 0..2 {
+            let ready = host.state();
+            assert_eq!(ready["hello"]["backend"]["api"], "vulkan", "{ready}");
+            assert!(host.generation() > first_generation);
+            first_generation = host.generation();
+            let budget = tokio::time::timeout(Duration::from_secs(8), async {
+                loop {
+                    let budget = hub.budget().await.unwrap();
+                    if budget.reading.gpu_available.is_some() { break budget; }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }).await.expect("the scheduler receives the driver's budget");
+            let gpu_bytes = budget.reading.gpu_available.unwrap();
+            assert!(gpu_bytes > 0);
+            assert_eq!(budget.budget.gpu_side, Some(gpu_bytes));
+            println!("{} generation {} GPU available {} bytes", ready["hello"]["backend"]["device_name"],
+                     first_generation, gpu_bytes);
+            if run == 0 {
+                let before = host.gpu_budget.lock().unwrap().as_ref().unwrap().observed_at;
+                tokio::time::timeout(Duration::from_secs(4), async {
+                    loop {
+                        let refreshed = host.gpu_budget.lock().unwrap().as_ref().is_some_and(|sample| {
+                            sample.generation == first_generation && sample.observed_at > before
+                        });
+                        if refreshed { break; }
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                }).await.expect("the idle host refreshes its budget");
+                host.restart().await;
+            }
+        }
+        host.shutdown().await;
+        assert_eq!(host.pid(), None);
+        assert_eq!(host.gpu_available(), None);
+        drop(hub);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

@@ -198,7 +198,9 @@ fn probe<R: Runtime>(host: Arc<HostManager<R>>) -> Arc<dyn MemoryProbe> {
         }
         #[cfg(windows)]
         {
-            spk_scheduler::memory_probe::WindowsProbe { pid }.read()
+            let mut reading = spk_scheduler::memory_probe::WindowsProbe { pid }.read();
+            reading.gpu_available = host.gpu_available();
+            reading
         }
         #[cfg(all(unix, not(target_os = "macos")))]
         {

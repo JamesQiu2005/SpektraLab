@@ -115,6 +115,36 @@ describe('processed preview scheduling', () => {
     expect(session.sessionStore.getState().badge).toBe('full');
   });
 
+  it('keeps the live preview editable when the scheduler cancels full refinement', async () => {
+    session.sessionStore.setState({ nativeSize: { width: 11662, height: 8746 } });
+    const { scheduler } = await import('../scheduler');
+    const queue = scheduler();
+    const submitJob = queue.submit.bind(queue);
+    const outcomeOf = queue.outcome.bind(queue);
+    const jobId = 'cancelled-full-view';
+    const submit = vi.spyOn(queue, 'submit').mockImplementation((job) =>
+      job.kind === 'fullView' ? Promise.resolve(jobId) : submitJob(job));
+    vi.spyOn(queue, 'outcome').mockImplementation((id) => id === jobId
+      ? Promise.resolve({ outcome: { jobId, outcome: 'cancelled' }, payload: new Uint8Array() })
+      : outcomeOf(id));
+
+    await session.requestPrint();
+    const live = fake.frames.print;
+    const version = session.sessionStore.getState().imageVersion;
+    await vi.advanceTimersByTimeAsync(400);
+    expect(submit.mock.calls.at(-1)?.[0].kind).toBe('fullView');
+    expect(fake.renderView).toHaveBeenCalledTimes(1);
+    expect(fake.frames.print).toBe(live);
+    expect(session.sessionStore.getState()).toMatchObject({ imageVersion: version, badge: 'preview', status: '', lastError: null });
+
+    session.setAdjustments((a) => ({ ...a, exposure: 1.25 }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.sessionStore.getState().imageVersion).toBe(version + 1);
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({
+      adjustments: expect.objectContaining({ exposure: 1.25 }),
+    }));
+  });
+
   it('prices the full view as opening nothing, and sends it what of the edit the session lacks', async () => {
     session.sessionStore.setState({ nativeSize: { width: 7028, height: 4688 }, maxTextureSize: 8192, canvasPx: { width: 1600, height: 1000 } });
     const { scheduler } = await import('../scheduler');

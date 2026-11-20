@@ -54,8 +54,7 @@ pub struct CostEstimate {
     pub seconds: f64,
 }
 
-/// Band-cost arithmetic retained by the planner (`BandGeometry`). The v1 host renders whole frames;
-/// a banded plan is run whole and recorded as such.
+/// Band-cost arithmetic for executors that support banded rendering.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BandGeometry {
     pub canvas: crate::types::PixelSize,
