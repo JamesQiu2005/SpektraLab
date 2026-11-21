@@ -1,0 +1,8 @@
+/src/main/**/generated
+/src/main/jniLibs/**/*.so
+/src/main/assets/tauri.conf.json
+/tauri.build.gradle.kts
+/proguard-tauri.pro
+/tauri.properties
+# Staged by tools/stage-android.sh: the engine host and its resources.
+/src/main/assets/engine/

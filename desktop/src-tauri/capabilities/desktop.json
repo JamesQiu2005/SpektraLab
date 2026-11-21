@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop only: remember the window's size and place (Android owns the window).",
+  "windows": ["main"],
+  "platforms": ["linux", "windows", "macOS"],
+  "permissions": ["window-state:default"]
+}

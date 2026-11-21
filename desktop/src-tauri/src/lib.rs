@@ -13,7 +13,9 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+#[cfg(any(target_os = "linux", windows))]
+use tauri::Emitter;
 
 use host::HostManager;
 
@@ -197,6 +199,7 @@ fn file_args(argv: &[String]) -> Vec<String> {
         .collect()
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
@@ -216,7 +219,7 @@ pub fn run() {
         }));
     }
 
-    builder
+    builder = builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -245,8 +248,12 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_opener::init());
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    }
+    builder
         .setup(|app| {
             let handle = app.handle().clone();
             let sidecar_dir = app.path().app_data_dir()?.join("Sidecars");

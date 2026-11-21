@@ -363,7 +363,9 @@ desktop/.cache/
 desktop/dist/
 desktop/public/assets/
 desktop/src-tauri/target/
-desktop/src-tauri/gen/
+desktop/src-tauri/gen/*
+# The Android project is source (its own .gitignore keeps its build output out).
+!desktop/src-tauri/gen/android/
 desktop/src-tauri/binaries/
 desktop/src-tauri/host-staging/
 desktop/test-results/

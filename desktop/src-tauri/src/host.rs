@@ -428,6 +428,27 @@ fn launch_in_dir(dir: &Path, origin: &str) -> Option<Launch> {
 /// was packaged with: an AppImage runs from a mount under /tmp, and walking up from there reaches
 /// /tmp/build/…, where any local user can put a program for the app to start.
 pub fn resolve_launch<R: Runtime>(app: &AppHandle<R>) -> Result<Launch, String> {
+    // Android: the host ships as lib/arm64-v8a/libspektralab_host.so (the only place Android lets an
+    // app run a program from, with extractNativeLibs), and the engine's resources are copied out of
+    // the APK's assets into app storage. MainActivity knows both paths and sets these two variables
+    // before the Rust side starts. Nothing else on Android: no mock, no dev directories.
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
+        let program = std::env::var("DEVELOP_ANDROID_HOST").map_err(|_| "MainActivity did not set DEVELOP_ANDROID_HOST")?;
+        let resources = std::env::var("DEVELOP_ANDROID_ENGINE").map_err(|_| "MainActivity did not set DEVELOP_ANDROID_ENGINE")?;
+        let program = PathBuf::from(program);
+        if !program.is_file() {
+            return Err(format!("Develop could not find its engine host ({}). Reinstall the app.", program.display()));
+        }
+        return Ok(Launch {
+            program,
+            args: vec!["--resources".to_string(), resources],
+            mock: false,
+            origin: "Android native library".into(),
+        });
+    }
+    #[allow(unreachable_code)]
     if cfg!(debug_assertions) && std::env::var("SPEKTRALAB_MOCK_HOST").map(|v| v == "1").unwrap_or(false) {
         let script = std::env::var("SPEKTRALAB_MOCK_HOST_SCRIPT").map(PathBuf::from).unwrap_or_else(|_| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("mock-host").join("main.ts")

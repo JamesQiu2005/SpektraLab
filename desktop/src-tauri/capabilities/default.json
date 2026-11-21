@@ -17,7 +17,6 @@
     "dialog:allow-ask",
     "dialog:allow-confirm",
     "opener:allow-reveal-item-in-dir",
-    "log:default",
-    "window-state:default"
+    "log:default"
   ]
 }
