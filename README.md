@@ -17,6 +17,9 @@ whose engine is derived from [spektrafilm](https://github.com/andreavolpato/spek
 Volpato. It is not affiliated with or endorsed by either project. The film model, the measured
 profiles and the print and scan model are theirs; Develop is the Linux port and the app built on it.
 
+**On a Mac, iPhone or iPad? Use [SpektraLab](https://github.com/JamesQiu2005/SpektraLab).** Develop is for Linux and
+Android; SpektraLab is the original app, made for Apple's devices.
+
 ![Develop on Ubuntu: a street photo on Ilford Delta 100, printed on Ilford Multigrade IV RC](screenshots/develop.png)
 
 ## What it does
@@ -95,6 +98,37 @@ Develop cannot reach the internet. A seccomp filter installed before anything el
 only local sockets, and the app refuses to run if the filter cannot be put in place. It applies to
 the window, its web view and the engine. There are no update checks, telemetry, remote fonts or
 accounts. Your photos never leave your machine.
+
+## Branches
+
+| Branch | What it is |
+|---|---|
+| `main` | Develop for Linux, and the engine every app builds on |
+| `camera` | Develop Camera: a film camera for Android, in `camera/` |
+| `android` | Develop's editor on Android (in progress) |
+
+Each app branch starts from `main`, so engine fixes reach all of them.
+
+## Develop Camera (Android)
+
+A film camera for Android 17 that shoots through Develop's film models. Pick one of Develop's 121 films and see it
+live in the viewfinder. Each shot is then developed by the same engine, on the phone's GPU: the film, its paper,
+grain, halation and the rest, as in the desktop app.
+
+- Developed from the sensor's RAW data, with the camera's own corrections for each frame.
+- Grain, halation, diffusion filters, lens characters, black-and-white filters, push and pull, light leaks, the film
+  edge and date back.
+- 35 mm, half-frame pairs, XPan, triptychs and multiple exposures, and 120 from 6×4.5 to 6×17.
+- Auto with exposure lock, or manual shutter and ISO.
+- Asks for the camera permission only and has no network access. Photos go to `DCIM/Develop Camera`.
+
+Tested on a Pixel 11 Pro Fold. Its GPU skipped three of the engine's lens kernels, which made every diffusion
+render black; those kernels are fixed on `main`. Build steps are in `camera/BUILD.md`.
+
+## Develop's editor on Android
+
+A port of the Linux editor to Android, on the `android` branch. It keeps the desktop layout, with fixes for touch.
+It is not ready to use yet.
 
 ## Install
 
