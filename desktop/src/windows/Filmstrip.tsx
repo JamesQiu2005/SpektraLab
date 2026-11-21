@@ -12,7 +12,7 @@ import { click, selectRelative, useSession } from '../state/session';
 import { thumbs } from '../state/thumbs';
 import { type Geometry, GEOMETRY_DEFAULT } from '@shared/geometry';
 import { thumbnailGeometryPlan } from '@shared/surfaces';
-import { t } from '../i18n';
+import { t, tz } from '../i18n';
 
 export function Filmstrip() {
   const frames = useSession((s) => s.frames);
@@ -36,7 +36,9 @@ export function Filmstrip() {
         <ChevronLeft />
       </button>
       <div className="filmstrip-cells" ref={strip}>
-        {frames.length === 0 && <span className="caption">{t('statusEmptyFilmstrip').replace('⌘O', 'Ctrl+O')}</span>}
+        {frames.length === 0 && <span className="caption">{/Android/.test(navigator.userAgent)
+          ? tz('Tap Import in the top bar to open photographs.', '轻点顶栏的“导入”打开照片。')
+          : t('statusEmptyFilmstrip').replace('⌘O', 'Ctrl+O')}</span>}
         {frames.map((f) => (
           <div
             key={f.path}

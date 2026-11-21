@@ -26,6 +26,9 @@ export function tauriPlatform(): Platform {
       return typeof r === 'string' ? r : null;
     },
     async pickFiles(title) {
+      // Android: the app's own picker copies the photographs into app storage and returns their paths
+      // (Android's picker gives content:// links, which the host and the sidecars cannot use).
+      if (/Android/.test(navigator.userAgent)) return invoke<string[]>('pick_photos');
       const r = await open({
         multiple: true,
         title,
