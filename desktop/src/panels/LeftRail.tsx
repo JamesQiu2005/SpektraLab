@@ -152,7 +152,7 @@ const GROUP_LABEL: Record<ClipboardGroup, () => string> = {
   localLayers: () => tz('Local Layers', '局部图层'),
 };
 
-function ClipboardSection() {
+export function ClipboardSection() {
   const groups = useSession((s) => s.clipboardGroups);
   const clip = useSession((s) => s.clipboard);
   const picked = useSession((s) => s.picked);
@@ -186,7 +186,7 @@ function ClipboardSection() {
 
 // --------------------------------------------------------------------- Film
 
-function FilmSection() {
+export function FilmSection() {
   const catalog = useSession((s) => s.catalog);
   const film = useSession((s) => s.sidecar.params.filmStock);
   const rows = catalog.filmGroups().flatMap((g) => [
@@ -237,7 +237,7 @@ function FilmSection() {
 
 // ------------------------------------------------- Film Edge, Date Back (stubs)
 
-function FilmEdgeSection() {
+export function FilmEdgeSection() {
   const gate = useSession((s) => s.gate);
   const fe = useSession((s) => s.sidecar.params.filmEdge);
   const film = useSession((s) => s.sidecar.params.filmStock);
@@ -354,7 +354,7 @@ function FilmEdgeSection() {
 // cut to the half frame's 18 x 24 and at its own exposure, the 1 mm of film between them. The host makes
 // the piece (decode.pair); with the film edge on it is printed as a pair on one strip.
 
-function PairSection() {
+export function PairSection() {
   const p = useSession((s) => s.sidecar.params);
   const selection = useSession((s) => s.selection);
   const pairWith = p.pairWith ?? '';
@@ -394,7 +394,7 @@ function PairSection() {
 // Develop's double exposure (SpektraLab 2's Double, RFC-048): a second photograph's light added over this
 // frame on the same piece of film, each metered alone; Balance is the second's share of the light.
 
-function DoubleSection() {
+export function DoubleSection() {
   const p = useSession((s) => s.sidecar.params);
   const selection = useSession((s) => s.selection);
   const second = p.doubleWith ?? '';
@@ -437,7 +437,7 @@ function DoubleSection() {
   );
 }
 
-function DateBackSection() {
+export function DateBackSection() {
   const gate = useSession((s) => s.gate);
   const d = useSession((s) => s.sidecar.params.dateBack);
   const reason = unsupportedReason('date_imprint', gate.dateImprint);
@@ -472,7 +472,7 @@ function DateBackSection() {
 const POSITIVE_ID = '__positive';
 const DIGITAL_ID = '__digital';
 
-function PrintSection() {
+export function PrintSection() {
   const catalog = useSession((s) => s.catalog);
   const p = useSession((s) => s.sidecar.params);
   const gate = useSession((s) => s.gate);
@@ -526,7 +526,7 @@ function PrintSection() {
 
 // --------------------------------------------------------------------- Crop
 
-function CropSection() {
+export function CropSection() {
   const g = useSession((s) => s.sidecar.geometry);
   const native = useSession((s) => s.nativeSize);
   const size = native ?? { width: 3000, height: 2000 };
@@ -595,7 +595,7 @@ function CropSection() {
 
 // ----------------------------------------------------------------- Enlarger
 
-function EnlargerSection() {
+export function EnlargerSection() {
   const p = useSession((s) => s.sidecar.params);
   return (
     <Section

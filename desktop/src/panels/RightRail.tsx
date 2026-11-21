@@ -107,7 +107,7 @@ interface LatitudeReply {
   scene: { histogram: { lo_ev: number; hi_ev: number; fractions: number[]; placed_fractions?: number[] } };
 }
 
-function LatitudeSection() {
+export function LatitudeSection() {
   const sid = useSession((s) => s.engineSession);
   const badge = useSession((s) => s.badge);
   const film = useSession((s) => s.sidecar.params.filmStock);
@@ -182,7 +182,7 @@ function LatitudePlot({ reply }: { reply: LatitudeReply | null }) {
 
 // -------------------------------------------------------------------- Camera
 
-function CameraSection() {
+export function CameraSection() {
   const p = useSession((s) => s.sidecar.params);
   const vignette = useSession((s) => s.sidecar.adjustments.vignette.amount);
   const ae = aeMethodOf(p);
@@ -294,7 +294,7 @@ function useWhiteBalance() {
 
 // --------------------------------------------------------------- Film Format
 
-function FilmFormatSection() {
+export function FilmFormatSection() {
   const p = useSession((s) => s.sidecar.params);
   const unit = useSettings((s) => s.sideUnit);
   const isCustom = p.filmFrame === FILM_FRAME_CUSTOM.id;
@@ -389,7 +389,7 @@ function FilmFormatSection() {
 // Engine settings no SpektraLab interface exposed before (params.ts `AdvancedParams`), each at the
 // engine's own default until moved; double-click a slider to put it back.
 
-function AdvancedSection() {
+export function AdvancedSection() {
   const p = useSession((s) => s.sidecar.params);
   const a = p.linuxAdvanced ?? ADVANCED_DEFAULT;
   const setA = (patch: Partial<AdvancedParams>) =>
@@ -476,7 +476,7 @@ const LAYER_KIND_LABEL: Record<SceneLayerKind, () => string> = {
  * Local exposure layers (shared/sceneLayers.ts): graduated and radial masks, each a local amount of exposure
  * and warmth on the light before it reaches the film, so the film's own curve and colour respond to it.
  */
-function LayersSection() {
+export function LayersSection() {
   const layers = useSession((s) => s.sidecar.params.sceneLayers) ?? [];
   const can = useSession((s) => !!s.hello?.methods?.includes('scene_layers'));
   const [sel, setSel] = useState(0);
@@ -553,7 +553,7 @@ function LayersSection() {
   );
 }
 
-function LightLeakSection() {
+export function LightLeakSection() {
   const lk = useSession((s) => s.sidecar.params.leak) ?? LEAK_DEFAULT;
   const setLeak = (patch: Partial<LeakSettings>) =>
     setParams((q) => ({ ...q, leak: { ...(q.leak ?? LEAK_DEFAULT), ...patch } }));
@@ -653,7 +653,7 @@ const LENS_CHARACTER_LABEL: Record<string, () => string> = {
 };
 const strengthText = (s: number) => (s === 0.125 ? '1/8' : s === 0.25 ? '1/4' : s === 0.5 ? '1/2' : String(s));
 
-function LensSection() {
+export function LensSection() {
   const ln = useSession((s) => s.sidecar.params.lens) ?? LENS_DEFAULT;
   const setLens = (patch: Partial<LensSettings>) =>
     setParams((q) => ({ ...q, lens: { ...(q.lens ?? LENS_DEFAULT), ...patch } }));
@@ -723,7 +723,7 @@ function LensSection() {
 
 // ----------------------------------------------------------- Scene Placement
 
-function ScenePlacementSection() {
+export function ScenePlacementSection() {
   const gate = useSession((s) => s.gate);
   const sl = useSession((s) => s.sidecar.params.sceneLatitude);
   const reason = unsupportedReason('scene_latitude_mapping', gate.sceneLatitude);
@@ -737,7 +737,7 @@ function ScenePlacementSection() {
 
 // ---------------------------------------------------------------- Post-Dev
 
-function WhiteBalanceSection() {
+export function WhiteBalanceSection() {
   const a = useSession((s) => s.sidecar.adjustments);
   return (
     <Section id="wb2" title={t('sectionWhiteBalance')} trailing={t('statusRightRailWBScope')} onReset={() => setAdjustments((q) => ({ ...q, temperature: 0, tint: 0 }))} resetHelp={t('helpReset')}>
@@ -747,7 +747,7 @@ function WhiteBalanceSection() {
   );
 }
 
-function ExposureSection() {
+export function ExposureSection() {
   const a = useSession((s) => s.sidecar.adjustments);
   const row = (label: string, key: 'exposure' | 'contrast' | 'brightness' | 'saturation' | 'vibrance' | 'highlights' | 'shadows' | 'blackPoint' | 'whitePoint', range: [number, number], digits: number, snap: number) => (
     <ScrubSlider key={key} label={label} value={a[key]} range={range} snap={snap} format={signed(digits)} onChange={(v) => setAdjustments((q) => ({ ...q, [key]: v }))} testId={'adj-' + key} />
@@ -801,7 +801,7 @@ const CHANNEL_LABEL: Record<CurveChannel, () => string> = {
   blue: () => t('curveBlue'),
 };
 
-function CurveSection() {
+export function CurveSection() {
   const [ch, setCh] = useState<CurveChannel>('rgb');
   return (
     <Section
@@ -836,7 +836,7 @@ const ZONES: { key: 'master' | 'shadows' | 'midtones' | 'highlights'; label: () 
 // every exported file. White, black or any grey; each side a share of the picture's long edge, the
 // bottom optionally deeper.
 
-function BorderSection() {
+export function BorderSection() {
   const b = useSession((s) => s.sidecar.adjustments.border) ?? BORDER_DEFAULT;
   const set = (patch: Partial<typeof b>) => setAdjustments((q) => ({ ...q, border: { ...(q.border ?? BORDER_DEFAULT), ...patch } }));
   const preset = b.tone >= 0.999 ? 'white' : b.tone <= 0.001 ? 'black' : 'grey';
@@ -911,7 +911,7 @@ const HSL_SWATCH: Record<HSLHue, string> = {
   red: '#e0403a', orange: '#e8862e', yellow: '#e2c93a', green: '#4caf50', aqua: '#36b5c4', blue: '#3a6fe0', purple: '#8a4fd8', magenta: '#d64fb8',
 };
 
-function HslSection() {
+export function HslSection() {
   const hsl = useSession((s) => s.sidecar.adjustments.hsl) ?? HSL_DEFAULT;
   const [pick, setPick] = useState<HSLHue>('red');
   const band = hsl[pick];
@@ -949,7 +949,7 @@ function HslSection() {
 // SpektraLab 2's 通道 (ChannelMixer): each output channel takes some of each input, as an offset in
 // percent from the channel itself; zero is the channel as it was.
 
-function ChannelMixerSection() {
+export function ChannelMixerSection() {
   const mx = useSession((s) => s.sidecar.adjustments.channelMixer) ?? MIXER_DEFAULT;
   const [out, setOut] = useState<MixerChannel>('red');
   const label: Record<MixerChannel, string> = { red: tz('Red', '红'), green: tz('Green', '绿'), blue: tz('Blue', '蓝') };
@@ -981,7 +981,7 @@ const WM_POSITION_LABEL: Record<WatermarkPosition, string> = {
   tl: '↖', tc: '↑', tr: '↗', ml: '←', mc: '•', mr: '→', bl: '↙', bc: '↓', br: '↘',
 };
 
-function WatermarkSection() {
+export function WatermarkSection() {
   const wm = useSession((s) => s.sidecar.adjustments.watermark) ?? WATERMARK_DEFAULT;
   const setWm = (patch: Partial<Watermark>) =>
     setAdjustments((q) => ({ ...q, watermark: { ...(q.watermark ?? WATERMARK_DEFAULT), ...patch } }));
@@ -1026,7 +1026,7 @@ function WatermarkSection() {
   );
 }
 
-function ColorBalanceSection() {
+export function ColorBalanceSection() {
   const cb = useSession((s) => s.sidecar.adjustments.colorBalance);
   const [zone, setZone] = useState<(typeof ZONES)[number]['key']>('master');
   const z = cb[zone];
