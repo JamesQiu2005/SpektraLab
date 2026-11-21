@@ -111,7 +111,14 @@ Linux 편집기를 Android로 옮긴 것으로, `android` 브랜치에 있습니
 
 ## 설치
 
-아직 공개된 릴리스가 없습니다. 소스에서 빌드하세요(아래 참조). 빌드하면 `.deb`와 snap이 만들어집니다.
+[최신 릴리스](https://github.com/jegly/Develop/releases/latest)에서 `.deb`나 snap을 내려받은 뒤 둘 중 하나를 설치하세요:
+
+```sh
+sudo apt install ./Develop_1.0.0_amd64.deb
+sudo snap install --dangerous ./develop_1.0.0_amd64.snap
+```
+
+snap은 Snap Store가 아니라 파일에서 설치하므로 `--dangerous`가 필요합니다. 소스에서 빌드할 수도 있습니다(아래 참조).
 
 Develop에는 Vulkan 드라이버가 있는 GPU가 필요합니다. Ubuntu 26.04와 Intel 그래픽(Mesa)에서 개발되었습니다. `.deb`는 `libvulkan1`, `liblensfun1`,
 `liblensfun-data-v1`, `fonts-urw-base35`, `fonts-liberation-sans-narrow`, `fonts-dejavu-core`를 설치합니다. snap은 자체 사본을 포함합니다.

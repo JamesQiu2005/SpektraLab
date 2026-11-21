@@ -132,8 +132,14 @@ corrections pour le tactile. Il n'est pas encore prêt à l'emploi.
 
 ## Installation
 
-Il n'y a pas encore de version publiée. Compilez-le depuis les sources (ci-dessous) ; la compilation produit un `.deb` et
-un snap.
+Téléchargez le `.deb` ou le snap depuis la [dernière version](https://github.com/jegly/Develop/releases/latest), puis installez l'un des deux :
+
+```sh
+sudo apt install ./Develop_1.0.0_amd64.deb
+sudo snap install --dangerous ./develop_1.0.0_amd64.snap
+```
+
+Le snap a besoin de `--dangerous` parce qu'il est installé depuis un fichier, et non depuis le Snap Store. Vous pouvez aussi le compiler depuis les sources (ci-dessous).
 
 Develop a besoin d'un GPU avec un pilote Vulkan. Il a été développé sous Ubuntu 26.04 avec une carte graphique Intel
 (Mesa). Le `.deb` installe `libvulkan1`, `liblensfun1`, `liblensfun-data-v1`, `fonts-urw-base35`,

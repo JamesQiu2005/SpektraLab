@@ -132,7 +132,14 @@ It is not ready to use yet.
 
 ## Install
 
-There is no published release yet. Build it from source (below); the build makes a `.deb` and a snap.
+Download the `.deb` or the snap from the [latest release](https://github.com/jegly/Develop/releases/latest), then install one of them:
+
+```sh
+sudo apt install ./Develop_1.0.0_amd64.deb
+sudo snap install --dangerous ./develop_1.0.0_amd64.snap
+```
+
+The snap needs `--dangerous` because it is installed from a file, not from the Snap Store. Or build it from source (below).
 
 Develop needs a GPU with a Vulkan driver. It has been developed on Ubuntu 26.04 with Intel graphics
 (Mesa). The `.deb` pulls in `libvulkan1`, `liblensfun1`, `liblensfun-data-v1`, `fonts-urw-base35`,

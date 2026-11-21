@@ -110,7 +110,14 @@ Linux 编辑器到 Android 的移植，位于 `android` 分支。它保留桌面
 
 ## 安装
 
-目前还没有发布版本。请从源码构建（见下文）；构建会生成 `.deb` 和 snap。
+从[最新发布版本](https://github.com/jegly/Develop/releases/latest)下载 `.deb` 或 snap，然后安装其中之一：
+
+```sh
+sudo apt install ./Develop_1.0.0_amd64.deb
+sudo snap install --dangerous ./develop_1.0.0_amd64.snap
+```
+
+snap 需要 `--dangerous`，因为它是从文件安装的，而不是从 Snap Store。也可以从源码构建（见下文）。
 
 Develop 需要带 Vulkan 驱动的 GPU。它在 Ubuntu 26.04 和 Intel 显卡（Mesa）上开发。`.deb` 会拉取 `libvulkan1`、`liblensfun1`、
 `liblensfun-data-v1`、`fonts-urw-base35`、`fonts-liberation-sans-narrow` 和 `fonts-dejavu-core`。snap 自带这些的副本。
