@@ -312,6 +312,7 @@ let wantedGen = 0;
 let inFlight = false;
 /** The canvas job the loop below is waiting on, and whether it has started. */
 let canvasJob: { id: string; running: boolean } | null = null;
+let fullJob: string | null = null;
 let jobWatch: (() => void) | null = null;
 /** When the page submitted each job it watches, and when it saw it run (the page's clock). */
 const jobClock = new Map<string, { submittedAt: number; startedAt?: number }>();
@@ -532,7 +533,7 @@ export function noteDisplaySpace(displaySpace: 'srgb' | 'display-p3') {
 
 /** The open frame's render, as a scheduler job (R5): `pre` are the steps that
  * must run in the same job before it (the edit's set_params). */
-async function renderJob(tier: 'live' | 'full', reprint: boolean, request: JobRequest, what: string, longEdge: number,
+async function renderJob(gen: number, tier: 'live' | 'full', reprint: boolean, request: JobRequest, what: string, longEdge: number,
   decode: (result: Record<string, unknown>, payload: Uint8Array, ms: number) => RenderReply): Promise<RenderReply> {
   watchJobs();
   const s = get();
@@ -545,10 +546,20 @@ async function renderJob(tier: 'live' | 'full', reprint: boolean, request: JobRe
     // editing session and opens nothing: it is priced as the render alone (WIRE.md, "Sessions").
     const r = await runJob({ kind, frameId: s.selection!, what, tier, canvas: canvasOf(native, tier === 'full' ? 0 : longEdge),
       ...(reprint ? { layers: ['print'] } : {}), ...(native && tier !== 'full' ? { opens: native } : {}), request },
-    (id) => { clockOf(id); if (tier === 'live') canvasJob = { id, running: false }; });
+    (id) => {
+      clockOf(id);
+      if (tier === 'live') {
+        canvasJob = { id, running: false };
+      } else if (gen !== wantedGen || get().engineSession !== s.engineSession) {
+        void scheduler().cancel(id);
+      } else {
+        fullJob = id;
+      }
+    });
     return decode(r.result, r.payload, performance.now() - t0);
   } finally {
     if (tier === 'live') canvasJob = null;
+    else fullJob = null;
   }
 }
 
@@ -557,7 +568,7 @@ async function renderForView(sid: string, tier: 'live' | 'full', gen: number, re
   if (s.sidecar.noFilm && (s.pair || !s.gate.noFilm || !hostViews()))
     throw new Error(tz('This engine or half-frame pair cannot bypass film simulation.', '此引擎或半格拼接不支持不应用胶片模拟。'));
   const setParams = delta && Object.keys(delta).length ? { setParams: delta } : {};
-  if (!hostViews()) return renderJob(tier, reprint, { source: sourceOf(s), ...setParams, method: 'render', params: { tier, reprint, format: 'rgba8', display: 'srgb' } },
+  if (!hostViews()) return renderJob(gen, tier, reprint, { source: sourceOf(s), ...setParams, method: 'render', params: { tier, reprint, format: 'rgba8', display: 'srgb' } },
     what, previewEdge(), (r, p, ms) => renderReply(r, p, tier, ms));
   if (tier === 'full' && s.pair) await flushSave();
   const descriptor = cachedDisplayDescriptor('print', s, tier);
@@ -572,7 +583,7 @@ async function renderForView(sid: string, tier: 'live' | 'full', gen: number, re
   const view = { tier, adjustments: s.sidecar.adjustments, ...(s.sidecar.noFilm ? { no_film: true } : {}), geometry,
     source_geometry: sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm) ?? GEOMETRY_DEFAULT,
     display: s.displaySpace, generation: gen, long_edge: longEdge, format: viewFormat(s) };
-  const image = await renderJob(tier, reprint, { source: sourceOf(s), ...setParams, method: 'render_view', params: structuredClone(view) }, what,
+  const image = await renderJob(gen, tier, reprint, { source: sourceOf(s), ...setParams, method: 'render_view', params: structuredClone(view) }, what,
     longEdge || Math.max(s.nativeSize?.width ?? 0, s.nativeSize?.height ?? 0), (r, p, ms) => renderViewReply(r, p, { generation: gen, geometry, tier }, ms));
   if (gen === wantedGen && get().engineSession === sid && image.pairInfo) set({ pairInfo: image.pairInfo });
   if (gen === wantedGen && get().engineSession === sid) {
@@ -606,6 +617,12 @@ export async function requestPrint(): Promise<void> {
   // Newer edits fold into the newest job (README §7): a canvas job that has
   // not started yet is withdrawn, and the loop below submits the newest one.
   if (canvasJob && !canvasJob.running) void scheduler().cancel(canvasJob.id);
+  // Full refinement is optional. Let the newest edit take over even after it starts.
+  if (fullJob) {
+    const id = fullJob;
+    fullJob = null;
+    void scheduler().cancel(id);
+  }
   if (get().tool === 'crop' && geometryInNegative(get().sidecar.params, get().gate, get().sidecar.noFilm)) return;
   if (inFlight) return;
   const sid = get().engineSession;

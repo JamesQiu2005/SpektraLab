@@ -6,7 +6,7 @@ import { newSidecar } from '@shared/sidecar';
 
 const fake = vi.hoisted(() => ({
   setParams: vi.fn(async () => ({})), renderView: vi.fn(), render: vi.fn(),
-  open: vi.fn(), close: vi.fn(async () => {}), thumbnail: vi.fn(), logs: [] as string[],
+  open: vi.fn(), close: vi.fn(async () => {}), cancel: vi.fn(), thumbnail: vi.fn(), logs: [] as string[],
   frames: { print: null as RenderReply | null, original: null },
 }));
 vi.mock('../host/client', () => ({ HostCallError: class extends Error {}, host: () => fake }));
@@ -27,6 +27,7 @@ beforeEach(async () => {
   vi.stubGlobal('window', { addEventListener: vi.fn() });
   fake.frames.print = null;
   fake.logs.length = 0;
+  fake.cancel.mockReset();
   fake.renderView.mockReset().mockResolvedValue(frame(200));
   session = await import('./session');
   const { localScheduler } = await import('../scheduler');
@@ -143,6 +144,47 @@ describe('processed preview scheduling', () => {
     expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({
       adjustments: expect.objectContaining({ exposure: 1.25 }),
     }));
+  });
+
+  it.each([false, true])('a new edit cancels full refinement (delayed job id: %s)', async (delayJobId) => {
+    session.sessionStore.setState({ nativeSize: { width: 11662, height: 8746 } });
+    const { scheduler } = await import('../scheduler');
+    const queue = scheduler();
+    const submitJob = queue.submit.bind(queue);
+    let reportJobId: (() => void) | undefined;
+    if (delayJobId) {
+      vi.spyOn(queue, 'submit').mockImplementation(async (job) => {
+        const id = await submitJob(job);
+        if (job.kind === 'fullView') await new Promise<void>((resolve) => { reportJobId = resolve; });
+        return id;
+      });
+    }
+
+    let stopFull: ((error: Error) => void) | undefined;
+    fake.renderView.mockImplementation(async (_sid: string, tier: string) => tier === 'full'
+      ? new Promise<RenderReply>((_resolve, reject) => { stopFull = reject; })
+      : frame(200));
+    fake.cancel.mockImplementation(async () => {
+      stopFull?.(new Error('cancelled'));
+      return true;
+    });
+
+    await session.requestPrint();
+    const version = session.sessionStore.getState().imageVersion;
+    await vi.advanceTimersByTimeAsync(400);
+    expect(stopFull).toBeDefined();
+    session.setAdjustments((a) => ({ ...a, exposure: 1.25 }));
+    if (delayJobId) {
+      expect(fake.cancel).not.toHaveBeenCalled();
+      expect(reportJobId).toBeDefined();
+      reportJobId?.();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.cancel).toHaveBeenCalledTimes(1);
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({
+      adjustments: expect.objectContaining({ exposure: 1.25 }),
+    }));
+    expect(session.sessionStore.getState()).toMatchObject({ imageVersion: version + 1, badge: 'preview', lastError: null });
   });
 
   it('prices the full view as opening nothing, and sends it what of the edit the session lacks', async () => {

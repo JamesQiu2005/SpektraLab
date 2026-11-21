@@ -106,7 +106,10 @@ struct Progress {
     int total_nodes = 0;
     int fired = 0;
     std::string stage = "queued";
-    bool cancelled = false;
+    const std::atomic<bool>* cancel_requested = nullptr;
+    bool is_cancelled() const {
+        return cancel_requested && cancel_requested->load(std::memory_order_relaxed);
+    }
     bool done = false;
     bool detailed = false;
     std::unordered_map<std::string, double> node_ms;

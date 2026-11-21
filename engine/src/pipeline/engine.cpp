@@ -285,7 +285,14 @@ struct spk_session {
     std::vector<float> mask_field;
 
     std::mutex lock;
+    std::atomic<bool> cancel_requested{false};
     Progress progress;
+
+    void reset_progress() {
+        cancel_requested.store(false, std::memory_order_relaxed);
+        progress = Progress{};
+        progress.cancel_requested = &cancel_requested;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -1362,7 +1369,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
     // Opt-in, because turning it on serialises every node. See Progress.
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
@@ -1856,7 +1863,7 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     auto* gpu = session->engine->gpu;
     gpu->begin_frame();
     struct EndFrame { gpu::Gpu* gpu; ~EndFrame() { gpu->end_frame(); } } end{gpu};
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
     session->progress.memory_pressure_critical = gpu->take_critical_pressure();
@@ -2265,7 +2272,7 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
 
     gpu->begin_frame();
@@ -2338,7 +2345,7 @@ spk_status spk_export_di(spk_session* session, const char* print_stock, spk_resu
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
 
     gpu->begin_frame();
@@ -2403,7 +2410,7 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     spk_engine* engine = session->engine;
     gpu::Gpu* gpu = engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
 
     // The session's own negative at full tier (cached when warm), through a
@@ -2989,9 +2996,9 @@ void spk_cancel(spk_session* session, const char* progress_id) {
     if (!session) return;
     // Deliberately not under the session lock: the render holds that lock for
     // its whole duration, so taking it here would make cancellation wait for
-    // the thing it is cancelling. `cancelled` is read between nodes.
+    // the thing it is cancelling. The flag is also checked between IIR submissions.
     if (!progress_id || session->progress.progress_id == progress_id)
-        session->progress.cancelled = true;
+        session->cancel_requested.store(true, std::memory_order_relaxed);
 }
 
 spk_status spk_progress(spk_session* session, const char* progress_id, char** out_json) {
@@ -3073,7 +3080,7 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
         out.set("strip_segments", std::move(segments));
     }
     out.set("done", Json(p.done));
-    out.set("cancelled", Json(p.cancelled));
+    out.set("cancelled", Json(p.is_cancelled()));
     if (out_json) *out_json = dup_json(out);
     return SPK_OK;
 }

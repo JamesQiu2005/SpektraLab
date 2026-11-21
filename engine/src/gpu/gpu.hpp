@@ -38,6 +38,7 @@
 // fault per buffer (RFC-011: a trivial pointwise node then costs 16 ms instead
 // of 4 at 45 MP).
 #pragma once
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -400,7 +401,8 @@ public:
     }
 
     virtual bool dispatch(const char* kernel, const std::vector<Arg>& args,
-                          size_t n_threads, std::string& error) = 0;
+                          size_t n_threads, std::string& error,
+                          const std::atomic<bool>* cancelled = nullptr) = 0;
     virtual bool flush(std::string& error) = 0;
 
     // A texture over `b`'s memory, RGBA16Unorm, `width` x `height`, rows

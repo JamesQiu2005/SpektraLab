@@ -1224,7 +1224,7 @@ bool Pipeline::node_halation(Image raw, Image& out, std::string& error) {
 
     if (!blurs.scatter.empty()) {
         Image scattered;
-        if (!blur_.mixture(raw, blurs.scatter, scattered, error)) return false;
+        if (!blur_.mixture(raw, blurs.scatter, scattered, error, 3.0, progress_ ? progress_->cancel_requested : nullptr)) return false;
         double a[3], b[3];
         fill3(a, 1.0 - hal.scatter_amount);
         fill3(b, hal.scatter_amount);
@@ -1252,7 +1252,7 @@ bool Pipeline::node_halation(Image raw, Image& out, std::string& error) {
             for (int c = 0; c < 3; ++c) b[c] = a_tot[c];
         }
         Image hb;
-        if (!blur_.mixture(raw, blurs.bounces, hb, error)) return false;
+        if (!blur_.mixture(raw, blurs.bounces, hb, error, 3.0, progress_ ? progress_->cancel_requested : nullptr)) return false;
         Image mixed;
         if (!blur_.lincomb(raw, hb, a, b, mixed, error)) return false;
         raw = std::move(mixed);
@@ -1318,7 +1318,7 @@ bool Pipeline::node_dir_couplers(Image cmy, Image log_raw, Image& out,
     const std::vector<Blur::Component> diffusion = dir_coupler_diffusion();
     if (!diffusion.empty()) {
         Image diffused;
-        if (!blur_.mixture(corr, diffusion, diffused, error)) return false;
+        if (!blur_.mixture(corr, diffusion, diffused, error, 3.0, progress_ ? progress_->cancel_requested : nullptr)) return false;
         corr = diffused;
     }
 
@@ -1868,7 +1868,7 @@ static size_t incompatible_trim_floor(size_t image_bytes) {
 // (AGENTS.md trap 5, `mx.eval` at node boundaries).
 #define SPK_NODE(call)                                                     \
     do {                                                                   \
-        if (progress_ && progress_->cancelled) {                           \
+        if (progress_ && progress_->is_cancelled()) {                           \
             error = "render cancelled";                                    \
             return false;                                                  \
         }                                                                  \

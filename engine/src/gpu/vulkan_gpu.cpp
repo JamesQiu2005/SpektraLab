@@ -74,7 +74,7 @@ std::string vk_error(const std::string& operation, VkResult result) {
     return text;
 }
 
-struct KernelSpec { const char* name; uint32_t bindings; uint32_t workgroup; };
+struct KernelSpec { const char* name; uint32_t bindings; uint32_t workgroup; bool line_offset = false; };
 constexpr KernelSpec kKernels[] = {
     {"spk_math_probe", 2, 1},
     // The portable error-free product, in its own kernel so that neither probe
@@ -88,7 +88,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_tc_b", 5, kWorkgroup},
     {"spk_lut2d_cubic", 5, kWorkgroup},
     {"spk_sep_fir_acc", 6, kWorkgroup},
-    {"spk_iir_df_acc", 7, kWorkgroup},
+    {"spk_iir_df_acc", 7, kWorkgroup, true},
     {"spk_lincomb3", 6, kWorkgroup},
     {"spk_log10_guarded", 4, kWorkgroup},
     {"spk_curves", 6, kWorkgroup},
@@ -180,6 +180,17 @@ public:
             }
             staging_chunk_bytes_ = size_t(value);
         }
+        const char* iir_cap = std::getenv("SPEKTRAFILM_VULKAN_IIR_GROUPS");
+        if (const char* cap = iir_cap; cap && *cap) {
+            char* end = nullptr;
+            const unsigned long value = std::strtoul(cap, &end, 10);
+            if (*cap < '0' || *cap > '9' || end == cap || *end || value > 256) {
+                error = "SPEKTRAFILM_VULKAN_IIR_GROUPS must be between 0 and 256";
+                return false;
+            }
+            iir_groups_ = value;
+        }
+        trace_iir_ = std::getenv("SPEKTRAFILM_VULKAN_IIR_TRACE") != nullptr;
         // volkInitialize is idempotent; it only resolves the loader's entry.
         VkResult loader = volkInitialize();
         if (loader != VK_SUCCESS) {
@@ -285,6 +296,13 @@ public:
             }
         }
         if (!physical_) { error = "no Vulkan compute queue"; return false; }
+#ifdef _WIN32
+        // Bound individual submissions on AMD integrated GPUs, where long line sweeps
+        // on large RAWs can hit the Windows GPU watchdog. Every batch covers complete lines.
+        if ((!iir_cap || !*iir_cap) && properties_.vendorID == 0x1002 &&
+            properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            iir_groups_ = 4;
+#endif
         storage_range_limit_ = properties_.limits.maxStorageBufferRange;
         if (properties_.limits.maxComputeWorkGroupInvocations < kWorkgroup ||
             properties_.limits.maxComputeWorkGroupSize[0] < kWorkgroup ||
@@ -688,7 +706,8 @@ public:
     }
 
     bool dispatch(const char* kernel, const std::vector<Arg>& args,
-                  size_t n_threads, std::string& error) override {
+                  size_t n_threads, std::string& error,
+                  const std::atomic<bool>* cancelled = nullptr) override {
         if (n_threads == 0) return true;
         if (!device_usable(error)) return false;
         // Probe kernels must not recurse into the startup gate. A rejected
@@ -776,14 +795,42 @@ public:
         }
         vkUpdateDescriptorSets(device_, uint32_t(writes.size()), writes.data(), 0, nullptr);
 
-        const bool submitted = submit_sync([&](VkCommandBuffer command) {
+        const size_t batch_groups = spec->line_offset && iir_groups_ ? std::min(iir_groups_, max_x) : groups;
+        bool submitted = true;
+        for (size_t first_group = 0; first_group < groups; first_group += batch_groups) {
+            // Prior submissions have completed. No consumer gets the partial plane.
+            if (cancelled && cancelled->load(std::memory_order_relaxed)) {
+                error = "render cancelled";
+                submitted = false;
+                break;
+            }
+            const size_t batch = std::min(batch_groups, groups - first_group);
+            const uint32_t x = uint32_t(std::min(batch, max_x));
+            const uint32_t y = uint32_t((batch + x - 1) / x);
+            const auto started = trace_iir_ && spec->line_offset ? Clock::now() : Clock::time_point{};
+            submitted = submit_sync([&](VkCommandBuffer command) {
                 device_barrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
                 vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->pipeline);
                 vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->layout,
                                         0, 1, &set, 0, nullptr);
-                vkCmdDispatch(command, uint32_t(groups_x), uint32_t(groups_y), 1);
-            }, "Vulkan compute dispatch", error);
+                if (spec->line_offset) {
+                    const uint32_t offset = uint32_t(first_group * spec->workgroup);
+                    vkCmdPushConstants(command, pipeline->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(offset), &offset);
+                }
+                vkCmdDispatch(command, x, y, 1);
+            }, spec->line_offset ? "Vulkan recursive blur dispatch" : "Vulkan compute dispatch", error);
+            if (trace_iir_ && spec->line_offset) {
+                uint32_t meta[4]{};
+                if (args[5].bytes && args[5].size >= sizeof(meta))
+                    std::memcpy(meta, args[5].bytes, sizeof(meta));
+                const double ms = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+                std::fprintf(stderr, "{\"vulkan_iir\":true,\"axis\":%u,\"width\":%u,\"height\":%u,"
+                             "\"first_group\":%zu,\"groups\":%zu,\"elapsed_ms\":%.6f,\"ok\":%s}\n",
+                             meta[3], meta[1], meta[0], first_group, batch, ms, submitted ? "true" : "false");
+            }
+            if (!submitted) break;
+        }
         vkDestroyDescriptorPool(device_, descriptor_pool, nullptr);
         return submitted;
     }
@@ -1410,6 +1457,11 @@ private:
             layout_create.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             layout_create.setLayoutCount = 1;
             layout_create.pSetLayouts = &p.descriptors;
+            const VkPushConstantRange line_offset{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t)};
+            if (spec.line_offset) {
+                layout_create.pushConstantRangeCount = 1;
+                layout_create.pPushConstantRanges = &line_offset;
+            }
             result = vkCreatePipelineLayout(device_, &layout_create, nullptr, &p.layout);
         }
         if (result == VK_SUCCESS) {
@@ -1467,6 +1519,8 @@ private:
     Buffer read_staging_;
     size_t staging_chunk_bytes_ = kMaxStagingBytes;
     bool transfer_timings_ = false;
+    size_t iir_groups_ = 0;
+    bool trace_iir_ = false;
     // First VK_ERROR_DEVICE_LOST seen, latched: rendering work is refused from
     // here until the device is recreated. Mutable state guarded by its own
     // mutex, because flush() reads it without the dispatch lock.
