@@ -3,6 +3,8 @@ package com.jegly.developcamera.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -45,7 +47,10 @@ fun DevelopSheet(film: Film, s: DevelopSettings, onChange: (DevelopSettings) -> 
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = Vintage.Cream,
         ) {
-            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 28.dp).verticalScroll(rememberScrollState())) {
+            // Kept below the status bar: a sheet taller than the screen turns full-screen, filling in under the
+            // status bar slowly, and cannot be swiped away until it has.
+            Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.85f).dp)
+                .padding(horizontal = 16.dp).padding(bottom = 28.dp).verticalScroll(rememberScrollState())) {
                 Text("Develop", color = Vintage.BrownText, fontSize = 20.sp, fontWeight = FontWeight.Medium)
                 Text(film.name, color = Vintage.MutedOnCream, fontSize = 12.sp)
                 Spacer(Modifier.height(8.dp))

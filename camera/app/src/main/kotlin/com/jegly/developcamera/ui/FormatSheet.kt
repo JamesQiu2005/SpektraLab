@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,7 +48,9 @@ fun FormatSheet(s: DevelopSettings, onChange: (DevelopSettings) -> Unit, onDismi
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = Vintage.Cream,
         ) {
-            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 28.dp).verticalScroll(rememberScrollState())) {
+            // Kept below the status bar (see DevelopSheet).
+            Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.85f).dp)
+                .padding(horizontal = 16.dp).padding(bottom = 28.dp).verticalScroll(rememberScrollState())) {
                 Text("Format", color = Vintage.BrownText, fontSize = 20.sp, fontWeight = FontWeight.Medium)
                 for (group in listOf("35 mm", "120")) {
                     SectionLabel(if (group == "120") "120 medium format" else group)
