@@ -43,8 +43,15 @@ try {
   }
   if (Date.now() >= deadline) throw new Error('Desktop did not start its WebView2 page');
   browser = await chromium.connectOverCDP(endpoint, { timeout: 5_000 });
-  const page = browser.contexts().flatMap((context) => context.pages())
-    .find((candidate) => isAppUrl(candidate.url()));
+  let page;
+  // The debugging endpoint can list the page before Playwright exposes it.
+  while (Date.now() < deadline) {
+    if (exit) throw new Error('Desktop exited before WebView2 attached', { cause: exit.error ?? exit });
+    page = browser.contexts().flatMap((context) => context.pages())
+      .find((candidate) => isAppUrl(candidate.url()));
+    if (page) break;
+    await sleep(100);
+  }
   if (!page) throw new Error('The desktop page was not found in WebView2');
   await page.getByTestId('v2-window').waitFor({ timeout: 15_000 });
   await page.getByTestId('caption-close').click({ timeout: 10_000 });

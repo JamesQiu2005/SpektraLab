@@ -37,6 +37,7 @@ use crate::framing;
 const MAX_RESTARTS: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(120);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(45);
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const STDERR_TAIL: usize = 80;
 // Ordinary requests contain small JSON frames. Legacy pixel uploads may be
 // larger, but a non-reading child must not hold the connection lock forever.
@@ -308,13 +309,21 @@ impl<R: Runtime> HostManager<R> {
                 return;
             }
         };
-        self.pid.store(child.id().unwrap_or(0), Ordering::SeqCst);
         let stdin = child.stdin.take().expect("piped stdin");
         let mut stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
         let (stop, stop_requested) = oneshot::channel();
         let (exited, exit_received) = oneshot::channel();
-        *self.conn.lock().await = Some(Conn { stdin, generation, stop, exited: exit_received });
+        {
+            let mut connection = self.conn.lock().await;
+            if self.shutting_down.load(Ordering::SeqCst) {
+                drop(connection);
+                let _ = child.kill().await;
+                return;
+            }
+            self.pid.store(child.id().unwrap_or(0), Ordering::SeqCst);
+            *connection = Some(Conn { stdin, generation, stop, exited: exit_received });
+        }
 
         // stderr: a free-form log, one line per entry. Kept as a tail for the
         // failure dialog.
@@ -339,19 +348,19 @@ impl<R: Runtime> HostManager<R> {
         {
             let me = Arc::clone(self);
             tauri::async_runtime::spawn(async move {
-                loop {
+                let graceful = loop {
                     match framing::read_frame(&mut stdout).await {
                         Ok(Some((header, payload))) => me.dispatch(generation, header, payload),
-                        Ok(None) => break,
+                        Ok(None) => break me.shutting_down.load(Ordering::SeqCst),
                         Err(e) => {
                             log::error!(target: "host", "protocol error reading the host: {e}");
-                            break;
+                            break false;
                         }
                     }
-                }
-                // A closed/corrupt protocol cannot complete pending work.
-                // Reap the matching child so no abandoned leases remain.
-                me.stop_generation(Some(generation)).await;
+                };
+                // EOF during shutdown may precede process termination. A
+                // corrupt protocol still requires immediate reaping.
+                me.stop_generation(Some(generation), graceful).await;
             });
         }
 
@@ -360,6 +369,7 @@ impl<R: Runtime> HostManager<R> {
             let me = Arc::clone(self);
             tauri::async_runtime::spawn(async move {
                 let status = wait_child(child, stop_requested).await;
+                let success = status.as_ref().is_ok_and(std::process::ExitStatus::success);
                 let status = status.map(|s| s.to_string()).unwrap_or_else(|e| e.to_string());
                 // Serialize against a request still writing its frame. It
                 // must be registered before this generation is drained, and
@@ -368,8 +378,16 @@ impl<R: Runtime> HostManager<R> {
                 if connection.as_ref().is_some_and(|c| c.generation == generation) { *connection = None; me.pid.store(0, Ordering::SeqCst); }
                 drop(connection);
                 me.pending.lock().unwrap().exited(generation, &format!("the engine host exited ({status})"));
+                let shutting_down = me.shutting_down.load(Ordering::SeqCst);
+                if shutting_down && me.generation() == generation {
+                    if success {
+                        log::info!(target: "host", "the engine host exited ({status}) after shutdown");
+                    } else {
+                        log::warn!(target: "host", "the engine host exited ({status}) during shutdown");
+                    }
+                }
                 let _ = exited.send(());
-                me.on_exit(generation, status).await;
+                if !shutting_down { me.on_exit(generation, status).await; }
             });
         }
 
@@ -473,10 +491,10 @@ impl<R: Runtime> HostManager<R> {
     }
 
     async fn stop_child(&self) {
-        self.stop_generation(None).await;
+        self.stop_generation(None, false).await;
     }
 
-    async fn stop_generation(&self, expected: Option<u64>) {
+    async fn stop_generation(&self, expected: Option<u64>, graceful: bool) {
         // Reader EOF and a user restart may arrive together. A second stop
         // must wait for the first one's child to be reaped, even when that
         // first caller has already taken the connection out of the slot.
@@ -486,11 +504,15 @@ impl<R: Runtime> HostManager<R> {
         let connection = current.take();
         if connection.is_some() { self.pid.store(0, Ordering::SeqCst); }
         drop(current);
-        if let Some(conn) = connection {
-            let _ = conn.stop.send(());
-            drop(conn.stdin);
-            // The watcher releases this generation's leases only after wait.
-            let _ = conn.exited.await;
+        if let Some(Conn { stdin, stop, mut exited, .. }) = connection {
+            drop(stdin);
+            // The shutdown reply acknowledges the request. Only the watcher
+            // confirms that the child has exited and released its leases.
+            if graceful && tokio::time::timeout(SHUTDOWN_GRACE, &mut exited).await.is_ok() {
+                return;
+            }
+            let _ = stop.send(());
+            let _ = exited.await;
         }
     }
 
@@ -504,6 +526,7 @@ impl<R: Runtime> HostManager<R> {
             return; // superseded (restart or fail_and_kill)
         }
         let reason = format!("the engine host exited ({status})");
+
         log::warn!(target: "host", "{reason}");
         if self.shutting_down.load(Ordering::SeqCst) {
             return;
@@ -542,12 +565,10 @@ impl<R: Runtime> HostManager<R> {
 
     pub async fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::SeqCst);
-        let _ = tokio::time::timeout(
-            Duration::from_secs(2),
-            self.request_inner("shutdown", json!({}), Vec::new(), Duration::from_secs(2), None, None),
-        )
-        .await;
-        self.stop_child().await;
+        let (reply, generation) =
+            self.request_inner("shutdown", json!({}), Vec::new(), SHUTDOWN_GRACE, None, None).await;
+        let acknowledged = matches!(reply, Ok((header, _)) if header["ok"].as_bool() == Some(true));
+        self.stop_generation(generation, acknowledged).await;
     }
 
     /// A request from the webview: waits for the host to be ready first, so a
@@ -628,7 +649,7 @@ impl<R: Runtime> HostManager<R> {
         if let Some(e) = write_error {
             // A partial frame may already have reached the child. Kill and
             // reap this generation; do not accidentally stop a new host.
-            self.stop_generation(Some(generation)).await;
+            self.stop_generation(Some(generation), false).await;
             let code = if e.kind() == std::io::ErrorKind::TimedOut { "timeout" } else { "host_exited" };
             return (Err(HostError::new(code, format!("writing to the engine host failed: {e}"))), Some(generation));
         }
@@ -913,6 +934,38 @@ mod tests {
         assert_eq!(new_rx.await.unwrap().unwrap_err().code, "host_exited");
         drop(agent_files::acquire(&root).unwrap());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "test child for graceful render host shutdown"]
+    fn child_exits_after_stdin_closes() {
+        use std::io::Read;
+        std::io::stdin().read_to_end(&mut Vec::new()).unwrap();
+        std::thread::sleep(Duration::from_millis(120));
+    }
+
+    #[tokio::test]
+    async fn acknowledged_shutdown_waits_for_the_child_to_exit_itself() {
+        let app = tauri::test::mock_builder().build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+        let host = HostManager::new(app.handle().clone());
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", "host::tests::child_exits_after_stdin_closes", "--ignored"])
+            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
+        #[cfg(windows)] command.creation_flags(0x0800_0000);
+        let mut child = command.spawn().unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let (stop, stop_requested) = oneshot::channel();
+        let (finished, exited) = oneshot::channel();
+        *host.conn.lock().await = Some(Conn { stdin, generation: 1, stop, exited });
+
+        let watcher = tokio::spawn(async move {
+            let status = wait_child(child, stop_requested).await.unwrap();
+            let _ = finished.send(());
+            status
+        });
+        host.stop_generation(Some(1), true).await;
+        assert!(watcher.await.unwrap().success(), "a normal shutdown must not terminate the child");
+        assert!(host.conn.lock().await.is_none());
     }
 
     #[test]
