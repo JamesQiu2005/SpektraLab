@@ -13,8 +13,8 @@
 #   ANDROID_API      minimum API level (default 31)
 # Dependencies: engine/setup-deps.sh (LibRaw 0.22.2, Vulkan-Headers) in build/deps.
 # lensfun is not built for Android yet: lens_correct.cpp compiles its no-lensfun branch.
-# The SPIR-V kernels are not built here (no glslangValidator on this machine); they are
-# platform-independent and come from the Linux build's resources/vulkan.
+# It also stages the host's resources (engine/resources + the 65 SPIR-V kernels, compiled with
+# glslangValidator as the Linux build does) in build/android-arm64/engine: see the end of this file.
 #
 # Output: build/android-arm64/spektralab-host (a PIE executable; the APK ships it as
 # lib/arm64-v8a/libspektralab_host.so so Android installs it executable in nativeLibraryDir).
