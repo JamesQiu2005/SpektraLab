@@ -20,8 +20,8 @@ android {
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "io.github.jegly.develop"
-        // Android 12+: the engine host is built for API 31 (engine/build-android.sh). arm64 only, as the host.
-        minSdk = 31
+        // Android 17 only (jegly, 2026-11-21). arm64 only, as the engine host.
+        minSdk = 37
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")

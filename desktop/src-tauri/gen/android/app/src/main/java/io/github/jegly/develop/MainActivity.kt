@@ -4,7 +4,11 @@ import android.content.pm.PackageInfo
 import android.os.Bundle
 import android.system.Os
 import android.util.Log
+import android.view.View
 import androidx.activity.enableEdgeToEdge
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
@@ -14,6 +18,17 @@ class MainActivity : TauriActivity() {
     prepareEngine()
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Android 17 draws the app edge to edge and the page does not pad itself: keep it clear of the status
+    // bar, the taskbar and the camera cutout, or the top bar sits under the status bar, where Android takes
+    // the touches. Pad here, then pass the WebView those insets as zero (not CONSUMED: that would stop the
+    // keyboard's insets reaching it too; Android's "Understand window insets in WebView").
+    val content = findViewById<View>(android.R.id.content)
+    val padded = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+    ViewCompat.setOnApplyWindowInsetsListener(content) { v, insets ->
+      val bars = insets.getInsets(padded)
+      v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      WindowInsetsCompat.Builder(insets).setInsets(padded, Insets.NONE).build()
+    }
   }
 
   /**

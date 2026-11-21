@@ -388,7 +388,9 @@ export function Canvas() {
       <canvas ref={canvas} className="canvas-gl" />
       {layout && <WatermarkOverlay layout={layout} size={size} />}
       {glError && <div className="canvas-message">{tz('This display cannot draw the picture (WebGL2): ', '此显示无法绘制画面（WebGL2）：') + glError}</div>}
-      {!selection && !glError && <div className="canvas-message">{tz('Open a folder or drop photographs here (Ctrl+O).', '打开文件夹或把照片拖到这里（Ctrl+O）。')}</div>}
+      {!selection && !glError && <div className="canvas-message">{/Android/.test(navigator.userAgent)
+        ? tz('Tap Import in the top bar to open photographs.', '轻点顶栏的“导入”打开照片。')
+        : tz('Open a folder or drop photographs here (Ctrl+O).', '打开文件夹或把照片拖到这里（Ctrl+O）。')}</div>}
       {layout && cropping && <CropOverlay layout={layout} geometry={geometry} dpr={size.dpr} />}
       {layout && comparing && !cropping && (
         <div
