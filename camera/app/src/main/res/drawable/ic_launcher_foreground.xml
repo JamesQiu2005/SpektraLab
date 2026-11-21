@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Develop's icon: red, green and blue light overlapping (made by make-icons.py). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF2A2A" android:pathData="M35.5385,42.4615 a18.4615,18.4615 0 1,0 36.9231,0 a18.4615,18.4615 0 1,0 -36.9231,0 Z"/>
+    <path android:fillColor="#22E04A" android:pathData="M45.5275,59.7692 a18.4615,18.4615 0 1,0 36.9231,0 a18.4615,18.4615 0 1,0 -36.9231,0 Z"/>
+    <path android:fillColor="#2A5CFF" android:pathData="M25.5495,59.7692 a18.4615,18.4615 0 1,0 36.9231,0 a18.4615,18.4615 0 1,0 -36.9231,0 Z"/>
+    <path android:fillColor="#FFE568" android:pathData="M45.5491,58.8753 A18.4615,18.4615 0 0,0 72.4399,43.3555 A18.4615,18.4615 0 0,0 45.5491,58.8753 Z"/>
+    <path android:fillColor="#FF77FF" android:pathData="M35.5601,43.3555 A18.4615,18.4615 0 0,0 62.4509,58.8753 A18.4615,18.4615 0 0,0 35.5601,43.3555 Z"/>
+    <path android:fillColor="#46EBFF" android:pathData="M54.0000,44.2435 A18.4615,18.4615 0 0,0 54.0000,75.2950 A18.4615,18.4615 0 0,0 54.0000,44.2435 Z"/>
+    <path android:fillColor="#FFEEFF" android:pathData="M45.5491,58.8753 A18.4615,18.4615 0 0,0 62.4509,58.8753 A18.4615,18.4615 0 0,0 54.0000,44.2435 A18.4615,18.4615 0 0,0 45.5491,58.8753 Z"/>
+</vector>
