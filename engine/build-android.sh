@@ -121,6 +121,13 @@ if [[ -x "$G" ]]; then
   res="$out/engine"
   mkdir -p "$res/vulkan"
   cp -a "$E/resources/." "$res/"
+  # Develop's own profiles (the data-sheet films, black and white, Portra NC/VC, CineStill, Multigrade) beside
+  # spektrafilm's, as stage-host.sh does for Linux: without them choosing one fails with "no profile '...'".
+  if [[ -d "$E/resources_product/profiles" ]]; then
+    cp "$E/resources_product/profiles/"*.json "$res/profiles/"
+    cp "$E/resources_product/NOTICE.md" "$res/PRODUCT_PROFILES_NOTICE.md"
+    cp "$E/resources_product/neutral_print_filters_colour.json" "$res/"
+  fi
   mapfile -t kernels < <(sed -n '/set(SPEKTRALAB_VULKAN_KERNELS/,/CACHE INTERNAL/p' "$E/CMakeLists.txt" |
                          grep -o 'spk_[a-z0-9_]*')
   for k in "${kernels[@]}"; do

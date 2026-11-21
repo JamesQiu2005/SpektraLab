@@ -145,6 +145,7 @@ struct State {
     fs::path resources;
     spk_engine* engine = nullptr;
     std::string engine_error;
+    uint64_t gpu_buffer_limit = 0;   // the engine's max_storage_buffer_bytes (0: no limit)
     std::map<std::string, std::shared_ptr<Session>> sessions;
     std::mutex sessions_mutex;   // the reader thread reads `sessions` for cancel
     uint64_t next_session = 1;
@@ -747,6 +748,34 @@ Decoded decode_frame(const fs::path& path, const HostDecode& options) {
     return d;
 }
 
+// A GPU whose storage buffers are small (the Pixel's PowerVR: 128 MiB) cannot render a large photograph at all:
+// the full render's halation and diffusion passes need the whole frame (RGB float, 12 bytes a pixel) in one
+// buffer. Such a frame is shrunk here, before the engine sees it, so the preview and the export are the same
+// picture at the size this device can render. With the film edge on, room is left for the border it adds
+// (1.6x the pixels, as Develop Camera found on the Pixel). Nothing changes where the limit is large.
+void fit_to_gpu(FloatImage& frame, const std::string& delta, Json& scaled) {
+    if (!g.gpu_buffer_limit) return;
+    double max_px = double(g.gpu_buffer_limit) / 12.0 * 0.97;
+    const Json params = delta.empty() ? Json() : parse_json(delta.c_str());
+    if (params.is_object() && params.at("overscan_active").as_bool(false)) max_px /= 1.6;
+    const double px = double(frame.width) * frame.height;
+    if (px <= max_px) return;
+    const double k = std::sqrt(max_px / px);
+    const uint32_t dw = std::max(1u, uint32_t(std::floor(frame.width * k)));
+    const uint32_t dh = std::max(1u, uint32_t(std::floor(frame.height * k)));
+    std::vector<float> out;
+    resize_area(frame.rgb.data(), frame.width, frame.height, 3, dw, dh, out);
+    scaled = Json::object();
+    scaled.set("from_width", number(frame.width));
+    scaled.set("from_height", number(frame.height));
+    scaled.set("reason", str("this GPU's largest buffer"));
+    log_line(1, "fit to the GPU: " + std::to_string(frame.width) + "x" + std::to_string(frame.height) + " -> " +
+                    std::to_string(dw) + "x" + std::to_string(dh));
+    frame.rgb.swap(out);
+    frame.width = dw;
+    frame.height = dh;
+}
+
 spk_session* engine_open(const FloatImage& frame, const std::string& delta, Json& opened, double& open_ms) {
     const auto t1 = Clock::now();
     spk_image image{frame.rgb.data(), frame.width, frame.height, 3};
@@ -776,6 +805,7 @@ Json open_reply(const Session& s, const Decoded& d, const Json& opened, double o
     timings.set("open", number(open_ms));
     if (!d.lens.is_null()) r.set("lens_correction", d.lens);
     if (!d.pair.is_null()) r.set("pair", d.pair);
+    if (opened.at("scaled_for_gpu").is_object()) r.set("scaled_for_gpu", opened.at("scaled_for_gpu"));
     r.set("timings_ms", std::move(timings));
     return r;
 }
@@ -788,9 +818,12 @@ Json m_open(const Request& q) {
     std::string delta;
     const Json& params = q.params.at("params");
     if (params.is_object()) delta = params.dump();
+    Json scaled;
+    fit_to_gpu(d.frame, delta, scaled);
     Json opened;
     double open_ms = 0;
     spk_session* handle = engine_open(d.frame, delta, opened, open_ms);
+    if (scaled.is_object()) opened.set("scaled_for_gpu", scaled);
 
     auto s = std::make_shared<Session>();
     s->handle = handle;
@@ -821,6 +854,8 @@ Json m_redecode(const Request& q) {
     const spk_status st = spk_get_params(s->handle, &current);
     if (st != SPK_OK) engine_fail(st, "get_params");
     Json params = take_json(current);
+    Json scaled;
+    fit_to_gpu(d.frame, params.dump(), scaled);
     Json opened;
     double open_ms = 0;
     spk_session* handle = engine_open(d.frame, params.dump(), opened, open_ms);
@@ -1378,6 +1413,7 @@ int main(int argc, char** argv) {
         log_line(0, "engine did not start: " + g.engine_error);
     } else {
         Json caps = parse_json(spk_capabilities(g.engine));
+        g.gpu_buffer_limit = uint64_t(caps.at("backend").at("max_storage_buffer_bytes").as_double(0));
         log_line(1, "engine up in " + std::to_string(int(ms_since(t0))) + " ms on " +
                         caps.at("backend").at("gpu").as_string() + " (" +
                         caps.at("backend").at("math_mode").as_string() + ")");

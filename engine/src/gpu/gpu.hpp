@@ -230,6 +230,10 @@ public:
 
     virtual std::string device_name() const = 0;
 
+    // The largest storage buffer one dispatch may bind, in bytes; 0 when the backend has no such limit.
+    // Reported so a host can size what it opens to fit (a phone GPU allows 128 MiB: ~11 MP of RGB float).
+    virtual uint64_t storage_buffer_limit() const { return 0; }
+
     // The fast-math probe. Returns false, with a message, when the kernels in
     // the loaded library were compiled with fast math -- which drifts `exp`
     // and fma contraction by up to 1.1e-5, past the float32 bar, silently

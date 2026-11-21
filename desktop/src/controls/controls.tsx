@@ -119,9 +119,10 @@ export function ScrubSlider(p: ScrubSliderProps) {
     beginGesture();
     // Click on the track jumps there; then the drag is relative.
     const v = lo + clamp((e.clientX - r.left) / r.width, 0, 1) * (hi - lo);
-    const start = e.detail > 1 ? value : v;
+    // A finger starts from where the slider is (a touch rarely lands exactly on the knob); a mouse jumps.
+    const start = e.detail > 1 || e.pointerType === 'touch' ? value : v;
     drag.current = { x: e.clientX, v: start, w: r.width };
-    if (e.detail <= 1) onChange(snapTo(start, e.shiftKey));
+    if (e.detail <= 1 && e.pointerType !== 'touch') onChange(snapTo(start, e.shiftKey));
   };
   const snapTo = (v: number, shift: boolean) => {
     let out = clamp(v, lo, hi);

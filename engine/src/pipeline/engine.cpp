@@ -348,6 +348,8 @@ struct spk_engine {
         backend.set("spectral", Json(std::string("native")));
         backend.set("gpu", Json(gpu ? gpu->device_name() : std::string("none")));
         backend.set("gpu_available", Json(gpu != nullptr));
+        // Reporting only (nothing renders differently): the device's storage buffer limit, 0 if none.
+        backend.set("max_storage_buffer_bytes", Json(double(gpu ? gpu->storage_buffer_limit() : 0)));
         backend.set("working_precision", Json(std::string("float32")));
         // Contract §6 / RFC-014 §5.1 trap 6: what the engine *loaded*, not
         // what the process could reach. `render_core` was a probe of

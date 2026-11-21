@@ -269,6 +269,7 @@ public:
     }
 
     std::string device_name() const override { return properties_.deviceName; }
+    uint64_t storage_buffer_limit() const override { return uint64_t(storage_range_limit_); }
 
     bool check_math_mode(std::string& detail) override {
         constexpr size_t n = 64;
