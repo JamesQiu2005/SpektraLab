@@ -204,6 +204,63 @@ describe('processed preview scheduling', () => {
     expect(session.sessionStore.getState()).toMatchObject({ imageVersion: version + 1, badge: 'preview', lastError: null });
   });
 
+  it('defers pending full refinement while export is open', async () => {
+    session.sessionStore.setState({ nativeSize: { width: 6000, height: 4000 } });
+    await session.requestPrint();
+    session.setPages({ exportOpen: true });
+    await vi.advanceTimersByTimeAsync(800);
+    expect(fake.renderView).toHaveBeenCalledTimes(1);
+    expect(session.sessionStore.getState().badge).toBe('preview');
+
+    session.setPages({ exportOpen: false });
+    await vi.advanceTimersByTimeAsync(400);
+    expect(fake.renderView).toHaveBeenCalledTimes(2);
+    expect(session.sessionStore.getState().badge).toBe('full');
+  });
+
+  it.each([false, true])('export interrupts running full refinement (delayed job id: %s)', async (delayJobId) => {
+    session.sessionStore.setState({ nativeSize: { width: 6000, height: 4000 } });
+    const { scheduler } = await import('../scheduler');
+    const queue = scheduler();
+    const submitJob = queue.submit.bind(queue);
+    let reportJobId: (() => void) | undefined;
+    if (delayJobId) {
+      vi.spyOn(queue, 'submit').mockImplementation(async (job) => {
+        const id = await submitJob(job);
+        if (job.kind === 'fullView' && !reportJobId) await new Promise<void>((resolve) => { reportJobId = resolve; });
+        return id;
+      });
+    }
+
+    let stopFull: ((reason: Error) => void) | undefined;
+    // The first full view stays in flight until the test releases cancellation.
+    fake.renderView.mockImplementationOnce(async () => frame(200))
+      .mockImplementationOnce(async () => new Promise<RenderReply>((_resolve, reject) => { stopFull = reject; }));
+    fake.cancel.mockResolvedValue(true);
+
+    await session.requestPrint();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(stopFull).toBeDefined();
+    const live = fake.frames.print;
+    session.setPages({ exportOpen: true });
+    if (delayJobId) {
+      expect(fake.cancel).not.toHaveBeenCalled();
+      // Closing immediately still cancels the old job when its ID arrives.
+      session.setPages({ exportOpen: false });
+      expect(reportJobId).toBeDefined();
+      reportJobId?.();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.cancel).toHaveBeenCalledTimes(1);
+    if (!delayJobId) session.setPages({ exportOpen: false });
+    await vi.advanceTimersByTimeAsync(800);
+    expect(fake.frames.print).toBe(live);
+    stopFull?.(new Error('cancelled'));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(fake.renderView).toHaveBeenCalledTimes(3);
+    expect(session.sessionStore.getState()).toMatchObject({ badge: 'full', lastError: null });
+  });
+
   it('prices the full view as opening nothing, and sends it what of the edit the session lacks', async () => {
     session.sessionStore.setState({ nativeSize: { width: 7028, height: 4688 }, maxTextureSize: 8192, canvasPx: { width: 1600, height: 1000 } });
     const { scheduler } = await import('../scheduler');

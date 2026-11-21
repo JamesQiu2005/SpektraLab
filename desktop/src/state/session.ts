@@ -362,6 +362,8 @@ async function thumbnailJob(path: string, longEdge: number, embeddedOnly: boolea
 }
 const jobWords = (s: SessionState, d: { delta: Record<string, unknown> }, reprint: boolean) => canvasWhat(s.catalog, s.sidecar.params, d.delta, reprint);
 let fullTimer: ReturnType<typeof setTimeout> | null = null;
+let fullRender: { interrupted: boolean } | null = null;
+const exportHasPriority = (s = get()) => s.exportOpen || s.batchExporting;
 let latitudeTimer: ReturnType<typeof setTimeout> | null = null;
 let latitudeGeneration = 0;
 let placementTask: number | null = null;
@@ -558,7 +560,7 @@ async function renderJob(gen: number, tier: 'live' | 'full', reprint: boolean, r
       clockOf(id);
       if (tier === 'live') {
         canvasJob = { id, running: false };
-      } else if (gen !== wantedGen || get().engineSession !== s.engineSession) {
+      } else if (fullRender?.interrupted || gen !== wantedGen || get().engineSession !== s.engineSession) {
         void scheduler().cancel(id);
       } else {
         fullJob = id;
@@ -585,7 +587,8 @@ async function renderForView(sid: string, tier: 'live' | 'full', gen: number, re
   const [cacheKey, fullKey, cameraKey] = await Promise.all([keyTask,
     fullDescriptor ? displayCacheKey(fullDescriptor) : keyTask,
     tier === 'full' && !s.pair && s.selection ? displayCacheKey(cameraDescriptor(s.selection)) : null]);
-  if (gen !== wantedGen || get().engineSession !== sid) throw new Error('Superseded display request');
+  if ((tier === 'full' && fullRender?.interrupted) || gen !== wantedGen || get().engineSession !== sid)
+    throw new Error('Superseded display request');
   const geometry = s.tool === 'crop' ? GEOMETRY_DEFAULT : canvasGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm);
   const longEdge = viewLongEdge(s);
   const view = { tier, adjustments: s.sidecar.adjustments, ...(s.sidecar.noFilm ? { no_film: true } : {}), geometry,
@@ -711,8 +714,8 @@ export async function requestPrint(): Promise<void> {
 
 function scheduleFull() {
   if (fullTimer) clearTimeout(fullTimer);
-  // An export run renders the frame itself, at the file's own resolution.
-  if (get().batchExporting) return;
+  // Soft proof and file export use the engine while this panel is open.
+  if (exportHasPriority()) return;
   const gen = wantedGen;
   fullTimer = setTimeout(() => void renderFull(gen), FULL_DELAY_MS);
 }
@@ -720,7 +723,8 @@ function scheduleFull() {
 async function renderFull(gen: number) {
   const s = get();
   const sid = s.engineSession;
-  if (!sid || inFlight || gen !== wantedGen || (s.tool === 'crop' && geometryInNegative(s.sidecar.params, s.gate, s.sidecar.noFilm))) return;
+  if (!sid || inFlight || exportHasPriority(s) || gen !== wantedGen
+    || (s.tool === 'crop' && geometryInNegative(s.sidecar.params, s.gate, s.sidecar.noFilm))) return;
   const native = s.nativeSize;
   // A frame no larger than the preview edge is already at its own size.
   if (native && Math.max(native.width, native.height) <= previewEdge()) {
@@ -730,6 +734,8 @@ async function renderFull(gen: number) {
     return;
   }
   inFlight = true;
+  const render = { interrupted: false };
+  fullRender = render;
   foregroundWork();
   try {
     const t0 = performance.now();
@@ -748,20 +754,22 @@ async function renderFull(gen: number) {
     }
     if (pending) sentParams = want;
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
-    if (gen !== wantedGen || get().engineSession !== sid) return;
+    if (render.interrupted || gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;
     platform().log('info', `session: full render ${r.width}x${r.height} landed in ${Math.round(performance.now() - t0)} ms`);
     set({ imageVersion: get().imageVersion + 1, badge: 'full' });
     await refreshThumb();
     scheduleLatitudeRefresh();
   } catch (e) {
-    if (gen === wantedGen && get().engineSession === sid && !(e instanceof JobEnded && e.cancelled)) {
+    if (!render.interrupted && gen === wantedGen && get().engineSession === sid && !(e instanceof JobEnded && e.cancelled)) {
       noteError(tz('Full render', '全尺寸渲染'), e);
     }
   } finally {
+    fullRender = null;
     inFlight = false;
     resumePreviewsWhenIdle();
     if (gen !== wantedGen) void requestPrint();
+    else if (render.interrupted && get().badge === 'preview') scheduleFull();
   }
 }
 
@@ -2539,8 +2547,19 @@ export function setComparePosition(p: number) {
 
 export function setPages(p: Partial<Pick<SessionState, 'exportOpen' | 'settingsOpen' | 'aboutOpen' | 'batchExporting' | 'clipboardGroups'>>) {
   if (p.exportOpen && !pairComplete()) { set({ status: tz('Fill both frames before exporting this pair.', '请先在两格中都放入照片，再导出拼接。') }); return; }
+  const hadExportPriority = exportHasPriority();
   set(p);
-  if (get().batchExporting || get().exportOpen) foregroundWork(); else resumePreviewsWhenIdle();
+  if (exportHasPriority()) {
+    if (!hadExportPriority) {
+      if (fullTimer) clearTimeout(fullTimer);
+      if (fullRender) fullRender.interrupted = true;
+      cancelFullView();
+    }
+    foregroundWork();
+  } else {
+    resumePreviewsWhenIdle();
+    if (hadExportPriority && !inFlight && get().engineSession && get().badge === 'preview') scheduleFull();
+  }
 }
 export function setStatus(status: string) {
   set({ status });
