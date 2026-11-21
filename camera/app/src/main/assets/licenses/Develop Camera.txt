@@ -1,0 +1,8 @@
+Develop Camera, by jegly. GPL-3.0-or-later (see the GPL-3.0 text here).
+
+It contains:
+- Develop's engine (github.com/jegly/develop), a fork of SpektraLab's engine (github.com/JamesQiu2005/SpektraLab),
+  derived from spektrafilm by Andrea Volpato (github.com/andreavolpato/spektrafilm). GPL-3.0-or-later.
+- Film and paper profiles and the film looks made from them (the viewfinder LUTs): CC BY-SA 4.0 (spektrafilm).
+- volk (MIT), stb (MIT / public domain), Khronos Vulkan headers (Apache-2.0 OR MIT).
+- AndroidX and Jetpack Compose libraries (Apache-2.0).

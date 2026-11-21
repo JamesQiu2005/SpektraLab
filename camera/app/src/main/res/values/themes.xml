@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The window behind Compose: the vintage brown, so nothing flashes white at start. -->
+    <style name="Theme.DevelopCamera" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/vintage_brown</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="vintage_brown">#FF2B2019</color>
+</resources>

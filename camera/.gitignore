@@ -1,0 +1,11 @@
+.gradle/
+build/
+.cxx/
+local.properties
+*.apk
+*.keystore
+# generated (regenerable): tools/engine/stage.sh and tools/lut-bake
+app/src/main/assets/engine/
+app/src/main/assets/luts/
+app/src/main/assets/films.json
+tools/lut-bake/out/
