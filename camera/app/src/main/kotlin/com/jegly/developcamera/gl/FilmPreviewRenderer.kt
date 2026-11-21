@@ -40,10 +40,10 @@ class FilmPreviewRenderer(
     /** Viewfinder grain clump size in screen pixels (coarser grain sizes are larger). */
     @Volatile var grainCell = 1f
     /**
-     * Called on the GL thread every few frames: the camera picture's median luminance (linear, before the film
-     * and the gain) and a 32-bin histogram of what the film is given (summing to 1).
+     * Called on the GL thread every few frames: the camera picture's median and 97th-percentile luminance (linear,
+     * before the film and the gain) and a 32-bin histogram of what the film is given (summing to 1).
      */
-    @Volatile var onMeter: ((Float, FloatArray) -> Unit)? = null
+    @Volatile var onMeter: ((Float, Float, FloatArray) -> Unit)? = null
     @Volatile var bufferWidth = 1440
     @Volatile var bufferHeight = 1080
 
@@ -148,7 +148,7 @@ class FilmPreviewRenderer(
                 bins[(shown * 31.99f).toInt().coerceIn(0, 31)] += 1f / n
             }
             lum.sort()
-            meter(lum[n / 2], bins)
+            meter(lum[n / 2], lum[n * 97 / 100], bins)
         }
     }
 

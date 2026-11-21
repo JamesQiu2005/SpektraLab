@@ -188,7 +188,7 @@ fun CameraScreen() {
         Math.pow(1.0 / develop.grainSize.factor, 0.83)).toFloat()   // grain size: measured visibility ~ (35 / mm)^0.83
     renderer.grainCell = (1.0 + (1.0 / develop.grainSize.factor - 1.0) * 0.3).toFloat()
     renderer.monoGrain = shownFilm.kind.startsWith("b&w")
-    renderer.onMeter = { median, bins ->
+    renderer.onMeter = { median, high, bins ->
         main.post {
             meterMedian = median
             if (app.histogram) histogram = bins
@@ -198,7 +198,13 @@ fun CameraScreen() {
                 exposure.manual -> 1.41f
                 exposure.aeLock -> meterGain
                 else -> {
-                    val target = (0.18 * 2.0.pow(exposure.evThirds / 3.0) / median.coerceAtLeast(1e-4f)).toFloat().coerceIn(0.125f, 16f)
+                    // The median to mid grey, but with the brightest 3 % kept below the viewfinder's white (0.85
+                    // linear), giving up at most 3 stops of the median's exposure for it: a window in a dark room
+                    // keeps its sky, as a matrix meter would. ± compensation moves both.
+                    val comp = 2.0.pow(exposure.evThirds / 3.0)
+                    val mid = 0.18 * comp / median.coerceAtLeast(1e-4f)
+                    val protect = 0.85 * comp / high.coerceAtLeast(1e-4f)
+                    val target = maxOf(mid / 8.0, minOf(mid, protect)).toFloat().coerceIn(0.125f, 16f)
                     kotlin.math.exp(kotlin.math.ln(meterGain) * 0.7f + kotlin.math.ln(target) * 0.3f)
                 }
             }
