@@ -807,7 +807,7 @@ private:
 
     BufferRef upload_data(const void* raw, const double* narrow, size_t bytes,
                           bool persistent, std::string& error) {
-        if (bytes % 4) { error = "Vulkan upload size must be 4-byte aligned"; return {}; }
+        if (bytes % 4) { error = "Vulkan upload size must be 4-byte aligned (" + std::to_string(bytes) + " bytes)"; return {}; }
         const auto start = diagnostic_start();
         BufferRef out = allocate(bytes, persistent, error);
         if (!out) return {};

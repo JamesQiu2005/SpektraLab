@@ -761,10 +761,23 @@ void fit_to_gpu(FloatImage& frame, const std::string& delta, Json& scaled) {
     const double px = double(frame.width) * frame.height;
     if (px <= max_px) return;
     const double k = std::sqrt(max_px / px);
-    const uint32_t dw = std::max(1u, uint32_t(std::floor(frame.width * k)));
-    const uint32_t dh = std::max(1u, uint32_t(std::floor(frame.height * k)));
+    uint32_t dw = std::max(1u, uint32_t(std::floor(frame.width * k)));
+    uint32_t dh = std::max(1u, uint32_t(std::floor(frame.height * k)));
     std::vector<float> out;
     resize_area(frame.rgb.data(), frame.width, frame.height, 3, dw, dh, out);
+    // Trim (never stretch) to a multiple of 16 each way, centred: the engine halves the frame for its blur
+    // pyramids, and an odd level size fails the GPU upload ("Vulkan upload size must be 4-byte aligned";
+    // 2852x3803 did on the Pixel). At most 15 pixels go, split between the two edges.
+    const uint32_t cw = dw - dw % 16, ch = dh - dh % 16;
+    if (cw && ch && (cw != dw || ch != dh)) {
+        const uint32_t x0 = (dw - cw) / 2, y0 = (dh - ch) / 2;
+        std::vector<float> cut(size_t(cw) * ch * 3);
+        for (uint32_t y = 0; y < ch; ++y)
+            std::copy_n(out.data() + (size_t(y + y0) * dw + x0) * 3, size_t(cw) * 3, cut.data() + size_t(y) * cw * 3);
+        out.swap(cut);
+        dw = cw;
+        dh = ch;
+    }
     scaled = Json::object();
     scaled.set("from_width", number(frame.width));
     scaled.set("from_height", number(frame.height));

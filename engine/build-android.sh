@@ -56,10 +56,18 @@ io=(src/io/raw_decoder.cpp src/io/raw_headroom.cpp src/io/image_writer.cpp)
 
 mkdir -p "$out/obj"
 jobfile="$out/jobs.txt"; : > "$jobfile"
+# No dependency files here, so a changed engine header recompiles every engine object (not LibRaw's): checking
+# only the .cpp once left most objects on an old Gpu vtable after gpu.hpp gained a method, and the host failed
+# every open with a nonsense "upload size must be 4-byte aligned (9 bytes)" (2026-11-22).
+newest_header="$(find "$E/src" "$E/include" "$E/host" -name '*.h' -o -name '*.hpp' -o -name '*.inc' | xargs ls -t | head -1)"
 add() {  # obj src flags...
   local obj="$out/obj/$1" src="$2"; shift 2
   objs+=("$obj")
-  [[ "$obj" -nt "$src" ]] && return 0
+  if [[ "$src" == "$LIBRAW"/* ]]; then
+    [[ "$obj" -nt "$src" ]] && return 0
+  else
+    [[ "$obj" -nt "$src" && "$obj" -nt "$newest_header" ]] && return 0
+  fi
   printf '%q ' "$@" -c "$src" -o "$obj" >> "$jobfile"; echo >> "$jobfile"
 }
 objs=()
