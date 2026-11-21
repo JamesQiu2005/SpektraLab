@@ -8,11 +8,11 @@ import type * as FramesModule from './frames';
 import type { DisplayCacheDescriptor } from './displayCache';
 const fake = vi.hoisted(() => ({ key: vi.fn(), read: vi.fn(), peek: vi.fn(), forget: vi.fn(),
   write: vi.fn(async (_key: string, _image: RgbaImage, _options: { retain: boolean }) => true),
-  open: vi.fn(), close: vi.fn(), render: vi.fn(), source: vi.fn(), load: vi.fn() }));
+  open: vi.fn(), close: vi.fn(), cancel: vi.fn(), render: vi.fn(), source: vi.fn(), load: vi.fn() }));
 vi.mock('./displayCache', () => ({ displayCacheKey: fake.key, readDisplayCache: fake.read, writeDisplayCache: fake.write,
   forgetDisplayMemoryCache: fake.forget, peekDisplayCache: fake.peek }));
 vi.mock('../host/client', () => ({ HostCallError: class extends Error {}, host: () => ({ open: fake.open, renderView: fake.render, renderSource: fake.source,
-  setParams: async () => ({}), close: fake.close, thumbnail: async () => { throw new Error('No embedded fixture'); } }) }));
+  setParams: async () => ({}), close: fake.close, cancel: fake.cancel, thumbnail: async () => { throw new Error('No embedded fixture'); } }) }));
 vi.mock('../platform', () => ({ platform: () => ({ log: vi.fn(), sidecarLoad: fake.load, sidecarSave: async () => '', setTitle: async () => {} }),
   baseName: (p: string) => p.split('/').pop()!, dirName: (p: string) => p.slice(0, p.lastIndexOf('/')) }));
 let session: typeof SessionModule, frames: typeof FramesModule;
@@ -29,6 +29,7 @@ beforeEach(async () => {
   fake.peek.mockReturnValue(null);
   fake.open.mockImplementation(async () => native());
   fake.close.mockResolvedValue(undefined);
+  fake.cancel.mockReset();
   fake.render.mockImplementation(async (_sid: string, tier: string) => ({ ...picture('native'), tier, reprinted: true, ms: 1 }));
   fake.source.mockImplementation(async () => picture('source'));
   const saved = newSidecar(); saved.params.filmEdge.seeded = true;
@@ -50,6 +51,29 @@ describe('persistent display warmup', () => {
     expect(fake.open).toHaveBeenCalledTimes(1);
     release(); await next;
   });
+  it('cancels an in-flight full view before decoding the next photograph', async () => {
+    fake.open.mockImplementation(async (path: string) => ({ ...native(), session: path }));
+    let stopFull: ((error: Error) => void) | undefined;
+    fake.render.mockImplementation(async (sid: string, tier: string) => tier === 'full'
+      ? new Promise((_resolve, reject) => { stopFull = reject; })
+      : { ...picture(sid), tier, reprinted: true, ms: 1 });
+    fake.cancel.mockImplementation(async () => {
+      stopFull?.(new Error('cancelled'));
+      return true;
+    });
+
+    await session.select('/owned/a.ARW');
+    await vi.advanceTimersByTimeAsync(450);
+    expect(stopFull).toBeDefined();
+    const opening = session.select('/owned/b.ARW');
+    await settle();
+    expect(fake.cancel).toHaveBeenCalledWith('/owned/a.ARW', expect.any(String));
+    await opening;
+    expect(fake.open.mock.calls.map(([path]) => path)).toEqual(['/owned/a.ARW', '/owned/b.ARW']);
+    expect(frames.frameImages.print?.colorSpace).toBe('/owned/b.ARW');
+    expect(state()).toMatchObject({ selection: '/owned/b.ARW', badge: 'preview', lastError: null });
+  });
+
   it('coalesces quick clicks and closes a superseded open before opening the last photo', async () => {
     let release!: (v: ReturnType<typeof native>) => void;
     fake.open.mockImplementationOnce(() => new Promise((r) => { release = r; }));

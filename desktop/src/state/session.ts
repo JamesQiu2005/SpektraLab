@@ -611,6 +611,12 @@ function noteAsShot() {
   scheduleSave();
 }
 
+function cancelFullView() {
+  const id = fullJob;
+  fullJob = null;
+  if (id) void scheduler().cancel(id);
+}
+
 export async function requestPrint(): Promise<void> {
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
@@ -618,11 +624,7 @@ export async function requestPrint(): Promise<void> {
   // not started yet is withdrawn, and the loop below submits the newest one.
   if (canvasJob && !canvasJob.running) void scheduler().cancel(canvasJob.id);
   // Full refinement is optional. Let the newest edit take over even after it starts.
-  if (fullJob) {
-    const id = fullJob;
-    fullJob = null;
-    void scheduler().cancel(id);
-  }
+  cancelFullView();
   if (get().tool === 'crop' && geometryInNegative(get().sidecar.params, get().gate, get().sidecar.noFilm)) return;
   if (inFlight) return;
   const sid = get().engineSession;
@@ -2008,6 +2010,7 @@ async function closeEngineSession() {
   sentDecode = null;
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
+  cancelFullView();
   if (decodeTimer) clearTimeout(decodeTimer);
   decodeTimer = null;
   openedDecode = null;
