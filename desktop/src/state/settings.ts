@@ -16,6 +16,11 @@ import { NEW_PHOTO_DEFAULTS, type NewPhotoDefaults } from '@shared/newPhotoDefau
 export type InterfaceScale = 100 | 115 | 130;
 export const INTERFACE_SCALES: InterfaceScale[] = [100, 115, 130];
 export const PREVIEW_EDGES = [3840, 2560, 1920, 1080] as const;
+export type PreviewLongEdge = 'auto' | (typeof PREVIEW_EDGES)[number];
+
+export function resolvePreviewLongEdge(preference: PreviewLongEdge, softwareVulkan: boolean): number {
+  return preference === 'auto' ? (softwareVulkan ? 1080 : 2560) : preference;
+}
 // Declared before loadSettings runs for the module's own store below: a
 // reference to a const not yet initialised throws, and loadSettings's catch
 // would then hand every setting back at its default.
@@ -38,7 +43,7 @@ export function boundedBrowser(width: number): number {
 export interface Settings extends NewPhotoDefaults {
   language: LanguageSetting;
   interfaceScale: InterfaceScale;
-  previewLongEdge: number;
+  previewLongEdge: PreviewLongEdge;
   previewGamut: PreviewGamut;
   sideUnit: SideUnit;
   decoupleEffects: boolean;
@@ -78,7 +83,7 @@ export const SETTINGS_DEFAULT: Settings = {
   ...NEW_PHOTO_DEFAULTS,
   language: 'system',
   interfaceScale: 115,
-  previewLongEdge: 2560,
+  previewLongEdge: 'auto',
   previewGamut: 'auto',
   sideUnit: 'mm',
   decoupleEffects: false,
@@ -119,7 +124,9 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
     }
     const s = out as unknown as Settings;
     if (!INTERFACE_SCALES.includes(s.interfaceScale)) s.interfaceScale = SETTINGS_DEFAULT.interfaceScale;
-    if (!(PREVIEW_EDGES as readonly number[]).includes(s.previewLongEdge)) s.previewLongEdge = SETTINGS_DEFAULT.previewLongEdge;
+    const preview = o.previewLongEdge;
+    s.previewLongEdge = typeof preview === 'number' && PREVIEW_EDGES.includes(preview)
+      ? preview : 'auto';
     if (!(['auto', 'srgb', 'display-p3'] as const).includes(s.previewGamut)) s.previewGamut = SETTINGS_DEFAULT.previewGamut;
     s.leftWidth = boundedPanelWidth('leftWidth', s.leftWidth);
     s.rightWidth = boundedPanelWidth('rightWidth', s.rightWidth);

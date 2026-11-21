@@ -45,7 +45,7 @@ import { type LatitudeReply, type PlacementIssue, type PlacementSide, type Place
   applyLatitudeFit, fitPlacement, latitudeRequest, measuredFromReply, placementIntent, placementLanding, placementWindow } from '@shared/latitude';
 import { HostCallError, host } from '../host/client';
 import { type FileEntry, baseName, dirName, platform } from '../platform';
-import { forgetRecentFolder, rememberFolder, settingsStore } from './settings';
+import { forgetRecentFolder, rememberFolder, resolvePreviewLongEdge, settingsStore, type PreviewLongEdge } from './settings';
 import { newPhotoSidecar } from '@shared/newPhotoDefaults';
 import { frameImages, makeThumbFromPrint, THUMB_EDGE } from './frames';
 import { thumbs } from './thumbs';
@@ -236,6 +236,7 @@ const set = (p: Partial<SessionState>) => sessionStore.setState(p);
 // 400 ms after the last edit and is dropped if anything moved meanwhile.
 
 let sentParams: FilmParams | null = null;
+let sentPreviewEdge: number | null = null;
 /** The parameters of the last print that landed (what FAILED_RENDER_KEEPS_EDITED_CONTROLS = false would put back). */
 let lastPrintedParams: FilmParams | null = null;
 let sentPair: string | null = null;
@@ -437,11 +438,18 @@ function noteError(op: string, e: unknown) {
 }
 
 function previewEdge() {
-  return settingsStore.getState().previewLongEdge;
+  const backend = get().hello?.backend;
+  return resolvePreviewLongEdge(settingsStore.getState().previewLongEdge, backend?.api === 'vulkan' && backend.device_type === 'cpu');
 }
 
-function wireParams(p: FilmParams) {
-  return { ...fullDelta(p, get().gate, get().catalog), preview_long_edge: previewEdge() };
+export function setPreviewLongEdge(preference: PreviewLongEdge) {
+  const before = previewEdge();
+  settingsStore.getState().set('previewLongEdge', preference);
+  if (before !== previewEdge() && get().engineSession && !get().batchExporting) void requestPrint();
+}
+
+function wireParams(p: FilmParams, edge = previewEdge()) {
+  return { ...fullDelta(p, get().gate, get().catalog), preview_long_edge: edge };
 }
 
 export function hostViews(): boolean { return !!get().hello?.methods?.includes('render_view'); }
@@ -641,34 +649,41 @@ export async function requestPrint(): Promise<void> {
       if (s.engineSession !== sid) return;
       if (s.tool === 'crop' && geometryInNegative(s.sidecar.params, s.gate, s.sidecar.noFilm)) return;
       const want = s.sidecar.params;
+      const edge = previewEdge();
       if (s.pair && JSON.stringify(pairSnapshotFor(s.pair, want)) !== sentPair) {
         const snapshot = pairSnapshotFor(s.pair, want);
-        const result = await frameHost(s.selection!).updatePair(sid, snapshot, wireParams(want));
+        const result = await frameHost(s.selection!).updatePair(sid, snapshot, wireParams(want, edge));
         openedPair = snapshot;
         if (get().engineSession !== sid) return;
         sentPair = JSON.stringify(pairWithMeterReadings(snapshot, snapshot, result.pair_info, want.autoExposureMethod));
         adoptPairMeterReadings(snapshot, result.pair_info, want.autoExposureMethod);
         sentParams = want;
+        sentPreviewEdge = edge;
         if (gen !== wantedGen) continue;
         set({ nativeSize: { width: result.width, height: result.height }, pairInfo: result.pair_info ?? null, metadata: result.metadata });
         lastOriginalKey = null;
         void refreshOriginal();
       }
-      const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog) : { delta: wireParams(want), layers: new Set(['shoot']) };
-      const pre = Object.keys(d.delta).length ? d.delta as Record<string, unknown> : null;
-      const reprint = d.layers.size === 1 && d.layers.has('print');
+      const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog) : { delta: wireParams(want, edge), layers: new Set(['shoot']) };
+      const previewChanged = sentPreviewEdge !== edge;
+      const delta = previewChanged ? { ...d.delta, preview_long_edge: edge } : d.delta;
+      const pre = Object.keys(delta).length ? delta as Record<string, unknown> : null;
+      const reprint = !previewChanged && d.layers.size === 1 && d.layers.has('print');
       let r: RenderReply;
       try {
         r = await renderForView(sid, 'live', gen, reprint, pre, jobWords(s, d, reprint));
       } catch (e) {
-        // Folded into a newer edit (or cancelled under it): go round with the newest edit.
-        if (e instanceof JobEnded && e.cancelled) { if (gen !== wantedGen) continue; return; }
         // The edit's set_params may have landed without its render: send everything next time.
         if (pre) sentParams = null;
+        // Folded into a newer edit (or cancelled under it): go round with the newest edit.
+        if (e instanceof JobEnded && e.cancelled) { if (gen !== wantedGen) continue; return; }
         if (!FAILED_RENDER_KEEPS_EDITED_CONTROLS && lastPrintedParams) set({ sidecar: { ...get().sidecar, params: lastPrintedParams } });
         throw e;
       }
-      if (pre) sentParams = want;
+      if (pre) {
+        sentParams = want;
+        sentPreviewEdge = edge;
+      }
       lastPrintedParams = want;
       if (get().engineSession !== sid) return;
       if (gen === wantedGen) {
@@ -2303,16 +2318,17 @@ async function develop(path: string, gen: number) {
     // The frame opens in the engine's editing session (WIRE.md): the page names the frame, the engine
     // owns the session, and the next canvas job from the same source runs on it.
     const frame = frameHost(path);
+    const openingEdge = previewEdge();
     let opened: Record<string, unknown> | null = decode ? decode as unknown as Record<string, unknown> : null;
     try {
       if (openingPair) {
         if (!get().hello?.methods?.includes('open_pair')) throw new Error(tz('This engine does not support half-frame pairs.', '此引擎不支持半格拼接。'));
-        r = await frame.openPair(path, wireParams(params), openingPair);
-      } else r = await frame.open(path, wireParams(params), decode);
+        r = await frame.openPair(path, wireParams(params, openingEdge), openingPair);
+      } else r = await frame.open(path, wireParams(params, openingEdge), decode);
     } catch (e) {
       // A host without R2 refuses the decode key: open with the camera's own.
       if (!(decode && e instanceof HostCallError && e.code === 'unsupported')) throw e;
-      r = await frame.open(path, wireParams(params));
+      r = await frame.open(path, wireParams(params, openingEdge));
       opened = null;
     }
     // Superseded by another frame: its open closes this session in the engine.
@@ -2320,6 +2336,7 @@ async function develop(path: string, gen: number) {
     openedDecode = opened;
     openedPair = openingPair;
     sentParams = params;
+    sentPreviewEdge = openingEdge;
     sentPair = openingPair ? JSON.stringify(pairWithMeterReadings(openingPair, openingPair, r.pair_info, params.autoExposureMethod)) : null;
     if (openingPair) adoptPairMeterReadings(openingPair, r.pair_info, params.autoExposureMethod);
     sentDecode = JSON.stringify(decode);

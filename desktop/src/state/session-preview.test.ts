@@ -40,6 +40,23 @@ beforeEach(async () => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('processed preview scheduling', () => {
+  it.each([['cpu', 1080], ['integrated', 2560]] as const)('chooses the %s device preview and keeps a manual choice', async (device_type, edge) => {
+    session.sessionStore.setState({ nativeSize: { width: 6000, height: 4000 },
+      hello: { methods: ['render_view'], backend: { api: 'vulkan', device_type } } as HelloResult });
+    await session.requestPrint();
+    expect(fake.setParams).toHaveBeenLastCalledWith('s1', expect.objectContaining({ preview_long_edge: edge }));
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({ long_edge: edge }));
+
+    session.setPreviewLongEdge(1920);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.setParams).toHaveBeenLastCalledWith('s1', { preview_long_edge: 1920 });
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({ long_edge: 1920 }));
+
+    session.setPreviewLongEdge('auto');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.setParams).toHaveBeenLastCalledWith('s1', { preview_long_edge: edge });
+  });
+
   it('a grade edit requests a cached view without resending film parameters', async () => {
     await session.requestPrint();
     fake.setParams.mockClear();

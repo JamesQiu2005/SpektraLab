@@ -8,12 +8,11 @@ import { PillMenu, ToggleRow } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { hostMessage } from '../host/messages';
 import { host } from '../host/client';
-import { frameHost } from '../scheduler/frame';
 import { platform, type AppPaths } from '../platform';
-import { recomputeFilmFormat, requestPrint, setPages, useSession, sessionStore } from '../state/session';
-import { INTERFACE_SCALES, PREVIEW_EDGES, settingsStore, useSettings, SETTINGS_DEFAULT } from '../state/settings';
+import { recomputeFilmFormat, setPages, useSession, sessionStore } from '../state/session';
+import { INTERFACE_SCALES, settingsStore, useSettings, SETTINGS_DEFAULT } from '../state/settings';
 import { featureGate } from '@shared/params';
-import { AgentsSettings, MemorySettings, UpdateSettings } from './SettingsPages';
+import { AgentsSettings, MemorySettings, PreviewResolutionSettings, UpdateSettings } from './SettingsPages';
 import { diagnosticReport } from './diagnosticReport';
 import { DiagnosticSettings } from './DiagnosticSettings';
 import { NewPhotoDefaultsSettings } from './NewPhotoDefaultsSettings';
@@ -115,17 +114,7 @@ export function SettingsDialog() {
           <>
             <div className="settings-group">
               <h3>{tz('Preview', '预览')}</h3>
-              <PillMenu
-                label={tz('Preview', '预览')}
-                value={st.previewLongEdge}
-                options={PREVIEW_EDGES.map((e) => ({ value: e, label: `${e} px` }))}
-                onChange={(v) => {
-                  set('previewLongEdge', v);
-                  // The live tier's size is a session parameter: send it, render.
-                  const { engineSession: sid, selection } = sessionStore.getState();
-                  if (sid && selection) void frameHost(selection).setParams(sid, { preview_long_edge: v }).then(() => requestPrint());
-                }}
-              />
+              <PreviewResolutionSettings />
               <div className="caption">
                 {tz(
                   "The resolution every interactive edit renders at. The frame's own resolution is rendered separately once an edit settles, so this trades responsiveness while dragging against nothing in the finished picture.",

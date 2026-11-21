@@ -17,6 +17,7 @@ import { setPages, useSession } from '../state/session';
 import { platform, type AppPaths } from '../platform';
 import { checkWindowsUpdate } from '../windows/updateCheck';
 import { DiagnosticSettings } from '../windows/DiagnosticSettings';
+import { PreviewResolutionSettings } from '../windows/SettingsPages';
 import { NewPhotoDefaultsSettings } from '../windows/NewPhotoDefaultsSettings';
 import { DEFAULT_RECIPES, decodeRecipes, recipeSummary, type ExportRecipe } from '../export/recipes';
 import { scheduler } from '../scheduler';
@@ -199,6 +200,9 @@ function Rendering() {
   const st = useSettings((s) => s);
   const set = settingsStore.getState().set;
   return <>
+    <Group title={tz('PREVIEW', '预览')}>
+      <div className="v2-set-host"><PreviewResolutionSettings /></div>
+    </Group>
     <Group title={tz('FILM EFFECTS', '胶片效果')}>
       <div className="v2-set-host">
         <ToggleRow label={tz('Crop re-maps the frame', '裁剪重新映射画幅')} on={st.recalculateEffectsAfterCrop} onChange={(v) => set('recalculateEffectsAfterCrop', v)} />
