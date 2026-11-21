@@ -46,15 +46,32 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed render host failed hello' }
 
     $helper = Join-Path $install 'spklib-host.exe'
-    $pin = Join-Path $repo 'vendor/spklib/windows-x64/spklib-host.exe.sha256'
+    $vendor = Join-Path $repo 'vendor/spklib/windows-x64'
+    $pin = Join-Path $vendor 'spklib-host.exe.sha256'
     $expected = ((Get-Content -LiteralPath $pin -Raw).Trim() -split '\s+')[0]
     if ((Get-FileHash -LiteralPath $helper).Hash -ne $expected) { throw 'Installed library helper hash mismatch' }
+
+    $versionPin = Join-Path $vendor 'VERSION'
+    $installedVersion = Join-Path $install 'host/licenses/spklib-VERSION.txt'
+    if ((Get-FileHash -LiteralPath $installedVersion).Hash -ne (Get-FileHash -LiteralPath $versionPin).Hash) {
+        throw 'Installed library helper version notice mismatch'
+    }
+    $declared = [regex]::Match((Get-Content -LiteralPath $versionPin -Raw),
+        '(?m)^version[ \t]+(\S+)[ \t]+\(abi (\d+), schema (\d+)\)\r?$')
+    if (!$declared.Success) { throw 'Could not read the pinned library helper version' }
+
     $requests = '{"id":1,"method":"sdk.version","params":{}}', '{"id":2,"method":"host.shutdown","params":{}}'
     $replies = $requests | & $helper --store (Join-Path $run 'Test library')
     if ($LASTEXITCODE -ne 0) { throw "Installed library helper exited $LASTEXITCODE" }
-    $version = $replies | ForEach-Object { ConvertFrom-Json -InputObject $_ } | Where-Object id -eq 1
-    if ($version.result.abi -ne 1 -or $version.result.schema -ne 3) { throw 'Unexpected library protocol' }
-    Write-Host "Installed library helper ABI $($version.result.abi), schema $($version.result.schema)"
+    $version = @($replies | ForEach-Object { ConvertFrom-Json -InputObject $_ } | Where-Object id -eq 1)
+    if ($version.Count -ne 1 -or $version[0].result.version -cne $declared.Groups[1].Value -or
+        $version[0].result.abi -ne [int]$declared.Groups[2].Value -or
+        $version[0].result.schema -ne [int]$declared.Groups[3].Value) {
+        throw 'Installed library helper identity or protocol differs from the version pin'
+    }
+    $identity = $version[0].result
+    if ($identity.abi -ne 1 -or $identity.schema -ne 3) { throw 'Unexpected library protocol' }
+    Write-Host "Installed library helper $($identity.version), ABI $($identity.abi), schema $($identity.schema)"
 
     $runtimeNotices = Join-Path $install 'host/licenses/windows-v2-runtime-notices.zip'
     $runtimePin = Get-Content -LiteralPath (Join-Path $repo 'license/windows-v2-runtime-notices.json') -Raw | ConvertFrom-Json
