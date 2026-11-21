@@ -114,7 +114,14 @@ Linux エディターの Android への移植で、`android` ブランチにあ�
 
 ## インストール
 
-公開リリースはまだありません。ソースからビルドしてください（下記）。ビルドで `.deb` と snap ができます。
+[最新リリース](https://github.com/jegly/Develop/releases/latest)から `.deb` か snap をダウンロードし、どちらかをインストールします：
+
+```sh
+sudo apt install ./Develop_1.0.0_amd64.deb
+sudo snap install --dangerous ./develop_1.0.0_amd64.snap
+```
+
+snap はファイルからインストールするため（Snap Store からではないため）`--dangerous` が必要です。ソースからビルドすることもできます（下記）。
 
 Develop には Vulkan ドライバーのある GPU が必要です。Ubuntu 26.04 と Intel グラフィックス（Mesa）で開発されています。`.deb` は `libvulkan1`、`liblensfun1`、
 `liblensfun-data-v1`、`fonts-urw-base35`、`fonts-liberation-sans-narrow`、`fonts-dejavu-core` を導入します。snap はそれ自身のコピーを持っています。

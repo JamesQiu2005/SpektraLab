@@ -130,8 +130,14 @@ Touch. Sie ist noch nicht einsatzbereit.
 
 ## Installation
 
-Es gibt noch kein veröffentlichtes Release. Baue es aus dem Quellcode (siehe unten); der Build erzeugt ein `.deb` und einen
-Snap.
+Lade das `.deb` oder den Snap aus dem [neuesten Release](https://github.com/jegly/Develop/releases/latest) herunter und installiere eins davon:
+
+```sh
+sudo apt install ./Develop_1.0.0_amd64.deb
+sudo snap install --dangerous ./develop_1.0.0_amd64.snap
+```
+
+Der Snap braucht `--dangerous`, weil er aus einer Datei installiert wird und nicht aus dem Snap Store. Oder baue es aus dem Quellcode (siehe unten).
 
 Develop braucht eine GPU mit Vulkan-Treiber. Entwickelt wurde es unter Ubuntu 26.04 mit Intel-Grafik (Mesa). Das `.deb`
 zieht `libvulkan1`, `liblensfun1`, `liblensfun-data-v1`, `fonts-urw-base35`, `fonts-liberation-sans-narrow` und
