@@ -20,10 +20,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: Windows v2 checks
-    runs-on: windows-2022
-    timeout-minutes: 25
+  scope:
+    name: Classify Windows changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.scope.outputs.docs-only }}
+      native-engine: ${{ steps.scope.outputs.native-engine }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,59 +36,66 @@ jobs:
         shell: pwsh
         env:
           COMPARE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PACKAGE_BUILD: ${{ inputs.package-build }}
         run: |
           $docsOnly = $false
+          $nativeEngine = $true
           $base = $env:COMPARE_BASE
-          # New branches and unavailable comparison objects get the full gate.
-          if ($env:GITHUB_EVENT_NAME -in @('push', 'pull_request') -and
+          # Package builds and uncertain comparisons run every check.
+          if ($env:PACKAGE_BUILD -ne 'true' -and
+              $env:GITHUB_EVENT_NAME -in @('push', 'pull_request') -and
               $base -cmatch '^[0-9a-f]{40}$' -and $base -cnotmatch '^0+$') {
             $PSNativeCommandUseErrorActionPreference = $false
             git cat-file -t $base 2>$null | Out-Null
             if ($LASTEXITCODE -ne 0) { git fetch --quiet --no-tags --depth=1 origin $base }
             if ($LASTEXITCODE -eq 0) {
-              # Report both paths of a rename so moving code to docs still runs the gate.
+              # Examine both paths of a rename, including deletions of native inputs.
               $files = @(git -c core.quotePath=false diff --no-renames --name-only $base HEAD --)
-              $docsOnly = $LASTEXITCODE -eq 0 -and $files.Count -gt 0 -and
-                  @($files | Where-Object { $_ -cnotmatch '^(README(\.zh-CN)?|desktop/docs/.+)\.md$' }).Count -eq 0
+              if ($LASTEXITCODE -eq 0 -and $files.Count -gt 0) {
+                $docsOnly = @($files | Where-Object { $_ -cnotmatch '^(README(\.zh-CN)?|desktop/docs/.+)\.md$' }).Count -eq 0
+                $nativePattern = '^(engine/|CMakeLists\.txt$|\.github/(workflows/(desktop|windows-v2)\.yml|scripts/windows-engine-deps\.ps1)$)'
+                $nativeEngine = @($files | Where-Object { $_ -cmatch $nativePattern }).Count -gt 0
+              }
             }
           }
           "docs-only=$($docsOnly.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          if ($docsOnly) { 'Documentation-only change. Frontend and Rust checks skipped.' }
+          "native-engine=$($nativeEngine.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  check:
+    name: Windows v2 checks
+    needs: scope
+    if: needs.scope.outputs.docs-only != 'true'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: steps.scope.outputs.docs-only != 'true'
         with:
           node-version: '24.19.0'
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - name: Test Windows package metadata
-        if: steps.scope.outputs.docs-only != 'true'
         run: node --test .github/scripts/windows-build-source.test.mjs .github/scripts/windows-release.test.mjs
       - name: Install frontend dependencies
-        if: steps.scope.outputs.docs-only != 'true'
         working-directory: desktop
         run: npm ci
       - name: Check frontend
-        if: steps.scope.outputs.docs-only != 'true'
         working-directory: desktop
         run: npm run check
       - name: Build frontend
-        if: steps.scope.outputs.docs-only != 'true' && !inputs.package-build
+        if: ${{ !inputs.package-build }}
         working-directory: desktop
         run: npm run build:web
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.scope.outputs.docs-only != 'true'
         with:
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
-        if: steps.scope.outputs.docs-only != 'true'
         with:
           workspaces: desktop/src-tauri
       - name: Test scheduler wire, threading and scripted host
-        if: steps.scope.outputs.docs-only != 'true'
         working-directory: desktop/src-tauri
         run: cargo test --locked --target x86_64-pc-windows-msvc -p spk-scheduler --test wire --test facade_threads --test host_engine
       - name: Test Windows desktop and library units
-        if: steps.scope.outputs.docs-only != 'true'
         working-directory: desktop/src-tauri
         shell: pwsh
         run: |
@@ -94,3 +104,88 @@ jobs:
           if (@($results -match '^test result: ok\. [1-9][0-9]* passed;').Count -ne 2) {
             throw 'Both Windows desktop and library unit test suites must run'
           }
+
+  engine-windows-msvc:
+    needs: scope
+    if: needs.scope.outputs.native-engine == 'true'
+    name: Engine (Windows x64, MSVC, CTest)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: engine-deps-windows-msvc-${{ runner.arch }}-${{ hashFiles('.github/scripts/windows-engine-deps.ps1', 'engine/setup-libraw.ps1', 'engine/setup-libraw.sh', 'engine/third_party/libraw-pin/**') }}
+
+      # CMake 3.31.6 rather than whatever the image defaults to: 4.x refuses a
+      # cmake_minimum_required without a version range, which is what this tree
+      # writes. Vulkan-Headers and glslang are the pins engine/setup-deps.sh
+      # uses, here by commit and by SHA-256; the loader is never linked, volk
+      # opens vulkan-1.dll at run time.
+      - name: Pinned CMake, Vulkan headers, glslang, LibRaw
+        shell: pwsh
+        run: |
+          ./.github/scripts/windows-engine-deps.ps1 -DependencyDirectory (Join-Path $env:GITHUB_WORKSPACE 'build/deps') -GitHubEnvironmentFile $env:GITHUB_ENV
+
+      - name: Configure, build, CTest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmake = $env:SPK_CMAKE
+          $ctest = $env:SPK_CTEST
+          $ninja = (Get-Command ninja -ErrorAction SilentlyContinue).Source
+          if (-not $ninja) { throw 'ninja is not on PATH' }
+          & $cmake --version | Select-Object -First 1
+          "ninja: $ninja"
+
+          # /utf-8: the tree carries UTF-8 sources and MSVC otherwise reads them
+          # in the ANSI code page. SPEKTRALAB_REQUIRE_VULKAN=ON makes a missing
+          # toolchain a configure error instead of a silent portable-core build.
+          $configure = @(
+              '-S', $env:GITHUB_WORKSPACE,
+              '-B', 'build/root-msvc',
+              '-G', 'Ninja',
+              "-DCMAKE_MAKE_PROGRAM=$ninja",
+              '-DCMAKE_BUILD_TYPE=Release',
+              "-DSPEKTRALAB_VULKAN_HEADERS=$env:SPK_VULKAN_HEADERS",
+              "-DSPEKTRALAB_GLSLANG=$env:SPK_GLSLANG",
+              "-DSPEKTRALAB_LIBRAW_SOURCE=$env:SPK_LIBRAW_SOURCE",
+              '-DSPEKTRALAB_REQUIRE_VULKAN=ON',
+              '-DSPEKTRALAB_LIBRAW_OPENMP=OFF',
+              '-DSPEKTRALAB_BUILD_NATIVE_RAW=ON',
+              '-DSPEKTRALAB_BUILD_HOST=OFF',
+              '-DBUILD_TESTING=ON',
+              '-DCMAKE_C_FLAGS=/utf-8',
+              '-DCMAKE_CXX_FLAGS=/utf-8'
+          )
+          & $cmake @configure
+          if ($LASTEXITCODE) { throw "configure exited $LASTEXITCODE" }
+
+          & $cmake --build build/root-msvc --parallel
+          if ($LASTEXITCODE) { throw "build exited $LASTEXITCODE" }
+
+          # ctest reading zero tests would pass silently; the tree has 34.
+          $listing = & $ctest --test-dir build/root-msvc -N
+          $listing | Select-Object -Last 3
+          $total = [int]([regex]::Match(($listing -join "`n"), 'Total Tests: (\d+)').Groups[1].Value)
+          if ($total -lt 30) { throw "ctest registered $total tests; the MSVC configuration lost most of them" }
+
+          # The hosted image has no Vulkan loader and no ICD, so every suite that
+          # creates a device or an engine stops on "no Vulkan loader found".
+          # gpu_vulkan_smoke.cpp:537 turns that into return 1, and there is no
+          # skip path in these tests. The cross-built Windows host exercises
+          # CPU Vulkan through Wine and lavapipe in engine-windows-cross.
+          $noGpu = '^(spk_vulkan_|spk_math_gate_|spk_windows_(c_abi|feature_boundaries)$)'
+          $kept = & $ctest --test-dir build/root-msvc -N -E $noGpu
+          $keptTotal = [int]([regex]::Match(($kept -join "`n"), 'Total Tests: (\d+)').Groups[1].Value)
+          if ($keptTotal -lt 10) { throw "the exclusion left $keptTotal tests; expected at least 10" }
+
+          & $ctest --test-dir build/root-msvc --output-on-failure -E $noGpu
+          if ($LASTEXITCODE) { throw "ctest exited $LASTEXITCODE" }

@@ -87,100 +87,16 @@ jobs:
           path: host-win-x64.tgz
           retention-days: 14
 
-  engine-windows-msvc:
-    if: github.ref == 'refs/heads/Windows_Linux_v2'
-    name: Engine (Windows x64, MSVC, CTest)
-    runs-on: windows-2022
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - uses: actions/cache@v4
-        with:
-          path: build/deps
-          key: engine-deps-windows-msvc-${{ runner.arch }}-${{ hashFiles('.github/scripts/windows-engine-deps.ps1', 'engine/setup-libraw.ps1', 'engine/setup-libraw.sh', 'engine/third_party/libraw-pin/**') }}
-
-      # CMake 3.31.6 rather than whatever the image defaults to: 4.x refuses a
-      # cmake_minimum_required without a version range, which is what this tree
-      # writes. Vulkan-Headers and glslang are the pins engine/setup-deps.sh
-      # uses, here by commit and by SHA-256; the loader is never linked, volk
-      # opens vulkan-1.dll at run time.
-      - name: Pinned CMake, Vulkan headers, glslang, LibRaw
-        shell: pwsh
-        run: |
-          ./.github/scripts/windows-engine-deps.ps1 -DependencyDirectory (Join-Path $env:GITHUB_WORKSPACE 'build/deps') -GitHubEnvironmentFile $env:GITHUB_ENV
-
-      - name: Configure, build, CTest
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $cmake = $env:SPK_CMAKE
-          $ctest = $env:SPK_CTEST
-          $ninja = (Get-Command ninja -ErrorAction SilentlyContinue).Source
-          if (-not $ninja) { throw 'ninja is not on PATH' }
-          & $cmake --version | Select-Object -First 1
-          "ninja: $ninja"
-
-          # /utf-8: the tree carries UTF-8 sources and MSVC otherwise reads them
-          # in the ANSI code page. SPEKTRALAB_REQUIRE_VULKAN=ON makes a missing
-          # toolchain a configure error instead of a silent portable-core build.
-          $configure = @(
-              '-S', $env:GITHUB_WORKSPACE,
-              '-B', 'build/root-msvc',
-              '-G', 'Ninja',
-              "-DCMAKE_MAKE_PROGRAM=$ninja",
-              '-DCMAKE_BUILD_TYPE=Release',
-              "-DSPEKTRALAB_VULKAN_HEADERS=$env:SPK_VULKAN_HEADERS",
-              "-DSPEKTRALAB_GLSLANG=$env:SPK_GLSLANG",
-              "-DSPEKTRALAB_LIBRAW_SOURCE=$env:SPK_LIBRAW_SOURCE",
-              '-DSPEKTRALAB_REQUIRE_VULKAN=ON',
-              '-DSPEKTRALAB_LIBRAW_OPENMP=OFF',
-              '-DSPEKTRALAB_BUILD_NATIVE_RAW=ON',
-              '-DSPEKTRALAB_BUILD_HOST=OFF',
-              '-DBUILD_TESTING=ON',
-              '-DCMAKE_C_FLAGS=/utf-8',
-              '-DCMAKE_CXX_FLAGS=/utf-8'
-          )
-          & $cmake @configure
-          if ($LASTEXITCODE) { throw "configure exited $LASTEXITCODE" }
-
-          & $cmake --build build/root-msvc --parallel
-          if ($LASTEXITCODE) { throw "build exited $LASTEXITCODE" }
-
-          # ctest reading zero tests would pass silently; the tree has 34.
-          $listing = & $ctest --test-dir build/root-msvc -N
-          $listing | Select-Object -Last 3
-          $total = [int]([regex]::Match(($listing -join "`n"), 'Total Tests: (\d+)').Groups[1].Value)
-          if ($total -lt 30) { throw "ctest registered $total tests; the MSVC configuration lost most of them" }
-
-          # The hosted image has no Vulkan loader and no ICD, so every suite that
-          # creates a device or an engine stops on "no Vulkan loader found".
-          # gpu_vulkan_smoke.cpp:537 turns that into return 1, and there is no
-          # skip path in these tests. The cross-built Windows host exercises
-          # CPU Vulkan through Wine and lavapipe in engine-windows-cross.
-          $noGpu = '^(spk_vulkan_|spk_math_gate_|spk_windows_(c_abi|feature_boundaries)$)'
-          $kept = & $ctest --test-dir build/root-msvc -N -E $noGpu
-          $keptTotal = [int]([regex]::Match(($kept -join "`n"), 'Total Tests: (\d+)').Groups[1].Value)
-          if ($keptTotal -lt 10) { throw "the exclusion left $keptTotal tests; expected at least 10" }
-
-          & $ctest --test-dir build/root-msvc --output-on-failure -E $noGpu
-          if ($LASTEXITCODE) { throw "ctest exited $LASTEXITCODE" }
-
   desktop-checks:
     if: github.ref == 'refs/heads/Windows_Linux_v2'
-    name: Windows frontend and scheduler
+    name: Windows desktop and native engine checks
     uses: ./.github/workflows/windows-v2.yml
     with:
       package-build: true
 
   package-windows:
     name: Package (Windows NSIS installer)
-    needs: [engine-windows-cross, engine-windows-msvc, desktop-checks]
+    needs: [engine-windows-cross, desktop-checks]
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
