@@ -1213,3 +1213,24 @@ input {
     display: none;
   }
 }
+
+/* Touch screens (the Android app; a mouse never matches): rows sized for a finger. At the desktop's ~20 px a
+   fingertip covered two rows and the browser sent it to the tappable switch row beside a slider, so Grain
+   Strength (above the Halation switch) and Couplers Strength (above Glare) could not be dragged (2026-11-22). */
+@media (pointer: coarse) {
+  .row {
+    min-height: 40px;
+  }
+  .scrub {
+    height: 36px;
+  }
+  .checkbox {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+  }
+  .icon-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
