@@ -211,8 +211,22 @@ fn app_paths(app: AppHandle, state: State<'_, AppState>) -> Value {
         "home": p.home_dir().map(|d| d.display().to_string()).unwrap_or_default(),
         "pictures": p.picture_dir().map(|d| d.display().to_string()).unwrap_or_default(),
         "os": std::env::consts::OS,
+        // Android: where Import keeps the photographs (PhotoImportPlugin.kt: files/Photos, beside files/engine).
+        "photos": android_photos_dir(),
         "version": app.package_info().version.to_string(),
     })
+}
+
+fn android_photos_dir() -> Option<String> {
+    #[cfg(target_os = "android")]
+    {
+        let engine = std::env::var("DEVELOP_ANDROID_ENGINE").ok()?;
+        Some(PathBuf::from(engine).parent()?.join("Photos").display().to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
 }
 
 /// The app's own origin: `tauri://localhost` on Linux, `http(s)://tauri.localhost` on Windows, and

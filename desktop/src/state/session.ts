@@ -971,7 +971,24 @@ export async function boot() {
   platform().onDrop((paths) => void openPaths(paths));
   const launch = await platform().takeLaunchPaths();
   if (launch.length) await openPaths(launch);
+  else await openAppPhotos();
   window.addEventListener('beforeunload', () => void flushSave());
+}
+
+/**
+ * Android: the photographs imported before are the app's library, listed from the start (the Photos page,
+ * the filmstrip) rather than only after the next Import brought their folder along. Nothing is selected:
+ * the user picks what to edit.
+ */
+async function openAppPhotos() {
+  try {
+    const dir = (await platform().appPaths()).photos;
+    if (!dir) return;
+    const files = await platform().listImages(dir);
+    if (files.length) await setLibrary(dir, files);
+  } catch {
+    // No photographs yet (the folder appears with the first Import).
+  }
 }
 
 /** For tests and the export run. */

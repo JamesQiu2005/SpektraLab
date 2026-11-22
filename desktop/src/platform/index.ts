@@ -21,6 +21,8 @@ export interface AppPaths {
   pictures: string;
   os: string;
   version: string;
+  /** Android: the app's own photographs (everything Import copied in). */
+  photos?: string | null;
 }
 
 export interface Platform {
