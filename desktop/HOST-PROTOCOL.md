@@ -80,7 +80,7 @@ P3 and the browser manages the monitor. It is not export gamut soft-proofing.
 ### Lifecycle
 | method | params | result |
 |---|---|---|
-| `hello` | `{}` | `{protocol: 1, host_version, build_info, backend: {api: "vulkan", available, device_name, math_mode, render_core, error?}, capabilities: <spk_capabilities JSON> \| null, resources_dir, methods: [..]}` |
+| `hello` | `{}` | `{protocol: 1, host_version, build_info, backend: {api: "vulkan", available, device_name, device_type?, math_mode, render_core, error?}, capabilities: <spk_capabilities JSON> \| null, resources_dir, methods: [..]}` |
 | `ping` | `{}` | `{}` |
 | `shutdown` | `{}` | `{}` then exits 0 |
 | `params_schema` | `{}` | `<spk_params_schema JSON>` |
@@ -136,6 +136,7 @@ What a file is decoded *to* (the engine develops linear ProPhoto RGB, top row fi
 | `render_view` | `{session, tier, adjustments, geometry, display: "srgb"\|"display-p3", format?: "rgba8"\|"rgba16", long_edge?: 0, generation, progress_id?}` | `{image, tier, print_cached, generation, timings_ms: {print, post, readback, total}}` + requested display pixels |
 | `scene_latitude` | `{session, request: {...}}` | `<spk_scene_latitude JSON>` |
 | `overscan_geometry` | `{session}` | `<spk_overscan_geometry JSON>` |
+| `render_stock_card` | `{session, params?, pair?, source_geometry?, geometry?, adjustments?, display?, progress_id?}` | `{image, timings_ms, negative_cached}` + RGBA8 pixels. Renders a candidate from the resident single frame or composed pair at a dedicated 192 px tier. A supplied pair snapshot must use the resident source pixels. Its params, grain and output caches are private to the card. |
 | `preview_stock_lut` | `{session, print_stock, tier?: "preview", format, display?}` | `{image, lut: <spk_preview_stock_lut JSON>}` + pixels; the LUT's own output space (catalog `output_color_space`) is the source of the transform |
 | `cancel` | `{session, progress_id}` | `{was_running}` — handled on the reader thread: the request carrying that `progress_id` is cancelled if running (`spk_cancel`) or refused with `cancelled` when it reaches the worker |
 | `progress` | `{session, engine_progress_id?}` | `<spk_progress JSON>` of the session's last render (queued behind the worker, so it reports a finished render, not one in flight; live progress is the `progress` event) |
@@ -247,7 +248,10 @@ exports without a preview, and releases it on success, cancellation or error.
 When a supplied session has different effective decode options from the
 snapshot, the host privately reopens its source so a pending white-balance edit
 cannot be omitted. The editor session is preserved. A matching session reuses
-its full print or negative cache.
+its full print or negative cache. Live and preview renders advance their own
+grain and glare sequences, so the first full render of the same snapshot
+produces the same pixels regardless of which lower tiers ran first. With
+stochastic effects enabled, an explicit full re-render draws a new realization.
 
 Processing order for both new methods is: encoded ProPhoto RGBA16 print on GPU
 -> float32 ProPhoto encoded-domain post adjustments (middle grey 0.3857)
@@ -448,14 +452,20 @@ Neither TIFF option changes the file-resolution soft proof's pixel processing.
 
 ### Desktop settings, diagnostics and optional agents (F17/F18)
 
-The Memory settings page reads the existing `memory_report` ledger serially,
-at most once per two seconds while visible. It reports engine GPU allocations,
-decoded sources, negative/print caches, reusable buffers, and separately the
-bytes suspended to temporary files. These are not process RSS, total driver
-VRAM or an operating-system memory limit. No duplicate sampler is presented as
-the engine's ledger. Windows currently uses serial GPU/RAW work, bounded transfer
-buffers and idle reclamation; Mac's unified-memory reserve/working-set override
-is not exposed as a fictitious Windows cap.
+The Engine settings page reads `memory_report` serially, at most once per two
+seconds while visible, to show the driver estimates for device-local heaps.
+The engine ledger covers GPU allocations, decoded sources,
+negative/print caches and reusable buffers. Suspended bytes on disk are separate.
+
+On Vulkan, `gpu_memory.heaps` lists each heap in driver index order with
+`size_bytes` (capacity) and `device_local` (the Vulkan heap flag). Rows with
+a valid `VK_EXT_memory_budget` reading include both `budget_bytes` (the
+driver's current per-process guideline) and `usage_bytes` (the driver's
+estimate for the host process). Drivers without these readings still report
+capacity and locality. A device-local heap may be shared memory. `hello`
+adds `backend.device_type` for an available GPU (`discrete`, `integrated`,
+`virtual`, `cpu` or `other`). Protocol 1 clients can ignore these fields.
+Windows scheduling and the engine ledger continue to use their existing rules.
 
 The Tauri `frame_cache_status`, `frame_cache_configure({capBytes})` and
 `frame_cache_clear` commands control only checked display-cache entries. The UI

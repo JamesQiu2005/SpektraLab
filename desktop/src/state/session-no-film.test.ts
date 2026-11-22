@@ -7,7 +7,7 @@ import { StockCatalog } from '@shared/stocks';
 import type * as SessionModule from './session';
 import type * as FramesModule from './frames';
 import type { DisplayCacheDescriptor } from './displayCache';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({ render: vi.fn(), load: vi.fn(), save: vi.fn(), key: vi.fn(),
   thumbnail: vi.fn(), invalidate: vi.fn(), thumb: vi.fn(), legacy: vi.fn() }));

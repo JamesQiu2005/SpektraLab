@@ -1,20 +1,24 @@
-// copy-assets.mjs — the macOS app's data the interface reads, copied into
+// copy-assets.mjs — tracked Windows assets copied into
 // `public/assets/` (generated, gitignored) before `vite` runs:
 //   StockCatalog.json, the film covers, the licence texts.
-// One source of truth: edit them under modern_UI/, not here.
 
-import { cpSync, mkdirSync, readdirSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const app = resolve(here, '../../modern_UI/Spektrafilm/Spektrafilm/Resources');
+const app = resolve(here, '../assets');
+const licenses = resolve(here, '../../license/profiles');
 const out = resolve(here, '../public/assets');
 mkdirSync(out, { recursive: true });
 cpSync(resolve(app, 'StockCatalog.json'), resolve(out, 'StockCatalog.json'));
 cpSync(resolve(app, 'FilmCovers'), resolve(out, 'FilmCovers'), { recursive: true });
-mkdirSync(resolve(out, 'licenses'), { recursive: true });
-for (const f of readdirSync(resolve(app, 'Licenses'))) {
-  if (f.endsWith('.txt')) cpSync(resolve(app, 'Licenses', f), resolve(out, 'licenses', f));
+const licenseOut = resolve(out, 'licenses');
+mkdirSync(licenseOut, { recursive: true });
+const licenseFiles = new Set(readdirSync(licenses).filter((file) => file.endsWith('.txt')));
+for (const entry of readdirSync(licenseOut, { withFileTypes: true })) {
+  if (entry.isFile() && entry.name.endsWith('.txt') && !licenseFiles.has(entry.name))
+    unlinkSync(resolve(licenseOut, entry.name));
 }
+for (const file of licenseFiles) cpSync(resolve(licenses, file), resolve(licenseOut, file));
 console.log('assets: copied to public/assets');

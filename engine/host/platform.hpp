@@ -5,6 +5,7 @@
 // code page, so a photograph in a folder named in Chinese would not open;
 // `utf8_path` goes through char8_t, which the standard defines as UTF-8, and
 // every file below is opened through that path (wide Win32 APIs underneath).
+// Long absolute paths use the extended Win32 spelling internally.
 #pragma once
 
 #include <cstdint>

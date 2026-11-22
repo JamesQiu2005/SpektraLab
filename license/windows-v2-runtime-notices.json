@@ -1,0 +1,9 @@
+{
+  "baseline_version": "2.0.0-alpha.1",
+  "archive_sha256": "edf393ccab6f07373541c37fd65f15a668daf0599a5be3e243aacba94d8f77d4",
+  "locks": {
+    "desktop/package-lock.json": "d39a587f325f3d758f025a6017cea53e5e9520dd0be15e18d8f3920aff297770",
+    "desktop/src-tauri/Cargo.lock": "1efb966ea3b4231a585758951e77d6e0bce4655360afb3996c89e06d4d6635ea"
+  },
+  "note": "Windows x64: runtime dependency union for GNU and MSVC, and non-development npm dependencies installed from the lockfile on Windows. Included notices and upstream supplement provenance are listed in licenses/WINDOWS-V2-RUNTIME.json."
+}

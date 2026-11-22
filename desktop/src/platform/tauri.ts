@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { listen, TauriEvent } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
@@ -68,6 +68,11 @@ export function tauriPlatform(): Platform {
         if (e.payload.type === 'drop') cb(e.payload.paths);
       });
       return () => void un.then((f) => f());
+    },
+    onWindowBlur(cb) {
+      // WebView2 can keep DOM focus when the native window loses focus.
+      const unlisten = getCurrentWindow().listen(TauriEvent.WINDOW_BLUR, cb);
+      return () => void unlisten.then((f) => f());
     },
     setTitle: (title) => getCurrentWindow().setTitle(title),
     log(level, msg) {

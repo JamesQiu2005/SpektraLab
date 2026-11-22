@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 import { newSidecar } from '@shared/sidecar';
 import { ALL_FEATURES } from '@shared/params';
 import { StockCatalog } from '@shared/stocks';

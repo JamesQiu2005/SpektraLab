@@ -57,7 +57,7 @@ def main():
     p.add_argument('--generator')
     p.add_argument('--cc');p.add_argument('--cxx');p.add_argument('--make')
     p.add_argument('--toolchain',type=Path)
-    p.add_argument('--meson-cross-file',type=Path)
+    p.add_argument('--meson-cross-file', type=Path, action='append', default=[])
     p.add_argument('--jobs',type=int,default=4)
     a=p.parse_args();here=Path(__file__).resolve().parent
     root=a.sources.resolve();root.mkdir(parents=True,exist_ok=True)
@@ -89,7 +89,8 @@ def main():
         '-Dnls=disabled','-Dintrospection=disabled','-Dman-pages=disabled','-Ddocumentation=false',
         '-Dsysprof=disabled','-Dlibelf=disabled','-Dlibmount=disabled','-Dselinux=disabled']
     if (gb/'meson-private/coredata.dat').exists():configure.append('--reconfigure')
-    if a.meson_cross_file:configure+=['--cross-file',str(a.meson_cross_file.resolve())]
+    for cross_file in a.meson_cross_file:
+        configure += ['--cross-file', str(cross_file.resolve())]
     run(configure,env=env)
     run(meson+['compile','-C',str(gb),'-j',str(max(1,a.jobs))],env=env)
     run(meson+['install','-C',str(gb),'--no-rebuild'],env=env)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 import schema from '../../mock-host/schema-fields.json';
 import { StockCatalog } from './stocks';
 import { ALL_FEATURES, EFFECTS_DEFAULT, FILM_PARAMS_DEFAULT, decodeFilmParams, wire } from './params';

@@ -16,6 +16,7 @@ import { escapeUi, openMenu, setUi, uiStore } from './ui';
 import { sessionStore, setOriginal, setPages, setTool, zoomTo, zoomToFit } from '../state/session';
 import { libraryStore, setLibrary, setRating } from '../library/store';
 import { stepRow } from '../library/browser';
+import { platform } from '../platform';
 
 const TEXT_KEYS = ['ctrl+a', 'ctrl+c', 'ctrl+v', 'ctrl+x', 'ctrl+z', 'ctrl+shift+z', 'ctrl+y', 'ctrl+shift+v'];
 
@@ -25,20 +26,35 @@ export function installV2Keys(): () => void {
   let held: string | null = null;
   const onDown = (e: KeyboardEvent) => {
     altAlone = e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey;
-    if (isTypingKey(e)) return;
     const c = chord(e);
-    const s = sessionStore.getState();
+    // SpektraLab exports photos; WebView2's Print would print the editor itself.
+    if (c === 'ctrl+p') { e.preventDefault(); return; }
     const u = uiStore.getState();
+    // Alt+letter opens the matching menu directly, including from a text field.
+    const access = /^alt\+([a-z])$/.exec(c)?.[1];
+    if (access) {
+      const menu = menuBar().find((item) => item.access.toLowerCase() === access);
+      if (menu) {
+        e.preventDefault();
+        setUi({ accessKeys: false });
+        openMenu(menu.id);
+        return;
+      }
+    }
+    // F5 belongs to the Library, including when its search field has focus.
+    if (c === 'f5') e.preventDefault();
+    else if (isTypingKey(e)) return;
     // A field keeps its own editing chords (Ctrl+Shift+V is "paste as plain text" there).
     if (isEditable(e.target) && TEXT_KEYS.includes(c)) return;
-    // The access keys (README §6.1): after Alt or F10, a menu's letter opens it.
+    // After Alt or F10, a bare menu letter also opens it.
     if (u.accessKeys && /^[a-z]$/.test(c)) {
-      const m = menuBar().find((x) => x.access.toLowerCase() === c);
+      const menu = menuBar().find((item) => item.access.toLowerCase() === c);
       e.preventDefault();
       setUi({ accessKeys: false });
-      if (m) openMenu(m.id);
+      if (menu) openMenu(menu.id);
       return;
     }
+    const s = sessionStore.getState();
     if (c === 'escape') {
       e.preventDefault();
       if (escapeUi()) return;
@@ -70,14 +86,30 @@ export function installV2Keys(): () => void {
     const a = v1[c];
     if (a && !['ctrl+q', 'ctrl+j', 'ctrl+alt+r'].includes(c)) { e.preventDefault(); a(); }
   };
+  const releaseOriginal = () => {
+    if (!held) return;
+    held = null;
+    if (!uiStore.getState().originalLatched) setOriginal(false);
+  };
   const onUp = (e: KeyboardEvent) => {
     if (e.key === 'Alt' && altAlone) { e.preventDefault(); setUi({ accessKeys: !uiStore.getState().accessKeys }); }
     altAlone = false;
-    if (held && (e.key === ' ' || e.key === '\\')) { held = null; if (!uiStore.getState().originalLatched) setOriginal(false); }
+    if (e.key === ' ' || e.key === '\\') releaseOriginal();
+  };
+  const onBlur = () => {
+    // The next focused window can receive the keyup.
+    altAlone = false;
+    releaseOriginal();
   };
   window.addEventListener('keydown', onDown);
   window.addEventListener('keyup', onUp);
-  return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
+  const unlistenBlur = platform().onWindowBlur(onBlur);
+  return () => {
+    window.removeEventListener('keydown', onDown);
+    window.removeEventListener('keyup', onUp);
+    unlistenBlur();
+    releaseOriginal();
+  };
 }
 
 export { setPages };

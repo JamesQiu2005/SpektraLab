@@ -71,7 +71,7 @@ export function browserPlatform(): Platform {
       const q = new URLSearchParams(location.search).get('open');
       return q === null ? [] : [q || ROLL];
     },
-    pathExists: async () => false,
+    pathExists: async (path) => entries(ROLL).some((entry) => entry.path === path),
     ensureDir: async () => {},
     appPaths: async (): Promise<AppPaths> => ({
       appData: '(browser)',
@@ -96,6 +96,10 @@ export function browserPlatform(): Platform {
     onDrop(cb) {
       dropListeners.add(cb);
       return () => dropListeners.delete(cb);
+    },
+    onWindowBlur(cb) {
+      window.addEventListener('blur', cb);
+      return () => window.removeEventListener('blur', cb);
     },
     setTitle: async (t) => void (document.title = t),
     log: (level, m) => console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info'](m),

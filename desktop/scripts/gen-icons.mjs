@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const A = resolve(here, '../../modern_UI/Spektrafilm/Spektrafilm/SpektraLab.icon/Assets');
+const A = resolve(here, '../assets/icon');
 const work = resolve(tmpdir(), 'spektralab-icon-' + process.pid);
 mkdirSync(work, { recursive: true });
 const S = 1024;

@@ -34,17 +34,20 @@ describe('a folder source', () => {
   it('keeps its library in the helper’s store, and opens the one it already has the second time', async () => {
     const calls: [string, Record<string, unknown>][] = [];
     const made = new Set<string>();
+    let catalogPath = '';
     const client: LibraryClient = {
       async state() { return { running: true, version: '0.4.0', launches: 1, store: 'C:/Store', executable: null }; },
       async call<T>(method: string, params: Record<string, unknown> = {}) {
         calls.push([method, params]);
-        const info = { uuid: 'u', kind: 'catalog', name: 'Roll', path: String(params.path ?? ''), origin: null, counts: { images: 1 } };
+        const info = { uuid: 'u', kind: 'catalog', name: 'Roll', path: String(params.path ?? catalogPath), origin: null, counts: { images: 1 } };
         if (method === 'library.create') {
           if (made.has(String(params.path))) throw new LibraryError('exists', 'already there');
           made.add(String(params.path));
+          catalogPath = info.path;
           return { library: 'L1', info } as T;
         }
         if (method === 'library.open') return { library: 'L2', info } as T;
+        if (method === 'library.info') return info as T;
         if (method === 'collections.list') return { collections: [] } as T;
         if (method === 'folders.list') return { folders: [] } as T;
         if (method === 'images.list') return { total: 1, offset: 0, images: [] } as T;
@@ -60,5 +63,14 @@ describe('a folder source', () => {
     expect(creates[0]).toMatch(/^C:\/Store\/Folders\/Roll-[0-9a-f]{8}\.spkcatalog$/);
     expect(creates.every((p) => !p.startsWith('D:/Photos/Roll'))).toBe(true);
     expect(calls.filter(([m]) => m === 'library.open').map(([, p]) => p.path)).toEqual([creates[0]]);
+    const recent = store.libraryStore.getState().recent[0]!;
+    expect(recent).toMatchObject({ kind: 'folder', path: 'D:/Photos/Roll', catalogPath: creates[0] });
+    await store.closeLibrary();
+    store.setLibrary({ recent: [{ kind: 'folder', path: recent.path, name: recent.name }] });
+    const before = calls.length;
+    await store.openLibrary(recent.path);
+    expect(calls[before]).toEqual(['library.open', { path: creates[0] }]);
+    expect(store.libraryStore.getState().source).toMatchObject({ kind: 'folder', info: { path: recent.path } });
+    expect(calls.slice(before).some(([method]) => method === 'images.add' || method === 'folders.add')).toBe(false);
   });
 });

@@ -7,7 +7,7 @@ import type * as SessionModule from './session';
 import { StockCatalog } from '@shared/stocks';
 import { decodeSidecar, encodeSidecar, newSidecar } from '@shared/sidecar';
 import type { FileEntry } from '../platform';
-import stockData from '../../../modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+import stockData from '../../assets/StockCatalog.json';
 
 const fake = vi.hoisted(() => ({
   onState: null as ((state: HostState) => void) | null,
@@ -146,6 +146,53 @@ describe('black-and-white settings through the editor and persistence doors', ()
       print_stock: silverPaper, grain_sublayers_active: false, extended_dynamic_range: false, y_filter_neutral: 68 }));
     await session.flushSave();
     expect(decodeSidecar(fake.save.mock.calls.at(-1)?.[1]).params).toMatchObject({ printStock: silverPaper, extendedDynamicRange: true });
+  });
+
+  it('keeps the active paper for a compatible film card and only applies a compatible paper card', () => {
+    const current = newSidecar();
+    const params = { ...current.params, printStock: 'kodak_supra_endura', exposureCompensationEV: 1.7 };
+    session.sessionStore.setState({ sidecar: { ...current, params } });
+    session.selectStockCard('film', 'kodak_ektar_100');
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({
+      filmStock: 'kodak_ektar_100', printStock: 'kodak_supra_endura', exposureCompensationEV: 1.7,
+    });
+    const before = session.sessionStore.getState().undo.length;
+    session.selectStockCard('paper', silverPaper);
+    expect(session.sessionStore.getState().undo).toHaveLength(before);
+    session.selectStockCard('paper', 'kodak_portra_endura');
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({
+      filmStock: 'kodak_ektar_100', printStock: 'kodak_portra_endura', scanFilm: false,
+    });
+    session.undo();
+    expect(session.sessionStore.getState().sidecar.params.printStock).toBe('kodak_supra_endura');
+  });
+
+  it('keys card results by the effective pairing and never sends editor setParams', () => {
+    const current = newSidecar();
+    const state = { ...session.sessionStore.getState(), sidecar: {
+      ...current, params: { ...current.params, printStock: 'kodak_supra_endura' },
+    } };
+    const film = session.stockCardJob(state, 'film', 'kodak_ektar_100');
+    const paper = session.stockCardJob(state, 'paper', 'kodak_portra_endura');
+    expect(film?.job.request).toMatchObject({ method: 'render_stock_card',
+      params: { params: { film_stock: 'kodak_ektar_100', print_stock: 'kodak_supra_endura' } } });
+    expect(film?.job.request).not.toHaveProperty('setParams');
+    const otherPaper = { ...state, sidecar: { ...state.sidecar,
+      params: { ...state.sidecar.params, printStock: 'kodak_portra_endura' } } };
+    expect(session.stockCardJob(otherPaper, 'film', 'kodak_ektar_100')?.key).not.toBe(film?.key);
+    expect(session.stockCardJob(otherPaper, 'paper', 'kodak_portra_endura')?.key).toBe(paper?.key);
+  });
+
+  it('keeps a manual scan through negative cards and restores a compatible paper when leaving a slide', () => {
+    session.selectStockCard('paper', null);
+    session.selectStockCard('film', 'kodak_ektar_100');
+    expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(true);
+    session.selectStockCard('film', SLIDES[0]!);
+    expect(session.sessionStore.getState().sidecar.params.scanFilm).toBe(true);
+    session.selectStockCard('film', stocks[0]!);
+    expect(session.sessionStore.getState().sidecar.params).toMatchObject({
+      filmStock: stocks[0], scanFilm: false, printStock: silverPaper,
+    });
   });
 
   it('blocks incompatible paper actions and returns to a declared colour paper in one undo step', async () => {

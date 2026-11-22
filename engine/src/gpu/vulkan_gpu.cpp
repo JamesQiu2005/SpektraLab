@@ -56,16 +56,17 @@ struct Buffer {
 // Test-only entry point, defined at the end of this file: forces the latch so
 // the fail-fast path can be exercised without provoking a real GPU reset.
 bool test_latch_device_lost(Gpu* gpu, std::string& error);
+bool test_set_buffer_limits(Gpu* gpu, uint64_t buffer_bytes, uint64_t allocation_bytes);
 
 namespace {
 
 constexpr uint32_t kWorkgroup = 256;
 
-std::string vk_error(const char* operation, VkResult result) {
-    std::string text = std::string(operation) + " failed (VkResult " + std::to_string(int(result)) + ")";
+std::string vk_error(const std::string& operation, VkResult result) {
+    std::string text = operation + " failed (VkResult " + std::to_string(int(result)) + ")";
     if (result == VK_ERROR_DEVICE_LOST)
-        text += ": the device was lost (the GPU was reset under this process -- a Windows TDR, "
-                "a driver fault, or a frame whose working set this adapter could not sustain). "
+        text += ": the device was lost. Possible causes include a GPU timeout, "
+                "a driver fault, or a workload the adapter could not sustain. "
                 "Vulkan still defines valid calls on a lost device -- destroying objects, "
                 "freeing memory -- so this backend keeps those and refuses work instead: no "
                 "further allocation, transfer or rendering until the device is recreated or "
@@ -73,7 +74,7 @@ std::string vk_error(const char* operation, VkResult result) {
     return text;
 }
 
-struct KernelSpec { const char* name; uint32_t bindings; uint32_t workgroup; };
+struct KernelSpec { const char* name; uint32_t bindings; uint32_t workgroup; bool line_offset = false; };
 constexpr KernelSpec kKernels[] = {
     {"spk_math_probe", 2, 1},
     // The portable error-free product, in its own kernel so that neither probe
@@ -87,7 +88,7 @@ constexpr KernelSpec kKernels[] = {
     {"spk_tc_b", 5, kWorkgroup},
     {"spk_lut2d_cubic", 5, kWorkgroup},
     {"spk_sep_fir_acc", 6, kWorkgroup},
-    {"spk_iir_df_acc", 7, kWorkgroup},
+    {"spk_iir_df_acc", 7, kWorkgroup, true},
     {"spk_lincomb3", 6, kWorkgroup},
     {"spk_log10_guarded", 4, kWorkgroup},
     {"spk_curves", 6, kWorkgroup},
@@ -179,6 +180,17 @@ public:
             }
             staging_chunk_bytes_ = size_t(value);
         }
+        const char* iir_cap = std::getenv("SPEKTRAFILM_VULKAN_IIR_GROUPS");
+        if (const char* cap = iir_cap; cap && *cap) {
+            char* end = nullptr;
+            const unsigned long value = std::strtoul(cap, &end, 10);
+            if (*cap < '0' || *cap > '9' || end == cap || *end || value > 256) {
+                error = "SPEKTRAFILM_VULKAN_IIR_GROUPS must be between 0 and 256";
+                return false;
+            }
+            iir_groups_ = value;
+        }
+        trace_iir_ = std::getenv("SPEKTRAFILM_VULKAN_IIR_TRACE") != nullptr;
         // volkInitialize is idempotent; it only resolves the loader's entry.
         VkResult loader = volkInitialize();
         if (loader != VK_SUCCESS) {
@@ -197,23 +209,34 @@ public:
         app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         app.pApplicationName = "SpektraLab headless";
         app.apiVersion = VK_API_VERSION_1_0;
+        uint32_t loader_version = VK_API_VERSION_1_0;
+        if (vkEnumerateInstanceVersion && vkEnumerateInstanceVersion(&loader_version) == VK_SUCCESS)
+            app.apiVersion = std::min(loader_version, uint32_t(VK_API_VERSION_1_3));
         VkInstanceCreateInfo create{};
         create.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create.pApplicationInfo = &app;
         // A portability driver (MoltenVK) is enumerated only when the instance
-        // asks for it. Requested only when the loader offers the extension,
-        // so Windows and Linux drivers see the same instance as before.
+        // asks for it. Memory diagnostics also need an optional instance
+        // extension so the compute backend can still target Vulkan 1.0.
         std::vector<const char*> instance_extensions;
+        bool has_properties2 = false;
         {
             uint32_t n_ext = 0;
             if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, nullptr) == VK_SUCCESS && n_ext) {
                 std::vector<VkExtensionProperties> ext(n_ext);
-                if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, ext.data()) == VK_SUCCESS)
-                    for (const auto& e : ext)
+                if (vkEnumerateInstanceExtensionProperties(nullptr, &n_ext, ext.data()) == VK_SUCCESS) {
+                    ext.resize(n_ext);
+                    for (const auto& e : ext) {
                         if (std::strcmp(e.extensionName, "VK_KHR_portability_enumeration") == 0) {
                             instance_extensions.push_back("VK_KHR_portability_enumeration");
                             create.flags |= 0x00000001;   // VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
                         }
+                        if (std::strcmp(e.extensionName, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME) == 0) {
+                            has_properties2 = true;
+                            instance_extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+                        }
+                    }
+                }
             }
         }
         create.enabledExtensionCount = uint32_t(instance_extensions.size());
@@ -273,6 +296,13 @@ public:
             }
         }
         if (!physical_) { error = "no Vulkan compute queue"; return false; }
+#ifdef _WIN32
+        // Bound individual submissions on AMD integrated GPUs, where long line sweeps
+        // on large RAWs can hit the Windows GPU watchdog. Every batch covers complete lines.
+        if ((!iir_cap || !*iir_cap) && properties_.vendorID == 0x1002 &&
+            properties_.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            iir_groups_ = 4;
+#endif
         storage_range_limit_ = properties_.limits.maxStorageBufferRange;
         if (properties_.limits.maxComputeWorkGroupInvocations < kWorkgroup ||
             properties_.limits.maxComputeWorkGroupSize[0] < kWorkgroup ||
@@ -296,17 +326,37 @@ public:
         // The Vulkan spec requires a device that exposes
         // VK_KHR_portability_subset (MoltenVK) to have it enabled.
         const char* portability_subset = "VK_KHR_portability_subset";
+        bool has_memory_budget = false, has_maintenance3 = false, has_maintenance4 = false;
         {
             uint32_t n_ext = 0;
             if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, nullptr) == VK_SUCCESS && n_ext) {
                 std::vector<VkExtensionProperties> ext(n_ext);
-                if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, ext.data()) == VK_SUCCESS)
-                    for (const auto& e : ext)
+                if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &n_ext, ext.data()) == VK_SUCCESS) {
+                    ext.resize(n_ext);
+                    for (const auto& e : ext) {
                         if (std::strcmp(e.extensionName, portability_subset) == 0) {
                             device_create.enabledExtensionCount = 1;
                             device_create.ppEnabledExtensionNames = &portability_subset;
                         }
+                        if (std::strcmp(e.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0)
+                            has_memory_budget = true;
+                        if (std::strcmp(e.extensionName, VK_KHR_MAINTENANCE_3_EXTENSION_NAME) == 0)
+                            has_maintenance3 = true;
+                        if (std::strcmp(e.extensionName, VK_KHR_MAINTENANCE_4_EXTENSION_NAME) == 0)
+                            has_maintenance4 = true;
+                    }
+                }
             }
+        }
+        const uint32_t device_api = std::min(app.apiVersion, properties_.apiVersion);
+        const bool core_properties2 = device_api >= VK_API_VERSION_1_1;
+        if (core_properties2 || has_properties2) {
+            if (has_memory_budget)
+                memory_budget_query_ = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties2KHR>(
+                    vkGetInstanceProcAddr(instance_, core_properties2
+                        ? "vkGetPhysicalDeviceMemoryProperties2" : "vkGetPhysicalDeviceMemoryProperties2KHR"));
+            query_buffer_limits(core_properties2, has_maintenance3,
+                                device_api >= VK_API_VERSION_1_3 || (core_properties2 && has_maintenance4));
         }
         result = vkCreateDevice(physical_, &device_create, nullptr, &device_);
         if (result != VK_SUCCESS) { error = vk_error("vkCreateDevice", result); return false; }
@@ -322,6 +372,38 @@ public:
     }
 
     std::string device_name() const override { return properties_.deviceName; }
+
+    const char* device_type() const override {
+        switch (properties_.deviceType) {
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return "discrete";
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return "integrated";
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return "virtual";
+        case VK_PHYSICAL_DEVICE_TYPE_CPU: return "cpu";
+        default: return "other";
+        }
+    }
+
+    std::vector<MemoryHeap> memory_heaps() const override {
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{};
+        if (memory_budget_query_) {
+            budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+            VkPhysicalDeviceMemoryProperties2 props{};
+            props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+            props.pNext = &budget;
+            memory_budget_query_(physical_, &props);
+        }
+
+        std::vector<MemoryHeap> heaps;
+        heaps.reserve(memory_properties_.memoryHeapCount);
+        for (uint32_t i = 0; i < memory_properties_.memoryHeapCount; ++i) {
+            const auto& heap = memory_properties_.memoryHeaps[i];
+            MemoryHeap sample{heap.size, bool(heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT), std::nullopt};
+            if (budget.heapBudget[i] > 0 && budget.heapBudget[i] <= heap.size)
+                sample.budget = MemoryHeap::Budget{budget.heapBudget[i], budget.heapUsage[i]};
+            heaps.push_back(sample);
+        }
+        return heaps;
+    }
 
     bool check_math_mode(std::string& detail) override {
         if (!math_checked_) {
@@ -624,7 +706,8 @@ public:
     }
 
     bool dispatch(const char* kernel, const std::vector<Arg>& args,
-                  size_t n_threads, std::string& error) override {
+                  size_t n_threads, std::string& error,
+                  const std::atomic<bool>* cancelled = nullptr) override {
         if (n_threads == 0) return true;
         if (!device_usable(error)) return false;
         // Probe kernels must not recurse into the startup gate. A rejected
@@ -687,7 +770,7 @@ public:
         pool_create.pPoolSizes = &pool_size;
         VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
         VkResult result = vkCreateDescriptorPool(device_, &pool_create, nullptr, &descriptor_pool);
-        if (result != VK_SUCCESS) { error = vk_error("vkCreateDescriptorPool", result); return false; }
+        if (result != VK_SUCCESS) { report_failure(result, "vkCreateDescriptorPool", error); return false; }
         VkDescriptorSetAllocateInfo set_alloc{};
         set_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         set_alloc.descriptorPool = descriptor_pool;
@@ -696,7 +779,7 @@ public:
         VkDescriptorSet set = VK_NULL_HANDLE;
         result = vkAllocateDescriptorSets(device_, &set_alloc, &set);
         if (result != VK_SUCCESS) {
-            error = vk_error("vkAllocateDescriptorSets", result);
+            report_failure(result, "vkAllocateDescriptorSets", error);
             vkDestroyDescriptorPool(device_, descriptor_pool, nullptr);
             return false;
         }
@@ -712,14 +795,42 @@ public:
         }
         vkUpdateDescriptorSets(device_, uint32_t(writes.size()), writes.data(), 0, nullptr);
 
-        const bool submitted = submit_sync([&](VkCommandBuffer command) {
+        const size_t batch_groups = spec->line_offset && iir_groups_ ? std::min(iir_groups_, max_x) : groups;
+        bool submitted = true;
+        for (size_t first_group = 0; first_group < groups; first_group += batch_groups) {
+            // Prior submissions have completed. No consumer gets the partial plane.
+            if (cancelled && cancelled->load(std::memory_order_relaxed)) {
+                error = "render cancelled";
+                submitted = false;
+                break;
+            }
+            const size_t batch = std::min(batch_groups, groups - first_group);
+            const uint32_t x = uint32_t(std::min(batch, max_x));
+            const uint32_t y = uint32_t((batch + x - 1) / x);
+            const auto started = trace_iir_ && spec->line_offset ? Clock::now() : Clock::time_point{};
+            submitted = submit_sync([&](VkCommandBuffer command) {
                 device_barrier(command, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
                 vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->pipeline);
                 vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->layout,
                                         0, 1, &set, 0, nullptr);
-                vkCmdDispatch(command, uint32_t(groups_x), uint32_t(groups_y), 1);
-            }, "Vulkan compute dispatch", error);
+                if (spec->line_offset) {
+                    const uint32_t offset = uint32_t(first_group * spec->workgroup);
+                    vkCmdPushConstants(command, pipeline->layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(offset), &offset);
+                }
+                vkCmdDispatch(command, x, y, 1);
+            }, spec->line_offset ? "Vulkan recursive blur dispatch" : "Vulkan compute dispatch", error);
+            if (trace_iir_ && spec->line_offset) {
+                uint32_t meta[4]{};
+                if (args[5].bytes && args[5].size >= sizeof(meta))
+                    std::memcpy(meta, args[5].bytes, sizeof(meta));
+                const double ms = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+                std::fprintf(stderr, "{\"vulkan_iir\":true,\"axis\":%u,\"width\":%u,\"height\":%u,"
+                             "\"first_group\":%zu,\"groups\":%zu,\"elapsed_ms\":%.6f,\"ok\":%s}\n",
+                             meta[3], meta[1], meta[0], first_group, batch, ms, submitted ? "true" : "false");
+            }
+            if (!submitted) break;
+        }
         vkDestroyDescriptorPool(device_, descriptor_pool, nullptr);
         return submitted;
     }
@@ -836,6 +947,40 @@ public:
 
 private:
     friend bool ::spk::gpu::test_latch_device_lost(Gpu* gpu, std::string& error);
+    friend bool ::spk::gpu::test_set_buffer_limits(Gpu* gpu, uint64_t buffer_bytes, uint64_t allocation_bytes);
+
+    void query_buffer_limits(bool core_properties2, bool has_maintenance3, bool has_buffer_limit) {
+        const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2KHR>(
+            vkGetInstanceProcAddr(instance_, core_properties2
+                ? "vkGetPhysicalDeviceProperties2" : "vkGetPhysicalDeviceProperties2KHR"));
+        if (!query) return;
+        VkPhysicalDeviceProperties2 extended{};
+        extended.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        VkPhysicalDeviceMaintenance3Properties allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
+        if (core_properties2 || has_maintenance3) extended.pNext = &allocation;
+        VkPhysicalDeviceMaintenance4Properties buffer{};
+        buffer.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES;
+        if (has_buffer_limit) {
+            buffer.pNext = extended.pNext;
+            extended.pNext = &buffer;
+        }
+        if (!extended.pNext) return;
+        query(physical_, &extended);
+        max_buffer_bytes_ = buffer.maxBufferSize;
+        max_allocation_bytes_ = allocation.maxMemoryAllocationSize;
+        if (transfer_timings_)
+            std::fprintf(stderr, "{\"vulkan_limits\":true,\"max_buffer_bytes\":%llu,\"max_allocation_bytes\":%llu}\n",
+                         static_cast<unsigned long long>(max_buffer_bytes_),
+                         static_cast<unsigned long long>(max_allocation_bytes_));
+    }
+
+    bool buffer_size_fits(VkDeviceSize bytes, std::string& error) const {
+        if (!max_buffer_bytes_ || bytes <= max_buffer_bytes_) return true;
+        error = "Vulkan buffer size " + std::to_string(bytes) +
+                " bytes exceeds the device buffer limit of " + std::to_string(max_buffer_bytes_) + " bytes";
+        return false;
+    }
 
     using Clock = std::chrono::steady_clock;
     static constexpr size_t kMaxStagingBytes = size_t(64) * 1024 * 1024;
@@ -872,17 +1017,40 @@ private:
         return false;
     }
 
-    void latch_device_lost(VkResult result, const char* operation) {
+    void report_failure(VkResult result, const std::string& operation, std::string& error) {
+        error = vk_error(operation, result);
         if (result != VK_ERROR_DEVICE_LOST) return;
         std::lock_guard<std::mutex> lock(device_lost_mutex_);
-        if (!device_lost_.exchange(true, std::memory_order_acq_rel))
-            device_lost_error_ = vk_error(operation, result);
+        if (device_lost_.load(std::memory_order_relaxed)) {
+            error = device_lost_error_;
+        } else {
+            device_lost_error_ = error;
+            device_lost_.store(true, std::memory_order_release);
+        }
+    }
+
+    struct UploadChunk {
+        size_t offset;
+        size_t bytes;
+        size_t total;
+    };
+
+    void submission_failure(VkResult result, const char* operation, const char* api,
+                            const UploadChunk* upload, std::string& error) {
+        std::string context = std::string(operation) + " / " + api;
+        if (upload) {
+            context += " (offset " + std::to_string(upload->offset) +
+                       ", chunk " + std::to_string(upload->bytes) +
+                       ", total " + std::to_string(upload->total) + " bytes)";
+        }
+        report_failure(result, context, error);
     }
 
     // Caller holds dispatch_mutex_: one queue and command pool, and synchronous
     // completion before any staging allocation or pooled buffer can be reused.
     template <typename Record>
-    bool submit_sync(Record&& record, const char* operation, std::string& error) {
+    bool submit_sync(Record&& record, const char* operation, std::string& error,
+                     const UploadChunk* upload = nullptr) {
         if (!device_usable(error)) return false;
         VkCommandBufferAllocateInfo allocate_info{};
         allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -890,14 +1058,17 @@ private:
         allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocate_info.commandBufferCount = 1;
         VkCommandBuffer command = VK_NULL_HANDLE;
+        const char* api = "vkAllocateCommandBuffers";
         VkResult result = vkAllocateCommandBuffers(device_, &allocate_info, &command);
         if (result == VK_SUCCESS) {
             VkCommandBufferBeginInfo begin{};
             begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            api = "vkBeginCommandBuffer";
             result = vkBeginCommandBuffer(command, &begin);
             if (result == VK_SUCCESS) {
                 record(command);
+                api = "vkEndCommandBuffer";
                 result = vkEndCommandBuffer(command);
             }
             if (result == VK_SUCCESS) {
@@ -905,14 +1076,17 @@ private:
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 submit.commandBufferCount = 1;
                 submit.pCommandBuffers = &command;
+                api = "vkQueueSubmit";
                 result = vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE);
-                if (result == VK_SUCCESS) result = vkQueueWaitIdle(queue_);
+                if (result == VK_SUCCESS) {
+                    api = "vkQueueWaitIdle";
+                    result = vkQueueWaitIdle(queue_);
+                }
             }
             vkFreeCommandBuffers(device_, command_pool_, 1, &command);
         }
         if (result != VK_SUCCESS) {
-            latch_device_lost(result, operation);
-            error = vk_error(operation, result);
+            submission_failure(result, operation, api, upload, error);
             return false;
         }
         return true;
@@ -967,7 +1141,7 @@ private:
         const VkResult result = flush ? vkFlushMappedMemoryRanges(device_, 1, &range)
                                       : vkInvalidateMappedMemoryRanges(device_, 1, &range);
         if (result != VK_SUCCESS) {
-            error = vk_error(flush ? "vkFlushMappedMemoryRanges" : "vkInvalidateMappedMemoryRanges", result);
+            report_failure(result, flush ? "vkFlushMappedMemoryRanges" : "vkInvalidateMappedMemoryRanges", error);
             return false;
         }
         return true;
@@ -1007,6 +1181,7 @@ private:
                 std::memcpy(upload_staging_.mapped, static_cast<const unsigned char*>(raw) + offset, chunk);
             }
             if (!mapped_range(upload_staging_, chunk, true, error)) return {};
+            const UploadChunk slice{offset, chunk, bytes};
             if (!submit_sync([&](VkCommandBuffer command) {
                 device_barrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
                 VkBufferMemoryBarrier host{};
@@ -1023,7 +1198,7 @@ private:
                 VkBufferCopy range{0, VkDeviceSize(offset), VkDeviceSize(chunk)};
                 vkCmdCopyBuffer(command, upload_staging_.handle, out.get()->handle, 1, &range);
                 transfer_written(command);
-            }, "Vulkan upload", error)) return {};
+            }, "Vulkan upload", error, &slice)) return {};
             offset += chunk;
         }
         transfer_timing("upload", bytes, start);
@@ -1039,7 +1214,7 @@ private:
         // Checked under the lock, so a request queued behind another one sees
         // a loss that request recorded before it allocates or reuses anything.
         // Only work is refused: release() and trim_pool() keep freeing.
-        if (!device_usable(error)) return {};
+        if (!device_usable(error) || !buffer_size_fits(VkDeviceSize(bytes), error)) return {};
         if (!persistent) {
             // Do not retain a full-resolution plane for a small preview or
             // constant request. Dispatch completion makes zero-ref blocks idle.
@@ -1125,6 +1300,7 @@ private:
     bool create_buffer(Buffer& b, std::string& error, bool staging = false, bool readback = false,
                        bool* memory_pressure = nullptr) {
         if (memory_pressure) *memory_pressure = false;
+        if (!buffer_size_fits(VkDeviceSize(b.bytes), error)) return false;
         VkBufferCreateInfo create{};
         create.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         create.size = VkDeviceSize(b.bytes);
@@ -1134,12 +1310,17 @@ private:
         create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VkResult result = vkCreateBuffer(device_, &create, nullptr, &b.handle);
         if (result != VK_SUCCESS) {
-            latch_device_lost(result, "vkCreateBuffer");
-            error = vk_error("vkCreateBuffer", result);
+            report_failure(result, "vkCreateBuffer", error);
             return false;
         }
         VkMemoryRequirements requirements{};
         vkGetBufferMemoryRequirements(device_, b.handle, &requirements);
+        if (max_allocation_bytes_ && requirements.size > max_allocation_bytes_) {
+            error = "Vulkan buffer requires an allocation of " + std::to_string(requirements.size) +
+                    " bytes, exceeding the device allocation limit of " + std::to_string(max_allocation_bytes_) + " bytes";
+            destroy_buffer(&b);
+            return false;
+        }
         uint32_t memory_index = UINT32_MAX;
         int best_score = -1;
         for (uint32_t i = 0; i < memory_properties_.memoryTypeCount; ++i) {
@@ -1196,12 +1377,18 @@ private:
         b.memory_type = memory_index;
         b.memory_flags = memory_properties_.memoryTypes[memory_index].propertyFlags;
         b.allocation_bytes = requirements.size;
+        const char* api = "vkAllocateMemory";
         result = vkAllocateMemory(device_, &allocate_info, nullptr, &b.memory);
-        if (result == VK_SUCCESS) result = vkBindBufferMemory(device_, b.handle, b.memory, 0);
-        if (result == VK_SUCCESS && staging)
+        if (result == VK_SUCCESS) {
+            api = "vkBindBufferMemory";
+            result = vkBindBufferMemory(device_, b.handle, b.memory, 0);
+        }
+        if (result == VK_SUCCESS && staging) {
+            api = "vkMapMemory";
             result = vkMapMemory(device_, b.memory, 0, VK_WHOLE_SIZE, 0, &b.mapped);
+        }
         if (result != VK_SUCCESS) {
-            error = vk_error("Vulkan buffer memory", result);
+            report_failure(result, api, error);
             if (memory_pressure) *memory_pressure =
                 result == VK_ERROR_OUT_OF_HOST_MEMORY || result == VK_ERROR_OUT_OF_DEVICE_MEMORY;
             destroy_buffer(&b);
@@ -1250,7 +1437,7 @@ private:
         shader_create.pCode = code.data();
         VkShaderModule shader = VK_NULL_HANDLE;
         VkResult result = vkCreateShaderModule(device_, &shader_create, nullptr, &shader);
-        if (result != VK_SUCCESS) { error = vk_error("vkCreateShaderModule", result); return nullptr; }
+        if (result != VK_SUCCESS) { report_failure(result, "vkCreateShaderModule", error); return nullptr; }
 
         ComputePipeline p;
         std::vector<VkDescriptorSetLayoutBinding> bindings(spec.bindings);
@@ -1270,6 +1457,11 @@ private:
             layout_create.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             layout_create.setLayoutCount = 1;
             layout_create.pSetLayouts = &p.descriptors;
+            const VkPushConstantRange line_offset{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t)};
+            if (spec.line_offset) {
+                layout_create.pushConstantRangeCount = 1;
+                layout_create.pPushConstantRanges = &line_offset;
+            }
             result = vkCreatePipelineLayout(device_, &layout_create, nullptr, &p.layout);
         }
         if (result == VK_SUCCESS) {
@@ -1293,7 +1485,7 @@ private:
         }
         vkDestroyShaderModule(device_, shader, nullptr);
         if (result != VK_SUCCESS) {
-            error = vk_error("Vulkan compute pipeline", result);
+            report_failure(result, "vkCreateComputePipelines", error);
             if (p.pipeline) vkDestroyPipeline(device_, p.pipeline, nullptr);
             if (p.layout) vkDestroyPipelineLayout(device_, p.layout, nullptr);
             if (p.descriptors) vkDestroyDescriptorSetLayout(device_, p.descriptors, nullptr);
@@ -1308,11 +1500,14 @@ private:
     VkPhysicalDeviceProperties properties_{};
     // maxStorageBufferRange, unless probe_cpu_storage_range measured more.
     VkDeviceSize storage_range_limit_ = 0;
+    VkDeviceSize max_buffer_bytes_ = 0;
+    VkDeviceSize max_allocation_bytes_ = 0;
     // -1 unvalidated/rejected, 1 validated fused fma, 0 validated split.
     int fused_fma_ = -1;
     bool math_checked_ = false;
     std::string math_detail_;
     VkPhysicalDeviceMemoryProperties memory_properties_{};
+    PFN_vkGetPhysicalDeviceMemoryProperties2KHR memory_budget_query_ = nullptr;
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
     uint32_t queue_family_ = 0;
@@ -1324,6 +1519,8 @@ private:
     Buffer read_staging_;
     size_t staging_chunk_bytes_ = kMaxStagingBytes;
     bool transfer_timings_ = false;
+    size_t iir_groups_ = 0;
+    bool trace_iir_ = false;
     // First VK_ERROR_DEVICE_LOST seen, latched: rendering work is refused from
     // here until the device is recreated. Mutable state guarded by its own
     // mutex, because flush() reads it without the dispatch lock.
@@ -1342,7 +1539,16 @@ private:
 bool test_latch_device_lost(Gpu* gpu, std::string& error) {
     auto* vulkan = dynamic_cast<VulkanGpu*>(gpu);
     if (!vulkan) { error = "not a Vulkan backend"; return false; }
-    vulkan->latch_device_lost(VK_ERROR_DEVICE_LOST, "injected device loss");
+    const VulkanGpu::UploadChunk slice{65536, 4096, 69632};
+    vulkan->submission_failure(VK_ERROR_DEVICE_LOST, "Vulkan upload", "vkQueueWaitIdle", &slice, error);
+    return true;
+}
+
+bool test_set_buffer_limits(Gpu* gpu, uint64_t buffer_bytes, uint64_t allocation_bytes) {
+    auto* vulkan = dynamic_cast<VulkanGpu*>(gpu);
+    if (!vulkan) return false;
+    vulkan->max_buffer_bytes_ = buffer_bytes;
+    vulkan->max_allocation_bytes_ = allocation_bytes;
     return true;
 }
 

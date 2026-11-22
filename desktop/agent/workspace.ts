@@ -48,8 +48,8 @@ export class Workspace {
     if(!item||'error'in item)throw new Refused(item&&'error'in item?item.error:'Cannot prepare frame');
     this.frame=item.frame;this.sidecar.params=structuredClone(this.frame.params);
   }
-  async develop(filmOnly=false){
-    const noFilm=this.sidecar.noFilm&&!filmOnly;
+  async develop(){
+    const noFilm=this.sidecar.noFilm;
     if(noFilm&&(this.pair||isPairPath(this.path)||this.sidecar.params.filmEdge.pair))throw new Refused('Developing without film simulation is unavailable for half-frame pairs. Enable film simulation.');
     if(noFilm&&!this.gate.noFilm)throw new Refused('This engine cannot develop without film simulation. Update the engine or select a film stock.');
     await this.prepare();const params=fullDelta(this.frame.params,this.gate,this.catalog!);
@@ -58,10 +58,8 @@ export class Workspace {
     else if(this.pair)this.opened=await this.engine!.result<OpenResult>('update_pair',{session:this.sid,params,pair:this.frame.pair});
     else if(key!==this.decodeKey)this.opened=await this.engine!.result<OpenResult>('redecode',{session:this.sid,decode:decode??undefined});
     this.decodeKey=key;this.frame.session=this.sid;
-    // DI prepares the film negative even when ordinary output bypasses it.
     await this.engine!.result('render_view',{session:this.sid,params,adjustments:this.frame.adjustments,...(noFilm?{no_film:true}:{}),
-      geometry:filmOnly?this.frame.filmGeometry:this.frame.geometry,
-      source_geometry:filmOnly?this.frame.filmSourceGeometry:this.frame.sourceGeometry,tier:'preview',display:'srgb',long_edge:64,generation:1});
+      geometry:this.frame.geometry,source_geometry:this.frame.sourceGeometry,tier:'preview',display:'srgb',long_edge:64,generation:1});
   }
   async save(){await this.files.call('sidecar_save',{path:this.path,value:encodeSidecar(this.sidecar)})}
   async edit(patch:unknown){
@@ -122,7 +120,8 @@ export class Workspace {
       else if(name==='export_image'){
         const recipes=decodeRecipes(await this.files.call('recipes'));
         const selected=args.recipe?recipes.find(r=>r.name===args.recipe):recipes[0];if(!selected)throw new Refused('No export recipe with that name');
-        await this.develop(selected.format==='di');
+        // Export opens the frozen source in its own host session.
+        await this.prepare();
         const recipe:ExportRecipe=structuredClone(selected);if(args.folder){recipe.folder={kind:'fixed',path:absolute(args.folder)};recipe.subfolder=''}
         const written=await exportFrame(recipe,this.frame,this.catalog!,this.hello.methods,{tiffOptions:this.hello.tiff_options});
         if(written.kind==='failed')throw new Error(written.message);return{body:{files:written.kind==='written'?[written.path]:[],outcome:written}};

@@ -81,8 +81,13 @@ constexpr const char* kRenderCore = "native-metal";
 struct Tier {
     const char* name;
     uint32_t long_edge;   // 0 = the frame's own resolution
+    Pipeline::RandomStream random_stream;
 };
-constexpr Tier kTiers[] = {{"live", 1600}, {"preview", 3400}, {"full", 0}};
+constexpr Tier kTiers[] = {
+    {"live", 1600, Pipeline::RandomStream::live},
+    {"preview", 3400, Pipeline::RandomStream::preview},
+    {"full", 0, Pipeline::RandomStream::full},
+};
 
 // RFC-015 P.1: the auto-exposure meter's own resolution. Each tier used to
 // meter its own image, so an export was exposed differently from the canvas
@@ -215,6 +220,13 @@ struct spk_session {
         std::unordered_map<std::string, TierSlots> tiers;
     };
     std::unique_ptr<ResidencySnapshot> residency;
+    Image stock_card_source; // one 192 px decode-derived source shared by the stock cards
+    struct StockCardNegative {
+        std::string key;
+        Image image;
+        uint32_t overscan_w = 0, overscan_h = 0;
+        std::optional<double> applied_ev;
+    } stock_card_negative;
 #endif
 
     Params params;
@@ -280,7 +292,14 @@ struct spk_session {
     std::vector<float> mask_field;
 
     std::mutex lock;
+    std::atomic<bool> cancel_requested{false};
     Progress progress;
+
+    void reset_progress() {
+        cancel_requested.store(false, std::memory_order_relaxed);
+        progress = Progress{};
+        progress.cancel_requested = &cancel_requested;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -343,6 +362,7 @@ struct spk_engine {
         backend.set("spectral", Json(std::string("native")));
         backend.set("gpu", Json(gpu ? gpu->device_name() : std::string("none")));
         backend.set("gpu_available", Json(gpu != nullptr));
+        if (gpu) backend.set("device_type", Json(std::string(gpu->device_type())));
         backend.set("working_precision", Json(std::string("float32")));
         // Contract §6 / RFC-014 §5.1 trap 6: what the engine *loaded*, not
         // what the process could reach. `render_core` was a probe of
@@ -520,6 +540,25 @@ struct spk_engine {
         out.set("pool", std::move(pool_json));
         out.set("persistent", std::move(persistent));
         out.set("pressure", std::move(pressure));
+        if (gpu) {
+            const auto heaps = gpu->memory_heaps();
+            if (!heaps.empty()) {
+                Json rows = Json::array();
+                for (const auto& heap : heaps) {
+                    Json row = Json::object();
+                    row.set("size_bytes", Json(double(heap.size_bytes)));
+                    row.set("device_local", Json(heap.device_local));
+                    if (heap.budget) {
+                        row.set("budget_bytes", Json(double(heap.budget->budget_bytes)));
+                        row.set("usage_bytes", Json(double(heap.budget->usage_bytes)));
+                    }
+                    rows.push(std::move(row));
+                }
+                Json device = Json::object();
+                device.set("heaps", std::move(rows));
+                out.set("gpu_memory", std::move(device));
+            }
+        }
         return out;
     }
 };
@@ -1200,22 +1239,24 @@ struct MemoryEstimateTrace {
     }
 };
 
-bool run_film_for(spk_session* session, const Image& source, Image& negative,
+bool run_film_for(spk_session* session, const Tier& tier, const Image& source, Image& negative,
                   Progress* progress, std::string& error) {
     MemoryEstimateTrace trace(session, "film", "miss", source, 5);
+    session->pipeline->set_random_stream(tier.random_stream);
     if (session->params.settings.striped) {
         return trace.success = session->pipeline->run_film_striped(source, negative, progress, error);
     }
     return trace.success = session->pipeline->run_film(source, negative, progress, error);
 }
 
-bool run_print_for(spk_session* session, const Image& negative, Image& rgb,
+bool run_print_for(spk_session* session, const Tier& tier, const Image& negative, Image& rgb,
                    Progress* progress, std::string& error) {
     // Conservative cross-size model: IIR glare can still need four RGB planes;
     // consuming the default FIR field lowers that path to three. Pool
     // oversizing and small-frame fixed costs remain outside this model.
     MemoryEstimateTrace trace(session, "print", "miss", negative,
                               session->params.print_render.glare.active ? 4 : 3);
+    session->pipeline->set_random_stream(tier.random_stream);
     if (session->params.settings.striped) {
         return trace.success = session->pipeline->run_print_striped(negative, rgb, progress, error);
     }
@@ -1241,7 +1282,7 @@ bool negative_for(spk_session* session, const Tier& tier, Progress* progress, Im
         camera.auto_exposure ? std::optional<double>(session->meter.evs.of(camera.auto_exposure_method))
                              : std::nullopt);
     Image negative;
-    if (!run_film_for(session, source, negative, progress, error)) return false;
+    if (!run_film_for(session, tier, source, negative, progress, error)) return false;
     state.applied_ev = session->pipeline->last_auto_exposure_ev();
     session->pipeline->overscan_frame(state.overscan_frame_w, state.overscan_frame_h);
     if (progress) progress->auto_exposure_ev = state.applied_ev;
@@ -1335,7 +1376,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
     // Opt-in, because turning it on serialises every node. See Progress.
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
@@ -1378,7 +1419,7 @@ spk_status render_tier(spk_session* session, const char* tier_name, bool use_rep
         const spk_session::TierState& state = session->tiers[tier->name];
         ok = session->pipeline->set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error);
     }
-    if (ok) ok = run_print_for(session, negative, rgb, &session->progress, error);
+    if (ok) ok = run_print_for(session, *tier, negative, rgb, &session->progress, error);
     if (ok) ok = materialise(session, rgb, out, error);
     gpu->end_frame();
 
@@ -1467,6 +1508,8 @@ bool spk::view::suspend(spk_session* session, std::string& error) {
     if (!session) { error = "residency: session is null"; return false; }
     std::lock_guard<std::mutex> guard(session->lock);
     if (session->residency) return true;
+    session->stock_card_source = Image{};
+    session->stock_card_negative = {};
     try {
         using Snapshot = spk_session::ResidencySnapshot;
         auto snapshot = std::make_unique<Snapshot>();
@@ -1783,7 +1826,7 @@ static bool pair_layers(spk_session* session, const Tier& tier, const Image& sou
                 if(!negative_for(session,tier,&session->progress,negative,error))return false;
                 struct RestorePrint { Pipeline* pipeline; const Json& values; ~RestorePrint(){pipeline->apply_live_delta(values);} } reset{session->pipeline.get(),restore};
                 session->pipeline->apply_live_delta(layer.delta);
-                if(!run_print_for(session,negative,rgb,&session->progress,error))return false;
+                if(!run_print_for(session,tier,negative,rgb,&session->progress,error))return false;
                 input.w=rgb.w;input.h=rgb.h;input.c=2;input.buf=gpu->alloc(input.bytes(),error);
                 if(!input.buf)return false;
                 uint32_t m[]={uint32_t(rgb.pixels()),rgb.w,rgb.w};
@@ -1804,7 +1847,7 @@ static bool pair_layers(spk_session* session, const Tier& tier, const Image& sou
 }
 
 bool spk::view::render(spk_session* session, const Request& request, Result& result,
-                       std::string& error) {
+                       std::string& error, const std::atomic<bool>* cancel_requested) {
     result = Result{};
     if (!session) { error = "view: session is null"; return false; }
     if (!resume(session, error)) return false;
@@ -1829,10 +1872,14 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     auto* gpu = session->engine->gpu;
     gpu->begin_frame();
     struct EndFrame { gpu::Gpu* gpu; ~EndFrame() { gpu->end_frame(); } } end{gpu};
-    session->progress = Progress{};
+    session->reset_progress();
+    if (cancel_requested) {
+        session->progress.cancel_requested = cancel_requested;
+        if (session->progress.is_cancelled()) { error = "stock card cancelled"; return false; }
+    }
     session->progress.progress_id = "p" + std::to_string(next_id());
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
-    session->progress.memory_pressure_critical = gpu->take_critical_pressure();
+    session->progress.memory_pressure_critical = !cancel_requested && gpu->take_critical_pressure();
     if (session->progress.memory_pressure_critical)
         for (auto& kv : session->tiers) kv.second.view_print = Image{};
     auto started = std::chrono::steady_clock::now();
@@ -1871,7 +1918,7 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
                 !(params.settings.striped ? pipeline.run_print_striped(negative, rgb, &session->progress, error)
                                           : pipeline.run_print(negative, rgb, &session->progress, error))) return false;
         } else if (!session->pipeline->set_overscan_frame(state.overscan_frame_w, state.overscan_frame_h, error) ||
-                   !run_print_for(session, negative, rgb, &session->progress, error)) return false;
+                   !run_print_for(session, *tier, negative, rgb, &session->progress, error)) return false;
         Image packed; packed.w = rgb.w; packed.h = rgb.h; packed.c = 2;
         packed.buf = gpu->alloc_persistent(packed.bytes(), error);
         if (!packed.buf) return false;
@@ -1991,6 +2038,95 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     result.print_ms += pair_print_ms; result.post_ms += pair_post_ms;
     result.source_width = full_w; result.source_height = full_h;
     session->progress.done = true;
+    return true;
+}
+
+bool spk::view::render_stock_card(spk_session* session, const Json& params, const Request& request,
+                                  Result& result, std::string& error, const std::atomic<bool>& cancel_requested) {
+    constexpr uint32_t edge = 192;
+    if (!resume(session, error)) return false;
+    spk_session card;
+    Image live_source;
+    {
+        std::lock_guard<std::mutex> guard(session->lock);
+        card.engine = session->engine;
+        card.source = session->source;
+        card.product_defaults = session->product_defaults;
+        card.params = session->params;
+        card.meter = session->meter;
+        if (session->stock_card_source.valid()) {
+            auto& state = card.tiers["live"];
+            state.image = session->stock_card_source;
+            state.image_long_edge = edge;
+        } else {
+            // A 102 MP → 192 px FIR prefilter on the original would have a
+            // huge radius over every native pixel. Sample the editor's
+            // already-downscaled linear input instead.
+            const auto it = session->tiers.find("live");
+            if (it == session->tiers.end() || !it->second.image.valid()) {
+                error = "stock card needs a rendered live source";
+                return false;
+            }
+            live_source = it->second.image;
+        }
+    }
+    card.params.io.preview_long_edge = edge;
+    // Always take the stock-rebuild path. It builds a new pipeline and
+    // validates the candidate without applying any delta to the editor.
+    Json delta = params;
+    const Json current = read_params(card.params);
+    for (const char* stock : {"film_stock", "print_stock"})
+        if (!delta.has(stock)) delta.set(stock, current.at(stock));
+    if (spk_set_params(&card, delta.dump().c_str(), nullptr) != SPK_OK) {
+        error = g_error;
+        return false;
+    }
+    if (cancel_requested.load(std::memory_order_relaxed)) {
+        error = "stock card cancelled";
+        return false;
+    }
+    if (live_source.valid()) {
+        const Image full_source = card.source;
+        card.source = live_source;
+        auto* gpu = card.engine->gpu;
+        gpu->begin_frame();
+        struct EndCardFrame { gpu::Gpu* gpu; ~EndCardFrame() { gpu->end_frame(); } } end{gpu};
+        Image scaled;
+        if (!tier_image(&card, kTiers[0], scaled, error)) return false;
+        card.source = full_source;
+    }
+    const Json effective = read_params(card.params);
+    Json film_key = Json::object();
+    for (const auto& field : schema_fields())
+        if (field.layer == Layer::Shoot) film_key.set(field.name, effective.at(field.name));
+    // A positive monochrome direct scan branches inside the film stage.
+    film_key.set("scan_film", effective.at("scan_film"));
+    film_key.set("digital_intermediate", effective.at("digital_intermediate"));
+    const std::string key = film_key.dump();
+    auto& state = card.tiers.at("live");
+    bool reused = false;
+    {
+        std::lock_guard<std::mutex> guard(session->lock);
+        const auto& prior = session->stock_card_negative;
+        reused = prior.image.valid() && prior.key == key;
+        if (reused) {
+            state.negative = prior.image;
+            state.has_negative = true;
+            state.overscan_frame_w = prior.overscan_w;
+            state.overscan_frame_h = prior.overscan_h;
+            state.applied_ev = prior.applied_ev;
+        }
+    }
+    Request view = request;
+    view.tier = "live";
+    view.long_edge = edge;
+    if (!render(&card, view, result, error, &cancel_requested)) return false;
+    {
+        std::lock_guard<std::mutex> guard(session->lock);
+        session->stock_card_source = state.image;
+        session->stock_card_negative = {key, state.negative, state.overscan_frame_w, state.overscan_frame_h, state.applied_ev};
+    }
+    result.stock_negative_cached = reused;
     return true;
 }
 #endif
@@ -2238,7 +2374,7 @@ spk_status spk_preview_stock_lut(spk_session* session, const char* print_stock,
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
 
     gpu->begin_frame();
@@ -2311,7 +2447,7 @@ spk_status spk_export_di(spk_session* session, const char* print_stock, spk_resu
 
     gpu::Gpu* gpu = session->engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
 
     gpu->begin_frame();
@@ -2376,7 +2512,7 @@ spk_status spk_render_digital_intermediate(spk_session* session, spk_result* out
     spk_engine* engine = session->engine;
     gpu::Gpu* gpu = engine->gpu;
     const auto started = std::chrono::steady_clock::now();
-    session->progress = Progress{};
+    session->reset_progress();
     session->progress.progress_id = "p" + std::to_string(next_id());
 
     // The session's own negative at full tier (cached when warm), through a
@@ -2962,9 +3098,9 @@ void spk_cancel(spk_session* session, const char* progress_id) {
     if (!session) return;
     // Deliberately not under the session lock: the render holds that lock for
     // its whole duration, so taking it here would make cancellation wait for
-    // the thing it is cancelling. `cancelled` is read between nodes.
+    // the thing it is cancelling. The flag is also checked between IIR submissions.
     if (!progress_id || session->progress.progress_id == progress_id)
-        session->progress.cancelled = true;
+        session->cancel_requested.store(true, std::memory_order_relaxed);
 }
 
 spk_status spk_progress(spk_session* session, const char* progress_id, char** out_json) {
@@ -3046,7 +3182,7 @@ spk_status spk_progress(spk_session* session, const char* progress_id, char** ou
         out.set("strip_segments", std::move(segments));
     }
     out.set("done", Json(p.done));
-    out.set("cancelled", Json(p.cancelled));
+    out.set("cancelled", Json(p.is_cancelled()));
     if (out_json) *out_json = dup_json(out);
     return SPK_OK;
 }

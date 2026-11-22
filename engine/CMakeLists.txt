@@ -1,7 +1,5 @@
-# The engine outside macOS: the portable setup/pipeline sources plus the
-# Vulkan backend, on Linux and Windows (native MinGW/MSVC or cross-compiled
-# MinGW-w64). The macOS application continues to use build.sh/Xcode and
-# nothing here is read by them.
+# Windows Vulkan engine (native MinGW/MSVC or cross-compiled MinGW-w64).
+# A native macOS Vulkan host is also useful for MoltenVK reference tests.
 #
 # Dependencies (all pinned, all fetched into the gitignored build/deps by
 # engine/setup-deps.sh, none downloaded by CMake itself):
@@ -12,11 +10,6 @@
 #                               the pin is in cmake/LibRaw.cmake)
 # The Vulkan loader is never linked: engine/third_party/volk opens it at run
 # time. glslangValidator compiles the kernels to SPIR-V at build time.
-# macOS normally builds the engine with build.sh/Xcode (Metal). For parity
-# work only, SPEKTRALAB_VULKAN_ON_APPLE=ON builds the Vulkan backend on macOS
-# through MoltenVK: every source then takes the portable (non-Apple) path,
-# selected by SPK_VULKAN_BACKEND, so the Mac can grade Vulkan against Metal on
-# identical input. Off Apple nothing changes.
 # State the language standard instead of inheriting each compiler's default.
 # GCC, Clang and MinGW default to gnu++17 and so build this tree unchanged, but
 # MSVC defaults to C++14 and rejects C++17 constructs such as the nested
@@ -26,13 +19,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
-option(SPEKTRALAB_VULKAN_ON_APPLE "Build the Vulkan backend on macOS (MoltenVK), for parity tests" OFF)
-if(NOT APPLE OR SPEKTRALAB_VULKAN_ON_APPLE)
-    set(SPEKTRALAB_PORTABLE_BACKEND ON)
-    add_compile_definitions(SPK_VULKAN_BACKEND=1)
-else()
-    set(SPEKTRALAB_PORTABLE_BACKEND OFF)
-endif()
+set(SPEKTRALAB_PORTABLE_BACKEND ON)
+add_compile_definitions(SPK_VULKAN_BACKEND=1)
 
 add_library(spektralab_core STATIC
     src/core/blob.cpp
@@ -70,14 +58,9 @@ add_library(spektralab_pipeline OBJECT
     src/pipeline/scene_latitude.cpp
 )
 set_target_properties(spektralab_pipeline PROPERTIES POSITION_INDEPENDENT_CODE ON)
-if(NOT SPEKTRALAB_PORTABLE_BACKEND)
-    target_sources(spektralab_pipeline PRIVATE
-        src/pipeline/contrast_mask.cpp src/pipeline/overscan.cpp)
-else()
-    target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp src/pipeline/view_process.cpp
-        src/pipeline/overscan.cpp src/pipeline/imprint_raster.cpp)
-    include(cmake/ImprintFonts.cmake)
-endif()
+target_sources(spektralab_pipeline PRIVATE src/pipeline/windows_unported.cpp src/pipeline/view_process.cpp
+    src/pipeline/overscan.cpp src/pipeline/imprint_raster.cpp)
+include(cmake/ImprintFonts.cmake)
 target_link_libraries(spektralab_pipeline PRIVATE spektralab_core)
 target_include_directories(spektralab_pipeline PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -192,8 +175,6 @@ if(SPEKTRALAB_PORTABLE_BACKEND)
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/paper_grades.json" "${vulkan_resource_dir}/paper_grades.json"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                     "${CMAKE_CURRENT_SOURCE_DIR}/resources_product/neutral_print_filters.json" "${vulkan_resource_dir}/product-neutral-print-filters.json"
-            COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                    "${CMAKE_CURRENT_SOURCE_DIR}/../modern_UI/Spektrafilm/Spektrafilm/Resources/DI" "${vulkan_resource_dir}/DI"
             DEPENDS ${vulkan_spirv}
             VERBATIM)
 

@@ -70,7 +70,12 @@ pub fn selftest_args(t: State<'_, SelfTest>) -> Value {
     // The Library part, where the gate gives one: a folder to link and a Capture One catalog to read.
     let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     json!({"raw": t.raw.display().to_string(), "out": t.out.display().to_string(),
-           "folder": var("SPEKTRALAB_SELFTEST_FOLDER"), "captureOne": var("SPEKTRALAB_SELFTEST_C1")})
+           "folder": var("SPEKTRALAB_SELFTEST_FOLDER"), "captureOne": var("SPEKTRALAB_SELFTEST_C1"),
+           "captureOneRelink": var("SPEKTRALAB_SELFTEST_C1_RELINK"),
+           "captureOneVerbatim": var("SPEKTRALAB_SELFTEST_C1_VERBATIM").as_deref() == Some("1"),
+           "exerciseLibraryPreviews": var("SPEKTRALAB_SELFTEST_LIBRARY_PREVIEWS").as_deref() == Some("1"),
+           "exerciseLibraryRestart": var("SPEKTRALAB_SELFTEST_LIBRARY_RESTART").as_deref() == Some("1"),
+           "exerciseBatch": var("SPEKTRALAB_SELFTEST_BATCH").as_deref() == Some("1")})
 }
 
 /// A file of the run, the body as its bytes; the name in the `x-selftest-name` header.

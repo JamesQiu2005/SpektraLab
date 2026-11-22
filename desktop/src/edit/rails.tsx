@@ -13,15 +13,16 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { tz } from '../i18n';
+import { useStockCardPreview } from './stockCardPreview';
 import { ScrubSlider, ToggleRow, signed } from '../controls/controls';
 import {
-  setAdjustments, setParams, selectFilmStock, selectPrintStock, setFilmFrame, shownAdjustments, useSession, zoomTo, zoomToFit,
+  setAdjustments, setParams, selectStockCard, setFilmFrame, shownAdjustments, useSession, zoomTo, zoomToFit,
   cameraExposureTotal, setCameraExposureTotal, resetCameraExposure, beginGesture, resetAdjustments, resetEnlarger, resetCrop, resetFilmStock,
   setGeometry, setTool, undo,
 } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import { setUi, toggleAdjustTile, toggleDarkroomTile, useUi, type AdjustTile, type DarkroomTile } from '../app/ui';
-import { EFFECT_RANGES, EFFECTS_DEFAULT, FILM_FRAMES_STILL, clamp } from '@shared/params';
+import { EFFECT_RANGES, EFFECTS_DEFAULT, FILM_FRAMES_STILL, clamp, stockCardParams } from '@shared/params';
 import { ADJUSTMENTS_DEFAULT, CURVES_IDENTITY, type Adjustments } from '@shared/adjustments';
 import {
   aspectCanonical, aspectHasOrientation, aspectIsPortrait, aspectLabel, aspectTransposed, outputSize, straightened, turned, withAspect,
@@ -170,10 +171,11 @@ function StockCard({ stock, catalog, on, disabled, waits, title, label, onPick, 
   stock: Stock | null; catalog: StockCatalog; on: boolean; disabled: boolean; waits?: boolean; title: string; label?: string;
   onPick: () => void; cropped: boolean; kind: 'film' | 'paper';
 }) {
-  const cover = stock ? catalog.coverURL(stock.id) : null;
+  const preview = useStockCardPreview(kind, stock?.id ?? null, !waits && (!disabled || (kind === 'paper' && !stock)));
+  const cover = preview.url ?? (stock ? catalog.coverURL(stock.id) : null);
   const family = !stock ? 'none' : stock.monochrome ? 'bw' : stock.use === 'cine' ? 'cine' : stock.type === 'positive' ? 'positive' : kind === 'paper' ? 'paper' : 'negative';
   return (
-    <button role="option" aria-selected={on} className={`v2-card ${kind}` + (on ? ' on' : '') + (waits ? ' waits' : '')} disabled={disabled} title={title}
+    <button ref={preview.ref} role="option" aria-selected={on} data-preview={preview.url ? 'ready' : undefined} className={`v2-card ${kind}` + (on ? ' on' : '') + (waits ? ' waits' : '')} disabled={disabled} title={title}
       aria-label={label ?? title} onClick={onPick} data-stock={stock?.id ?? 'none'}>
       <span className={`v2-card-face ${family}` + (cover ? ' cover' : '') + (cropped ? '' : ' whole')} style={cover ? { backgroundImage: `url("${cover}")` } : undefined} />
       {stock?.use === 'cine' && kind === 'film' && <span className="v2-cine">CINE</span>}
@@ -204,9 +206,15 @@ function FilmPaper() {
           onClick={() => setUi({ cardsCropped: !cropped })}><G name="cropToCard" /></button>
       </div>
       <div className="v2-cards" role="listbox" aria-label={tz('Film', '胶片')} data-testid="film-cards">
-        {films.map((f) => (
-          <StockCard key={f.id} kind="film" stock={f} catalog={catalog} on={f.id === p.filmStock} disabled={!editable} title={f.name} cropped={cropped} onPick={() => selectFilmStock(f.id)} />
-        ))}
+        {films.map((f) => {
+          const recipe = stockCardParams(p, catalog, 'film', f.id);
+          const fallback = recipe && !recipe.scanFilm && recipe.printStock !== p.printStock ? catalog.stock(recipe.printStock) : null;
+          const title = fallback ? `${f.name} · ${tz('Uses compatible paper', '使用兼容相纸')} ${fallback.name}` : f.name;
+          return (
+            <StockCard key={f.id} kind="film" stock={f} catalog={catalog} on={f.id === p.filmStock} disabled={!editable}
+              title={title} cropped={cropped} onPick={() => selectStockCard('film', f.id)} />
+          );
+        })}
         {!films.length && <div className="v2-cards-empty dim">{tz('No film in this family.', '此类别没有胶片。')}</div>}
       </div>
       <div className="v2-filter-row">
@@ -216,14 +224,14 @@ function FilmPaper() {
         onWheel={(e) => { if (e.shiftKey && strip.current) strip.current.scrollLeft += e.deltaY; }}>
         {paperFilter === 'all' && (
           <StockCard kind="paper" stock={null} catalog={catalog} on={positive || p.scanFilm} disabled={!editable || positive} title={tz('No paper', '不印放')} cropped={cropped}
-            onPick={() => setParams((q) => ({ ...q, scanFilm: true, digitalIntermediate: false }))} />
+            onPick={() => selectStockCard('paper', null)} />
         )}
         {papers.map((x) => {
-          const waits = positive || !catalog.canPrint(p.filmStock, x.id);
+          const waits = !stockCardParams(p, catalog, 'paper', x.id);
           return (
             <StockCard key={x.id} kind="paper" stock={x} catalog={catalog} on={!positive && !p.scanFilm && x.id === p.printStock} disabled={!editable || waits} waits={waits}
               title={waits ? (positive ? tz('A slide is scanned, never printed.', '反转片直接扫描，不印放。') : tz('Silver on silver, colour on colour.', '黑白配黑白，彩色配彩色。')) : x.name}
-              label={waits ? `${x.name}, ${tz('not for this film', '不适用于此胶片')}` : x.name} cropped={cropped} onPick={() => selectPrintStock(x.id)} />
+              label={waits ? `${x.name}, ${tz('not for this film', '不适用于此胶片')}` : x.name} cropped={cropped} onPick={() => selectStockCard('paper', x.id)} />
           );
         })}
       </div>
@@ -248,7 +256,12 @@ export function FilmExposure() {
         <input className="v2-value" aria-label={tz('Film Exposure, value', '胶片曝光数值')} disabled={!ready} key={value}
           defaultValue={`${signed(1)(value)} EV`}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { (e.target as HTMLInputElement).value = `${signed(1)(value)} EV`; (e.target as HTMLInputElement).blur(); } }}
-          onBlur={(e) => { const n = Number.parseFloat(e.target.value.replace('−', '-')); if (Number.isFinite(n) && n !== value) { beginGesture(); set(n, false); } }} />
+          onBlur={(e) => {
+            const { value: text, defaultValue } = e.currentTarget;
+            if (text === defaultValue) return;
+            const n = Number.parseFloat(text.replace('−', '-'));
+            if (Number.isFinite(n) && n !== value) { beginGesture(); set(n, false); }
+          }} />
       </div>
       <div className="v2-ruler" role="slider" aria-label={tz('Film Exposure', '胶片曝光')} aria-valuemin={-8} aria-valuemax={8} aria-valuenow={value}
         aria-valuetext={`${signed(1)(value)} EV`} tabIndex={0}

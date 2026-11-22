@@ -6,8 +6,9 @@
 //! `<app data>/Sidecars/<file>-<sha256(path)[:16]>.spektra.json`, never beside
 //! the photograph. The JSON is the macOS `Sidecar` shape; the webview owns its
 //! contents and this module owns where it goes. A sidecar carries `source`
-//! (path, size, inode, volume) so a moved file is recognised; the old
-//! `<image>.spektra.json` beside the photo is migrated (moved) on first read.
+//! (path, size, file ID, volume) so a moved file is recognised. On Windows an
+//! old sidecar beside the photo is imported into this store and kept for the
+//! previous version or another app using the same photo folder.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -199,7 +200,7 @@ fn source_matches(a: &Value, b: &Value) -> bool {
 }
 
 fn read_json(p: &Path) -> Option<Value> {
-    serde_json::from_slice(&fs::read(p).ok()?).ok()
+    serde_json::from_slice(&fs::read(p).ok()?).ok().filter(Value::is_object)
 }
 
 /// Write whole: a temporary beside the target, then a rename.
@@ -251,7 +252,7 @@ impl SidecarStore {
                 }
             }
         }
-        // The old home, beside the photograph: moved into the store.
+        // Keep the Windows original so the previous version can still read it.
         let neighbours = [
             image.with_file_name(format!(
                 "{}.spektra.json",
@@ -262,7 +263,7 @@ impl SidecarStore {
         for n in neighbours {
             if let Some(mut v) = read_json(&n) {
                 v["source"] = wanted.clone();
-                if self.save(image, &v).is_ok() {
+                if self.save(image, &v).is_ok() && !cfg!(windows) {
                     let _ = fs::remove_file(&n);
                 }
                 return Some(v);
@@ -323,12 +324,28 @@ mod tests {
         fs::write(&img, b"not really a tiff").unwrap();
         let store = SidecarStore { dir: root.join("Sidecars") };
         assert!(store.load(&img).is_none());
-        // A neighbour sidecar is migrated into the store.
-        fs::write(photos.join("x.tif.spektra.json"), br#"{"schemaVersion":3,"params":{}}"#).unwrap();
+        // A non-object legacy document cannot supply frame edits.
+        let neighbour = photos.join("x.tif.spektra.json");
+        fs::write(&neighbour, b"[]").unwrap();
+        assert!(store.load(&img).is_none());
+        let legacy = br#"{"schemaVersion":3,"params":{"exposureCompensationEV":0.4}}"#;
+        fs::write(&neighbour, legacy).unwrap();
         let v = store.load(&img).unwrap();
         assert_eq!(v["schemaVersion"], 3);
-        assert!(!photos.join("x.tif.spektra.json").exists());
+        assert_eq!(v["params"]["exposureCompensationEV"], 0.4);
+        if cfg!(windows) {
+            assert_eq!(fs::read(&neighbour).unwrap(), legacy);
+        } else {
+            assert!(!neighbour.exists());
+        }
         assert!(store.path_for(&img).exists());
+        let mut edited = v;
+        edited["params"]["exposureCompensationEV"] = json!(0.8);
+        store.save(&img, &edited).unwrap();
+        assert_eq!(store.load(&img).unwrap()["params"]["exposureCompensationEV"], 0.8);
+        if cfg!(windows) {
+            assert_eq!(fs::read(&neighbour).unwrap(), legacy);
+        }
         // Moved: same inode, old path gone.
         let moved = photos.join("y.tif");
         fs::rename(&img, &moved).unwrap();

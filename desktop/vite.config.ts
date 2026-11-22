@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { defineConfig } from 'vite';
+import { defineConfig, normalizePath } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // The webview bundle. Tauri serves `dist/` in production and this dev server
@@ -9,7 +9,16 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   resolve: { alias: { '@shared': resolve(__dirname, 'src/shared') } },
-  server: { port: 5173, strictPort: true, host: '127.0.0.1' },
+  server: {
+    port: 5173,
+    strictPort: true,
+    host: '127.0.0.1',
+    // Packaging can replace these files while Vite is running on Windows.
+    watch: {
+      ignored: ['src-tauri/binaries', 'src-tauri/host-staging', 'src-tauri/target', 'release']
+        .map((dir) => normalizePath(resolve(__dirname, dir))),
+    },
+  },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   build: {
     target: 'es2022',

@@ -2,7 +2,7 @@
   "name": "spektralab",
   "productName": "SpektraLab",
   "version": "2.0.0-alpha.1",
-  "description": "SpektraLab — film and print emulation for Linux and Windows",
+  "description": "SpektraLab — film and print emulation for Windows",
   "license": "GPL-3.0-or-later",
   "author": {
     "name": "SpektraLab contributors"
@@ -13,7 +13,7 @@
     "dev:web": "vite",
     "dev": "tauri dev",
     "dev:mock": "SPEKTRALAB_MOCK_HOST=1 tauri dev",
-    "build:web": "vite build",
+    "build:web": "node ./node_modules/vite/bin/vite.js build",
     "build:agent": "node scripts/build-agent.mjs",
     "predev:web": "node scripts/copy-assets.mjs",
     "prebuild:web": "node scripts/copy-assets.mjs",
@@ -23,14 +23,11 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm run test",
-    "gen:strings": "node scripts/extract-strings.mjs",
     "gen:icons": "node scripts/gen-icons.mjs",
     "gen:assets": "node scripts/copy-assets.mjs",
-    "package:linux": "node scripts/package.mjs linux",
     "package:win": "node scripts/package.mjs windows",
     "package:windows": "node scripts/package.mjs windows",
-    "check:installer": "node scripts/check-installer.mjs",
-    "gate:mac": "bash scripts/gate-mac.sh"
+    "check:installer": "node scripts/check-installer.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.3.7",

@@ -17,10 +17,13 @@ import { setPages, useSession } from '../state/session';
 import { platform, type AppPaths } from '../platform';
 import { checkWindowsUpdate } from '../windows/updateCheck';
 import { DiagnosticSettings } from '../windows/DiagnosticSettings';
+import { PreviewResolutionSettings } from '../windows/SettingsPages';
 import { NewPhotoDefaultsSettings } from '../windows/NewPhotoDefaultsSettings';
 import { DEFAULT_RECIPES, decodeRecipes, recipeSummary, type ExportRecipe } from '../export/recipes';
 import { scheduler } from '../scheduler';
 import type { BudgetReadingWire } from '../scheduler/types';
+import { host } from '../host/client';
+import type { GpuMemoryHeap } from '@shared/protocol';
 
 type Pane = 'general' | 'recipes' | 'library' | 'rendering' | 'engine' | 'diagnostics';
 const PANES: { id: Pane; label: () => string; glyph: GlyphName }[] = [
@@ -130,11 +133,16 @@ function Recipes() {
   </>;
 }
 
+function gpuBytes(bytes: number): string {
+  return bytes >= 2 ** 30 ? `${(bytes / 2 ** 30).toFixed(2)} GiB` : `${(bytes / 2 ** 20).toFixed(1)} MiB`;
+}
+
 function Engine() {
   const hello = useSession((s) => s.hello);
   const display = useSession((s) => s.displaySpace);
   const unsupported = useSession((s) => s.unsupported);
   const [budget, setBudget] = useState<{ reading: BudgetReadingWire; running: number; waiting: number } | null>(null);
+  const [heaps, setHeaps] = useState<GpuMemoryHeap[]>([]);
   useEffect(() => {
     let live = true;
     const read = () => void Promise.all([scheduler().budget(), scheduler().snapshot()]).then(([reading, jobs]) => live && setBudget({
@@ -143,6 +151,22 @@ function Engine() {
     const id = setInterval(read, 1000);
     return () => { live = false; clearInterval(id); };
   }, []);
+  useEffect(() => {
+    if (!hello?.backend?.available || !hello.methods?.includes('memory_report')) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const read = async () => {
+      try {
+        const report = await host().memoryReport();
+        if (live) setHeaps(report.gpu_memory?.heaps.filter((heap) => heap.device_local) ?? []);
+      } catch {
+        if (live) setHeaps([]);
+      }
+      if (live) timer = setTimeout(() => void read(), 2000);
+    };
+    void read();
+    return () => { live = false; clearTimeout(timer); };
+  }, [hello]);
   const gated = GATED.filter((g) => unsupported.includes(g.flag));
   return <>
     <Group title={tz('THIS COMPUTER', '这台电脑')} tall>
@@ -159,6 +183,16 @@ function Engine() {
       <Row label={tz('Waiting', '等待中')} value={budget ? String(budget.waiting) : '—'} />
       <Row label={tz('Memory budget', '内存预算')} value={budget?.reading.budget.bytes ? `${(budget.reading.budget.bytes / 2 ** 30).toFixed(1)} GB` : tz('Not reported', '未报告')} />
     </Group>
+    {heaps.length > 0 && <Group title={tz('GPU DRIVER MEMORY', 'GPU 驱动内存')}>
+      {heaps.map((heap, index) => <Row key={index}
+        label={heaps.length > 1 ? tz(`Device-local heap ${index + 1}`, `设备本地内存堆 ${index + 1}`) : tz('Device-local memory', '设备本地内存')}
+        value={heap.budget_bytes !== undefined && heap.usage_bytes !== undefined
+          ? `${gpuBytes(heap.usage_bytes)} / ${gpuBytes(heap.budget_bytes)}`
+          : tz('Budget unavailable', '预算不可用')}>
+        <br /><small>{tz(`Capacity ${gpuBytes(heap.size_bytes)}`, `容量 ${gpuBytes(heap.size_bytes)}`)}</small>
+      </Row>)}
+    </Group>}
+    {heaps.length > 0 && <p className="v2-set-note">{tz('The driver estimates usage and budget for the engine process.', '用量和预算由驱动针对引擎进程估算。')}</p>}
   </>;
 }
 
@@ -166,6 +200,9 @@ function Rendering() {
   const st = useSettings((s) => s);
   const set = settingsStore.getState().set;
   return <>
+    <Group title={tz('PREVIEW', '预览')}>
+      <div className="v2-set-host"><PreviewResolutionSettings /></div>
+    </Group>
     <Group title={tz('FILM EFFECTS', '胶片效果')}>
       <div className="v2-set-host">
         <ToggleRow label={tz('Crop re-maps the frame', '裁剪重新映射画幅')} on={st.recalculateEffectsAfterCrop} onChange={(v) => set('recalculateEffectsAfterCrop', v)} />

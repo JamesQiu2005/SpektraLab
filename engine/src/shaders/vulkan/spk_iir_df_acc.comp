@@ -6,6 +6,7 @@
 // owns one complete line/channel; the forward float32 plane is read again by
 // the backward sweep. Bindings 0 and 6 may alias for the second separable pass.
 layout(local_size_x = 256) in;
+layout(push_constant) uniform Batch { uint first_invocation; } batch;
 // vulkan_gpu.cpp sets this from the device's measured fma behaviour.
 layout(constant_id = 0) const bool SPK_FUSED_FMA = true;
 layout(set = 0, binding = 0, std430) readonly buffer Input { float value[]; } image_data;
@@ -69,7 +70,7 @@ vec2 df_mul_f(vec2 a, float b) {
 }
 
 void main() {
-    uint t = spk_global_index();
+    uint t = batch.first_invocation + spk_global_index();
     uint height = meta.value[0], width = meta.value[1];
     uint accumulate = meta.value[2], axis = meta.value[3];
     uint threads = axis == 0u ? width * 3u : height * 3u;

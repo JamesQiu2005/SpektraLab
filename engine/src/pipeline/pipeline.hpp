@@ -24,6 +24,7 @@
 // per-run argument, so the parameter works. That is a knowing divergence and
 // the render-parity harness reports it as one.
 #pragma once
+#include <array>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -105,7 +106,10 @@ struct Progress {
     int total_nodes = 0;
     int fired = 0;
     std::string stage = "queued";
-    bool cancelled = false;
+    const std::atomic<bool>* cancel_requested = nullptr;
+    bool is_cancelled() const {
+        return cancel_requested && cancel_requested->load(std::memory_order_relaxed);
+    }
     bool done = false;
     bool detailed = false;
     std::unordered_map<std::string, double> node_ms;
@@ -339,6 +343,9 @@ public:
     void set_source_long_edge(uint32_t long_edge, uint32_t frame_long_edge);
     // Film Edge/date frame a physically cropped source, like Mac cutSource.
     void set_source_shape(uint32_t w, uint32_t h, uint32_t full_w, uint32_t full_h);
+    // Independent tiers must not consume one another's grain and glare draws.
+    enum class RandomStream { standalone, live, preview, full };
+    void set_random_stream(RandomStream stream) noexcept { random_stream_ = stream; }
     bool full_output_size(uint32_t w, uint32_t h, uint32_t& out_w, uint32_t& out_h,
                           std::string& error);
 
@@ -836,7 +843,10 @@ private:
     Vec log_raw_print_black_, log_raw_print_white_;
     bool have_print_references_ = false;
 
-    uint64_t rng_state_ = 0x243F6A8885A308D3ull;
+    static constexpr uint64_t kInitialRandomState = 0x243F6A8885A308D3ull;
+    RandomStream random_stream_ = RandomStream::standalone;
+    std::array<uint64_t, 4> rng_states_{kInitialRandomState, kInitialRandomState,
+                                       kInitialRandomState, kInitialRandomState};
 };
 
 }  // namespace spk

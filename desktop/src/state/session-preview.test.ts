@@ -6,7 +6,7 @@ import { newSidecar } from '@shared/sidecar';
 
 const fake = vi.hoisted(() => ({
   setParams: vi.fn(async () => ({})), renderView: vi.fn(), render: vi.fn(),
-  open: vi.fn(), close: vi.fn(async () => {}), thumbnail: vi.fn(), logs: [] as string[],
+  open: vi.fn(), close: vi.fn(async () => {}), cancel: vi.fn(), thumbnail: vi.fn(), logs: [] as string[],
   frames: { print: null as RenderReply | null, original: null },
 }));
 vi.mock('../host/client', () => ({ HostCallError: class extends Error {}, host: () => fake }));
@@ -27,6 +27,7 @@ beforeEach(async () => {
   vi.stubGlobal('window', { addEventListener: vi.fn() });
   fake.frames.print = null;
   fake.logs.length = 0;
+  fake.cancel.mockReset();
   fake.renderView.mockReset().mockResolvedValue(frame(200));
   session = await import('./session');
   const { localScheduler } = await import('../scheduler');
@@ -39,6 +40,23 @@ beforeEach(async () => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('processed preview scheduling', () => {
+  it.each([['cpu', 1080], ['integrated', 2560]] as const)('chooses the %s device preview and keeps a manual choice', async (device_type, edge) => {
+    session.sessionStore.setState({ nativeSize: { width: 6000, height: 4000 },
+      hello: { methods: ['render_view'], backend: { api: 'vulkan', device_type } } as HelloResult });
+    await session.requestPrint();
+    expect(fake.setParams).toHaveBeenLastCalledWith('s1', expect.objectContaining({ preview_long_edge: edge }));
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({ long_edge: edge }));
+
+    session.setPreviewLongEdge(1920);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.setParams).toHaveBeenLastCalledWith('s1', { preview_long_edge: 1920 });
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({ long_edge: 1920 }));
+
+    session.setPreviewLongEdge('auto');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.setParams).toHaveBeenLastCalledWith('s1', { preview_long_edge: edge });
+  });
+
   it('a grade edit requests a cached view without resending film parameters', async () => {
     await session.requestPrint();
     fake.setParams.mockClear();
@@ -113,6 +131,134 @@ describe('processed preview scheduling', () => {
     expect(fake.open).toHaveBeenCalledTimes(1);
     expect(fake.close).toHaveBeenCalledTimes(1);
     expect(session.sessionStore.getState().badge).toBe('full');
+  });
+
+  it('keeps the live preview editable when the scheduler cancels full refinement', async () => {
+    session.sessionStore.setState({ nativeSize: { width: 11662, height: 8746 } });
+    const { scheduler } = await import('../scheduler');
+    const queue = scheduler();
+    const submitJob = queue.submit.bind(queue);
+    const outcomeOf = queue.outcome.bind(queue);
+    const jobId = 'cancelled-full-view';
+    const submit = vi.spyOn(queue, 'submit').mockImplementation((job) =>
+      job.kind === 'fullView' ? Promise.resolve(jobId) : submitJob(job));
+    vi.spyOn(queue, 'outcome').mockImplementation((id) => id === jobId
+      ? Promise.resolve({ outcome: { jobId, outcome: 'cancelled' }, payload: new Uint8Array() })
+      : outcomeOf(id));
+
+    await session.requestPrint();
+    const live = fake.frames.print;
+    const version = session.sessionStore.getState().imageVersion;
+    await vi.advanceTimersByTimeAsync(400);
+    expect(submit.mock.calls.at(-1)?.[0].kind).toBe('fullView');
+    expect(fake.renderView).toHaveBeenCalledTimes(1);
+    expect(fake.frames.print).toBe(live);
+    expect(session.sessionStore.getState()).toMatchObject({ imageVersion: version, badge: 'preview', status: '', lastError: null });
+
+    session.setAdjustments((a) => ({ ...a, exposure: 1.25 }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.sessionStore.getState().imageVersion).toBe(version + 1);
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({
+      adjustments: expect.objectContaining({ exposure: 1.25 }),
+    }));
+  });
+
+  it.each([false, true])('a new edit cancels full refinement (delayed job id: %s)', async (delayJobId) => {
+    session.sessionStore.setState({ nativeSize: { width: 11662, height: 8746 } });
+    const { scheduler } = await import('../scheduler');
+    const queue = scheduler();
+    const submitJob = queue.submit.bind(queue);
+    let reportJobId: (() => void) | undefined;
+    if (delayJobId) {
+      vi.spyOn(queue, 'submit').mockImplementation(async (job) => {
+        const id = await submitJob(job);
+        if (job.kind === 'fullView') await new Promise<void>((resolve) => { reportJobId = resolve; });
+        return id;
+      });
+    }
+
+    let stopFull: ((error: Error) => void) | undefined;
+    fake.renderView.mockImplementation(async (_sid: string, tier: string) => tier === 'full'
+      ? new Promise<RenderReply>((_resolve, reject) => { stopFull = reject; })
+      : frame(200));
+    fake.cancel.mockImplementation(async () => {
+      stopFull?.(new Error('cancelled'));
+      return true;
+    });
+
+    await session.requestPrint();
+    const version = session.sessionStore.getState().imageVersion;
+    await vi.advanceTimersByTimeAsync(400);
+    expect(stopFull).toBeDefined();
+    session.setAdjustments((a) => ({ ...a, exposure: 1.25 }));
+    if (delayJobId) {
+      expect(fake.cancel).not.toHaveBeenCalled();
+      expect(reportJobId).toBeDefined();
+      reportJobId?.();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.cancel).toHaveBeenCalledTimes(1);
+    expect(fake.renderView).toHaveBeenLastCalledWith('s1', 'live', expect.objectContaining({
+      adjustments: expect.objectContaining({ exposure: 1.25 }),
+    }));
+    expect(session.sessionStore.getState()).toMatchObject({ imageVersion: version + 1, badge: 'preview', lastError: null });
+  });
+
+  it('defers pending full refinement while export is open', async () => {
+    session.sessionStore.setState({ nativeSize: { width: 6000, height: 4000 } });
+    await session.requestPrint();
+    session.setPages({ exportOpen: true });
+    await vi.advanceTimersByTimeAsync(800);
+    expect(fake.renderView).toHaveBeenCalledTimes(1);
+    expect(session.sessionStore.getState().badge).toBe('preview');
+
+    session.setPages({ exportOpen: false });
+    await vi.advanceTimersByTimeAsync(400);
+    expect(fake.renderView).toHaveBeenCalledTimes(2);
+    expect(session.sessionStore.getState().badge).toBe('full');
+  });
+
+  it.each([false, true])('export interrupts running full refinement (delayed job id: %s)', async (delayJobId) => {
+    session.sessionStore.setState({ nativeSize: { width: 6000, height: 4000 } });
+    const { scheduler } = await import('../scheduler');
+    const queue = scheduler();
+    const submitJob = queue.submit.bind(queue);
+    let reportJobId: (() => void) | undefined;
+    if (delayJobId) {
+      vi.spyOn(queue, 'submit').mockImplementation(async (job) => {
+        const id = await submitJob(job);
+        if (job.kind === 'fullView' && !reportJobId) await new Promise<void>((resolve) => { reportJobId = resolve; });
+        return id;
+      });
+    }
+
+    let stopFull: ((reason: Error) => void) | undefined;
+    // The first full view stays in flight until the test releases cancellation.
+    fake.renderView.mockImplementationOnce(async () => frame(200))
+      .mockImplementationOnce(async () => new Promise<RenderReply>((_resolve, reject) => { stopFull = reject; }));
+    fake.cancel.mockResolvedValue(true);
+
+    await session.requestPrint();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(stopFull).toBeDefined();
+    const live = fake.frames.print;
+    session.setPages({ exportOpen: true });
+    if (delayJobId) {
+      expect(fake.cancel).not.toHaveBeenCalled();
+      // Closing immediately still cancels the old job when its ID arrives.
+      session.setPages({ exportOpen: false });
+      expect(reportJobId).toBeDefined();
+      reportJobId?.();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.cancel).toHaveBeenCalledTimes(1);
+    if (!delayJobId) session.setPages({ exportOpen: false });
+    await vi.advanceTimersByTimeAsync(800);
+    expect(fake.frames.print).toBe(live);
+    stopFull?.(new Error('cancelled'));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(fake.renderView).toHaveBeenCalledTimes(3);
+    expect(session.sessionStore.getState()).toMatchObject({ badge: 'full', lastError: null });
   });
 
   it('prices the full view as opening nothing, and sends it what of the edit the session lacks', async () => {

@@ -82,11 +82,42 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Use small limits to exercise both refusal paths without requesting big
+    // GPU allocations. Keep the two existing buffers live across each refusal.
+    const Snapshot limits_before = take(gpu.get());
+    if (!spk::gpu::test_set_buffer_limits(gpu.get(), 1024 * 1024, 4096)) return 1;
+    if (gpu->alloc(2 * 1024 * 1024, error) ||
+        !require(error.find("device buffer limit of 1048576 bytes") != std::string::npos,
+                 "missing the physical buffer limit", error) ||
+        gpu->alloc_persistent(8192, error) ||
+        !require(error.find("device allocation limit of 4096 bytes") != std::string::npos,
+                 "missing the aligned memory allocation limit", error) ||
+        !require(same_pool(limits_before, take(gpu.get())), "oversized request changed the buffer pool", error)) {
+        std::fprintf(stderr, "Vulkan size limits: %s\n", error.c_str());
+        return 1;
+    }
+    auto small = gpu->alloc_persistent(256, error);
+    if (!small) {
+        std::fprintf(stderr, "Vulkan size limits recovery: %s\n", error.c_str());
+        return 1;
+    }
+    small.reset();
+    std::puts("Vulkan size limits: both oversized requests refused and a smaller buffer allocated");
+
     const Snapshot before = take(gpu.get());
     if (!spk::gpu::test_latch_device_lost(gpu.get(), error)) {
         std::fprintf(stderr, "device-lost injection: %s\n", error.c_str());
         return 1;
     }
+
+    if (!require(error.find("Vulkan upload / vkQueueWaitIdle") != std::string::npos &&
+                     error.find("offset 65536, chunk 4096, total 69632 bytes") != std::string::npos,
+                 "the upload diagnosis lost its API or chunk range", error)) {
+        std::fprintf(stderr, "device-lost diagnosis: %s\n", error.c_str());
+        return 1;
+    }
+    const std::string submitted = error;
+    std::printf("simulated diagnostic: %s\n", submitted.c_str());
 
     // Every later request fails, and each one repeats the latched diagnosis
     // rather than inventing a new one. `first` is that diagnosis.
@@ -147,7 +178,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "device-lost readback: %s\n", error.c_str());
         return 1;
     }
-    if (!require(first.find("device was lost") != std::string::npos,
+    if (!require(first == submitted && first.find("device was lost") != std::string::npos,
                  "the latched diagnosis does not name the lost device", error)) {
         std::fprintf(stderr, "device-lost diagnosis: %s\n", error.c_str());
         return 1;

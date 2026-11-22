@@ -61,11 +61,14 @@ describe('agent saved display mode', () => {
     }
   });
 
-  it('exports saved bypass through the same frozen exporter contract', async () => {
+  it('exports saved bypass from a single private source without developing an editor session', async () => {
     await workspace().call('export_image', { path });
+    expect(fake.result.mock.calls.map(([method]) => method)).toEqual(['hello', 'probe']);
+    expect(fake.request).toHaveBeenCalledTimes(1);
     expect(fake.request.mock.calls[0]?.[0]).toBe('export_frame');
     expect(fake.request.mock.calls[0]?.[1]).toMatchObject({ no_film: true,
-      geometry: saved.geometry, source_geometry: GEOMETRY_DEFAULT, adjustments: { exposure: .75 } });
+      source_path: path, geometry: saved.geometry, source_geometry: GEOMETRY_DEFAULT, adjustments: { exposure: .75 } });
+    expect(fake.request.mock.calls[0]?.[1]).not.toHaveProperty('session');
   });
 
   it('refuses ordinary preview and export on an old host before any render or output write', async () => {
@@ -79,7 +82,18 @@ describe('agent saved display mode', () => {
   it('refuses DI while bypass is saved', async () => {
     supportsNoFilm = false;
     await expect(workspace().call('export_image', { path, recipe: 'Digital Intermediate' })).rejects.toThrow('Digital Intermediate');
+    expect(fake.result.mock.calls.map(([method]) => method)).toEqual(['hello', 'probe']);
     expect(fake.request).not.toHaveBeenCalled();
+  });
+
+  it('lets the private Cineon export develop the film without preparing a preview', async () => {
+    saved.noFilm = false;
+    await workspace().call('export_image', { path, recipe: 'Digital Intermediate' });
+    expect(fake.result.mock.calls.map(([method]) => method)).toEqual(['hello', 'probe']);
+    expect(fake.request).toHaveBeenCalledTimes(1);
+    expect(fake.request.mock.calls[0]?.[0]).toBe('export_cineon');
+    expect(fake.request.mock.calls[0]?.[1]).toMatchObject({ source_path: path, long_edge: 0 });
+    expect(fake.request.mock.calls[0]?.[1]).not.toHaveProperty('session');
   });
 
   it('rejects saved bypass for a pair before trying to open it', async () => {

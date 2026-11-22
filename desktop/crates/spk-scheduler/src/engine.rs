@@ -6,7 +6,7 @@
 //! | here | the Mac (C ABI) | `HostEngine` (HOST-PROTOCOL.md) |
 //! |---|---|---|
 //! | `run` | `spk_render` / `spk_reprint` | `open`/`redecode`, `set_params`, the job's call (`render_view`, `export_frame`, `thumbnail` …), `close` |
-//! | `run` in `Bands` | rendered whole | rendered whole, recorded as such |
+//! | `run` in `Bands` | rendered whole | unsupported |
 //! | `progress` | the stages the conformer passes | the host's `progress` events |
 //! | `cancel` | `spk_cancel` | `cancel {session, progress_id}` |
 //! | `trim` | `spk_trim_pool` | `trim` (additive, W1) |
@@ -97,6 +97,11 @@ pub trait DevelopEngine: Send + Sync {
     }
     /// Part of any cache key built from a render.
     fn effect_versions(&self) -> String;
+
+    /// Whether this executor can honor a banded render plan.
+    fn supports_bands(&self) -> bool {
+        true
+    }
 
     /// Render one job in one mode. `Err(Cancelled)` when `cancel` reached it.
     async fn run(&self, job: &RenderJob, mode: &RenderMode, progress: ProgressFn) -> Result<RenderResult, EngineError>;

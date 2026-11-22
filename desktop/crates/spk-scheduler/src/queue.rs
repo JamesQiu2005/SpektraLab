@@ -611,6 +611,7 @@ impl Inner {
         } else {
             asked
         };
+        job.bandable &= self.engine.supports_bands();
         if job.watermark_bytes == 0 {
             if let Some(bytes) = hooks.marks.as_ref().map(|f| f(&job)) {
                 if bytes > 0 {
@@ -864,6 +865,17 @@ impl Inner {
                 st.config.develops_beside_camera,
             );
             st.last_plan = Some(plan.clone());
+            if plan.mode == RenderMode::Wait(WaitReason::Memory)
+                && job.kind == JobKind::FullView
+                && !self.engine.supports_bands()
+            {
+                // The live preview is already visible. Automatic refinement should
+                // release the editor instead of reclaiming or forcing a whole render.
+                st.queue.retain(|queued| queued.id != job.id);
+                self.record(st, fx, job, &plan, &reading, "cancelled: memory", None, now);
+                st.finish(fx, job, JobOutcome::Cancelled);
+                continue;
+            }
             if let RenderMode::Wait(why) = plan.mode {
                 st.push_wait(job.id, why);
                 st.update(fx, job.id, |s| {
@@ -906,7 +918,7 @@ impl Inner {
                     // The desktop's longer bound: it starts anyway, past what the host has left.
                     if let Some(bound) = st.config.force_anyway_after {
                         if since_secs(now, since_t) >= bound && not_stopped_lately {
-                            if let Some(plan) = st.anyway_plan(&asked, &asked_budget) {
+                            if let Some(plan) = st.anyway_plan(&asked, &asked_budget, now) {
                                 log::info!(target: "scheduler", "{} has waited {:.1} s for memory, past the {:.1} s bound: it starts anyway in {}, the watch on it",
                                     asked.kind.raw_value(), since_secs(now, since_t), bound, plan.mode.name());
                                 st.forced.insert(asked.id);
@@ -917,6 +929,10 @@ impl Inner {
                     }
                 }
             }
+        }
+        if st.queue.is_empty() {
+            fx.push(Action::Pump);
+            return;
         }
         // Nothing could start. If memory is why, the engine's own idle pool is the first place to look.
         if st.config.trims_when_waiting
@@ -1318,7 +1334,7 @@ impl Inner {
                 }
             }
             if matches!(plan.mode, RenderMode::Bands { .. }) && m.measured.is_some() && m.bands.is_none() {
-                // The plan and the render parted ways: the v1 host renders every frame whole.
+                // The executor did not honor the scheduled mode.
                 log::warn!(target: "scheduler", "{} was planned in {} and the engine rendered it whole", job.kind.raw_value(), plan.mode.name());
             }
         }
@@ -1475,7 +1491,7 @@ impl State {
         fx.push(Action::Cancel(id));
     }
 
-    /// The last resort for a job someone waits on: its smallest mode, held to the app's own allowance only.
+    /// The last resort for a job someone waits on: its smallest mode, held to the app and GPU allowances.
     fn forced_plan(&self, job: &RenderJob, budget: &MemoryBudget, now: Instant) -> Option<RenderPlan> {
         Planner::gate(
             job,
@@ -1488,14 +1504,15 @@ impl State {
         .then_some(())?;
         let mode = Planner::ladder(job).last().copied().unwrap_or(RenderMode::Whole);
         let cost = self.cost_model.estimate(job, &mode);
-        if cost.peak_bytes as f64 > budget.app_bytes as f64 * self.current_derate(job.id, now) {
+        let derate = self.current_derate(job.id, now);
+        if cost.peak_bytes as f64 > budget.app_bytes as f64 * derate || !budget.fits_gpu(&cost, derate) {
             return None;
         }
         Some(RenderPlan { mode, estimate: cost, budget: budget.clone() })
     }
 
-    /// `forced_plan` without the allowance: the smallest mode, where the frontend allows the job at all.
-    fn anyway_plan(&self, job: &RenderJob, budget: &MemoryBudget) -> Option<RenderPlan> {
+    /// `forced_plan` without the app allowance. The GPU allowance still applies.
+    fn anyway_plan(&self, job: &RenderJob, budget: &MemoryBudget, now: Instant) -> Option<RenderPlan> {
         Planner::gate(
             job,
             &self.frontend,
@@ -1506,7 +1523,10 @@ impl State {
         .is_none()
         .then_some(())?;
         let mode = Planner::ladder(job).last().copied().unwrap_or(RenderMode::Whole);
-        Some(RenderPlan { mode, estimate: self.cost_model.estimate(job, &mode), budget: budget.clone() })
+        let cost = self.cost_model.estimate(job, &mode);
+        budget
+            .fits_gpu(&cost, self.current_derate(job.id, now))
+            .then(|| RenderPlan { mode, estimate: cost, budget: budget.clone() })
     }
 }
 

@@ -31,7 +31,7 @@ export function EditorWindow() {
           {!left && <PanelResize side="left" />}
           {!right && <PanelResize side="right" />}
           <TopBar />
-          <Canvas />
+          <Canvas legacyOriginalShortcut />
           <PreviewBuildStatus queue={importPreviews} />
           {!strip && <Filmstrip />}
           <HostFailure />

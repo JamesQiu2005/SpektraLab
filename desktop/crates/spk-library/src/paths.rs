@@ -14,8 +14,8 @@
 //! upper-cases the drive letter, and drops doubled and trailing separators.
 //! On the way out, [`to_native`] gives the backslash form for display.
 //!
-//! The functions are pure and take a [`PathStyle`], so the Windows rules are
-//! unit-tested on a Mac (T-B4).
+//! The functions are pure and take a [`PathStyle`], so the tests exercise both
+//! path styles on every platform (T-B4).
 
 use std::path::Path;
 
@@ -45,7 +45,7 @@ pub fn to_helper(path: &str, style: PathStyle) -> String {
     // Verbatim and device prefixes: //?/C:/x, //?/UNC/server/share/x, //./C:/x.
     for prefix in ["//?/", "//./"] {
         if let Some(rest) = s.strip_prefix(prefix) {
-            if rest.len() >= 4 && rest[..4].eq_ignore_ascii_case("UNC/") {
+            if rest.get(..4).is_some_and(|root| root.eq_ignore_ascii_case("UNC/")) {
                 s = format!("//{}", &rest[4..]);
             } else if is_drive(rest) {
                 s = rest.to_string();
@@ -102,7 +102,7 @@ pub fn inside_capture_one(path: &str) -> bool {
     })
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     const W: PathStyle = PathStyle::Windows;
@@ -131,6 +131,7 @@ mod tests {
         assert_eq!(to_helper(r"\\.\C:\x", W), "C:/x");
         // A verbatim path that is neither a drive nor UNC (a volume GUID) is left as the helper's root form.
         assert_eq!(to_helper(r"\\?\Volume{1234}\x", W), "//?/Volume{1234}/x");
+        assert_eq!(to_helper(r"\\?\照片", W), "//?/照片");
         // Non-ASCII survives untouched (the helper does NFC and case folding itself).
         assert_eq!(to_helper("C:\\Users\\张三\\Café", W), "C:/Users/张三/Café");
     }

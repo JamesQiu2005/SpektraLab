@@ -50,7 +50,7 @@ thread. `LibraryHost` is `Send + Sync`: share one per app in an `Arc`.
 | Start | On the first call (or `start()`). Waits for the `{"event":"ready"}` line (`start_timeout`, 10 s), then `sdk.version`; any `abi` other than 1 is refused (`unavailable`) |
 | Requests | One compact JSON line per request with an increasing `id`; replies are routed back by `id`. Calls from several threads are serialised onto the one stdin; the helper answers in order |
 | Timeout | `call_timeout` (120 s) per call, or `call_with_timeout`. A timed-out call fails as `timeout`; the helper keeps running and its late reply is dropped |
-| Crash | When the helper exits, every waiting call fails as `unavailable` and the next call starts a new one (`launches()` goes up). A request that never reached a dead helper is sent once more to the new one; a request already sent is not repeated (the helper commits before it replies, so the caller decides). **Handles (`"L1"`) die with the helper: when `launches()` changes, reopen each library by path** (`library.open`, `capture_one.link`), as the Mac's `LibraryModel` does |
+| Crash | When the helper exits, every waiting call fails as `unavailable` and the next unscoped call starts a new one. `call_on_launch` checks an expected launch under the pipe-write lock and returns `stale_library` before sending if the helper has changed or stopped. Handles die with the helper. The desktop reopens the same catalogue by path and checks its UUID. A pipe failure or timeout can leave a write's result unknown, so the transport does not retry it. |
 | Shutdown | `shutdown()` (and `Drop`): `host.shutdown`, stdin closed, a kill after 2 s, and the process is reaped -- none is left behind. A later call starts a new helper |
 | stderr | Each line goes to `Launch::log` and the last 50 to `stderr_tail()` |
 
@@ -96,11 +96,12 @@ renumbered after a delete).
 ## Paths
 
 The helper's paths are UTF-8; on Windows in its generic form, `C:/Users/me/x.NEF`, `//NAS/photos/x`
-(Win32 accepts `/`). `paths::to_helper` (applied by every typed call) strips a `\\?\` / `\\?\UNC\`
+(ordinary Win32 paths accept `/`). `paths::to_helper` strips a `\\?\` / `\\?\UNC\`
 prefix, turns `\` into `/`, upper-cases the drive letter and drops doubled and trailing separators, so
 one folder is never stored twice. `paths::to_native` gives the backslash spelling for display. To ask
 "is this file in the library", use `lookup` (`images.lookup`): the helper folds case, separators and
-Unicode normalisation as NTFS does. Paths given to `call` directly are passed as they are.
+Unicode normalisation as NTFS does. On Windows the raw RPC bridge applies the same conversion to
+the picker paths for library open/create, Capture One probe/link/copy, folder add and relink.
 
 ## Capture One is never written (R-B5)
 
@@ -111,12 +112,11 @@ sending any create/write target (`library.create`, `capture_one.copy`/`.link` `p
 `.cosessiondb`. The test suite holds a Capture One package's every byte, size, time and mode to be
 unchanged after a session of probe, link, list, sync, copy and update.
 
-## Tests (macOS only, by design)
+## Tests
 
-The test suite never builds or runs on Windows: `tests/` files are `#![cfg(target_os = "macos")]` and
-unit-test modules `#[cfg(all(test, target_os = "macos"))]`, including the Windows path-rule tests (they
-test the Windows logic with an explicit `PathStyle::Windows`, on the Mac). For Windows the crate is
-only `cargo check`ed (`--lib --target x86_64-pc-windows-gnu`).
+Unit tests cover paths, protocol errors, source guards and the platform's library store. Run
+`cargo test --locked -p spk-library --lib` from `desktop/src-tauri`. The `tests/helper.rs`
+integration suite uses macOS tools and a locally built helper.
 
 ```sh
 SPKLIB_SRC=<SpektraLab_library clone, branch windows/cross-compile-2026-11-17-on-0.4.0> \
@@ -128,5 +128,5 @@ vendored one is the rebuild of its commit (T-B2), runs this crate's tests agains
 with `SPKLIB_HOST` / `SPKLIB_FIXTURES` (T-B3, and the path rules, T-B4), and `cargo check`s the library
 for `x86_64-pc-windows-gnu` with rustup's toolchain (T-B5). A missing variable or tool fails the gate.
 
-Not verified anywhere: running `spklib-host.exe`, `CREATE_NO_WINDOW`, and any real Capture One for
-Windows catalog (spklib `docs/WINDOWS.md` has the checklist).
+The Windows packaging gate runs `sdk.version` against the installed helper. A real Capture One for
+Windows catalog is still needed for compatibility testing (see spklib `docs/WINDOWS.md`).

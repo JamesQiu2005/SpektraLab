@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const catalogPath = 'modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json';
+const catalogPath = 'desktop/assets/StockCatalog.json';
 
 describe('standalone CLI build', () => {
   it.each(['missing', 'stale'])('uses the tracked catalog with %s web assets', (assets) => {

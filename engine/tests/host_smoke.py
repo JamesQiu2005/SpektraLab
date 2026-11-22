@@ -322,6 +322,46 @@ def processed_views(host, sid, path, tmp, label):
           f"{label}: queued private export cancelled before decode", h.get("error"))
 
 
+def export_tier_history(host, path, tmp):
+    """Lower tiers can render first without advancing the full tier's noise."""
+    images = {}
+    for tier in (None, "live", "preview"):
+        label = tier or "cold"
+        h, _ = host.call("open", {"path": path, "params": {"grain_active": True, "glare_active": True}})
+        if not check(h["ok"], f"tier history: open {label}", h.get("error")):
+            return
+        sid = h["result"]["session"]
+        try:
+            if tier:
+                h, _ = host.call("render_view", {"session": sid, "tier": tier, "long_edge": 64})
+                if not check(h["ok"], f"tier history: {tier} preview", h.get("error")):
+                    return
+            target = os.path.join(tmp, f"tier-history-{label}.tif")
+            request = {"session": sid, "path": target, "format": "tiff16", "color_space": "prophoto"}
+            h, _ = host.call("export_frame", request)
+            if not check(h["ok"], f"tier history: export after {label}", h.get("error")):
+                return
+            check(not h["result"]["print_cached"], f"tier history: full tier was cold after {label}")
+            with open(target, "rb") as f:
+                images[label] = f.read()
+            if tier is None:
+                cached = os.path.join(tmp, "tier-history-cached.tif")
+                h, _ = host.call("export_frame", {**request, "path": cached})
+                if check(h["ok"] and h["result"]["print_cached"], "tier history: repeat uses full print cache", h.get("error")):
+                    with open(cached, "rb") as f:
+                        check(f.read() == images[label], "tier history: cached pixels preserved")
+                h, _ = host.call("render", {"session": sid, "tier": "full"})
+                if check(h["ok"], "tier history: explicit full render", h.get("error")):
+                    rerendered = os.path.join(tmp, "tier-history-rerendered.tif")
+                    h, _ = host.call("export_frame", {**request, "path": rerendered})
+                    if check(h["ok"], "tier history: export after explicit full render", h.get("error")):
+                        with open(rerendered, "rb") as f:
+                            check(f.read() != images[label], "tier history: full tier still advances its noise")
+        finally:
+            host.call("close", {"session": sid})
+    check(images["cold"] == images["live"] == images["preview"], "tier history: lower tiers preserve full pixels")
+
+
 def extras(host, sid, path, tmp, label, raw, probe):
     """Every remaining method once per input, and the error paths."""
     h, _ = host.call("get_params", {"session": sid})
@@ -417,6 +457,8 @@ def main():
     ap.add_argument("--wrapper", help="e.g. wine")
     ap.add_argument("--quick", action="store_true",
                     help="RAWs only get the Unicode-path probe/thumbnail/open, not the full walk")
+    ap.add_argument("--require-raw-openmp", action="store_true",
+                    help="require LibRaw OpenMP in telemetry from a real synthetic DNG decode")
     ap.add_argument("raws", nargs="*")
     a = ap.parse_args()
     cmd = ([a.wrapper] if a.wrapper else []) + [a.host]
@@ -432,6 +474,8 @@ def main():
     print(f'     backend: {b}', flush=True)
     if not check(b.get("available"), "engine available", b.get("error", "")):
         return 1
+    check(b.get("device_type") in {"discrete", "integrated", "virtual", "cpu", "other"},
+          "Vulkan device type", b.get("device_type"))
     h, _ = host.call("ping")
     check(h["ok"], "ping")
     h, _ = host.call("params_schema")
@@ -441,6 +485,14 @@ def main():
     check(h["ok"] and stocks, "print_lut_catalog", f"{len(stocks)} stocks")
     h, _ = host.call("memory_report")
     check(h["ok"], "memory_report")
+    heaps = h.get("result", {}).get("gpu_memory", {}).get("heaps", [])
+    check(bool(heaps), "Vulkan memory report has heaps")
+    for i, heap in enumerate(heaps):
+        label = f"Vulkan heap {i}"
+        check(heap.get("size_bytes", 0) > 0 and type(heap.get("device_local")) is bool, label, heap)
+        if "budget_bytes" in heap or "usage_bytes" in heap:
+            check(0 < heap.get("budget_bytes", 0) <= heap.get("size_bytes", 0)
+                  and heap.get("usage_bytes", -1) >= 0, f"{label} driver sample", heap)
     h, _ = host.call("nonsense_method")
     check(not h["ok"] and h["error"]["code"] == "unsupported", "unknown method -> unsupported")
     h, _ = host.call("probe", {"path": os.path.join(tmp, "missing.nef")})
@@ -489,6 +541,15 @@ def main():
     check(not h["ok"] and h["error"]["code"] == "decode_failed"
           and "no usable embedded preview" in h["error"]["message"] and not px,
           "embedded-only RAW without preview does not fall back to decoding", h.get("error"))
+    if a.require_raw_openmp:
+        h, _ = host.call("open", {"path": dng})
+        if check(h["ok"], "OpenMP DNG open", h.get("error")):
+            opened = h["result"]
+            raw = opened.get("timings_ms", {}).get("raw", {})
+            check(raw.get("openmp_enabled") is True and raw.get("workers", 0) >= 1,
+                  "LibRaw OpenMP enabled for DNG decode", raw)
+            h, _ = host.call("close", {"session": opened["session"]})
+            check(h["ok"], "OpenMP DNG session closed", h.get("error"))
     exercise(host, png, tmp, "png", False)
     # A folder and file named outside ASCII: the wire is UTF-8, Windows needs
     # wide APIs underneath (platform.cpp), and a regression there is silent.
@@ -516,6 +577,7 @@ def main():
     tif = os.path.join(tmp, "ramp16.tif")
     write_tiff16(tif, 80, 120)
     exercise(host, tif, tmp, "tiff16", False)
+    export_tier_history(host, tif, tmp)
     for i, raw in enumerate([] if a.quick else a.raws):
         exercise(host, raw, tmp, f"raw{i}-{os.path.basename(raw)}", True)
 

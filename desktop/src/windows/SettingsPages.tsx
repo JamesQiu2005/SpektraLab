@@ -4,9 +4,25 @@ import { host } from '../host/client';
 import { inTauri } from '../host/transport';
 import { platform } from '../platform';
 import { tz } from '../i18n';
-import { ToggleRow } from '../controls/controls';
+import { PillMenu, ToggleRow } from '../controls/controls';
+import { PREVIEW_EDGES, resolvePreviewLongEdge, useSettings, type PreviewLongEdge } from '../state/settings';
+import { setPreviewLongEdge, useSession } from '../state/session';
 import { clearDisplayCache, configureDisplayCache, displayCacheStatus, setDisplayCacheDirectory, type DisplayCacheStatus } from '../state/displayCache';
 import { checkWindowsUpdate, type UpdateStatus } from './updateCheck';
+
+export function PreviewResolutionSettings() {
+  const preference = useSettings((s) => s.previewLongEdge);
+  const softwareVulkan = useSession((s) => s.hello?.backend?.api === 'vulkan' && s.hello.backend.device_type === 'cpu');
+  const auto = resolvePreviewLongEdge('auto', softwareVulkan);
+  return <PillMenu<PreviewLongEdge>
+    label={tz('Preview resolution', '预览分辨率')}
+    testId="preview-resolution"
+    value={preference}
+    options={[{ value: 'auto', label: tz('Auto', '自动') + ' · ' + auto + ' px' },
+      ...PREVIEW_EDGES.map((value) => ({ value, label: value + ' px' }))]}
+    onChange={setPreviewLongEdge}
+  />;
+}
 
 const GiB = 1024 ** 3;
 export function formatBytes(value: unknown): string {

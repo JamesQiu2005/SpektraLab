@@ -44,9 +44,13 @@ if [[ $fetch == 1 ]]; then
   python3 "$here/setup-input-codecs.py" --sources "$deps/input-codecs" \
     --build "$build/input-codecs" --install "$input_prefix" --generator Ninja \
     --toolchain "$here/cmake/toolchain-mingw-w64.cmake"
+  meson_files=(--meson-cross-file "$here/cmake/meson-mingw-w64.ini")
+  if [[ ${CMAKE_C_COMPILER_LAUNCHER:-} == ccache && ${CMAKE_CXX_COMPILER_LAUNCHER:-} == ccache ]]; then
+    meson_files+=(--meson-cross-file "$here/cmake/meson-mingw-w64-ccache.ini")
+  fi
   python3 "$here/setup-lens-codecs.py" --sources "$deps/lens-codecs" \
     --build "$build/lens-codecs" --install "$lens_prefix" --generator Ninja \
-    --toolchain "$here/cmake/toolchain-mingw-w64.cmake" --meson-cross-file "$here/cmake/meson-mingw-w64.ini"
+    --toolchain "$here/cmake/toolchain-mingw-w64.cmake" "${meson_files[@]}"
 fi
 
 version="$(git -C "$repo" describe --always --dirty 2>/dev/null || echo unknown)"
@@ -65,17 +69,18 @@ if [[ -n "$gxx" ]]; then
 fi
 cmake -S "$repo" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="$here/cmake/toolchain-mingw-w64.cmake" \
+  -DSPEKTRALAB_DEPS_DIR="$deps" \
   -DSPEKTRALAB_GLSLANG="$glslang" \
   -DSPEKTRALAB_INPUT_CODEC_PREFIX="$input_prefix" \
   -DSPEKTRALAB_LENS_PREFIX="$lens_prefix" \
-  -DSPEKTRALAB_VULKAN_HEADERS="$repo/build/deps/Vulkan-Headers/include" \
+  -DSPEKTRALAB_VULKAN_HEADERS="$deps/Vulkan-Headers/include" \
   -DSPEKTRALAB_BUILD_NATIVE_RAW=ON -DSPEKTRALAB_BUILD_HOST=ON -DSPEKTRALAB_BUILD_DESKTOP=OFF \
   -DSPEKTRALAB_REQUIRE_VULKAN=ON -DSPEKTRALAB_STATIC_RUNTIME=ON -DBUILD_TESTING=OFF \
   -DSPEKTRALAB_LIBRAW_OPENMP="$openmp" \
   -DSPEKTRALAB_HOST_VERSION="0.1.0+$version"
 ninja -C "$build" spektralab-host spektralab_vulkan_resources
 
-"$here/stage-host.sh" "$build" "$stage" spektralab-host.exe
+SPEKTRALAB_DEPS_DIR="$deps" "$here/stage-host.sh" "$build" "$stage" spektralab-host.exe
 
 # Nothing but system DLLs may be imported.
 # A missing objdump fails the build: a skipped check reads like a passed one.

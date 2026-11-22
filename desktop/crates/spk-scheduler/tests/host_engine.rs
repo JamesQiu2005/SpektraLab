@@ -1,9 +1,7 @@
 //! T4 — `HostEngine` against a scripted link: the requests each job kind makes, a cancel during a
 //! render, every host error code, a host that dies mid-job, superseded edits folding into the newest.
 //! On tokio's paused clock: the link's "render time" is virtual.
-//!
-//! macOS only by design (README, "Tests").
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", windows))]
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -297,6 +295,24 @@ async fn the_requests_each_job_kind_makes() {
     assert_eq!(link.methods(), ["open", "preview_stock_lut", "close"]);
     assert_eq!(link.calls()[2].1["session"], link.calls()[1].1["session"]);
 
+    link.clear();
+    let card_request = |path: &str| request(
+        "render_stock_card",
+        Some(SourceSpec { decode: Some(json!({"raw_mode": "headroom"})), ..source(path) }),
+        json!({"params": {"film_stock": "alternate"}}),
+    );
+    let card = RenderJob::new(a.clone(), JobKind::StockPreview, RenderTier::Live, PixelSize::new(192, 128))
+        .with_request(Some(card_request("/p/a.ARW")));
+    assert!(q.outcome(q.submit(card)).await.is_finished());
+    assert_eq!(link.methods(), ["render_stock_card"]);
+    assert_eq!(link.calls()[0].1["session"], "s1");
+    assert!(link.calls()[0].1["progress_id"].is_string());
+    link.clear();
+    let stale = RenderJob::new(FrameId::new("b"), JobKind::StockPreview, RenderTier::Live, PixelSize::new(192, 128))
+        .with_request(Some(card_request("/p/b.ARW")));
+    assert!(matches!(q.outcome(q.submit(stale)).await, spk_scheduler::JobOutcome::Cancelled));
+    assert!(link.methods().is_empty());
+
     // A full view of the frame being edited, from the same source, borrows its session: the file is not
     // decoded again and nothing is closed (phase 3, part 2). Its delta lands on that session first.
     link.clear();
@@ -558,4 +574,55 @@ async fn the_webview_s_calls_run_on_the_editing_session() {
     assert_eq!(reply["error"]["code"], "not_found");
     assert_eq!(link.methods(), ["close"]);
     assert_eq!(link.open_sessions(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_whole_frame_host_skips_an_optional_full_view_that_does_not_fit() {
+    let (link, _engine, q) = setup().await;
+    q.set_read_memory(|| MemoryReading {
+        gpu_available: Some(4 << 30),
+        ..MemoryReading::windows(18 << 30, 18 << 30, 0)
+    });
+    let frame = FrameId::new("fuji");
+    assert!(q.outcome(q.submit(canvas_job(JobKind::CanvasDevelop, &frame, "/p/fuji.RAF"))).await.is_finished());
+    link.clear();
+    let full = RenderJob::new(frame.clone(), JobKind::FullView, RenderTier::Full, PixelSize::new(11662, 8746))
+        .with_request(Some(request("render_view", Some(source("/p/fuji.RAF")), view("full"))));
+    assert_eq!(q.outcome(q.submit(full)).await, JobOutcome::Cancelled);
+    let record = q.records().pop().unwrap();
+    assert_eq!(record.mode, "wait(memory)");
+    assert_eq!(record.outcome, "cancelled: memory");
+    assert!(record.ran.is_none());
+    assert!(link.methods().is_empty(), "{:?}", link.methods());
+    assert_eq!(link.open_sessions(), 1);
+    assert!(q.outcome(q.submit(canvas_job(JobKind::CanvasReprint, &frame, "/p/fuji.RAF"))).await.is_finished());
+    assert_eq!(link.methods(), ["render_view"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn export_does_not_force_a_whole_frame_over_the_gpu_budget() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let (link, _engine, q) = setup().await;
+    let available = Arc::new(AtomicU64::new(4 << 30));
+    let read = available.clone();
+    q.set_read_memory(move || MemoryReading {
+        gpu_available: Some(read.load(Ordering::Relaxed)),
+        ..MemoryReading::windows(18 << 30, 18 << 30, 0)
+    });
+    let job = RenderJob::new(FrameId::new("fuji"), JobKind::Export, RenderTier::Full, PixelSize::new(11662, 8746))
+        .decoding(true)
+        .with_request(Some(request("export_frame", Some(source("/p/fuji.RAF")), json!({"path": "/out/fuji.tif"}))));
+    let id = q.submit(job);
+    assert!(tokio::time::timeout(Duration::from_secs(8), q.outcome(id)).await.is_err());
+    assert!(link.methods().is_empty(), "{:?}", link.methods());
+    assert_eq!(q.snapshot_of(id).unwrap().state, SnapshotState::Waiting(spk_scheduler::types::WaitReason::Memory));
+
+    available.store(12 << 30, Ordering::Relaxed);
+    let result = tokio::time::timeout(Duration::from_secs(2), q.outcome(id)).await.unwrap();
+    assert!(result.is_finished());
+    assert_eq!(link.methods(), ["export_frame"]);
+    let record = q.records().pop().unwrap();
+    assert_eq!(record.mode, "whole");
+    assert_eq!(record.ran.as_deref(), Some("whole"));
 }

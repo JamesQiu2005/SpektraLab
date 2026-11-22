@@ -429,6 +429,10 @@ macro_rules! handlers {
 }
 
 pub fn run() {
+    let context = tauri::generate_context!();
+    if std::env::args().nth(1).as_deref() == Some("--agent-files") {
+        std::process::exit(agent_files::serve(&context.config().identifier));
+    }
     let builder = tauri::Builder::default();
 
     // Single instance first, as the plugin requires: a second launch (a file
@@ -460,7 +464,7 @@ pub fn run() {
             let workspace = workspace::Workspace::new(app.path().app_data_dir()?);
             let logs = app.try_state::<diagnostics::Diagnostics>().map(|d| d.directory.clone()).unwrap_or(app.path().app_log_dir()?);
             let host_dir = host::resolve_launch(&handle).ok().filter(|l| !l.mock).and_then(|l| l.program.parent().map(PathBuf::from));
-            app.manage::<Library>(Arc::new(library::LibraryState::resolve(host_dir.as_deref())));
+            app.manage::<Library>(Arc::new(library::LibraryState::resolve(host_dir.as_deref(), &handle)));
             let emitter = handle.clone();
             app.manage(scheduler::SchedulerHub::new(
                 Arc::clone(&host),
@@ -505,6 +509,6 @@ pub fn run() {
             }
         })
         .invoke_handler(handlers!())
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running SpektraLab");
 }

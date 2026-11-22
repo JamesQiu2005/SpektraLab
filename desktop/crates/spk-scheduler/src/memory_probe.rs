@@ -33,9 +33,8 @@ pub struct MemoryReading {
     pub compressed: u64,
     /// The measured process's footprint (`phys_footprint` on the Mac; private commit on Windows).
     pub footprint: u64,
-    /// **Desktop PC only**: what the GPU's own memory can still give the engine, where the GPU has
-    /// memory of its own (`DevicePolicy::gpu_available`). Absent on the Mac and wherever the GPU's
-    /// memory is unknown; then the budget is the Swift's two sides alone.
+    /// Remaining GPU budget where the desktop has a current driver reading.
+    /// It is absent when the backend cannot report usable GPU headroom.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gpu_available: Option<u64>,
 }

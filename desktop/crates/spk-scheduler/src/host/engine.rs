@@ -15,7 +15,7 @@
 //!   one that arrives during the call is forwarded as `cancel {session, progress_id}`. A call that takes
 //!   no `progress_id` (`thumbnail`, `preview_stock_lut`) cannot be stopped: it finishes and its result is
 //!   thrown away, and the job ends cancelled.
-//! - **Bands**: the v1 host renders whole frames; a banded plan is run whole and recorded as such.
+//! - **Bands**: the v1 host accepts whole-frame plans only.
 //! - **Measurements**: the host reports timings and the engine's ledger (`memory_report`), not a
 //!   process footprint, so a job's measured peak is 0 (the cost model's peak is left alone) and its time
 //!   is the host call's.
@@ -30,7 +30,6 @@ use serde_json::{json, Map, Value};
 use tokio::task::JoinHandle;
 
 use super::{HostError, HostLink, HostReply};
-use crate::cost_model::BandGeometry;
 use crate::device_policy::GpuMemory;
 use crate::engine::{Delivery, DevelopEngine, EngineError, ProgressFn, RenderResult};
 use crate::types::{
@@ -45,6 +44,7 @@ const SESSION_METHODS: &[&str] = &[
     "export_image",
     "export_di",
     "preview_stock_lut",
+    "render_stock_card",
     "render_source",
     "scene_latitude",
     "overscan_geometry",
@@ -55,7 +55,7 @@ const PRIVATE_SESSION_METHODS: &[&str] = &["export_frame", "export_cineon", "ren
 const SESSIONLESS_METHODS: &[&str] = &["thumbnail", "write_image", "export_cube", "probe"];
 /// Calls that carry a `progress_id`, and so can be cancelled while they run.
 const PROGRESS_METHODS: &[&str] =
-    &["render_view", "render", "export_frame", "export_cineon", "export_image", "render_proof"];
+    &["render_view", "render", "export_frame", "export_cineon", "export_image", "render_proof", "render_stock_card"];
 /// Calls that read a session without changing it: they may borrow the editing session.
 const BORROWING_METHODS: &[&str] = &["preview_stock_lut", "render_source"];
 
@@ -389,6 +389,17 @@ impl HostEngine {
             request.source.as_ref().ok_or_else(|| EngineError::Failed(format!("{method} needs a source to open")))?;
         let key = source.key();
         let same = sessions.editing.as_ref().is_some_and(|e| e.frame == job.frame_id && e.key == key);
+        if method == "render_stock_card" {
+            if job.kind != JobKind::StockPreview || request.set_params.is_some() {
+                return Err(EngineError::Failed("a stock card needs a read-only stock preview job".into()));
+            }
+            if !same {
+                // An expired card must never decode a second copy of a RAW.
+                return Err(EngineError::Cancelled);
+            }
+            let session = sessions.editing.as_ref().unwrap().session.clone();
+            return Ok(Placed { session: Some(session), ..none });
+        }
         if one_shot {
             // A full view of the frame being edited, from the same pixels, is that session's own picture at
             // its own size: it borrows the session rather than decoding the file again (phase 3, part 2).
@@ -513,7 +524,6 @@ impl HostEngine {
         job: &RenderJob,
         progress_id: &str,
         progress: ProgressFn,
-        band_count: i64,
     ) -> JoinHandle<()> {
         let mut rx = self.link.subscribe();
         let id = progress_id.to_string();
@@ -531,8 +541,8 @@ impl HostEngine {
                         progress(RenderProgress {
                             stage,
                             fraction,
-                            band: ((fraction * band_count as f64) as i64).min(band_count - 1),
-                            band_count,
+                            band: 0,
+                            band_count: 1,
                         });
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -547,19 +557,18 @@ impl HostEngine {
         sessions: &mut Sessions,
         job: &RenderJob,
         request: &JobRequest,
-        band_count: i64,
         progress: &ProgressFn,
     ) -> Result<RenderResult, EngineError> {
         let started = std::time::Instant::now();
         let method = request.method.as_str();
         if (SESSION_METHODS.contains(&method) || PRIVATE_SESSION_METHODS.contains(&method)) && request.source.is_some()
         {
-            progress(RenderProgress { stage: RenderStage::Decode, fraction: 0.0, band: 0, band_count });
+            progress(RenderProgress { stage: RenderStage::Decode, fraction: 0.0, band: 0, band_count: 1 });
         }
         let mut retried = false;
         loop {
             let placed = self.place(sessions, job, request).await?;
-            let result = self.call(sessions, job, request, &placed, band_count, progress).await;
+            let result = self.call(sessions, job, request, &placed, progress).await;
             if placed.owned {
                 if let Some(s) = &placed.session {
                     // However it ended; not if the host is gone (its sessions went with it).
@@ -599,8 +608,8 @@ impl HostEngine {
                     progress(RenderProgress {
                         stage: if job.decodes_original { RenderStage::Save } else { RenderStage::Scan },
                         fraction: 0.97,
-                        band: band_count - 1,
-                        band_count,
+                        band: 0,
+                        band_count: 1,
                     });
                     return Ok(RenderResult {
                         seconds: started.elapsed().as_secs_f64(),
@@ -623,7 +632,6 @@ impl HostEngine {
         job: &RenderJob,
         request: &JobRequest,
         placed: &Placed,
-        band_count: i64,
         progress: &ProgressFn,
     ) -> Result<(Value, Vec<u8>, bool), EngineError> {
         if let (Some(delta), Some(session)) = (&request.set_params, &placed.session) {
@@ -646,9 +654,11 @@ impl HostEngine {
             stage: if job.is_reprint() { RenderStage::Print } else { RenderStage::Film },
             fraction: if placed.fresh { 0.15 } else { 0.05 },
             band: 0,
-            band_count,
+            band_count: 1,
         });
-        let forwarder = progress_id.as_deref().map(|id| self.forward_progress(job, id, progress.clone(), band_count));
+        // Cards have their own private pipeline and do not publish its progress through the editor.
+        let forwarder = progress_id.as_deref().filter(|_| method != "render_stock_card")
+            .map(|id| self.forward_progress(job, id, progress.clone()));
         let params = Self::call_params(request, placed.session.as_deref(), progress_id.as_deref());
         let answer = self.must(sessions, method, params, job.tier).await;
         self.cancels.lock().unwrap().in_flight = None;
@@ -675,15 +685,20 @@ impl DevelopEngine for HostEngine {
         self.effect_versions.clone()
     }
 
+    fn supports_bands(&self) -> bool {
+        false
+    }
+
     async fn run(&self, job: &RenderJob, mode: &RenderMode, progress: ProgressFn) -> Result<RenderResult, EngineError> {
-        let band_count = match mode {
+        match mode {
             RenderMode::Wait(_) => {
                 return Err(EngineError::Failed("a job that waits is not handed to the engine".into()))
             }
-            RenderMode::Whole => 1,
-            // The host renders a frame whole; the count is the progress the scheduler planned.
-            RenderMode::Bands { rows } => BandGeometry::new(job.canvas).band_count(*rows),
-        };
+            RenderMode::Whole => {}
+            RenderMode::Bands { .. } => {
+                return Err(EngineError::Failed("the host cannot render in bands".into()));
+            }
+        }
         let Some(request) = job.request.clone() else {
             return Err(EngineError::Failed("the job has no host request".into()));
         };
@@ -691,7 +706,7 @@ impl DevelopEngine for HostEngine {
             return Err(EngineError::Cancelled);
         }
         let mut sessions = self.sessions.lock().await;
-        let result = self.run_on(&mut sessions, job, &request, band_count, &progress).await;
+        let result = self.run_on(&mut sessions, job, &request, &progress).await;
         drop(sessions);
         // Whatever ended it, the job's cancel is spent.
         let cancelled = self.take_cancelled(job.id);

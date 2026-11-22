@@ -29,7 +29,8 @@ public:
     // -- which is what keeps a three-component exponential PSF at three blurs
     // instead of three blurs plus three full-frame adds.
     bool gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,
-                  double truncate = 3.0, const Image* acc = nullptr, const double* weight = nullptr);
+                  double truncate = 3.0, const Image* acc = nullptr, const double* weight = nullptr,
+                  const std::atomic<bool>* cancelled = nullptr);
 
     // Same arithmetic as gaussian, but the caller may transfer its input with
     // std::move. FIR can release that input between its two passes, allowing
@@ -74,7 +75,7 @@ public:
         double sigma[3];
     };
     bool mixture(const Image& img, const std::vector<Component>& components, Image& out,
-                 std::string& error, double truncate = 3.0);
+                 std::string& error, double truncate = 3.0, const std::atomic<bool>* cancelled = nullptr);
 
     // --- the class of a sigma, and what it costs a strip boundary -----------
     //
@@ -136,7 +137,8 @@ private:
              Image& out, std::string& error, const Image* acc, const double* weight,
              bool consume_input = false);
     bool iir(const Image& img, const double sigmas[3], const bool active[3],
-             Image& out, std::string& error, const Image* acc, const double* weight);
+             Image& out, std::string& error, const Image* acc, const double* weight,
+             const std::atomic<bool>* cancelled);
     bool alloc_like(const Image& img, Image& out, std::string& error);
 
     gpu::Gpu* gpu_;

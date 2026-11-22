@@ -129,7 +129,7 @@ export function commands(): Record<string, Command> {
     c('openCaptureOne', tz('Open Capture One Catalog…', '打开 Capture One 目录…'), () => void openCaptureOneDialog(), { access: 'C', keys: 'Ctrl+Shift+O' }),
     c('addFolder', tz('Add a Folder…', '添加文件夹…'), () => void addFolder(), {}),
     c('closeLibrary', tz('Close Library', '关闭图库'), () => void closeLibrary(), { enabled: !!lib.source }),
-    c('refreshLibrary', tz('Refresh Library', '刷新图库'), () => void refresh(), { access: 'R', keys: 'F5', enabled: !!lib.source }),
+    c('refreshLibrary', tz('Refresh Library', '刷新图库'), () => void refresh({ checkFolders: true }), { access: 'R', keys: 'F5', enabled: !!lib.source }),
     c('export', tz('Export…', '导出…'), () => (library ? void developFromLibrary().then(exportFromBrowser) : exportFromBrowser()), { access: 'E', keys: 'Ctrl+E', enabled: library ? lib.picked.length > 0 : printed && !s.batchExporting }),
     c('exportLast', tz('Export with the Last Recipe', '用上次的配方导出'), () => openExport(), { access: 'W', keys: 'Ctrl+Shift+E', enabled: printed && !s.batchExporting }),
     c('settings', tz('Settings…', '设置…'), () => setPages({ settingsOpen: true }), { access: 'T', keys: 'Ctrl+,' }),
@@ -147,7 +147,10 @@ export function commands(): Record<string, Command> {
     c('copySettingsDialog', tz('Copy Settings…', '拷贝设置…'), () => setUi({ copySettingsOpen: true, moreOpen: false }), { access: 'e', keys: 'Ctrl+Alt+Shift+C', enabled: editing }),
     c('pasteSettings', tz('Paste Settings', '粘贴设置'), () => void pasteSettings(), { access: 'P', keys: 'Ctrl+Shift+V', enabled: !!s.clipboard && !s.batchExporting }),
     // The browser's search, in every mode (it is the browser's slim bar).
-    c('find', tz('Find', '查找'), () => { if (st.rightCollapsed) st.set('rightCollapsed', false); requestAnimationFrame(() => (document.querySelector('[data-testid="browser-search"]') as HTMLInputElement | null)?.focus()); }, { access: 'F', keys: 'Ctrl+F', enabled: !!lib.source }),
+    c('find', tz('Find', '查找'), () => {
+      if (l.right === 'folded' || l.right === 'hidden') toggleRailCommand('right');
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[data-testid="browser-search"]')?.focus());
+    }, { access: 'F', keys: 'Ctrl+F', enabled: !!lib.source }),
     // View
     // The one window's panes (PRD-W5 R5): the left column, the browser beside the picture, the full grid, the loupe.
     c('leftColumn', tz('Left Column', '左栏'), () => toggleRailCommand('left'), { access: 'L', keys: 'Ctrl+B', checked: l.left === 'docked' || l.left === 'over' }),

@@ -28,6 +28,7 @@ import {
   filmFrameNamed,
   fullDelta,
   normalizeStockPair,
+  stockCardParams,
   SCENE_LATITUDE_DEFAULT,
   jsonEqual,
   clamp,
@@ -45,7 +46,7 @@ import { type LatitudeReply, type PlacementIssue, type PlacementSide, type Place
   applyLatitudeFit, fitPlacement, latitudeRequest, measuredFromReply, placementIntent, placementLanding, placementWindow } from '@shared/latitude';
 import { HostCallError, host } from '../host/client';
 import { type FileEntry, baseName, dirName, platform } from '../platform';
-import { forgetRecentFolder, rememberFolder, settingsStore } from './settings';
+import { forgetRecentFolder, rememberFolder, resolvePreviewLongEdge, settingsStore, type PreviewLongEdge } from './settings';
 import { newPhotoSidecar } from '@shared/newPhotoDefaults';
 import { frameImages, makeThumbFromPrint, THUMB_EDGE } from './frames';
 import { thumbs } from './thumbs';
@@ -55,7 +56,7 @@ import { PreviewQueue } from './previewQueue';
 import { tz } from '../i18n';
 import { JobEnded, canvasOf, runJob, scheduler } from '../scheduler';
 import { frameHost } from '../scheduler/frame';
-import { isCanvas, type JobKind, type JobRequest, type JobSnapshotWire, type SourceSpec } from '../scheduler/types';
+import { isCanvas, type JobKind, type JobRequest, type JobSnapshotWire, type JobSpec, type SourceSpec } from '../scheduler/types';
 import { imageReply, renderReply, renderViewReply, type RenderReply, type RgbaImage } from '../host/replies';
 import { canvasWhat } from '../edit/words';
 import { hostMessage } from '../host/messages';
@@ -236,6 +237,7 @@ const set = (p: Partial<SessionState>) => sessionStore.setState(p);
 // 400 ms after the last edit and is dropped if anything moved meanwhile.
 
 let sentParams: FilmParams | null = null;
+let sentPreviewEdge: number | null = null;
 /** The parameters of the last print that landed (what FAILED_RENDER_KEEPS_EDITED_CONTROLS = false would put back). */
 let lastPrintedParams: FilmParams | null = null;
 let sentPair: string | null = null;
@@ -312,6 +314,7 @@ let wantedGen = 0;
 let inFlight = false;
 /** The canvas job the loop below is waiting on, and whether it has started. */
 let canvasJob: { id: string; running: boolean } | null = null;
+let fullJob: string | null = null;
 let jobWatch: (() => void) | null = null;
 /** When the page submitted each job it watches, and when it saw it run (the page's clock). */
 const jobClock = new Map<string, { submittedAt: number; startedAt?: number }>();
@@ -360,6 +363,8 @@ async function thumbnailJob(path: string, longEdge: number, embeddedOnly: boolea
 }
 const jobWords = (s: SessionState, d: { delta: Record<string, unknown> }, reprint: boolean) => canvasWhat(s.catalog, s.sidecar.params, d.delta, reprint);
 let fullTimer: ReturnType<typeof setTimeout> | null = null;
+let fullRender: { interrupted: boolean } | null = null;
+const exportHasPriority = (s = get()) => s.exportOpen || s.batchExporting;
 let latitudeTimer: ReturnType<typeof setTimeout> | null = null;
 let latitudeGeneration = 0;
 let placementTask: number | null = null;
@@ -436,11 +441,42 @@ function noteError(op: string, e: unknown) {
 }
 
 function previewEdge() {
-  return settingsStore.getState().previewLongEdge;
+  const backend = get().hello?.backend;
+  return resolvePreviewLongEdge(settingsStore.getState().previewLongEdge, backend?.api === 'vulkan' && backend.device_type === 'cpu');
 }
 
-function wireParams(p: FilmParams) {
-  return { ...fullDelta(p, get().gate, get().catalog), preview_long_edge: previewEdge() };
+export function setPreviewLongEdge(preference: PreviewLongEdge) {
+  const before = previewEdge();
+  settingsStore.getState().set('previewLongEdge', preference);
+  if (before !== previewEdge() && get().engineSession && !get().batchExporting) void requestPrint();
+}
+
+function wireParams(p: FilmParams, edge = previewEdge()) {
+  return { ...fullDelta(p, get().gate, get().catalog), preview_long_edge: edge };
+}
+
+/** Build a read-only card request from the same recipe the click applies. */
+export function stockCardJob(s: SessionState, kind: 'film' | 'paper', id: string | null) {
+  if (!s.selection || !s.engineSession) return null;
+  const candidate = stockCardParams(s.sidecar.params, s.catalog, kind, id);
+  if (!candidate) return null;
+  const recipe = s.pair ? resolvePairParams(candidate, s.pair,
+    s.pairInfo?.left?.metadata ?? s.metadata, s.pairInfo?.right?.metadata ?? null, s.catalog) : candidate;
+  const params = fullDelta(recipe, s.gate, s.catalog);
+  const source = sourceOf(s);
+  const view = {
+    params, adjustments: s.sidecar.adjustments, display: s.displaySpace,
+    ...(s.pair ? { pair: pairSnapshotFor(s.pair, recipe) } : {}),
+    geometry: canvasGeometryFor(recipe, s.sidecar.geometry, s.gate),
+    source_geometry: sourceGeometryFor(recipe, s.sidecar.geometry, s.gate) ?? GEOMETRY_DEFAULT,
+  };
+  const job: JobSpec = {
+    kind: 'stockPreview', frameId: s.selection, slot: `${kind}:${id ?? ''}`,
+    what: id ? s.catalog.stock(id)?.name ?? id : tz('No paper', '不印放'),
+    tier: 'live', canvas: canvasOf(s.nativeSize, 192),
+    request: { method: 'render_stock_card', source, params: view },
+  };
+  return { job, key: JSON.stringify([s.selection, s.engineSession, source.decode, view]) };
 }
 
 export function hostViews(): boolean { return !!get().hello?.methods?.includes('render_view'); }
@@ -532,7 +568,7 @@ export function noteDisplaySpace(displaySpace: 'srgb' | 'display-p3') {
 
 /** The open frame's render, as a scheduler job (R5): `pre` are the steps that
  * must run in the same job before it (the edit's set_params). */
-async function renderJob(tier: 'live' | 'full', reprint: boolean, request: JobRequest, what: string, longEdge: number,
+async function renderJob(gen: number, tier: 'live' | 'full', reprint: boolean, request: JobRequest, what: string, longEdge: number,
   decode: (result: Record<string, unknown>, payload: Uint8Array, ms: number) => RenderReply): Promise<RenderReply> {
   watchJobs();
   const s = get();
@@ -545,10 +581,20 @@ async function renderJob(tier: 'live' | 'full', reprint: boolean, request: JobRe
     // editing session and opens nothing: it is priced as the render alone (WIRE.md, "Sessions").
     const r = await runJob({ kind, frameId: s.selection!, what, tier, canvas: canvasOf(native, tier === 'full' ? 0 : longEdge),
       ...(reprint ? { layers: ['print'] } : {}), ...(native && tier !== 'full' ? { opens: native } : {}), request },
-    (id) => { clockOf(id); if (tier === 'live') canvasJob = { id, running: false }; });
+    (id) => {
+      clockOf(id);
+      if (tier === 'live') {
+        canvasJob = { id, running: false };
+      } else if (fullRender?.interrupted || gen !== wantedGen || get().engineSession !== s.engineSession) {
+        void scheduler().cancel(id);
+      } else {
+        fullJob = id;
+      }
+    });
     return decode(r.result, r.payload, performance.now() - t0);
   } finally {
     if (tier === 'live') canvasJob = null;
+    else fullJob = null;
   }
 }
 
@@ -557,7 +603,7 @@ async function renderForView(sid: string, tier: 'live' | 'full', gen: number, re
   if (s.sidecar.noFilm && (s.pair || !s.gate.noFilm || !hostViews()))
     throw new Error(tz('This engine or half-frame pair cannot bypass film simulation.', '此引擎或半格拼接不支持不应用胶片模拟。'));
   const setParams = delta && Object.keys(delta).length ? { setParams: delta } : {};
-  if (!hostViews()) return renderJob(tier, reprint, { source: sourceOf(s), ...setParams, method: 'render', params: { tier, reprint, format: 'rgba8', display: 'srgb' } },
+  if (!hostViews()) return renderJob(gen, tier, reprint, { source: sourceOf(s), ...setParams, method: 'render', params: { tier, reprint, format: 'rgba8', display: 'srgb' } },
     what, previewEdge(), (r, p, ms) => renderReply(r, p, tier, ms));
   if (tier === 'full' && s.pair) await flushSave();
   const descriptor = cachedDisplayDescriptor('print', s, tier);
@@ -566,13 +612,14 @@ async function renderForView(sid: string, tier: 'live' | 'full', gen: number, re
   const [cacheKey, fullKey, cameraKey] = await Promise.all([keyTask,
     fullDescriptor ? displayCacheKey(fullDescriptor) : keyTask,
     tier === 'full' && !s.pair && s.selection ? displayCacheKey(cameraDescriptor(s.selection)) : null]);
-  if (gen !== wantedGen || get().engineSession !== sid) throw new Error('Superseded display request');
+  if ((tier === 'full' && fullRender?.interrupted) || gen !== wantedGen || get().engineSession !== sid)
+    throw new Error('Superseded display request');
   const geometry = s.tool === 'crop' ? GEOMETRY_DEFAULT : canvasGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm);
   const longEdge = viewLongEdge(s);
   const view = { tier, adjustments: s.sidecar.adjustments, ...(s.sidecar.noFilm ? { no_film: true } : {}), geometry,
     source_geometry: sourceGeometryFor(s.sidecar.params, s.sidecar.geometry, s.gate, s.sidecar.noFilm) ?? GEOMETRY_DEFAULT,
     display: s.displaySpace, generation: gen, long_edge: longEdge, format: viewFormat(s) };
-  const image = await renderJob(tier, reprint, { source: sourceOf(s), ...setParams, method: 'render_view', params: structuredClone(view) }, what,
+  const image = await renderJob(gen, tier, reprint, { source: sourceOf(s), ...setParams, method: 'render_view', params: structuredClone(view) }, what,
     longEdge || Math.max(s.nativeSize?.width ?? 0, s.nativeSize?.height ?? 0), (r, p, ms) => renderViewReply(r, p, { generation: gen, geometry, tier }, ms));
   if (gen === wantedGen && get().engineSession === sid && image.pairInfo) set({ pairInfo: image.pairInfo });
   if (gen === wantedGen && get().engineSession === sid) {
@@ -600,12 +647,20 @@ function noteAsShot() {
   scheduleSave();
 }
 
+function cancelFullView() {
+  const id = fullJob;
+  fullJob = null;
+  if (id) void scheduler().cancel(id);
+}
+
 export async function requestPrint(): Promise<void> {
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
   // Newer edits fold into the newest job (README §7): a canvas job that has
   // not started yet is withdrawn, and the loop below submits the newest one.
   if (canvasJob && !canvasJob.running) void scheduler().cancel(canvasJob.id);
+  // Full refinement is optional. Let the newest edit take over even after it starts.
+  cancelFullView();
   if (get().tool === 'crop' && geometryInNegative(get().sidecar.params, get().gate, get().sidecar.noFilm)) return;
   if (inFlight) return;
   const sid = get().engineSession;
@@ -622,34 +677,41 @@ export async function requestPrint(): Promise<void> {
       if (s.engineSession !== sid) return;
       if (s.tool === 'crop' && geometryInNegative(s.sidecar.params, s.gate, s.sidecar.noFilm)) return;
       const want = s.sidecar.params;
+      const edge = previewEdge();
       if (s.pair && JSON.stringify(pairSnapshotFor(s.pair, want)) !== sentPair) {
         const snapshot = pairSnapshotFor(s.pair, want);
-        const result = await frameHost(s.selection!).updatePair(sid, snapshot, wireParams(want));
+        const result = await frameHost(s.selection!).updatePair(sid, snapshot, wireParams(want, edge));
         openedPair = snapshot;
         if (get().engineSession !== sid) return;
         sentPair = JSON.stringify(pairWithMeterReadings(snapshot, snapshot, result.pair_info, want.autoExposureMethod));
         adoptPairMeterReadings(snapshot, result.pair_info, want.autoExposureMethod);
         sentParams = want;
+        sentPreviewEdge = edge;
         if (gen !== wantedGen) continue;
         set({ nativeSize: { width: result.width, height: result.height }, pairInfo: result.pair_info ?? null, metadata: result.metadata });
         lastOriginalKey = null;
         void refreshOriginal();
       }
-      const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog) : { delta: wireParams(want), layers: new Set(['shoot']) };
-      const pre = Object.keys(d.delta).length ? d.delta as Record<string, unknown> : null;
-      const reprint = d.layers.size === 1 && d.layers.has('print');
+      const d = sentParams ? paramsDelta(want, sentParams, s.gate, s.catalog) : { delta: wireParams(want, edge), layers: new Set(['shoot']) };
+      const previewChanged = sentPreviewEdge !== edge;
+      const delta = previewChanged ? { ...d.delta, preview_long_edge: edge } : d.delta;
+      const pre = Object.keys(delta).length ? delta as Record<string, unknown> : null;
+      const reprint = !previewChanged && d.layers.size === 1 && d.layers.has('print');
       let r: RenderReply;
       try {
         r = await renderForView(sid, 'live', gen, reprint, pre, jobWords(s, d, reprint));
       } catch (e) {
-        // Folded into a newer edit (or cancelled under it): go round with the newest edit.
-        if (e instanceof JobEnded && e.cancelled) { if (gen !== wantedGen) continue; return; }
         // The edit's set_params may have landed without its render: send everything next time.
         if (pre) sentParams = null;
+        // Folded into a newer edit (or cancelled under it): go round with the newest edit.
+        if (e instanceof JobEnded && e.cancelled) { if (gen !== wantedGen) continue; return; }
         if (!FAILED_RENDER_KEEPS_EDITED_CONTROLS && lastPrintedParams) set({ sidecar: { ...get().sidecar, params: lastPrintedParams } });
         throw e;
       }
-      if (pre) sentParams = want;
+      if (pre) {
+        sentParams = want;
+        sentPreviewEdge = edge;
+      }
       lastPrintedParams = want;
       if (get().engineSession !== sid) return;
       if (gen === wantedGen) {
@@ -677,8 +739,8 @@ export async function requestPrint(): Promise<void> {
 
 function scheduleFull() {
   if (fullTimer) clearTimeout(fullTimer);
-  // An export run renders the frame itself, at the file's own resolution.
-  if (get().batchExporting) return;
+  // Soft proof and file export use the engine while this panel is open.
+  if (exportHasPriority()) return;
   const gen = wantedGen;
   fullTimer = setTimeout(() => void renderFull(gen), FULL_DELAY_MS);
 }
@@ -686,7 +748,8 @@ function scheduleFull() {
 async function renderFull(gen: number) {
   const s = get();
   const sid = s.engineSession;
-  if (!sid || inFlight || gen !== wantedGen || (s.tool === 'crop' && geometryInNegative(s.sidecar.params, s.gate, s.sidecar.noFilm))) return;
+  if (!sid || inFlight || exportHasPriority(s) || gen !== wantedGen
+    || (s.tool === 'crop' && geometryInNegative(s.sidecar.params, s.gate, s.sidecar.noFilm))) return;
   const native = s.nativeSize;
   // A frame no larger than the preview edge is already at its own size.
   if (native && Math.max(native.width, native.height) <= previewEdge()) {
@@ -696,6 +759,8 @@ async function renderFull(gen: number) {
     return;
   }
   inFlight = true;
+  const render = { interrupted: false };
+  fullRender = render;
   foregroundWork();
   try {
     const t0 = performance.now();
@@ -714,18 +779,22 @@ async function renderFull(gen: number) {
     }
     if (pending) sentParams = want;
     // Dropped when the generation, selection or session moved (ARCHITECTURE §7.3).
-    if (gen !== wantedGen || get().engineSession !== sid) return;
+    if (render.interrupted || gen !== wantedGen || get().engineSession !== sid) return;
     frameImages.print = r;
     platform().log('info', `session: full render ${r.width}x${r.height} landed in ${Math.round(performance.now() - t0)} ms`);
     set({ imageVersion: get().imageVersion + 1, badge: 'full' });
     await refreshThumb();
     scheduleLatitudeRefresh();
   } catch (e) {
-    if (gen === wantedGen && get().engineSession === sid) noteError(tz('Full render', '全尺寸渲染'), e);
+    if (!render.interrupted && gen === wantedGen && get().engineSession === sid && !(e instanceof JobEnded && e.cancelled)) {
+      noteError(tz('Full render', '全尺寸渲染'), e);
+    }
   } finally {
+    fullRender = null;
     inFlight = false;
     resumePreviewsWhenIdle();
     if (gen !== wantedGen) void requestPrint();
+    else if (render.interrupted && get().badge === 'preview') scheduleFull();
   }
 }
 
@@ -1000,6 +1069,23 @@ export function selectFilmStock(filmStock: string) {
   }));
   // Re-picking the same film still exits bypass, even if its params match.
   if (s.sidecar.noFilm) { scheduleSave(); void requestPrint(); }
+}
+
+/** A Develop card keeps the compatible counterpart shown in its preview. */
+export function selectStockCard(kind: 'film' | 'paper', id: string | null) {
+  const s = get();
+  if (!s.selection || s.batchExporting) return;
+  const next = stockCardParams(s.sidecar.params, s.catalog, kind, id);
+  if (!next) return;
+  lastUndoAt = -Infinity;
+  const enableFilm = kind === 'film' && s.sidecar.noFilm;
+  if (enableFilm) {
+    pushUndo();
+    set({ sidecar: { ...s.sidecar, noFilm: false } });
+    discardModePreview();
+  }
+  setParams(() => next);
+  if (enableFilm) { scheduleSave(); void requestPrint(); }
 }
 
 /** The source choice is a frame edit, never a copied film parameter. */
@@ -1989,6 +2075,7 @@ async function closeEngineSession() {
   sentDecode = null;
   wantedGen++;
   if (fullTimer) clearTimeout(fullTimer);
+  cancelFullView();
   if (decodeTimer) clearTimeout(decodeTimer);
   decodeTimer = null;
   openedDecode = null;
@@ -2281,16 +2368,17 @@ async function develop(path: string, gen: number) {
     // The frame opens in the engine's editing session (WIRE.md): the page names the frame, the engine
     // owns the session, and the next canvas job from the same source runs on it.
     const frame = frameHost(path);
+    const openingEdge = previewEdge();
     let opened: Record<string, unknown> | null = decode ? decode as unknown as Record<string, unknown> : null;
     try {
       if (openingPair) {
         if (!get().hello?.methods?.includes('open_pair')) throw new Error(tz('This engine does not support half-frame pairs.', '此引擎不支持半格拼接。'));
-        r = await frame.openPair(path, wireParams(params), openingPair);
-      } else r = await frame.open(path, wireParams(params), decode);
+        r = await frame.openPair(path, wireParams(params, openingEdge), openingPair);
+      } else r = await frame.open(path, wireParams(params, openingEdge), decode);
     } catch (e) {
       // A host without R2 refuses the decode key: open with the camera's own.
       if (!(decode && e instanceof HostCallError && e.code === 'unsupported')) throw e;
-      r = await frame.open(path, wireParams(params));
+      r = await frame.open(path, wireParams(params, openingEdge));
       opened = null;
     }
     // Superseded by another frame: its open closes this session in the engine.
@@ -2298,6 +2386,7 @@ async function develop(path: string, gen: number) {
     openedDecode = opened;
     openedPair = openingPair;
     sentParams = params;
+    sentPreviewEdge = openingEdge;
     sentPair = openingPair ? JSON.stringify(pairWithMeterReadings(openingPair, openingPair, r.pair_info, params.autoExposureMethod)) : null;
     if (openingPair) adoptPairMeterReadings(openingPair, r.pair_info, params.autoExposureMethod);
     sentDecode = JSON.stringify(decode);
@@ -2500,8 +2589,19 @@ export function setComparePosition(p: number) {
 
 export function setPages(p: Partial<Pick<SessionState, 'exportOpen' | 'settingsOpen' | 'aboutOpen' | 'batchExporting' | 'clipboardGroups'>>) {
   if (p.exportOpen && !pairComplete()) { set({ status: tz('Fill both frames before exporting this pair.', '请先在两格中都放入照片，再导出拼接。') }); return; }
+  const hadExportPriority = exportHasPriority();
   set(p);
-  if (get().batchExporting || get().exportOpen) foregroundWork(); else resumePreviewsWhenIdle();
+  if (exportHasPriority()) {
+    if (!hadExportPriority) {
+      if (fullTimer) clearTimeout(fullTimer);
+      if (fullRender) fullRender.interrupted = true;
+      cancelFullView();
+    }
+    foregroundWork();
+  } else {
+    resumePreviewsWhenIdle();
+    if (hadExportPriority && !inFlight && get().engineSession && get().badge === 'preview') scheduleFull();
+  }
 }
 export function setStatus(status: string) {
   set({ status });

@@ -1,7 +1,5 @@
 //! T3 — the wire round-trips, and WIRE.md says what the code does.
-//!
-//! macOS only by design (README, "Tests"): the suite verifies the port on the Mac it was ported on.
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", windows))]
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;

@@ -3,7 +3,15 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { checkExistingRelease, findRelease, releaseInfo } from './windows-release.mjs';
+import { verifiedWindowsRuntimeNotices } from './windows-runtime-notices.mjs';
+
+test('the Windows checkout has synchronized versions and audited runtime notices', () => {
+  const repo = fileURLToPath(new URL('../../', import.meta.url));
+  const { version } = releaseInfo(repo);
+  verifiedWindowsRuntimeNotices(repo, version);
+});
 
 test('independent Windows tag and short title require all application versions to agree', () => {
   const root = mkdtempSync(join(tmpdir(), 'spk-release-'));

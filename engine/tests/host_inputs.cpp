@@ -16,6 +16,27 @@
 
 using namespace spkhost;
 void require(bool ok,const std::string& error){if(!ok)throw std::runtime_error(error);}
+#ifdef _WIN32
+void windows_long_paths(const std::filesystem::path& scratch) {
+    namespace fs = std::filesystem;
+    const auto name = fs::path(std::wstring(132, L'\u6d4b'));
+    auto regular = fs::absolute(scratch) / name / name / fs::path(u8"原片.bin");
+    regular.make_preferred();
+    const auto native = utf8_path(path_utf8(regular));
+    require(native.native().starts_with(LR"(\\?\)"), "long drive path kept the ordinary namespace");
+    require(path_utf8(native) == path_utf8(regular), "extended prefix leaked into the host reply");
+    fs::create_directories(native.parent_path());
+    const std::vector<uint8_t> bytes{3, 7, 11};
+    std::vector<uint8_t> read;
+    std::string error;
+    require(write_file_atomic(native, bytes, true, error), error);
+    require(read_file(native, read, error) && read == bytes, "long path did not round-trip");
+
+    const auto unc = utf8_path("//NAS/photos/" + std::string(132, 'a') + "/" + std::string(132, 'b') + "/x");
+    require(unc.native().starts_with(LR"(\\?\UNC\NAS\photos\)"), "long UNC path lost its server or share");
+    require(path_utf8(unc).starts_with(R"(\\NAS\photos\)"), "UNC extended prefix leaked into the host reply");
+}
+#endif
 void exr_fixture(const std::filesystem::path& path,const std::vector<float>& rgb) {
     Imf::Header h(7,4);h.dataWindow()={{-3,5},{3,8}};h.displayWindow()=h.dataWindow();
     Imf::addChromaticities(h,Imf::Chromaticities());
@@ -60,6 +81,9 @@ int main(int argc,char** argv) {
     try {
         require(argc>=2,"usage: spk_host_inputs output-dir [heic-fixture]");
         const auto dir=std::filesystem::u8path(argv[1]);std::filesystem::create_directories(dir);
+#ifdef _WIN32
+        windows_long_paths(dir);
+#endif
         // Recognizing a RAW extension routes it to LibRaw; it is not a claim
         // that every camera/compression variant is supported by that decoder.
         for(const char* ext:{"arw","nef","nrw","cr2","cr3","crw","raf","dng","orf","rw2","pef","srw","3fr","iiq","erf","mos","mrw","x3f","raw","rwl","srf","sr2","kdc","dcr","mef","fff","gpr","ari","bay","k25"}) {

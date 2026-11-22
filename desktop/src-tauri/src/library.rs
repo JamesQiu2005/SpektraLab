@@ -6,14 +6,15 @@
 //! in the Windows bundle (both are sidecars beside the app's executable), `spklib-host` beside a staged
 //! host (`SPEKTRALAB_HOST_DIR`); on macOS, where nothing is bundled, a dev helper built from the spklib
 //! clone in `build/spklib` (walked up to from the executable) or named by `SPKLIB_HOST`. The store is
-//! `spk_library::default_store()`; `SPEKTRALAB_LIBRARY_STORE` replaces it for a test or a self-test,
-//! so neither touches the person's own libraries. Nothing starts until the first call.
+//! under the app's local data directory on Windows, or `spk_library::default_store()` elsewhere.
+//! `SPEKTRALAB_LIBRARY_STORE` overrides it for tests. Nothing starts until the first call.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use spk_library::{default_store, Launch, LibraryHost};
+use spk_library::{Launch, LibraryHost};
+use tauri::{AppHandle, Manager, Runtime};
 
 pub fn helper_name() -> &'static str {
     if cfg!(windows) {
@@ -56,11 +57,14 @@ pub fn resolve_helper(host_dir: Option<&Path>) -> Result<(PathBuf, &'static str)
     Err(format!("SpektraLab could not find its library helper ({}); folders and catalogs are unavailable", helper_name()))
 }
 
-pub fn resolve_store() -> Result<PathBuf, String> {
+fn resolve_store<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     if let Some(p) = std::env::var_os("SPEKTRALAB_LIBRARY_STORE").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(p));
     }
-    default_store().ok_or_else(|| "no place for the library store (LOCALAPPDATA / HOME unset)".to_string())
+    if cfg!(windows) {
+        return app.path().app_local_data_dir().map(|dir| dir.join("Libraries")).map_err(|err| err.to_string());
+    }
+    spk_library::default_store().ok_or_else(|| "no place for the library store (HOME unset)".to_string())
 }
 
 /// The app's one helper, or why there is none.
@@ -71,8 +75,8 @@ pub struct LibraryState {
 
 impl LibraryState {
     /// Resolve the helper and the store (nothing is started).
-    pub fn resolve(host_dir: Option<&Path>) -> Self {
-        match resolve_helper(host_dir).and_then(|(exe, origin)| Ok((exe, origin, resolve_store()?))) {
+    pub fn resolve<R: Runtime>(host_dir: Option<&Path>, app: &AppHandle<R>) -> Self {
+        match resolve_helper(host_dir).and_then(|(exe, origin)| Ok((exe, origin, resolve_store(app)?))) {
             Ok((exe, origin, store)) => Self::with(exe, store, origin),
             Err(e) => {
                 log::warn!(target: "library", "{e}");
@@ -90,11 +94,24 @@ impl LibraryState {
 
     /// `library_call`: any method of spklib's API-SPEC. Blocks: call it from `spawn_blocking`. The
     /// error is the helper's own error object (`{code, message, data}`).
-    pub fn call(&self, method: &str, params: Value) -> Result<Value, Value> {
-        match &self.host {
-            Ok(host) => host.call(method, params).map_err(|e| serde_json::to_value(e).unwrap_or(Value::Null)),
-            Err(reason) => Err(json!({"code": "unavailable", "message": reason, "data": null})),
+    pub fn call(&self, method: &str, mut params: Value) -> Result<Value, Value> {
+        let host = self.host.as_ref().map_err(|reason| json!({"code": "unavailable", "message": reason, "data": null}))?;
+        let expected = if let Some(value) = params.get_mut("library") {
+            let (launch, handle) = value.as_str().and_then(|token| token.split_once(':'))
+                .and_then(|(launch, handle)| Some((launch.parse::<u64>().ok()?, handle)))
+                .filter(|(_, handle)| !handle.is_empty())
+                .ok_or_else(|| json!({"code": "invalid_params", "message": "expected a launch-scoped library handle", "data": null}))?;
+            *value = Value::String(handle.to_owned());
+            Some(launch)
+        } else {
+            None
+        };
+        let (launch, mut result) = host.call_on_launch(method, params, expected)
+            .map_err(|e| serde_json::to_value(e).unwrap_or(Value::Null))?;
+        if let Some(Value::String(handle)) = result.get_mut("library") {
+            *handle = format!("{launch}:{handle}");
         }
+        Ok(result)
     }
 
     /// `library_state`: the README's `{running, version, launches, store, executable}`, plus

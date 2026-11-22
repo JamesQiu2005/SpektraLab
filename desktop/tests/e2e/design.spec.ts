@@ -200,7 +200,11 @@ export const IMPLEMENTED: Record<string, Omit<PageCase, 'file'>> = {
     // The drawing shows the catalog mid-read (a "Reading · 4,210 of 9,660" line in the source well); the
     // mock helper reads at once, so the well is one 16 epx line shorter and the rows under it rise by 16.
     texts: ['Archive', 'All Images', { text: 'CATALOG', shift: { y: -16 } }, 'Show in File Explorer'],
-    setup: async (p) => { await openLibrary(p, 'Archive'); await p.getByTestId('library-tile').first().click(); },
+    // This page shows an online photo. The offline original has its own Locate Folder test.
+    setup: async (p) => {
+      await openLibrary(p, 'Archive');
+      await p.getByRole('button', { name: /^_DSC2661\.NEF(?:, selected)?$/ }).click();
+    },
   },
   'PC-L4': {
     texts: ['Coast 2026', 'SESSION', 'Capture', 'Selects', 'Output', 'Trash'],

@@ -47,7 +47,7 @@ html, body, #root { background: var(--v2-ground); }
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); padding: 4px; min-width: 260px; color: var(--v2-text);
 }
 .v2-menu-item { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0 10px 0 6px; background: none; border: 0; border-radius: 4px; text-align: left; font-size: var(--v2-fs-menu); position: relative; white-space: nowrap; }
-.v2-menu-item:hover:not(:disabled) { background: var(--v2-card); }
+.v2-menu-item:hover:not(:disabled), .v2-menu-item:focus-visible { background: var(--v2-card); }
 .v2-menu-item:disabled, .v2-menu-item[aria-disabled] { color: var(--v2-faint); }
 .v2-menu-item .keys { color: var(--v2-dim); font-size: var(--v2-fs-caption); padding-left: 24px; }
 .v2-menu-item .check { color: var(--v2-text); text-align: center; }
@@ -152,7 +152,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-card-face.cine:not(.cover) { background-image: linear-gradient(160deg, #6B5530, #2B2316 70%); }
 .v2-card-face.bw:not(.cover) { background-image: linear-gradient(160deg, #8A8884, #2F2E2C 70%); }
 .v2-card-face.paper:not(.cover) { background-image: linear-gradient(160deg, #E9E3D8, #B9B1A4 70%); }
-.v2-card-face.none { background-image: repeating-linear-gradient(45deg, var(--v2-plot) 0 6px, var(--v2-card) 6px 12px); }
+.v2-card-face.none:not(.cover) { background-image: repeating-linear-gradient(45deg, var(--v2-plot) 0 6px, var(--v2-card) 6px 12px); }
 /* the name strip: dark under the name, so the name reads on any picture */
 .v2-card::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.78) 55%); pointer-events: none; }
 .v2-card-name { position: absolute; z-index: 1; left: 9px; right: 6px; bottom: 6px; max-height: 26px; overflow: hidden; font-size: var(--v2-fs-caption); line-height: 13px; color: var(--v2-text); overflow-wrap: break-word; }
@@ -358,6 +358,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-seg { display: inline-flex; background: var(--v2-card); border-radius: 13px; padding: 2px; gap: 2px; }
 .v2-seg button { border: 0; background: none; border-radius: 11px; height: 22px; padding: 0 10px; font-size: var(--v2-fs-caption); color: var(--v2-secondary); }
 .v2-seg button.on { background: var(--v2-selection); color: var(--v2-on-selection); }
+.v2-settings .v2-seg button { min-width: 63px; }
 
 /* ----------------------------------------------------------------- library */
 .v2-lib-sidebar { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -416,6 +417,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-day-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--v2-lib-tile, 147px), 1fr)); gap: 2px; }
 .v2-lib-tile { position: relative; aspect-ratio: 1; border: 0; padding: 0; background: var(--v2-plot); overflow: hidden; }
 .v2-lib-pic { position: absolute; inset: 0; }
+img.v2-lib-pic { width: 100%; height: 100%; object-fit: cover; }
 .v2-lib-tile.picked { outline: 3px solid var(--v2-selection-frame); outline-offset: -2px; z-index: 1; }
 /* a folder's frame in the browser: the whole photograph on the plot, its name under it */
 .v2-lib-tile.frame { display: grid; place-items: center; color: var(--v2-text); }
@@ -534,6 +536,8 @@ html, body, #root { background: var(--v2-ground); }
 .v2-viewer-well.empty { place-items: center; }
 .v2-viewer-well canvas, .v2-viewer-well .placeholder { max-width: 100%; max-height: 100%; }
 .v2-viewer-pic { width: min(56%, 420px); aspect-ratio: 2 / 3; max-height: 100%; border-radius: 2px; }
+.v2-viewer-image { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.v2-preview-origin { color: var(--v2-dim); font-size: var(--v2-fs-caption); }
 .v2-viewer-strip { flex: none; min-height: 40px; display: flex; align-items: center; gap: 12px; padding: 6px 16px; border-top: 1px solid var(--v2-wall); flex-wrap: wrap; }
 .v2-viewer-strip b { font-weight: 600; }
 .v2-viewer-strip .dim { font-size: var(--v2-fs-caption); flex: 1 1 200px; }

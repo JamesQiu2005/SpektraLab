@@ -38,10 +38,12 @@
 // fault per buffer (RFC-011: a trivial pointwise node then costs 16 ms instead
 // of 4 at 45 MP).
 #pragma once
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -217,6 +219,16 @@ struct Arg {
     static Arg inline_bytes(const T* p, size_t count) { return Arg{nullptr, p, count * sizeof(T)}; }
 };
 
+struct MemoryHeap {
+    struct Budget {
+        uint64_t budget_bytes;
+        uint64_t usage_bytes;
+    };
+    uint64_t size_bytes;
+    bool device_local;
+    std::optional<Budget> budget;
+};
+
 class Gpu {
 public:
     virtual ~Gpu() = default;
@@ -230,6 +242,8 @@ public:
     static Gpu* create_vulkan(const std::string& shader_dir, std::string& error);
 
     virtual std::string device_name() const = 0;
+    virtual const char* device_type() const { return "unknown"; }
+    virtual std::vector<MemoryHeap> memory_heaps() const { return {}; }
 
     // The fast-math probe. Returns false, with a message, when the kernels in
     // the loaded library were compiled with fast math -- which drifts `exp`
@@ -387,7 +401,8 @@ public:
     }
 
     virtual bool dispatch(const char* kernel, const std::vector<Arg>& args,
-                          size_t n_threads, std::string& error) = 0;
+                          size_t n_threads, std::string& error,
+                          const std::atomic<bool>* cancelled = nullptr) = 0;
     virtual bool flush(std::string& error) = 0;
 
     // A texture over `b`'s memory, RGBA16Unorm, `width` x `height`, rows

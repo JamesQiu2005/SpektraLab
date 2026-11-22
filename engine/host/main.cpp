@@ -174,6 +174,7 @@ struct State {
     bool running_active = false;
     std::set<std::pair<std::string, std::string>> cancelled;   // (session, progress_id) not yet started
     bool running_cancelled = false;
+    std::atomic<bool>* stock_card_cancel = nullptr;
 } g;
 
 std::shared_ptr<Session> find_session(const Json& params, bool restore_pixels = true) {
@@ -370,7 +371,7 @@ void progress_event(const Session& s, const std::string& progress_id, double fra
 // Marks the session/progress pair as the one in flight; throws if it was
 // cancelled while queued.
 struct Running {
-    Running(const std::string& session, const std::string& progress) {
+    Running(const std::string& session, const std::string& progress, std::atomic<bool>* card_cancel = nullptr) {
         std::lock_guard<std::mutex> lock(g.cancel_mutex);
         if (!progress.empty() && (g.cancelled.erase({session, progress}) || g.cancelled.erase({"", progress})))
             throw HostError{"cancelled", "cancelled before it started"};
@@ -379,6 +380,7 @@ struct Running {
         g.running_progress = progress;
         g.running_active = true;
         g.running_cancelled = false;
+        g.stock_card_cancel = card_cancel;
     }
     ~Running() {
         std::lock_guard<std::mutex> lock(g.cancel_mutex);
@@ -386,6 +388,7 @@ struct Running {
         g.running_requested_session.clear();
         g.running_progress.clear();
         g.running_active = false;
+        g.stock_card_cancel = nullptr;
     }
     void bind(const std::string& session) {
         std::lock_guard<std::mutex> lock(g.cancel_mutex);
@@ -421,6 +424,7 @@ Json m_hello(const Request&) {
     const Json& b = caps.at("backend");
     backend.set("available", Json(true));
     backend.set("device_name", str(b.at("gpu").as_string()));
+    backend.set("device_type", b.at("device_type"));
     backend.set("math_mode", str(b.at("math_mode").as_string()));
     backend.set("render_core", str(b.at("render_core").as_string()));
     r.set("backend", std::move(backend));
@@ -429,7 +433,7 @@ Json m_hello(const Request&) {
     for (const char* m : {"hello", "ping", "shutdown", "params_schema", "print_lut_catalog", "memory_report", "trim",
                           "probe", "thumbnail", "open", "redecode", "close", "set_params", "get_params", "solve", "render",
                           "scene_latitude", "overscan_geometry", "preview_stock_lut", "cancel", "progress", "open_pair", "update_pair",
-                          "export_image", "export_cube", "export_di", "export_cineon", "write_image", "render_view", "export_frame", "render_proof", "render_source", "pick_neutral"})
+                          "export_image", "export_cube", "export_di", "export_cineon", "write_image", "render_view", "render_stock_card", "export_frame", "render_proof", "render_source", "pick_neutral"})
         methods.push(str(m));
     r.set("methods", std::move(methods));
     Json view_formats = Json::array(); view_formats.push(str("rgba8")); view_formats.push(str("rgba16"));
@@ -887,8 +891,7 @@ spk::view::Request view_request(const Json& p, bool exporting) {
     return r;
 }
 
-void apply_snapshot(const std::shared_ptr<Session>& s, const Json& p, bool ignore_source_geometry) {
-    if (!p.has("params") && (ignore_source_geometry || !p.has("source_geometry"))) return;
+Json frame_snapshot(const Json& p, bool ignore_source_geometry) {
     if (p.has("params") && !p.at("params").is_object()) throw HostError{"bad_request", "params must be an object"};
     Json requested = p.has("params") ? p.at("params") : Json::object();
     if (!ignore_source_geometry && p.has("source_geometry")) {
@@ -918,6 +921,12 @@ void apply_snapshot(const std::shared_ptr<Session>& s, const Json& p, bool ignor
             requested.set(pair.second, Json(g.at(pair.first).as_bool()));
         }
     }
+    return requested;
+}
+
+void apply_snapshot(const std::shared_ptr<Session>& s, const Json& p, bool ignore_source_geometry) {
+    const Json requested = frame_snapshot(p, ignore_source_geometry);
+    if (requested.fields().empty()) return;
     char* reply = nullptr;
     auto st = spk_get_params(s->handle, &reply);
     if (st != SPK_OK) { if (reply) spk_string_free(reply); engine_fail(st, "read frame snapshot"); }
@@ -1000,6 +1009,44 @@ Json m_render_view(const Request& q, std::vector<uint8_t>& payload) {
     r.set("timings_ms", view_timings(v, ms_since(started)));
     payload = std::move(v.pixels);
     return r;
+}
+
+Json m_render_stock_card(const Request& q, std::vector<uint8_t>& payload) {
+    auto s = find_session(q.params);
+    Json snapshot = frame_snapshot(q.params, false);
+    if (snapshot.has("preview_long_edge")) throw HostError{"bad_request", "stock cards use their own resolution"};
+    auto request = view_request(q.params, false);
+    request.no_film = false;
+    if (s->pair_source) {
+        const auto& recipe = q.params.has("pair") ? q.params.at("pair") : s->pair;
+        if (q.params.has("pair") && PairSource::signature(recipe, snapshot, s->pair) != s->pair_signature)
+            throw HostError{"cancelled", "stock card pair no longer matches the resident source"};
+        request.pair = pair_view_recipe(*s, &recipe);
+        snapshot.set("auto_exposure", Json(false));
+        snapshot.set("exposure_baseline_ev", number(0));
+    } else if (q.params.has("pair")) {
+        throw HostError{"cancelled", "stock card pair is no longer open"};
+    }
+    std::atomic<bool> cancel{false};
+    Running running(s->id, optional_string(q.params, "progress_id"), &cancel);
+    const auto started = Clock::now();
+    spk::view::Result view;
+    std::string error;
+    if (!spk::view::render_stock_card(s->handle, snapshot, request, view, error, cancel)) {
+        check_cancelled();
+        throw HostError{"engine_error", error};
+    }
+    check_cancelled();
+    Json image = Json::object();
+    image.set("width", number(view.width)); image.set("height", number(view.height));
+    image.set("row_bytes", number(view.width * 4)); image.set("format", str("rgba8"));
+    image.set("color_space", str(request.target_space));
+    Json result = Json::object();
+    result.set("image", std::move(image));
+    result.set("timings_ms", view_timings(view, ms_since(started)));
+    result.set("negative_cached", Json(view.stock_negative_cached));
+    payload = std::move(view.pixels);
+    return result;
 }
 
 Json m_render_source(const Request& q, std::vector<uint8_t>& payload) {
@@ -1609,6 +1656,7 @@ void dispatch(const Request& q) {
     else if (m == "solve") result = m_solve(q);
     else if (m == "render") result = m_render(q, payload);
     else if (m == "render_view") result = m_render_view(q, payload);
+    else if (m == "render_stock_card") result = m_render_stock_card(q, payload);
     else if (m == "render_source") result = m_render_source(q, payload);
     else if (m == "pick_neutral") result = m_pick_neutral(q);
     else if (m == "export_frame") result = m_export_frame(q);
@@ -1708,7 +1756,9 @@ void handle_cancel(const Request& q) {
             (progress.empty() || g.running_progress == progress);
         if (running) g.running_cancelled = true;
         if (!running && !progress.empty()) g.cancelled.insert({session, progress});
-        if (running) {
+        if (running && g.stock_card_cancel) {
+            g.stock_card_cancel->store(true, std::memory_order_relaxed);
+        } else if (running) {
             // Keep the running identity stable until its actual engine session
             // receives cancellation, including exports using a private decode.
             std::lock_guard<std::mutex> sessions_lock(g.sessions_mutex);

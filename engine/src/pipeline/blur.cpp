@@ -83,7 +83,8 @@ bool Blur::fir(Image img, const double sigmas[3], double truncate, const bool ac
 }
 
 bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
-               Image& out, std::string& error, const Image* acc, const double* weight) {
+               Image& out, std::string& error, const Image* acc, const double* weight,
+               const std::atomic<bool>* cancelled) {
     float coef[24] = {};
     uint32_t act[3] = {0, 0, 0};
     bool any = false;
@@ -139,12 +140,12 @@ bool Blur::iir(const Image& img, const double sigmas[3], const bool active[3],
                         {gpu::Arg::buf(img.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
                          gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
                          gpu::Arg::inline_bytes(meta_h, 4), gpu::Arg::buf(out.buf)},
-                        size_t(img.h) * 3, error)) return false;
+                        size_t(img.h) * 3, error, cancelled)) return false;
     if (!gpu_->dispatch("spk_iir_df_acc",
                         {gpu::Arg::buf(out.buf), gpu::Arg::buf(coef_buf), gpu::Arg::buf(act_buf),
                          gpu::Arg::buf(dummy->buf), gpu::Arg::buf(wt_buf),
                          gpu::Arg::inline_bytes(meta_v, 4), gpu::Arg::buf(out.buf)},
-                        size_t(img.w) * 3, error)) return false;
+                        size_t(img.w) * 3, error, cancelled)) return false;
     // What a `Swept` stage reports: this pass covers the plane once, as one
     // span, whatever the executor's plan says -- the plan is about bands and
     // this never makes one. Filled here rather than by the caller, so the
@@ -210,7 +211,8 @@ bool Blur::gaussian_consume(Image img, const double sigma[3], Image& out, std::s
 }
 
 bool Blur::gaussian(const Image& img, const double sigma[3], Image& out, std::string& error,
-                    double truncate, const Image* acc, const double* weight) {
+                    double truncate, const Image* acc, const double* weight,
+                    const std::atomic<bool>* cancelled) {
     bool use_fir[3], use_iir[3];
     bool any_fir = false, any_iir = false;
     for (int c = 0; c < 3; ++c) {
@@ -228,17 +230,17 @@ bool Blur::gaussian(const Image& img, const double sigma[3], Image& out, std::st
         }
         if (any_iir) {
             Image next;
-            if (!iir(cur, sigma, use_iir, next, error, nullptr, nullptr)) return false;
+            if (!iir(cur, sigma, use_iir, next, error, nullptr, nullptr, cancelled)) return false;
             cur = next;
         }
         out = cur;
         return true;
     }
     if (!any_iir) return fir(img, sigma, truncate, use_fir, out, error, acc, weight);
-    if (!any_fir) return iir(img, sigma, use_iir, out, error, acc, weight);
+    if (!any_fir) return iir(img, sigma, use_iir, out, error, acc, weight, cancelled);
     // Mixed FIR / IIR channels: blur fully, then one fused multiply-add.
     Image blurred;
-    if (!gaussian(img, sigma, blurred, error, truncate)) return false;
+    if (!gaussian(img, sigma, blurred, error, truncate, nullptr, nullptr, cancelled)) return false;
     const double a[3] = {1.0, 1.0, 1.0};
     double b[3];
     broadcast3(weight, b, 1.0);
@@ -261,10 +263,14 @@ void Blur::exponential_components(const double decay[3], const double weight[3],
 }
 
 bool Blur::mixture(const Image& img, const std::vector<Component>& components, Image& out,
-                   std::string& error, double truncate) {
+                   std::string& error, double truncate, const std::atomic<bool>* cancelled) {
     bool have_acc = false;
     Image acc;
     for (const Component& comp : components) {
+        if (cancelled && cancelled->load(std::memory_order_relaxed)) {
+            error = "render cancelled";
+            return false;
+        }
         const bool identity = comp.sigma[0] <= 0.0 && comp.sigma[1] <= 0.0 && comp.sigma[2] <= 0.0;
         if (!have_acc) {
             if (identity) {
@@ -277,12 +283,12 @@ bool Blur::mixture(const Image& img, const std::vector<Component>& components, I
                 zero.h = img.h; zero.w = img.w; zero.c = img.c;
                 zero.buf = gpu_->alloc_zeroed(img.bytes(), error);
                 if (!zero.buf) return false;
-                if (!gaussian(img, comp.sigma, acc, error, truncate, &zero, comp.weight)) return false;
+                if (!gaussian(img, comp.sigma, acc, error, truncate, &zero, comp.weight, cancelled)) return false;
             }
             have_acc = true;
         } else {
             Image next;
-            if (!gaussian(img, comp.sigma, next, error, truncate, &acc, comp.weight)) return false;
+            if (!gaussian(img, comp.sigma, next, error, truncate, &acc, comp.weight, cancelled)) return false;
             acc = next;
         }
         // A mixture is where one node holds the most memory: halation's

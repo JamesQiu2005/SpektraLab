@@ -28,10 +28,10 @@ pub fn agent_rendering_set(app: AppHandle, preferences: RenderPreferences) -> Re
     files::write_atomic(&root.join("Agents/rendering.json"), &serde_json::to_vec(&preferences).map_err(|e| e.to_string())?)
 }
 
-pub fn data_dir() -> Result<PathBuf, String> {
+fn data_dir(identifier: &str) -> Result<PathBuf, String> {
     #[cfg(windows)] let root = std::env::var_os("APPDATA").map(PathBuf::from);
     #[cfg(not(windows))] let root = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
-    root.map(|p| p.join("app.spektralab.desktop")).ok_or_else(|| "Application data directory is unavailable".into())
+    root.map(|p| p.join(identifier)).ok_or_else(|| "Application data directory is unavailable".into())
 }
 pub fn enabled(root: &Path) -> bool {
     fs::read(root.join("Agents/access.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|v| v["enabled"].as_bool()).unwrap_or(false)
@@ -52,7 +52,7 @@ pub fn acquire(root: &Path) -> Result<File, String> {
 }
 fn installed_path() -> Result<PathBuf, String> {
     let home = std::env::var_os(if cfg!(windows) {"USERPROFILE"} else {"HOME"}).ok_or("Home directory unavailable")?;
-    Ok(PathBuf::from(home).join(".local/bin").join(if cfg!(windows) {"spektralab.cmd"} else {"spektralab"}))
+    Ok(PathBuf::from(home).join(".local/bin").join(if cfg!(windows) {"spektralab-v2.cmd"} else {"spektralab"}))
 }
 fn runtime() -> Result<(PathBuf, PathBuf), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -98,8 +98,8 @@ pub fn agent_cli_uninstall() -> Result<(),String> {
     if !fs::read_to_string(&p).map_err(|e|e.to_string())?.contains(MARKER){return Err("The command is not SpektraLab's; it was left unchanged.".into())}
     fs::remove_file(p).map_err(|e|e.to_string())
 }
-pub fn serve() -> i32 {
-    let root=match data_dir(){Ok(p)=>p,Err(e)=>{eprintln!("{e}");return 1}};
+pub fn serve(identifier: &str) -> i32 {
+    let root=match data_dir(identifier){Ok(p)=>p,Err(e)=>{eprintln!("{e}");return 1}};
     let store=SidecarStore{dir:root.join("Sidecars")}; let mut lease:Option<File>=None;
     for line in std::io::stdin().lock().lines() {
         let line=match line {Ok(s)=>s,Err(_)=>return 1};

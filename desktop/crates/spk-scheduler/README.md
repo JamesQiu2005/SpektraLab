@@ -78,7 +78,7 @@ non-async command (`tests/facade_threads.rs`).
 - A record's `at` is the queue's clock mapped to a wall date (virtual in tests).
 - The simulated engine's ±8 % spread is derived from the job id (reproducible), not `random`.
 - `HostEngine` reports no measured peak (0: the host gives a ledger, not a footprint), so the cost model
-  learns time from the host but never a peak; a banded plan is run whole and recorded `ran: "whole"`.
+  learns time from the host but never a peak. The host accepts whole-frame plans only.
 
 ## The desktop PC policy (R2) — unmeasured on Windows
 
@@ -112,15 +112,16 @@ commit)) is unmeasured.
   `hello.methods`): the scheduler's trims (a job waiting for memory, pressure, the idle spell) would
   otherwise free nothing until the host's own 5 s timer. An older host without it: `trim` returns 0.
 
-## Tests — macOS only, by design
+## Tests
 
-The whole suite (the ported selftest and its mutation run, T3–T5) runs on this Mac and is **never built
-for Windows**: `#![cfg(target_os = "macos")]` on every file under `tests/`, `cfg(all(test, target_os =
-"macos"))` on unit tests, the selftest module and its mutation switches behind `cfg(test)` or the dev-only
-`selftest` feature on macOS. The port is verified where it was ported, against the Swift's own numbers and
-the real host built on the Mac; Windows-side testing is out of scope (PRD-W0 §1.1), and a test that
-cannot run where it is built would only be a test that silently does not run. Windows is checked by
-compiling the library: `cargo check --lib --target x86_64-pc-windows-gnu`.
+Run the wire, facade threading, and scripted-host checks from `desktop/src-tauri` on Windows or macOS:
+
+```sh
+cargo test --locked -p spk-scheduler --test wire --test facade_threads --test host_engine
+```
+
+The full gate, including the mutation run, comparison with Swift and the real-host integration test,
+still uses the macOS toolchain and its fixtures.
 
 No test asserts on wall-clock time: scheduling rules run on tokio's paused clock (virtual time), and the
 real-host test asserts on pictures (size, opaque, not constant) and on outcomes.

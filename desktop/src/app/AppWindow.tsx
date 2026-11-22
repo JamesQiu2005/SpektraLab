@@ -11,16 +11,16 @@
 // and Esc or a press on the picture puts it away. The column's wall drags
 // 280–440, the browser's 240–900; double-click for the default.
 
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { TitleBar } from './TitleBar';
 import { computeLayout } from './layout';
-import { useUi } from './ui';
+import { setUi, useUi } from './ui';
 import { useSettings } from '../state/settings';
 import { useSession } from '../state/session';
 import { DevelopTools, EditTools, LatitudeMeter } from '../edit/rails';
 import { InfoStrip, Picture, Toolbar } from '../edit/EditWorkspace';
 import { FullWindowPage, LibraryCentre, LibraryColumn } from '../library/LibraryWorkspace';
-import { Browser } from '../library/Browser';
+import { LibraryBrowser } from '../library/LibraryBrowser';
 import { AboutDialog } from '../windows/Dialogs';
 import { FolderImportDialog } from '../windows/FolderImportDialog';
 import { ExportDialog } from '../export/ExportDialog';
@@ -60,6 +60,11 @@ export function AppWindow() {
     fullGrid: ui.fullGrid, navigatorHidden: st.navigatorHidden, overlay: ui.overlay, railLeft: st.railLeft, browserWidth: st.browserWidth, fullScreen: ui.fullScreen });
   const library = ui.workspace === 'library';
   const title = library ? `${source?.info.name ?? 'SpektraLab'}${source ? ' — SpektraLab' : ''}` : selection ? `${baseName(selection).replace(/\.[^.]+$/, '')} — SpektraLab` : 'SpektraLab';
+  const overlayDocked = ui.overlay !== null && layout[ui.overlay] === 'docked';
+  useLayoutEffect(() => {
+    // Once the pane fits beside the picture, its temporary overlay is over.
+    if (overlayDocked) setUi({ overlay: null });
+  }, [overlayDocked]);
   useEffect(() => watchWindow(), []);
   useEffect(() => { void setWindowTitle(title); }, [title]);
   // Tell the scheduler what the window is doing (PRD-W0 §5.2).
@@ -87,7 +92,7 @@ export function AppWindow() {
         {/* The browser is mounted in every mode (folded, it is only out of sight), so its scroll is kept. */}
         <div className="v2-browser-slot" hidden={!rightShown} style={layout.fullGrid ? { left: layout.picture.x } : { width: layout.rightWidth }}>
           {layout.fullGrid && <div className="v2-full-grid-bar"><Toolbar layout={layout} /></div>}
-          <Browser mode={layout.fullGrid ? 'full' : layout.right} width={layout.fullGrid ? W - layout.picture.x : layout.rightWidth} full={layout.fullGrid} />
+          <LibraryBrowser mode={layout.fullGrid ? 'full' : layout.right} width={layout.fullGrid ? W - layout.picture.x : layout.rightWidth} full={layout.fullGrid} />
         </div>
       </div>
       <FullWindowPage />
