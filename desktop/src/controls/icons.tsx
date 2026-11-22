@@ -122,3 +122,15 @@ export const FlipV = ({ size, ...p }: P) => (
     <path d="M1 8h14M3 6L13 1.5V6zM3 10l10 4.5V10z" />
   </svg>
 );
+export const Undo = ({ size, ...p }: P) => (
+  <svg {...base(size, p)}>
+    <path d="M5.5 3.5L2.5 6.5l3 3" />
+    <path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H8" />
+  </svg>
+);
+export const Redo = ({ size, ...p }: P) => (
+  <svg {...base(size, p)}>
+    <path d="M10.5 3.5l3 3-3 3" />
+    <path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H8" />
+  </svg>
+);

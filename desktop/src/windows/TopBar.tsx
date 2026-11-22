@@ -4,9 +4,9 @@
 // Selection is orange, not grey (Capture One's convention).
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { BeforeAfter, Crop, Cursor, Export, Import, SidebarLeft, SidebarRight, ZoomIn, ZoomOut } from '../controls/icons';
+import { BeforeAfter, Crop, Cursor, Export, Import, Redo, SidebarLeft, SidebarRight, Undo, ZoomIn, ZoomOut } from '../controls/icons';
 import { t, tz } from '../i18n';
-import { currentFitZoom, setOriginal, setPages, setTool, solveNow, toggleCompare, useSession, zoomStep, zoomTo, zoomToFit } from '../state/session';
+import { currentFitZoom, redo, setOriginal, setPages, setTool, solveNow, toggleCompare, undo, useSession, zoomStep, zoomTo, zoomToFit } from '../state/session';
 import { settingsStore, useSettings } from '../state/settings';
 import { openFilesDialog } from './actions';
 import { baseName } from '../platform';
@@ -25,6 +25,8 @@ export function TopBar() {
   const native = useSession((s) => s.nativeSize);
   const hello = useSession((s) => s.hello);
   const zoomLocked = tool === 'crop';
+  const canUndo = useSession((s) => s.undo.length > 0);
+  const canRedo = useSession((s) => s.redo.length > 0);
   const fitZoom = useSession((s) => s.fitZoom);
   const pct = Math.round((view.fit ? fitZoom : view.zoom) * 100);
   const info = selection
@@ -54,7 +56,15 @@ export function TopBar() {
       <button className={'icon-btn ' + (tool === 'crop' ? 'active' : 'dim')} title={tz('Crop (C)', '裁剪（C）')} onClick={() => setTool(tool === 'crop' ? 'select' : 'crop')} data-testid="crop-tool">
         <Crop />
       </button>
-      <span style={{ width: 40 }} />
+      <span style={{ width: 14 }} />
+      {/* Also Edit › Undo / Redo and Ctrl+Z / Ctrl+Shift+Z; these are the only way on a touch screen. */}
+      <button className="icon-btn" title={tz('Undo (Ctrl+Z)', '撤销（Ctrl+Z）')} disabled={!canUndo} onClick={undo} data-testid="undo-button">
+        <Undo />
+      </button>
+      <button className="icon-btn" title={tz('Redo (Ctrl+Shift+Z)', '重做（Ctrl+Shift+Z）')} disabled={!canRedo} onClick={redo} data-testid="redo-button">
+        <Redo />
+      </button>
+      <span style={{ width: 26 }} />
       <button
         className={'action-pill' + (engine && !developing ? ' active' : '')}
         disabled={!engine || developing}

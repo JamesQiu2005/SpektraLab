@@ -10,7 +10,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { type ComponentType, type ReactNode, useEffect, useState } from 'react';
 import { Canvas } from '../canvas/Canvas';
 import { SectionHeldOpen, SegmentedSwitch } from '../controls/controls';
-import { BeforeAfter, ChevronLeft, Crop, Ellipsis, Export, Import } from '../controls/icons';
+import { BeforeAfter, ChevronLeft, Crop, Ellipsis, Export, Import, Redo, Undo } from '../controls/icons';
 import { t, tz } from '../i18n';
 import { baseName } from '../platform';
 import {
@@ -230,11 +230,11 @@ function BottomBar() {
   const canRedo = useSession((s) => s.redo.length > 0);
   return (
     <div className="compact-bottom">
-      <button className="compact-round" onClick={undo} disabled={!canUndo} aria-label={tz('Undo', '撤销')}>
-        <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-          <path d="M7 5L3 9l4 4" />
-          <path d="M3 9h9a5 5 0 0 1 0 10h-2" />
-        </svg>
+      <button className="compact-round" onClick={undo} disabled={!canUndo} aria-label={tz('Undo', '撤销')} data-testid="undo-button">
+        <Undo size={18} />
+      </button>
+      <button className="compact-round" onClick={redo} disabled={!canRedo} aria-label={tz('Redo', '重做')} data-testid="redo-button">
+        <Redo size={18} />
       </button>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
@@ -244,9 +244,6 @@ function BottomBar() {
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="menu" side="top" align="start" sideOffset={6}>
-            <DropdownMenu.Item className="menu-item" disabled={!canRedo} onSelect={redo}>
-              {tz('Redo', '重做')}
-            </DropdownMenu.Item>
             <DropdownMenu.Item className="menu-item" disabled={!selection} onSelect={() => setOriginal(!original)}>
               <span className="check">{original ? '✓' : ''}</span>
               {t('actionOriginal')}
