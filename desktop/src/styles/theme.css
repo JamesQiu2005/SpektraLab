@@ -1187,3 +1187,29 @@ input {
   flex: 1 0 100%;
   height: 30px;
 }
+
+/* The top bar fits its column: on a narrow centre (the Fold unfolded, a small window) the gaps shrink and,
+   narrower still, the zoom percentage and the status text go, so the bar never runs under Parameters. */
+.centre {
+  container-type: inline-size;
+}
+.topbar {
+  overflow: hidden;
+}
+@container (max-width: 860px) {
+  .topbar {
+    padding: 0 8px;
+  }
+  .topbar > span:not(.bar-status) {
+    width: 4px !important;
+  }
+  .topbar .action-pill {
+    min-width: 62px;
+  }
+}
+@container (max-width: 700px) {
+  .topbar .zoom-pill,
+  .topbar .bar-status {
+    display: none;
+  }
+}
