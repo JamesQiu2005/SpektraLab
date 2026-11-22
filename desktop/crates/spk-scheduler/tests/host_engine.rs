@@ -295,6 +295,24 @@ async fn the_requests_each_job_kind_makes() {
     assert_eq!(link.methods(), ["open", "preview_stock_lut", "close"]);
     assert_eq!(link.calls()[2].1["session"], link.calls()[1].1["session"]);
 
+    link.clear();
+    let card_request = |path: &str| request(
+        "render_stock_card",
+        Some(SourceSpec { decode: Some(json!({"raw_mode": "headroom"})), ..source(path) }),
+        json!({"params": {"film_stock": "alternate"}}),
+    );
+    let card = RenderJob::new(a.clone(), JobKind::StockPreview, RenderTier::Live, PixelSize::new(192, 128))
+        .with_request(Some(card_request("/p/a.ARW")));
+    assert!(q.outcome(q.submit(card)).await.is_finished());
+    assert_eq!(link.methods(), ["render_stock_card"]);
+    assert_eq!(link.calls()[0].1["session"], "s1");
+    assert!(link.calls()[0].1["progress_id"].is_string());
+    link.clear();
+    let stale = RenderJob::new(FrameId::new("b"), JobKind::StockPreview, RenderTier::Live, PixelSize::new(192, 128))
+        .with_request(Some(card_request("/p/b.ARW")));
+    assert!(matches!(q.outcome(q.submit(stale)).await, spk_scheduler::JobOutcome::Cancelled));
+    assert!(link.methods().is_empty());
+
     // A full view of the frame being edited, from the same source, borrows its session: the file is not
     // decoded again and nothing is closed (phase 3, part 2). Its delta lands on that session first.
     link.clear();

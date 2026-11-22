@@ -4,6 +4,7 @@
 #pragma once
 #include <cstddef>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -37,13 +38,17 @@ struct Result {
     // No row padding or trailing GPU word padding is exposed to the caller.
     std::vector<uint8_t> pixels;
     bool print_cached = false;
+    bool stock_negative_cached = false;
     double print_ms = 0, post_ms = 0, readback_ms = 0;
     uint32_t file_width = 0, file_height = 0;
     uint32_t moved_pixels = 0, clipped_pixels = 0, outside_pixels = 0;
     std::vector<uint8_t> preview_rgb; // dedicated DI's reduced sRGB second TIFF page
     uint32_t preview_width = 0, preview_height = 0;
 };
-bool render(spk_session* session, const Request& request, Result& result, std::string& error);
+bool render(spk_session* session, const Request& request, Result& result, std::string& error,
+            const std::atomic<bool>* cancel_requested = nullptr);
+bool render_stock_card(spk_session* session, const Json& params, const Request& request, Result& result,
+                       std::string& error, const std::atomic<bool>& cancel_requested);
 // Current decoded source, before the film. No embedded camera JPEG and no
 // display-space reinterpretation. The source stays resident on the device.
 bool render_source(spk_session* session, uint32_t long_edge, const std::string& display,

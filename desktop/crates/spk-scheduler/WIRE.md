@@ -83,7 +83,7 @@ A `fullView` of any other frame opens its own session: price it as an export (`d
 ```
 
 - `method` is one of HOST-PROTOCOL.md §3's: `render_view`, `render`, `export_frame`, `export_cineon`,
-  `render_proof`, `export_image`, `preview_stock_lut`, `render_source`, `thumbnail`. `params` are its
+  `render_proof`, `export_image`, `preview_stock_lut`, `render_stock_card`, `render_source`, `thumbnail`. `params` are its
   params **without** `session` and `progress_id`: the engine adds both (a `session` the webview sends is
   replaced).
 - `source` is `open {path, decode?, params?}`, or `open_pair {path, pair, params}` when `pair` is set.
@@ -100,6 +100,7 @@ A `fullView` of any other frame opens its own session: price it as an export (`d
   (from `source.path` unless given) and the host opens a private session. `thumbnail` needs none.
 - `preview_stock_lut` and `render_source` borrow the editing session when it is the same frame from the
   same source (they do not change its parameters); otherwise they are one-shot.
+- A `render_stock_card` requires a `stockPreview` job for the resident editing source. It takes its candidate snapshot in the method's `params`, and rejects job-level `setParams`. If the resident source changed, the job ends cancelled without opening another RAW.
 - **A `fullView` (`render_view`) of the editing frame from the same source** (`path`, `decode`, `pair`)
   borrows the editing session too: no `open`, no `close`, the file is not decoded again. Its
   `setParams`, if any, lands on that session first, as a canvas job's does — so a full view sent with

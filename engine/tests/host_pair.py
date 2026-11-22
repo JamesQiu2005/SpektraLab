@@ -46,6 +46,32 @@ def exercise(host, root):
         assert graded[y*99*4:(y*99+49)*4] == original[y*99*4:(y*99+49)*4], 'per-hole grade changed first hole/gap'
     good(host, 'update_pair', {'session': sid, 'pair': pair, 'params': params})
     _, restored = good(host, 'render_view', view); assert restored == original, 'pair edit regenerated grain'
+    if 'render_stock_card' in hello['methods']:
+        live = dict(view, tier='live')
+        _, editor = good(host, 'render_view', live)
+        stock = {'film_stock': 'kodak_ektar_100', 'print_stock': 'kodak_supra_endura',
+                 'grain_active': False, 'glare_active': False}
+        card = {'session': sid, 'pair': pair, 'params': stock}
+        info, plain = good(host, 'render_stock_card', card)
+        assert (info['image']['width'], info['image']['height']) == (99, 64)
+        assert not info['negative_cached']
+        paper = dict(stock, print_stock='kodak_portra_endura')
+        printed, alternate_paper = good(host, 'render_stock_card', dict(card, params=paper))
+        assert printed['negative_cached'] and alternate_paper != plain
+        other_exposure, _ = good(host, 'render_stock_card', dict(card,
+            params=dict(paper, exposure_compensation_ev=1)))
+        assert not other_exposure['negative_cached'], 'a film-side exposure reused the negative'
+        cold, repeated = good(host, 'render_stock_card', dict(card, params=paper))
+        assert not cold['negative_cached'] and repeated == alternate_paper, 'paper reuse changed the deterministic output'
+        _, graded_card = good(host, 'render_stock_card', dict(card, pair=layer))
+        assert graded_card != plain and len(graded_card) == len(plain)
+        stale = deepcopy(pair)
+        stale['right']['exposureEV'] = 1
+        refused, _ = host.call('render_stock_card', dict(card, pair=stale))
+        assert not refused['ok'] and refused['error']['code'] == 'cancelled', refused
+        cached, current = good(host, 'render_view', live)
+        assert cached['print_cached'] and current == editor, 'a pair card changed the editor'
+        print('Pair stock cards preserve both holes, paper choices, and the editor cache.')
     solved, _ = good(host, 'solve', {'session': sid, 'target': 'both'})
     assert 'exposure_compensation_ev' not in solved['solved_params'], 'pair globally metered its gap'
     target = root / 'pair.tif'

@@ -39,8 +39,8 @@ the repository's `docs/WINDOWS.md`. The Rust client that starts this binary is
 The original build was inspected on macOS (PE32+ x86-64, system DLL imports). The vendored helper has
 since run on Windows with SpektraLab. Installation verifies the executable hash, packaged version
 notice and the version, ABI and schema reported by the running helper. Local library tests use
-SpektraLab catalogs and synthetic Capture One fixtures. A real Capture One for Windows catalog
-remains pending.
+SpektraLab catalogs and synthetic Capture One fixtures. A real Capture One 16.9.1.3943 Pro
+Windows catalog with managed and referenced RAWs passed read-only browsing, external relinking, and reopening.
 
 The public SDK checkout at f4aced84 still contains the macOS build script. The Windows branch and
 85d52813e2e8 were unavailable in the public repository when checked on 2026-11-21. Independent

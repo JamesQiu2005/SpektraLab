@@ -220,6 +220,13 @@ struct spk_session {
         std::unordered_map<std::string, TierSlots> tiers;
     };
     std::unique_ptr<ResidencySnapshot> residency;
+    Image stock_card_source; // one 192 px decode-derived source shared by the stock cards
+    struct StockCardNegative {
+        std::string key;
+        Image image;
+        uint32_t overscan_w = 0, overscan_h = 0;
+        std::optional<double> applied_ev;
+    } stock_card_negative;
 #endif
 
     Params params;
@@ -1501,6 +1508,8 @@ bool spk::view::suspend(spk_session* session, std::string& error) {
     if (!session) { error = "residency: session is null"; return false; }
     std::lock_guard<std::mutex> guard(session->lock);
     if (session->residency) return true;
+    session->stock_card_source = Image{};
+    session->stock_card_negative = {};
     try {
         using Snapshot = spk_session::ResidencySnapshot;
         auto snapshot = std::make_unique<Snapshot>();
@@ -1838,7 +1847,7 @@ static bool pair_layers(spk_session* session, const Tier& tier, const Image& sou
 }
 
 bool spk::view::render(spk_session* session, const Request& request, Result& result,
-                       std::string& error) {
+                       std::string& error, const std::atomic<bool>* cancel_requested) {
     result = Result{};
     if (!session) { error = "view: session is null"; return false; }
     if (!resume(session, error)) return false;
@@ -1864,9 +1873,13 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     gpu->begin_frame();
     struct EndFrame { gpu::Gpu* gpu; ~EndFrame() { gpu->end_frame(); } } end{gpu};
     session->reset_progress();
+    if (cancel_requested) {
+        session->progress.cancel_requested = cancel_requested;
+        if (session->progress.is_cancelled()) { error = "stock card cancelled"; return false; }
+    }
     session->progress.progress_id = "p" + std::to_string(next_id());
     session->progress.detailed = std::getenv("SPEKTRAFILM_NODE_TIMINGS") != nullptr;
-    session->progress.memory_pressure_critical = gpu->take_critical_pressure();
+    session->progress.memory_pressure_critical = !cancel_requested && gpu->take_critical_pressure();
     if (session->progress.memory_pressure_critical)
         for (auto& kv : session->tiers) kv.second.view_print = Image{};
     auto started = std::chrono::steady_clock::now();
@@ -2025,6 +2038,95 @@ bool spk::view::render(spk_session* session, const Request& request, Result& res
     result.print_ms += pair_print_ms; result.post_ms += pair_post_ms;
     result.source_width = full_w; result.source_height = full_h;
     session->progress.done = true;
+    return true;
+}
+
+bool spk::view::render_stock_card(spk_session* session, const Json& params, const Request& request,
+                                  Result& result, std::string& error, const std::atomic<bool>& cancel_requested) {
+    constexpr uint32_t edge = 192;
+    if (!resume(session, error)) return false;
+    spk_session card;
+    Image live_source;
+    {
+        std::lock_guard<std::mutex> guard(session->lock);
+        card.engine = session->engine;
+        card.source = session->source;
+        card.product_defaults = session->product_defaults;
+        card.params = session->params;
+        card.meter = session->meter;
+        if (session->stock_card_source.valid()) {
+            auto& state = card.tiers["live"];
+            state.image = session->stock_card_source;
+            state.image_long_edge = edge;
+        } else {
+            // A 102 MP → 192 px FIR prefilter on the original would have a
+            // huge radius over every native pixel. Sample the editor's
+            // already-downscaled linear input instead.
+            const auto it = session->tiers.find("live");
+            if (it == session->tiers.end() || !it->second.image.valid()) {
+                error = "stock card needs a rendered live source";
+                return false;
+            }
+            live_source = it->second.image;
+        }
+    }
+    card.params.io.preview_long_edge = edge;
+    // Always take the stock-rebuild path. It builds a new pipeline and
+    // validates the candidate without applying any delta to the editor.
+    Json delta = params;
+    const Json current = read_params(card.params);
+    for (const char* stock : {"film_stock", "print_stock"})
+        if (!delta.has(stock)) delta.set(stock, current.at(stock));
+    if (spk_set_params(&card, delta.dump().c_str(), nullptr) != SPK_OK) {
+        error = g_error;
+        return false;
+    }
+    if (cancel_requested.load(std::memory_order_relaxed)) {
+        error = "stock card cancelled";
+        return false;
+    }
+    if (live_source.valid()) {
+        const Image full_source = card.source;
+        card.source = live_source;
+        auto* gpu = card.engine->gpu;
+        gpu->begin_frame();
+        struct EndCardFrame { gpu::Gpu* gpu; ~EndCardFrame() { gpu->end_frame(); } } end{gpu};
+        Image scaled;
+        if (!tier_image(&card, kTiers[0], scaled, error)) return false;
+        card.source = full_source;
+    }
+    const Json effective = read_params(card.params);
+    Json film_key = Json::object();
+    for (const auto& field : schema_fields())
+        if (field.layer == Layer::Shoot) film_key.set(field.name, effective.at(field.name));
+    // A positive monochrome direct scan branches inside the film stage.
+    film_key.set("scan_film", effective.at("scan_film"));
+    film_key.set("digital_intermediate", effective.at("digital_intermediate"));
+    const std::string key = film_key.dump();
+    auto& state = card.tiers.at("live");
+    bool reused = false;
+    {
+        std::lock_guard<std::mutex> guard(session->lock);
+        const auto& prior = session->stock_card_negative;
+        reused = prior.image.valid() && prior.key == key;
+        if (reused) {
+            state.negative = prior.image;
+            state.has_negative = true;
+            state.overscan_frame_w = prior.overscan_w;
+            state.overscan_frame_h = prior.overscan_h;
+            state.applied_ev = prior.applied_ev;
+        }
+    }
+    Request view = request;
+    view.tier = "live";
+    view.long_edge = edge;
+    if (!render(&card, view, result, error, &cancel_requested)) return false;
+    {
+        std::lock_guard<std::mutex> guard(session->lock);
+        session->stock_card_source = state.image;
+        session->stock_card_negative = {key, state.negative, state.overscan_frame_w, state.overscan_frame_h, state.applied_ev};
+    }
+    result.stock_negative_cached = reused;
     return true;
 }
 #endif

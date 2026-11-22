@@ -44,6 +44,7 @@ const SESSION_METHODS: &[&str] = &[
     "export_image",
     "export_di",
     "preview_stock_lut",
+    "render_stock_card",
     "render_source",
     "scene_latitude",
     "overscan_geometry",
@@ -54,7 +55,7 @@ const PRIVATE_SESSION_METHODS: &[&str] = &["export_frame", "export_cineon", "ren
 const SESSIONLESS_METHODS: &[&str] = &["thumbnail", "write_image", "export_cube", "probe"];
 /// Calls that carry a `progress_id`, and so can be cancelled while they run.
 const PROGRESS_METHODS: &[&str] =
-    &["render_view", "render", "export_frame", "export_cineon", "export_image", "render_proof"];
+    &["render_view", "render", "export_frame", "export_cineon", "export_image", "render_proof", "render_stock_card"];
 /// Calls that read a session without changing it: they may borrow the editing session.
 const BORROWING_METHODS: &[&str] = &["preview_stock_lut", "render_source"];
 
@@ -388,6 +389,17 @@ impl HostEngine {
             request.source.as_ref().ok_or_else(|| EngineError::Failed(format!("{method} needs a source to open")))?;
         let key = source.key();
         let same = sessions.editing.as_ref().is_some_and(|e| e.frame == job.frame_id && e.key == key);
+        if method == "render_stock_card" {
+            if job.kind != JobKind::StockPreview || request.set_params.is_some() {
+                return Err(EngineError::Failed("a stock card needs a read-only stock preview job".into()));
+            }
+            if !same {
+                // An expired card must never decode a second copy of a RAW.
+                return Err(EngineError::Cancelled);
+            }
+            let session = sessions.editing.as_ref().unwrap().session.clone();
+            return Ok(Placed { session: Some(session), ..none });
+        }
         if one_shot {
             // A full view of the frame being edited, from the same pixels, is that session's own picture at
             // its own size: it borrows the session rather than decoding the file again (phase 3, part 2).
@@ -644,7 +656,9 @@ impl HostEngine {
             band: 0,
             band_count: 1,
         });
-        let forwarder = progress_id.as_deref().map(|id| self.forward_progress(job, id, progress.clone()));
+        // Cards have their own private pipeline and do not publish its progress through the editor.
+        let forwarder = progress_id.as_deref().filter(|_| method != "render_stock_card")
+            .map(|id| self.forward_progress(job, id, progress.clone()));
         let params = Self::call_params(request, placed.session.as_deref(), progress_id.as_deref());
         let answer = self.must(sessions, method, params, job.tier).await;
         self.cancels.lock().unwrap().in_flight = None;

@@ -444,6 +444,18 @@ export function normalizeStockPair(p: FilmParams, catalog: StockCatalog): FilmPa
   return scanFilm === p.scanFilm && printStock === p.printStock ? p : { ...p, scanFilm, printStock };
 }
 
+/** The effective recipe of a Develop card, also used to render its preview. */
+export function stockCardParams(p: FilmParams, catalog: StockCatalog, kind: 'film' | 'paper', id: string | null): FilmParams | null {
+  if (kind === 'film') {
+    if (!id || catalog.stock(id)?.stage !== 'filming') return null;
+    const scanFilm = catalog.isPositive(id) || (p.scanFilm && !catalog.isPositive(p.filmStock));
+    return normalizeStockPair({ ...p, filmStock: id, scanFilm, digitalIntermediate: scanFilm ? false : p.digitalIntermediate }, catalog);
+  }
+  if (id === null) return normalizeStockPair({ ...p, scanFilm: true, digitalIntermediate: false }, catalog);
+  if (catalog.stock(id)?.stage !== 'printing' || catalog.isPositive(p.filmStock) || !catalog.canPrint(p.filmStock, id)) return null;
+  return normalizeStockPair({ ...p, printStock: id, scanFilm: false, digitalIntermediate: false }, catalog);
+}
+
 /** Upstream 1.3.3's per-film RMS grain calibration; the UI strength multiplies it. */
 export function ownGrain(stock: string): number {
   switch (stock) {

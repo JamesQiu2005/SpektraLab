@@ -28,6 +28,7 @@ import {
   filmFrameNamed,
   fullDelta,
   normalizeStockPair,
+  stockCardParams,
   SCENE_LATITUDE_DEFAULT,
   jsonEqual,
   clamp,
@@ -55,7 +56,7 @@ import { PreviewQueue } from './previewQueue';
 import { tz } from '../i18n';
 import { JobEnded, canvasOf, runJob, scheduler } from '../scheduler';
 import { frameHost } from '../scheduler/frame';
-import { isCanvas, type JobKind, type JobRequest, type JobSnapshotWire, type SourceSpec } from '../scheduler/types';
+import { isCanvas, type JobKind, type JobRequest, type JobSnapshotWire, type JobSpec, type SourceSpec } from '../scheduler/types';
 import { imageReply, renderReply, renderViewReply, type RenderReply, type RgbaImage } from '../host/replies';
 import { canvasWhat } from '../edit/words';
 import { hostMessage } from '../host/messages';
@@ -452,6 +453,30 @@ export function setPreviewLongEdge(preference: PreviewLongEdge) {
 
 function wireParams(p: FilmParams, edge = previewEdge()) {
   return { ...fullDelta(p, get().gate, get().catalog), preview_long_edge: edge };
+}
+
+/** Build a read-only card request from the same recipe the click applies. */
+export function stockCardJob(s: SessionState, kind: 'film' | 'paper', id: string | null) {
+  if (!s.selection || !s.engineSession) return null;
+  const candidate = stockCardParams(s.sidecar.params, s.catalog, kind, id);
+  if (!candidate) return null;
+  const recipe = s.pair ? resolvePairParams(candidate, s.pair,
+    s.pairInfo?.left?.metadata ?? s.metadata, s.pairInfo?.right?.metadata ?? null, s.catalog) : candidate;
+  const params = fullDelta(recipe, s.gate, s.catalog);
+  const source = sourceOf(s);
+  const view = {
+    params, adjustments: s.sidecar.adjustments, display: s.displaySpace,
+    ...(s.pair ? { pair: pairSnapshotFor(s.pair, recipe) } : {}),
+    geometry: canvasGeometryFor(recipe, s.sidecar.geometry, s.gate),
+    source_geometry: sourceGeometryFor(recipe, s.sidecar.geometry, s.gate) ?? GEOMETRY_DEFAULT,
+  };
+  const job: JobSpec = {
+    kind: 'stockPreview', frameId: s.selection, slot: `${kind}:${id ?? ''}`,
+    what: id ? s.catalog.stock(id)?.name ?? id : tz('No paper', '不印放'),
+    tier: 'live', canvas: canvasOf(s.nativeSize, 192),
+    request: { method: 'render_stock_card', source, params: view },
+  };
+  return { job, key: JSON.stringify([s.selection, s.engineSession, source.decode, view]) };
 }
 
 export function hostViews(): boolean { return !!get().hello?.methods?.includes('render_view'); }
@@ -1044,6 +1069,23 @@ export function selectFilmStock(filmStock: string) {
   }));
   // Re-picking the same film still exits bypass, even if its params match.
   if (s.sidecar.noFilm) { scheduleSave(); void requestPrint(); }
+}
+
+/** A Develop card keeps the compatible counterpart shown in its preview. */
+export function selectStockCard(kind: 'film' | 'paper', id: string | null) {
+  const s = get();
+  if (!s.selection || s.batchExporting) return;
+  const next = stockCardParams(s.sidecar.params, s.catalog, kind, id);
+  if (!next) return;
+  lastUndoAt = -Infinity;
+  const enableFilm = kind === 'film' && s.sidecar.noFilm;
+  if (enableFilm) {
+    pushUndo();
+    set({ sidecar: { ...s.sidecar, noFilm: false } });
+    discardModePreview();
+  }
+  setParams(() => next);
+  if (enableFilm) { scheduleSave(); void requestPrint(); }
 }
 
 /** The source choice is a frame edit, never a copied film parameter. */

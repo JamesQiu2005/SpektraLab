@@ -152,7 +152,7 @@ html, body, #root { background: var(--v2-ground); }
 .v2-card-face.cine:not(.cover) { background-image: linear-gradient(160deg, #6B5530, #2B2316 70%); }
 .v2-card-face.bw:not(.cover) { background-image: linear-gradient(160deg, #8A8884, #2F2E2C 70%); }
 .v2-card-face.paper:not(.cover) { background-image: linear-gradient(160deg, #E9E3D8, #B9B1A4 70%); }
-.v2-card-face.none { background-image: repeating-linear-gradient(45deg, var(--v2-plot) 0 6px, var(--v2-card) 6px 12px); }
+.v2-card-face.none:not(.cover) { background-image: repeating-linear-gradient(45deg, var(--v2-plot) 0 6px, var(--v2-card) 6px 12px); }
 /* the name strip: dark under the name, so the name reads on any picture */
 .v2-card::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.78) 55%); pointer-events: none; }
 .v2-card-name { position: absolute; z-index: 1; left: 9px; right: 6px; bottom: 6px; max-height: 26px; overflow: hidden; font-size: var(--v2-fs-caption); line-height: 13px; color: var(--v2-text); overflow-wrap: break-word; }
