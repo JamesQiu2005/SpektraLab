@@ -1,6 +1,6 @@
 [package]
 name = "spektralab"
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 description = "SpektraLab — film and print emulation for Windows"
 authors = ["SpektraLab contributors"]
 license = "GPL-3.0-or-later"
