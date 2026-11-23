@@ -62,6 +62,7 @@ export interface Settings extends NewPhotoDefaults {
   /** v2: the Library grid's tile size in epx (the toolbar's slider, PC-L1: 147 by default, six to a row). */
   libraryTile: number;
   lastFolder: string | null;
+  libraryDirectory: string | null;
   folderRawOnly: boolean;
   /** Folders opened most recently, newest first (File › Open Recent). */
   recentFolders: string[];
@@ -98,6 +99,7 @@ export const SETTINGS_DEFAULT: Settings = {
   collapsedSections: {},
   libraryTile: 147,
   lastFolder: null,
+  libraryDirectory: null,
   folderRawOnly: false,
   recentFolders: [],
   settingsPage: 'general',
@@ -124,6 +126,7 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> | null): Settings
     }
     const s = out as unknown as Settings;
     if (!INTERFACE_SCALES.includes(s.interfaceScale)) s.interfaceScale = SETTINGS_DEFAULT.interfaceScale;
+    if (typeof s.libraryDirectory !== 'string' || !s.libraryDirectory.trim()) s.libraryDirectory = null;
     const preview = o.previewLongEdge;
     s.previewLongEdge = typeof preview === 'number' && PREVIEW_EDGES.includes(preview)
       ? preview : 'auto';

@@ -352,7 +352,16 @@ html, body, #root { background: var(--v2-ground); }
 .v2-set-value { color: var(--v2-secondary); text-align: right; }
 .v2-set-note { font-size: var(--v2-fs-caption); color: var(--v2-dim); margin: -7px 0 9px 4px; line-height: 16px; }
 .v2-set-list.tall > .v2-set-row { min-height: 36px; }
-.v2-set-row.choice { min-height: 44px; }
+.v2-set-list.full-width { padding: 0; }
+.v2-set-row.choice { min-height: 48px; padding: 6px 12px; cursor: pointer; }
+.v2-set-row.choice:hover { background: #ffffff0a; }
+.v2-set-row.choice:focus-visible { outline-offset: -2px; }
+.v2-set-row.choice .v2-set-value { flex: none; }
+.v2-set-row.compact .v2-set-label { flex: none; }
+.v2-set-row.compact .v2-set-value { min-width: 0; overflow-wrap: anywhere; }
+.v2-library-location-controls { display: grid; gap: 8px; padding: 10px 0 12px; border-bottom: 1px solid #3E3E3C; }
+.v2-library-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.v2-library-location-controls .v2-set-note { margin: 0; }
 .v2-set-link { display: block; border: 0; background: none; color: var(--v2-text); padding: 0 4px; height: 25px; margin: -2px 0 0; font-size: 13px; }
 .v2-set-host { padding: 8px 12px; }
 .v2-seg { display: inline-flex; background: var(--v2-card); border-radius: 13px; padding: 2px; gap: 2px; }

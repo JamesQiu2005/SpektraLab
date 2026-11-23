@@ -6,7 +6,8 @@
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { tz } from '../i18n';
-import { platform } from '../platform';
+import { joinPath, platform } from '../platform';
+import { settingsStore } from '../state/settings';
 import { LibraryError, lib, type Collection, type ImageRow, type LibraryClient, type LibraryInfo, type Location } from './client';
 import { MOCK_LIBRARY_PATHS, MockLibrary } from './mock';
 import { TauriLibrary } from './tauriLibrary';
@@ -316,11 +317,17 @@ export async function openLibraryDialog() {
 
 export async function newLibrary(kind: 'catalog' | 'session') {
   const revision = openingSource();
-  const p = await platform().appPaths().catch(() => null);
-  const base = (p as { pictures?: string } | null)?.pictures ?? 'C:/Users/Photographer/Pictures/SpektraLab';
   const name = kind === 'catalog' ? tz('New Catalog', '新目录') : tz('New Session', '新会话');
   try {
-    const r = await lib.create(client, `${base}/${name}.${kind === 'catalog' ? 'spkcatalog' : 'spksession'}`, kind, name);
+    const custom = settingsStore.getState().libraryDirectory;
+    const base = custom ?? (await platform().appPaths()).pictures;
+    if (!base || (custom && !await platform().pathExists(custom))) {
+      throw new LibraryError('io', tz('The library location is unavailable. Choose another folder in Settings › Library.',
+        '图库位置不可用。请在「设置 → 图库」选择其他目录。'));
+    }
+    if (revision !== sourceRevision) return;
+    const extension = kind === 'catalog' ? 'spkcatalog' : 'spksession';
+    const r = await lib.create(client, joinPath(base, `${name}.${extension}`), kind, name);
     await adopt(revision, r.library, r.info);
   } catch (e) { if (revision === sourceRevision) fail(e); }
 }

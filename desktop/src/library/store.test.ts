@@ -2,17 +2,21 @@
 // picks, the read-only rule and what Develop ↵ hands the editor.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as PlatformModule from '../platform';
 const pickFolder = vi.hoisted(() => vi.fn<() => Promise<string | null>>());
 const pathExists = vi.hoisted(() => vi.fn<(path: string) => Promise<boolean>>());
-vi.mock('../platform', () => ({
-  platform: () => ({ listImages: async () => [], pickFolder, pathExists, appPaths: async () => ({}), pickFiles: async () => [] }),
+vi.mock('../platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof PlatformModule>()),
+  platform: () => ({ listImages: async () => [], pickFolder, pathExists, appPaths: async () => ({ pictures: 'C:/Pictures' }), pickFiles: async () => [] }),
 }));
 import { MOCK_LIBRARY_PATHS, MockLibrary } from './mock';
+import { settingsStore } from '../state/settings';
 import { LibraryError, type Opened } from './client';
-import { LIBRARY_INITIAL, addFolder, closeLibrary, chooseCollection, developTargets, libraryStore, locateOriginalFolder, openCaptureOneDialog, openLibrary, pick, refresh, setLibraryClient, setRating, setSearch } from './store';
+import { LIBRARY_INITIAL, addFolder, closeLibrary, chooseCollection, developTargets, libraryStore, locateOriginalFolder, newLibrary, openCaptureOneDialog, openLibrary, pick, refresh, setLibraryClient, setRating, setSearch } from './store';
 
 let mock: MockLibrary;
 beforeEach(() => {
+  settingsStore.getState().set('libraryDirectory', null);
   pickFolder.mockReset().mockResolvedValue(null);
   pathExists.mockReset().mockResolvedValue(true);
   mock = new MockLibrary();
@@ -21,6 +25,29 @@ beforeEach(() => {
 });
 
 describe('the library store', () => {
+  it('creates both library types under the chosen location', async () => {
+    const path = 'D:/测试图库';
+    settingsStore.getState().set('libraryDirectory', path);
+    const call = vi.spyOn(mock, 'call');
+
+    await newLibrary('catalog');
+    expect(call).toHaveBeenCalledWith('library.create', { path: path + '/New Catalog.spkcatalog', kind: 'catalog', name: 'New Catalog' });
+    await newLibrary('session');
+    expect(call).toHaveBeenCalledWith('library.create', { path: path + '/New Session.spksession', kind: 'session', name: 'New Session' });
+  });
+
+  it('preserves the default and reports an unavailable custom location', async () => {
+    const call = vi.spyOn(mock, 'call');
+    await newLibrary('catalog');
+    expect(call).toHaveBeenCalledWith('library.create', { path: 'C:/Pictures/New Catalog.spkcatalog', kind: 'catalog', name: 'New Catalog' });
+
+    call.mockClear();
+    settingsStore.getState().set('libraryDirectory', 'D:/Offline');
+    pathExists.mockResolvedValue(false);
+    await newLibrary('catalog');
+    expect(call).not.toHaveBeenCalledWith('library.create', expect.anything());
+    expect(libraryStore.getState().message).toContain('library location is unavailable');
+  });
   it('opens a catalog through library.open and lists its collections and images', async () => {
     await openLibrary(MOCK_LIBRARY_PATHS.catalog);
     const s = libraryStore.getState();
