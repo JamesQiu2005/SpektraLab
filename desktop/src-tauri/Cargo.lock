@@ -3260,7 +3260,7 @@ dependencies = [
 
 [[package]]
 name = "spektralab"
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 dependencies = [
  "async-trait",
  "log",

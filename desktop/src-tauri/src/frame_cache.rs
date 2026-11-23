@@ -42,11 +42,29 @@ fn read_settings(path: &Path, limit: u64) -> Option<Vec<u8>> {
     fs::read(path).ok()
 }
 
+fn load_preferences(path: &Path) -> Option<Preferences> {
+    read_settings(path, MAX_HEADER as u64)
+        .and_then(|bytes| serde_json::from_slice::<Preferences>(&bytes).ok())
+        .filter(|p| p.cap_bytes <= MAX_CAP && p.folder.as_ref().is_none_or(|folder| folder.is_absolute()))
+}
+
+fn legacy_windows_preferences(path: &Path) -> Option<Preferences> {
+    let directory = path.parent()?;
+    if !cfg!(windows)
+        || directory.file_name()?.to_str()? != "app.spektralab.desktop.v2"
+        || !matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    {
+        return None;
+    }
+    let legacy = directory.with_file_name("app.spektralab.desktop").join(path.file_name()?);
+    load_preferences(&legacy)
+}
+
 impl FrameCache {
     pub fn new(default_dir: PathBuf, preferences_path: PathBuf) -> Self {
-        let preferences = read_settings(&preferences_path, MAX_HEADER as u64)
-            .and_then(|bytes| serde_json::from_slice::<Preferences>(&bytes).ok())
-            .filter(|p| p.cap_bytes <= MAX_CAP && p.folder.as_ref().map_or(true, |folder| folder.is_absolute()))
+        let migrated = legacy_windows_preferences(&preferences_path);
+        let preferences = load_preferences(&preferences_path)
+            .or_else(|| migrated.clone())
             .unwrap_or_else(|| Preferences {
                 folder: None,
                 cap_bytes: read_settings(&default_dir.join("settings.json"), 4096)
@@ -55,7 +73,15 @@ impl FrameCache {
                     .filter(|cap| *cap <= MAX_CAP)
                     .unwrap_or(DEFAULT_CAP),
             });
-        Self { default_dir, preferences_path, preferences: Mutex::new(preferences) }
+        let cache = Self { default_dir, preferences_path, preferences: Mutex::new(preferences) };
+        // Preserve the choice even when the old drive is offline. Falling back
+        // to the default would silently start writing previews to the system disk.
+        if let Some(preferences) = migrated {
+            if let Err(error) = cache.save_preferences(&preferences) {
+                log::warn!("Could not save the migrated display cache preferences: {error}");
+            }
+        }
+        cache
     }
 
     fn directory(&self, preferences: &Preferences) -> CacheDirectory {
@@ -299,6 +325,48 @@ pub fn engine_fingerprint(program:&Path,resources:&Path)->Result<String,String>{
         assert_eq!(fs::read(dir.join("unrelated.txt")).unwrap(),b"keep");
         cache.configure(0).unwrap();assert!(!cache.store(&a,&metadata,&[1;32]).unwrap());
         assert!(cache.load("../escape").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_upgrade_retains_the_cache_drive_and_limit() {
+        let root = std::env::temp_dir().join(format!(
+            "spk-cache-upgrade-{}-{}", std::process::id(), SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let legacy = root.join("app.spektralab.desktop").join("display-cache.json");
+        let current = root.join("app.spektralab.desktop.v2").join("display-cache.json");
+        let legacy_default = root.join("old-default");
+        let default_dir = root.join("new-default");
+        let chosen = root.join("照片缓存");
+        fs::create_dir_all(&chosen).unwrap();
+        let old = FrameCache::new(legacy_default, legacy.clone());
+        old.set_directory(Some(chosen.clone())).unwrap();
+        old.configure(4096).unwrap();
+        let legacy_bytes = fs::read(&legacy).unwrap();
+
+        let upgraded = FrameCache::new(default_dir.clone(), current.clone());
+        let initial = upgraded.status().unwrap();
+        assert_eq!(initial["path"], json!(chosen.join(CUSTOM_SUBDIR)));
+        assert_eq!(initial["cap_bytes"], 4096);
+        let key = digest(b"upgrade-frame");
+        let image = json!({"image":{"width":2,"height":2,"format":"rgba8","colorSpace":"sRGB"}});
+        assert!(upgraded.store(&key, &image, &[9; 16]).unwrap());
+        assert!(!default_dir.exists());
+        assert!(chosen.join(CUSTOM_SUBDIR).join(format!("{key}.spfc")).is_file());
+        assert_eq!(fs::read(&legacy).unwrap(), legacy_bytes);
+
+        old.configure(2048).unwrap();
+        fs::rename(&chosen, root.join("disconnected")).unwrap();
+        let reopened = FrameCache::new(default_dir.clone(), current.clone());
+        assert_eq!(reopened.status().unwrap()["cap_bytes"], 4096);
+        assert!(reopened.status().unwrap()["error"].is_string());
+        assert!(reopened.store(&key, &image, &[10; 16]).is_err());
+        assert!(!default_dir.exists());
+        reopened.set_directory(None).unwrap();
+        let restored = FrameCache::new(default_dir.clone(), current);
+        assert_eq!(restored.status().unwrap()["path"], json!(default_dir));
+        assert_eq!(restored.status().unwrap()["cap_bytes"], 4096);
         fs::remove_dir_all(root).unwrap();
     }
 
