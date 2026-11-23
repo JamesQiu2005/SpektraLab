@@ -514,6 +514,7 @@ library.json	$.frames	path
 library.json	$.frames[].assetIdentifier	path
 library.json	$.frames[].camera	path
 library.json	$.frames[].cameraCropRead	path
+library.json	$.frames[].cameraCropReadVersion	path
 library.json	$.frames[].captureDate	path
 library.json	$.frames[].developed	path
 library.json	$.frames[].developed.picture	path

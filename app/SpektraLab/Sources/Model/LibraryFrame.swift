@@ -163,6 +163,10 @@ struct LibraryFrame: Identifiable, Equatable, Sendable {
     /// (`ImportService.frame`). Nil for a frame made before 2026-11-05 until the launch's catch-up has
     /// read its file (`AppServices.holdCameraCrops`), and for a frame that file has not been readable for.
     var cameraCropRead: Bool? = nil
+    /// Which crop reader made `cameraCropRead`: nil is the DNG-only reader (1), 2 also reads a
+    /// Hasselblad 3FR. Optional and additive so a library written by 2.4.2 is caught up once, while a
+    /// later Reset to the whole picture stays. An older build ignores this key and keeps its own behaviour.
+    var cameraCropReadVersion: Int? = nil
     /// **A variant** (PRD-G, 2026-11-13; Capture One's word): the helper's variant uuid of the photograph's row in the
     /// Mac library that this frame is the edit of — a second print from the same negative, with its own edit, history,
     /// develop, rating and label. Nil for the image's **primary** variant, which is what every frame was before 2.4.0:

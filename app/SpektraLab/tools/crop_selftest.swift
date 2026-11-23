@@ -445,6 +445,98 @@ func cameraCrop(_ c: Checks) {
     } else if c.rules.name == "the app's" {
         print("  (camera crop: the four Q3 files themselves not read -- CAMERA_CROP_DNGS unset; their numbers were checked)")
     }
+
+    // The owner's X2D 100C, 65:24 in the camera: MakerNote 0x0059 is mode, x, y, width, height
+    // (12, 128, 2316, 11656, 4302), while DefaultCrop stays the whole 11656 x 8742. Core Image's
+    // visible stored frame is 11664 x 8750: four pixels around that default crop on every side.
+    if let path = ProcessInfo.processInfo.environment["CAMERA_CROP_3FR"] {
+        let url = URL(fileURLWithPath: path)
+        let reading = CameraCrop.reading(url)
+        let want = CropRect(x: 4.0 / 11664, y: 2224.0 / 8750, width: 11656.0 / 11664, height: 4302.0 / 8750)
+        c.expect(nearRect(reading?.crop, want, 1e-6), "X2D 65:24: the exact camera crop, in Core Image's visible frame (\(String(describing: reading?.crop)))")
+        c.expect(reading?.aspect.map { abs($0 - 11664.0 / 8750) < 1e-9 } ?? false,
+                 "X2D: the whole visible frame's shape, not the embedded JPEG's (\(String(describing: reading?.aspect)))")
+        if let reading {
+            c.expect(c.rules.previewIsCut(3888, 1434, reading), "X2D: the camera's own 65:24 JPEG is not cut a second time")
+            c.expect(!c.rules.previewIsCut(1024, 768, reading), "X2D: a full-frame RAW decode is cut to the camera's crop")
+        }
+        let made = CameraCrop.caughtUp(.default, reading: reading, size: PixelSize(width: 11664, height: 8750))
+        c.expect(made.read && nearRect(made.geometry.crop, want, 1e-6),
+                 "X2D: a frame made before the crop was read is caught up to it")
+    }
+}
+
+/// A minimal classic TIFF with the same IFD0 → SubIFD and IFD0 → ExifIFD → MakerNotes route as a 3FR.
+/// Nothing is decoded; both byte orders carry the same numbers as the owner's X2D files.
+func synthetic3FR(littleEndian: Bool = true, mode: UInt16 = 12, y: UInt16 = 2316, height: UInt16 = 4302) -> Data {
+    var bytes = [UInt8](repeating: 0, count: 154)
+    func put16(_ value: UInt16, _ at: Int) {
+        if littleEndian {
+            bytes[at] = UInt8(value & 0xff); bytes[at + 1] = UInt8(value >> 8)
+        } else {
+            bytes[at] = UInt8(value >> 8); bytes[at + 1] = UInt8(value & 0xff)
+        }
+    }
+    func put32(_ value: UInt32, _ at: Int) {
+        if littleEndian {
+            put16(UInt16(value & 0xffff), at); put16(UInt16(value >> 16), at + 2)
+        } else {
+            put16(UInt16(value >> 16), at); put16(UInt16(value & 0xffff), at + 2)
+        }
+    }
+    func entry(_ at: Int, _ tag: UInt16, _ type: UInt16, _ count: UInt32, _ value: UInt32) {
+        put16(tag, at); put16(type, at + 2); put32(count, at + 4); put32(value, at + 8)
+    }
+    bytes[0] = littleEndian ? 0x49 : 0x4d; bytes[1] = bytes[0]
+    put16(42, 2); put32(8, 4)
+    put16(3, 8)                                            // IFD0
+    entry(10, 0x010f, 2, 11, 50)                          // Make
+    entry(22, 0x014a, 4, 1, 62)                           // SubIFD
+    entry(34, 0x8769, 4, 1, 108)                          // ExifIFD
+    for (index, byte) in Array("Hasselblad\0".utf8).enumerated() { bytes[50 + index] = byte }
+    put16(2, 62)                                           // SubIFD
+    entry(64, 0xc61f, 4, 2, 92)                           // DefaultCropOrigin
+    entry(76, 0xc620, 4, 2, 100)                          // DefaultCropSize
+    put32(128, 92); put32(96, 96); put32(11656, 100); put32(8742, 104)
+    put16(1, 108)                                          // ExifIFD
+    entry(110, 0x927c, 7, 28, 126)                        // MakerNotes
+    put16(1, 126)                                          // MakerNotes
+    entry(128, 0x0059, 3, 5, 144)                         // in-camera crop
+    for (index, value) in [mode, 128, y, 11656, height].enumerated() { put16(value, 144 + index * 2) }
+    return Data(bytes)
+}
+
+func hasselbladCrop(_ c: Checks) {
+    let stored = CGSize(width: 11664, height: 8750)
+    let properties: [CFString: Any] = [kCGImagePropertyPixelWidth: NSNumber(value: 11664),
+                                       kCGImagePropertyPixelHeight: NSNumber(value: 8750),
+                                       kCGImagePropertyOrientation: NSNumber(value: 1)]
+    let uprightWant = CropRect(x: 4.0 / 11664, y: 2224.0 / 8750, width: 11656.0 / 11664, height: 4302.0 / 8750)
+    for littleEndian in [true, false] {
+        let data = synthetic3FR(littleEndian: littleEndian)
+        let record = HasselbladCrop.read(data)
+        c.expect(record == HasselbladCrop.Record(mode: 12, x: 128, y: 2316, width: 11656, height: 4302,
+                                                defaultX: 128, defaultY: 96, defaultWidth: 11656, defaultHeight: 8742),
+                 "X2D synthetic TIFF: the crop and DefaultCrop are read (\(littleEndian ? "little" : "big")-endian)")
+        c.expect(nearRect(CameraCrop.reading(properties, hasselblad: record).crop, uprightWant, 1e-9),
+                 "X2D synthetic TIFF: the visible-frame inset is added exactly once")
+        var turnedProperties = properties
+        turnedProperties[kCGImagePropertyOrientation] = NSNumber(value: 6)
+        let turned = CameraCrop.reading(turnedProperties, hasselblad: record)
+        let turnedWant = CropRect(x: 1 - 6526.0 / 8750, y: 4.0 / 11664, width: 4302.0 / 8750, height: 11656.0 / 11664)
+        c.expect(nearRect(turned.crop, turnedWant, 1e-9) && turned.aspect.map { abs($0 - stored.height / stored.width) < 1e-12 } ?? false,
+                 "X2D synthetic TIFF: a portrait crop is turned with the file")
+        c.expect(c.rules.previewIsCut(1434, 3888, turned), "X2D synthetic TIFF: a portrait embedded JPEG is already cut")
+    }
+    let whole = HasselbladCrop.read(synthetic3FR(mode: 1, y: 96, height: 8742))
+    c.expect(CameraCrop.reading(properties, hasselblad: whole).crop == nil,
+             "X2D mode 1: an uncropped file does not acquire the visible frame's four-pixel inset")
+    c.expect(HasselbladCrop.read(synthetic3FR(y: 5000)) == nil, "a MakerNote crop outside DefaultCrop is refused")
+    c.expect(HasselbladCrop.read(synthetic3FR().prefix(100)) == nil, "a truncated TIFF is refused, not read out of bounds")
+    for length in 0..<128 {
+        _ = HasselbladCrop.read(Data((0..<length).map { UInt8(($0 * 37 + 11) & 0xff) }))
+    }
+    c.expect(true, "short arbitrary inputs return without an out-of-bounds read")
 }
 
 /// A DNG's properties as ImageIO hands them over (`dngProperties`), with the stored picture's size: the
@@ -480,7 +572,7 @@ func cameraCropHook(_ c: Checks) {
 
     // ImportService goes through it: the probe makes the geometry from the header, the frame takes it.
     if let text = c.rules.importSource() {
-        c.expect(text.contains("geometry: CameraCrop.newFrameGeometry(properties: props, size: size)"),
+        c.expect(text.contains("geometry: CameraCrop.newFrameGeometry(properties: props, size: size, url: url)"),
                  "ImportService.probe makes a new frame's crop through CameraCrop.newFrameGeometry (\(importServiceURL.lastPathComponent))")
         c.expect(text.contains("edit.geometry = p.geometry"), "ImportService.frame takes the probe's crop as the new frame's")
     } else { c.expect(false, "ImportService.swift is read (\(importServiceURL.path))") }
@@ -490,6 +582,8 @@ func cameraCropHook(_ c: Checks) {
         c.expect(text.contains("cameraCropRead = f.cameraCropRead"), "a saved frame keeps its camera-crop marker (StoredFrame.init)")
         c.expect(text.contains("cameraCropRead: cameraCropRead)"), "a loaded frame gets its camera-crop marker back (StoredFrame.frame)")
         c.expect(text.contains("var cameraCropRead: Bool? = nil"), "a library saved before the marker still loads (an optional key)")
+        c.expect(text.contains("cameraCropReadVersion = f.cameraCropReadVersion") && text.contains("f.cameraCropReadVersion = cameraCropReadVersion"),
+                 "the 3FR crop reader's version survives a save and a load")
     } else { c.expect(false, "LibraryPersistence.swift is read") }
     if let text = c.rules.appModelSource().map(uncommented) {
         // The declaration and at least one call (the declaration's own text holds the call's).
@@ -515,7 +609,16 @@ func cameraCropHook(_ c: Checks) {
     c.expect(c.rules.owing("L1026319.DNG", false, false, nil, straightened) == .settled, "and one straightened")
     c.expect(c.rules.owing("L1026319.DNG", false, false, nil, finishedCrop) == .settled, "and one with Edit's crop")
     c.expect(c.rules.owing("L1026319.DNG", false, false, nil, edged) == .settled, "and one in a film edge, whose framing sits over the crop")
-    c.expect(c.rules.owing("DSC0001.NEF", false, false, nil, made) == .nothing, "a file that is not a DNG is owed nothing")
+    c.expect(c.rules.owing("DSC0001.NEF", false, false, nil, made) == .nothing, "a file that is not a supported RAW is owed nothing")
+    c.expect(CameraCrop.owing(fileName: "B0017857.3FR", isPair: false, isDemo: false, read: true, version: nil, edit: made) == .read,
+             "a 3FR imported by 2.4.2 is read once although its old Boolean marker is true")
+    c.expect(CameraCrop.owing(fileName: "b0017857.3fr", isPair: false, isDemo: false, read: true,
+                              version: CameraCrop.currentReadVersion, edit: made) == .nothing,
+             "once the 3FR reader has run, a later Reset to the whole picture stays")
+    c.expect(CameraCrop.owing(fileName: "B0017857.3FR", isPair: false, isDemo: false, read: true, version: nil, edit: drawn) == .settled,
+             "a 3FR whose crop was already drawn is settled without changing it")
+    c.expect(CameraCrop.owing(fileName: "B0017857.3FR", isPair: false, isDemo: false, read: true, version: nil, edit: edged) == .settled,
+             "and one already in a film edge is settled too")
     c.expect(c.rules.owing("Half-Frame Pair 1", true, false, nil, made) == .nothing && c.rules.owing("demo.dng", false, true, nil, made) == .nothing,
              "nor a pair nor a demo frame")
     let away = c.rules.caughtUp(made, nil, size)
@@ -663,7 +766,7 @@ func previewDecode(_ c: Checks) {
 
 func run(_ rules: Rules) -> Checks {
     let c = Checks(rules)
-    records(c); keystone(c); hostCut(c); guides(c); finished(c); cropIsFrame(c); cameraCrop(c); cameraCropHook(c); scrollZoom(c); wholePicture(c)
+    records(c); keystone(c); hostCut(c); guides(c); finished(c); cropIsFrame(c); cameraCrop(c); hasselbladCrop(c); cameraCropHook(c); scrollZoom(c); wholePicture(c)
     previewDecode(c)
     return c
 }

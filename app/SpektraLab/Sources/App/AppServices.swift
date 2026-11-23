@@ -877,26 +877,30 @@ final class AppServices {
         originals.keepInApp(library.frames.filter(\.readsFromPhotos).map(\.id))
     }
 
-    /// The camera's crop (`CameraCrop`, 2026-11-05) for the frames made before it was read: 2.1.3 made
-    /// every frame of a Leica Q3 DNG uncropped, and only a new frame takes it as it is made. At launch,
-    /// once for each frame: a DNG frame whose crops are as they were made (`CameraCrop.owing`) has its
-    /// header read off the main thread and takes the camera's crop, if there is one; a frame whose crop
-    /// was edited keeps it; either is then marked (`LibraryFrame.cameraCropRead`) and never asked again,
-    /// so a Reset to the whole picture after this stays. A file that cannot be read now (away, on a disk
-    /// not mounted) is left unmarked and read at a later launch. A frame open on a develop page meanwhile
-    /// is not changed under it (and is asked at the next launch). The develop that follows is a `sweep`:
-    /// on the Mac nothing is developed until the picture is opened or exported (`develop`). How many were
-    /// owed a read.
+    /// The camera's crop (`CameraCrop`) for frames made before the reader caught up with their format:
+    /// 2.1.3 made every Leica Q3 DNG uncropped, and 2.4.2 marked Hasselblad 3FRs read without reading them.
+    /// At launch, once per frame and reader version: a DNG or 3FR frame whose crops are as they were made
+    /// (`CameraCrop.owing`) has its header read off the main thread and takes the camera's crop, if there is
+    /// one; a frame whose crop was edited keeps it. Success or settled is marked (`cameraCropRead` plus
+    /// `cameraCropReadVersion`), so a later Reset to the whole picture stays. A file that cannot be read now
+    /// (away, on a disk not mounted) is left unmarked and read at a later launch. A frame open on a develop
+    /// page meanwhile is not changed under it (and is asked at the next launch). The develop that follows is
+    /// a `sweep`: on the Mac nothing is developed until the picture is opened or exported (`develop`).
+    /// How many were owed a read.
     @discardableResult
     func holdCameraCrops() -> Int {
         var owed: [(id: LibraryFrame.ID, url: URL)] = []
         library.batch {
             for f in library.frames {
-                switch CameraCrop.owing(fileName: f.fileName, isPair: f.isPair, isDemo: f.isDemo, read: f.cameraCropRead, edit: f.edit) {
+                switch CameraCrop.owing(fileName: f.fileName, isPair: f.isPair, isDemo: f.isDemo,
+                                        read: f.cameraCropRead, version: f.cameraCropReadVersion, edit: f.edit) {
                 case .nothing: continue
-                case .settled: library.update(f.id) { $0.cameraCropRead = true }
+                case .settled: library.update(f.id) {
+                    $0.cameraCropRead = true
+                    $0.cameraCropReadVersion = CameraCrop.currentReadVersion
+                }
                 // The original — tried even when the library last found it missing (it may be back; an
-                // unreadable one just stays owed); never a Photos frame's preview copy, which is not the DNG.
+                // unreadable one just stays owed); never a Photos frame's preview copy, which is not the original RAW.
                 case .read: if let url = f.developSource ?? (f.readsFromPhotos ? nil : f.picture.fileURL) { owed.append((f.id, url)) }
                 }
             }
@@ -913,13 +917,18 @@ final class AppServices {
                 for (item, reading) in zip(owed, readings) {
                     // As it is now: an edit or a page since the list was made wins.
                     guard let f = self.library.frame(item.id),
-                          CameraCrop.owing(fileName: f.fileName, isPair: f.isPair, isDemo: f.isDemo, read: f.cameraCropRead, edit: f.edit) == .read
+                          CameraCrop.owing(fileName: f.fileName, isPair: f.isPair, isDemo: f.isDemo,
+                                           read: f.cameraCropRead, version: f.cameraCropReadVersion, edit: f.edit) == .read
                     else { continue }
                     guard self.heldSession(item.id) == nil else { open += 1; continue }
                     let caught = CameraCrop.caughtUp(f.edit, reading: reading, size: f.originalSize)
                     guard caught.read else { away += 1; continue }
                     let cropped = caught.geometry != f.edit.geometry
-                    self.library.update(item.id) { $0.edit.geometry = caught.geometry; $0.cameraCropRead = true }
+                    self.library.update(item.id) {
+                        $0.edit.geometry = caught.geometry
+                        $0.cameraCropRead = true
+                        $0.cameraCropReadVersion = CameraCrop.currentReadVersion
+                    }
                     if cropped { took += 1; if !f.develop.isBusy { redevelop.append(item.id) } }
                 }
             }
