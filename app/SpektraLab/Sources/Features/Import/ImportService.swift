@@ -82,9 +82,9 @@ struct ImportService {
         var exposure: String?
         var size: PixelSize
         var isRAW: Bool
-        /// A new frame's Develop crop, as the file's header gives it (`CameraCrop.newFrameGeometry`): the
-        /// crop a camera wrote into a DNG (DefaultUserCrop: a Leica Q3's digital zoom or aspect setting),
-        /// in the picture as `size` has it — turned as the file says. No crop for any other file.
+        /// A new frame's Develop crop, as the file's header gives it (`CameraCrop.newFrameGeometry`):
+        /// DNG DefaultUserCrop (a Leica Q3's digital zoom or aspect setting), or a Hasselblad 3FR's
+        /// MakerNote crop, in the picture as `size` has it — turned as the file says. No crop for any other file.
         var geometry: Geometry = .default
     }
 
@@ -125,7 +125,7 @@ struct ImportService {
             let date = captureDate(exif) ?? ((try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate) ?? Date()
             return Probe(url: url, fileName: name ?? url.lastPathComponent, captureDate: date, camera: camera(tiff),
                          exposure: exposure(exif), size: size, isRAW: isRAW,
-                         geometry: CameraCrop.newFrameGeometry(properties: props, size: size))
+                         geometry: CameraCrop.newFrameGeometry(properties: props, size: size, url: url))
         }
     }
 
@@ -221,6 +221,7 @@ struct ImportService {
                                 source: source, picture: picture, edit: edit, importedAt: Date())
         // Its header was read just now (`probe`): nothing is owed it.
         made.cameraCropRead = true
+        made.cameraCropReadVersion = CameraCrop.currentReadVersion
         return made
     }
 
@@ -627,6 +628,7 @@ struct ImportService {
                              isRAW: src.isRAW, source: src.source, original: src.original,
                              assetIdentifier: src.assetIdentifier, picture: src.picture, edit: src.edit, importedAt: Date())
         f.cameraCropRead = src.cameraCropRead
+        f.cameraCropReadVersion = src.cameraCropReadVersion
         f.variant = variant
         arrive([f], banner: false)
         return f.id

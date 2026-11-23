@@ -651,9 +651,9 @@ final class MacCameraCrops {
     static let shared = MacCameraCrops()
     private var kept: [URL: CameraCrop.Reading] = [:]
 
-    /// Only a DNG carries DefaultUserCrop: any other file is known to have none without a read.
+    /// A DNG or a Hasselblad 3FR can carry a camera crop; any other file is known to have none without a read.
     func known(_ url: URL) -> CameraCrop.Reading? {
-        url.pathExtension.lowercased() == "dng" ? kept[url] : CameraCrop.Reading.uncropped
+        CameraCrop.supports(url) ? kept[url] : CameraCrop.Reading.uncropped
     }
 
     /// The file's header, read now; nil where it could not be read, which is not kept.

@@ -34,7 +34,7 @@ struct StoredFrame: Codable {
             original = "original", assetIdentifier = "assetIdentifier", picture = "picture",
             originalPicture = "originalPicture", developed = "developed", isFavourite = "isFavourite", edit = "edit",
             importedAt = "importedAt", pair = "pair", double = "double", shotHere = "shotHere", cameraCropRead = "cameraCropRead",
-            variant = "variant"
+            cameraCropReadVersion = "cameraCropReadVersion", variant = "variant"
     }
     enum Picture: Codable {
         /// The keys as they are written: a case's name and its labels are keys, and must not move with a rename.
@@ -83,6 +83,8 @@ struct StoredFrame: Codable {
     /// The camera's crop has been read for it (`LibraryFrame.cameraCropRead`). Absent in a library
     /// written before 2026-11-05, and for a frame whose file has not been read since.
     var cameraCropRead: Bool? = nil
+    /// The crop reader's version (`LibraryFrame.cameraCropReadVersion`). Absent means the DNG-only reader.
+    var cameraCropReadVersion: Int? = nil
     /// The helper's variant uuid of the image this frame is a variant's edit of (`LibraryFrame.variant`, PRD-G). Absent
     /// for an image's primary variant — every frame a library written before 2026-11-13 has, so it reads unchanged —
     /// and never written then (an Optional is encoded only when present). A build before it reads the key as nothing:
@@ -126,6 +128,7 @@ struct StoredFrame: Codable {
         developed = f.developed.map { Developed(picture: Self.picture($0.picture), size: $0.size, stamp: $0.stamp) }
         isFavourite = f.isFavourite; edit = f.edit; importedAt = f.importedAt
         pair = f.pair; double = f.double; shotHere = f.shotHere; cameraCropRead = f.cameraCropRead
+        cameraCropReadVersion = f.cameraCropReadVersion
         variant = f.variant
     }
 
@@ -137,6 +140,7 @@ struct StoredFrame: Codable {
                      developed: developed.map { DevelopedPicture(picture: Self.ref($0.picture), size: $0.size, stamp: $0.stamp) },
                      develop: .developed, isFavourite: isFavourite,
                      edit: edit, importedAt: importedAt, pair: pair, double: double, shotHere: shotHere, cameraCropRead: cameraCropRead)
+        f.cameraCropReadVersion = cameraCropReadVersion
         f.variant = variant
         return f
     }
