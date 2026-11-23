@@ -33,7 +33,7 @@ type MemoryReport = { total_bytes?: number; suspended_bytes?: number; pool?: { f
   persistent?: { bytes?: number; source_bytes?: number; cached_negative_bytes?: number; cached_view_bytes?: number };
   pressure?: { idle_trim_seconds?: number; idle_trims?: number } };
 
-export function MemorySettings() {
+export function MemorySettings({ showEngine = true }: { showEngine?: boolean } = {}) {
   const [memory, setMemory] = useState<MemoryReport | null>(null);
   const [cache, setCache] = useState<DisplayCacheStatus | null>(null);
   const [cacheLoading, setCacheLoading] = useState(true);
@@ -48,7 +48,7 @@ export function MemorySettings() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async () => {
       const revision = cacheRevision.current;
-      const results = await Promise.allSettled([host().memoryReport(), displayCacheStatus()]);
+      const results = await Promise.allSettled([showEngine ? host().memoryReport() : Promise.resolve(null), displayCacheStatus()]);
       if (!mounted) return;
       setCacheLoading(false);
       if (results[0].status === 'fulfilled') setMemory(results[0].value);
@@ -63,7 +63,7 @@ export function MemorySettings() {
     };
     void refresh();
     return () => { mounted = false; clearTimeout(timer); };
-  }, []);
+  }, [showEngine]);
   const updateCache = async (action: () => Promise<void>) => {
     setBusy(true); setError('');
     try {
@@ -86,7 +86,7 @@ export function MemorySettings() {
     if (folder !== null) await setDisplayCacheDirectory(folder);
   });
   return <>
-    <div className="settings-group">
+    {showEngine && <div className="settings-group">
       <h3>{tz('Engine allocations', '引擎分配')}</h3>
       <dl className="caption" data-testid="memory-ledger">
         <dt>{tz('GPU buffers tracked by the engine', '引擎记录的 GPU 缓冲区')}</dt><dd>{formatBytes(memory?.total_bytes)}</dd>
@@ -98,7 +98,7 @@ export function MemorySettings() {
       </dl>
       <p className="caption">{tz('This ledger counts engine allocations, not the whole process or driver memory. Disk suspension is listed separately and is not added to GPU usage.', '此账本记录引擎分配，并非整个进程或驱动的内存。磁盘暂存单独列出，不计入 GPU 占用。')}</p>
       <p className="caption">{tz('Rendering and RAW decoding run serially. Unused GPU buffers are returned when the worker becomes idle; transfer buffers use bounded chunks. Suspended editor caches are restored on demand.', '渲染和 RAW 解码依次执行；引擎空闲后归还未使用的 GPU 缓冲区，数据传输采用有上限的分块。暂停的编辑器缓存按需恢复。')}</p>
-    </div>
+    </div>}
     <div className="settings-group">
       <h3>{tz('Display cache on disk', '显示磁盘缓存')}</h3>
       <p className="caption">{tz('Recent previews also use up to 128 MiB of memory. Clear removes both memory and disk previews.', '近期预览另外使用最多 128 MiB 内存；清空会同时清除内存与磁盘预览。')}</p>

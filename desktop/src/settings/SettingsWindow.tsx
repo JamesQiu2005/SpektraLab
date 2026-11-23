@@ -6,7 +6,7 @@
 // one webview holds the one session store, so a change shows on the picture
 // beside it at once with no cross-window sync (v1's decision, NOTES.md). The
 // panes are the HIG's: General, Recipes, Library, Rendering, Engine,
-// Diagnostics. The Mac's Memory and Agents panes are not on Windows.
+// Diagnostics. Cache settings are under Rendering.
 
 import { useEffect, useState } from 'react';
 import { tz } from '../i18n';
@@ -17,9 +17,9 @@ import { setPages, useSession } from '../state/session';
 import { platform, type AppPaths } from '../platform';
 import { checkWindowsUpdate } from '../windows/updateCheck';
 import { DiagnosticSettings } from '../windows/DiagnosticSettings';
-import { PreviewResolutionSettings } from '../windows/SettingsPages';
+import { MemorySettings, PreviewResolutionSettings } from '../windows/SettingsPages';
 import { NewPhotoDefaultsSettings } from '../windows/NewPhotoDefaultsSettings';
-import { DEFAULT_RECIPES, decodeRecipes, recipeSummary, type ExportRecipe } from '../export/recipes';
+import { DEFAULT_RECIPES_V2, decodeRecipes, recipeSummary, type ExportRecipe } from '../export/recipes';
 import { scheduler } from '../scheduler';
 import type { BudgetReadingWire } from '../scheduler/types';
 import { host } from '../host/client';
@@ -44,8 +44,8 @@ export const GATED: { flag: string; name: () => string }[] = [
   { flag: 'digital_intermediate', name: () => tz('Digital Intermediate', '数字中间片') },
 ];
 
-function Group({ title, children, tall }: { title: string; children: React.ReactNode; tall?: boolean }) {
-  return <div className="v2-set-group"><div className="v2-set-caps">{title}</div><div className={'v2-set-list' + (tall ? ' tall' : '')}>{children}</div></div>;
+function Group({ title, children, tall, fullWidth }: { title: string; children: React.ReactNode; tall?: boolean; fullWidth?: boolean }) {
+  return <div className="v2-set-group"><div className="v2-set-caps">{title}</div><div className={'v2-set-list' + (tall ? ' tall' : '') + (fullWidth ? ' full-width' : '')}>{children}</div></div>;
 }
 function Row({ label, value, children, compact }: { label: string; value?: React.ReactNode; children?: React.ReactNode; compact?: boolean }) {
   return <div className={'v2-set-row' + (compact ? ' compact' : '')}><span className="v2-set-label">{label}</span><span className="v2-set-value">{value}{children}</span></div>;
@@ -99,25 +99,35 @@ function Updates({ version }: { version?: string }) {
 function Recipes() {
   // A recipe for a format the engine refuses (the Digital Intermediate) is not offered (README §3.8).
   const di = useSession((s) => s.gate.digitalIntermediate);
-  const [all, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES);
-  const recipes = all.filter((x) => di || x.format !== 'di');
-  const [current, setCurrent] = useState(0);
-  useEffect(() => { void platform().storeRead('Export', 'recipes.json').then((r) => setRecipes(decodeRecipes(r))).catch(() => {}); }, []);
-  const r = recipes[current] ?? recipes[0]!;
+  const [all, setRecipes] = useState<ExportRecipe[]>(DEFAULT_RECIPES_V2);
+  const available = all.filter((x) => di || x.format !== 'di');
+  const recipes = available.length ? available : DEFAULT_RECIPES_V2.filter((x) => di || x.format !== 'di');
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void platform().storeRead('Export', 'recipes.json').then((stored) => {
+      if (live && Array.isArray(stored) && stored.length) setRecipes(decodeRecipes(stored));
+    }).catch(() => {}).finally(() => { if (live) setLoaded(true); });
+    return () => { live = false; };
+  }, []);
+  const r = recipes.find((recipe) => recipe.id === currentId) ?? recipes[0]!;
   const size = r.longEdge ? tz(`Long edge ${r.longEdge.toLocaleString('en')} px`, `长边 ${r.longEdge} px`) : tz('Full size', '原尺寸');
   return <>
-    <Group title={tz('RECIPES', '配方')}>
+    <Group title={tz('RECIPES', '配方')} fullWidth>
       {recipes.map((x, i) => (
-        <button key={x.id} className={'v2-set-row choice' + (i === current ? ' on' : '')} data-testid={`recipe-${i}`} onClick={() => setCurrent(i)}>
+        <button key={x.id} className={'v2-set-row choice' + (x.id === r.id ? ' on' : '')} aria-pressed={x.id === r.id}
+          data-testid={`recipe-${i}`} onClick={() => setCurrentId(x.id)}>
           <span className="v2-set-label">{x.name}<small>{recipeSummary(x)}</small></span>
-          {i === 0 && <span className="v2-set-value dim">{tz('Last used', '上次使用')}</span>}
+          {x.id === r.id && <span className="v2-set-value">{tz('Selected', '已选中')}</span>}
         </button>
       ))}
     </Group>
-    <button className="v2-set-link" data-testid="new-recipe" onClick={() => {
-      const next = [...all, { ...r, id: `r${Date.now()}`, name: `${r.name} ${tz('copy', '副本')}` }];
+    <button className="v2-set-link" data-testid="new-recipe" disabled={!loaded} onClick={() => {
+      const copy = { ...r, id: `custom-${crypto.randomUUID()}`, name: `${r.name} ${tz('copy', '副本')}` };
+      const next = [...all, copy];
       setRecipes(next);
-      setCurrent(recipes.length);
+      setCurrentId(copy.id);
       void platform().storeWrite('Export', 'recipes.json', next).catch(() => {});
     }}>{tz('New Recipe', '新建配方')}</button>
     <Group title={r.name.toUpperCase()}>
@@ -129,7 +139,7 @@ function Recipes() {
       <Row compact label={tz('Name', '名称')} value={r.naming.tokens.map((t) => `{${t}}`).join(r.naming.separator)} />
       <Row compact label={tz('If it exists', '已存在时')} value={r.existing === 'skip' ? tz('Skip', '跳过') : r.existing === 'overwrite' ? tz('Replace', '替换') : tz('Add a number', '加编号')} />
     </Group>
-    <p className="v2-set-note">{tz('Recipes are edited in the Export dialog; the changes are kept here.', '配方在导出对话框中编辑，修改会保存在这里。')}</p>
+    <p className="v2-set-note">{tz('Select a recipe to view its settings. To edit it, use the Export dialog.', '选择配方可查看参数。编辑请在导出窗口中进行。')}</p>
   </>;
 }
 
@@ -203,6 +213,9 @@ function Rendering() {
     <Group title={tz('PREVIEW', '预览')}>
       <div className="v2-set-host"><PreviewResolutionSettings /></div>
     </Group>
+    <Group title={tz('CACHE', '缓存')}>
+      <div className="v2-set-host"><MemorySettings showEngine={false} /></div>
+    </Group>
     <Group title={tz('FILM EFFECTS', '胶片效果')}>
       <div className="v2-set-host">
         <ToggleRow label={tz('Crop re-maps the frame', '裁剪重新映射画幅')} on={st.recalculateEffectsAfterCrop} onChange={(v) => set('recalculateEffectsAfterCrop', v)} />
@@ -212,9 +225,35 @@ function Rendering() {
   </>;
 }
 
-function LibraryPane() {
+function LibraryPane({ paths }: { paths: AppPaths | null }) {
+  const custom = useSettings((s) => s.libraryDirectory);
+  const location = custom ?? paths?.pictures;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const choose = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const folder = await platform().pickFolder(tz('Choose location for new catalogs and sessions', '选择新目录和会话的位置'));
+      if (folder) settingsStore.getState().set('libraryDirectory', folder);
+    } catch (e) { setError(String(e)); }
+    finally { setBusy(false); }
+  };
   return <Group title={tz('LIBRARY', '图库')}>
-    <Row label={tz('New catalogs go to', '新目录位置')} value="Pictures\SpektraLab" />
+    <Row label={tz('New catalog and session location', '新目录和会话位置')}
+      value={<span data-testid="library-location" style={{ overflowWrap: 'anywhere' }}>{location || tz('Windows Pictures folder', 'Windows 图片文件夹')}</span>} />
+    <div className="v2-library-location-controls">
+      <div className="v2-library-location-actions">
+        <button className="v2-button" disabled={busy} data-testid="choose-library-location" onClick={() => void choose()}>{tz('Choose folder…', '选择目录…')}</button>
+        {location && <button className="v2-button" disabled={busy} onClick={() => void platform().reveal(location).catch((e) => setError(String(e)))}>{tz('Show folder', '显示目录')}</button>}
+        {custom && <button className="v2-button" disabled={busy} data-testid="reset-library-location" onClick={() => {
+          settingsStore.getState().set('libraryDirectory', null);
+          setError('');
+        }}>{tz('Restore default', '恢复默认目录')}</button>}
+      </div>
+      <p className="v2-set-note" data-testid="library-location-note">{tz('This applies when you create a catalog or session. Existing libraries stay in their original locations.', '此设置用于新建目录或会话。已有图库保留在原位置。')}</p>
+      {error && <p className="v2-set-note" role="alert">{error}</p>}
+    </div>
     <Row label={tz('Capture One', 'Capture One')} value={tz('Read-only; refreshed on open', '只读；打开时刷新')} />
   </Group>;
 }
@@ -243,7 +282,7 @@ export function SettingsWindow() {
           <h2>{current.label()}</h2>
           {current.id === 'general' && <General paths={paths} />}
           {current.id === 'recipes' && <Recipes />}
-          {current.id === 'library' && <LibraryPane />}
+          {current.id === 'library' && <LibraryPane paths={paths} />}
           {current.id === 'rendering' && <Rendering />}
           {current.id === 'engine' && <Engine />}
           {current.id === 'diagnostics' && <div className="v2-set-host"><DiagnosticSettings paths={paths} hello={hello} includePaths={false} /></div>}

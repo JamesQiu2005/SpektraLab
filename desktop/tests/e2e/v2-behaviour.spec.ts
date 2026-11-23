@@ -20,6 +20,69 @@ const state = <T>(page: Page, expr: string) => page.evaluate((e) => {
 
 test.beforeEach(async ({ page }) => { await page.setViewportSize({ width: 1536, height: 816 }); });
 
+test('v2 recipes occupy the full card and switching rows updates the selected details', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('ui2.settings', JSON.stringify({ language: 'simplifiedChinese', interfaceScale: 130 }));
+    localStorage.setItem('store:Export/recipes.json', JSON.stringify([{
+      id: 'local-jpeg', name: 'Self-test JPEG', format: 'jpeg', longEdge: 1200,
+      folder: { kind: 'fixed', path: 'D:\\Pictures\\A_long_folder_name_repeated\\A_long_folder_name_repeated\\Output' },
+    }]));
+  });
+  await page.goto('/');
+  await page.keyboard.press('Control+,');
+  await page.getByTestId('pane-recipes').click();
+  const first = page.getByTestId('recipe-0');
+  await expect(first).toContainText('Self-test JPEG');
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  const card = await first.locator('..').boundingBox();
+  const row = await first.boundingBox();
+  expect(row?.x).toBeCloseTo(card!.x, 0);
+  expect(row?.width).toBeCloseTo(card!.width, 0);
+
+  await page.getByTestId('new-recipe').click();
+  const second = page.getByTestId('recipe-1');
+  await expect(second).toHaveAttribute('aria-pressed', 'true');
+  await expect(second).toContainText('副本');
+  await first.click({ position: { x: 3, y: 10 } });
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await expect(second).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('settings-recipes').getByText('SELF-TEST JPEG', { exact: true })).toBeVisible();
+});
+
+test('v2 library location actions leave room for the hint at 130 percent', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('ui2.settings', JSON.stringify({
+      language: 'simplifiedChinese', interfaceScale: 130, libraryDirectory: 'D:\\照片\\图库',
+    }));
+  });
+  await page.goto('/');
+  await page.keyboard.press('Control+,');
+  await page.getByTestId('pane-library').click();
+  const note = page.getByTestId('library-location-note');
+  await expect(note).toBeVisible();
+  const hint = await note.boundingBox();
+  for (const label of ['选择目录…', '显示目录', '恢复默认目录']) {
+    const button = await page.getByRole('button', { name: label, exact: true }).boundingBox();
+    expect(hint!.y).toBeGreaterThanOrEqual(button!.y + button!.height + 6);
+  }
+});
+
+test('v2 settings can change and reset the library location and expose the display cache', async ({ page }) => {
+  await page.goto('/');
+  await page.keyboard.press('Control+,');
+  await page.getByTestId('pane-library').click();
+  await expect(page.getByTestId('library-location')).toHaveText('/mock');
+  await page.getByTestId('choose-library-location').click();
+  await expect(page.getByTestId('library-location')).toHaveText(ROLL);
+  await page.reload();
+  await page.keyboard.press('Control+,');
+  await expect(page.getByTestId('library-location')).toHaveText(ROLL);
+  await page.getByTestId('reset-library-location').click();
+  await expect(page.getByTestId('library-location')).toHaveText('/mock');
+  await page.getByTestId('pane-rendering').click();
+  await expect(page.getByTestId('settings-rendering').getByRole('heading', { name: 'Display cache on disk' })).toBeVisible();
+});
+
 test('open → developing → done: the status line follows the scheduler, and the last print stays meanwhile', async ({ page }) => {
   await open(page, '&renderDelay=1200');
   expect(await state(page, 's.badge')).not.toBeNull();
