@@ -88,7 +88,34 @@ struct ImportService {
         var geometry: Geometry = .default
     }
 
-    /// The header only: no pixel is decoded.
+    private struct FileHeader {
+        let properties: [CFString: Any]
+        let exif: [CFString: Any]
+        let tiff: [CFString: Any]
+        let size: PixelSize?
+        let isRAW: Bool
+        let captureDate: Date
+    }
+
+    /// The first image's dimensions and capture metadata, without decoding pixels.
+    private nonisolated static func header(_ url: URL) -> FileHeader? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              CGImageSourceGetCount(source) > 0,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
+        var w = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+        var h = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        // A portrait frame is stored on its side with an orientation tag.
+        if let o = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue, (5...8).contains(o) { swap(&w, &h) }
+        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+        let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+        let type = (CGImageSourceGetType(source) as String?).flatMap { UTType($0) } ?? UTType(filenameExtension: url.pathExtension)
+        let size = w > 0 && h > 0 ? PixelSize(width: w, height: h) : nil
+        let date = captureDate(exif) ?? ((try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate) ?? Date()
+        return FileHeader(properties: properties, exif: exif, tiff: tiff, size: size,
+                          isRAW: type?.conforms(to: .rawImage) ?? false, captureDate: date)
+    }
+
+    /// The metadata and the dimensions used to develop the frame.
     ///
     /// **A RAW's size is asked of its decoder** (`rawSize`), not read off the
     /// file's first image. On the operating system that image is the camera's embedded preview
@@ -99,51 +126,37 @@ struct ImportService {
     /// taken for that size was developed from it, soft, and exported at it;
     /// and its export still decoded the whole file, planned as the small one
     /// (the beta's first day, 2026-10-12: nine of twenty-two RAW photos picked
-    /// from Photos, and one reference device ended four times for it). `rawFromDecoder`
-    /// false reads the first image's size as before, at a twentieth of the
-    /// cost: for a shot of the app's own camera, whose DNG has the RAW first,
-    /// and for a search through a folder, which looks at the size last.
-    nonisolated static func probe(_ url: URL, name: String? = nil, rawFromDecoder: Bool = true) -> Probe? {
+    /// from Photos, and one reference device ended four times for it).
+    nonisolated static func probe(_ url: URL, name: String? = nil) -> Probe? {
         autoreleasepool {
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-                  CGImageSourceGetCount(source) > 0,
-                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
-            var w = (props[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
-            var h = (props[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
-            guard w > 0, h > 0 else { return nil }
-            // A portrait frame is stored on its side with an orientation tag.
-            if let o = (props[kCGImagePropertyOrientation] as? NSNumber)?.intValue, (5...8).contains(o) { swap(&w, &h) }
-            let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
-            let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
-            let type = (CGImageSourceGetType(source) as String?).flatMap { UTType($0) }
-                ?? UTType(filenameExtension: url.pathExtension)
-            let isRAW = type?.conforms(to: .rawImage) ?? false
-            var size = PixelSize(width: w, height: h)
-            // Where the decoder will not open the file at all, the first image's size stands:
-            // the frame arrives, and its develop says that it could not be decoded.
-            if isRAW, rawFromDecoder, let own = rawSize(url) { size = own }
-            let date = captureDate(exif) ?? ((try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate) ?? Date()
-            return Probe(url: url, fileName: name ?? url.lastPathComponent, captureDate: date, camera: camera(tiff),
-                         exposure: exposure(exif), size: size, isRAW: isRAW,
-                         geometry: CameraCrop.newFrameGeometry(properties: props, size: size, url: url))
+            guard let header = header(url) else { return nil }
+            let decodedSize = header.isRAW ? rawSize(url) : nil
+            // If the decoder cannot read it, a valid first-image size still lets Develop report that failure.
+            guard let size = decodedSize ?? header.size else { return nil }
+            return Probe(url: url, fileName: name ?? url.lastPathComponent, captureDate: header.captureDate,
+                         camera: camera(header.tiff), exposure: exposure(header.exif), size: size, isRAW: header.isRAW,
+                         geometry: CameraCrop.newFrameGeometry(properties: header.properties, size: size, url: url))
         }
     }
 
     /// A RAW file's size as its decoder opens it: the extent of the picture
     /// Core Image's RAW filter hands over, which is the one `FrameDecoder`
-    /// scales and renders — turned as the file says, in whole pixels. No pixel
-    /// is decoded: 35 to 70 ms a file in the simulator on this Mac against 2
-    /// to 5 for the first image's properties, and no memory to speak of. Nil
-    /// for a file that decoder does not open.
+    /// scales and renders — turned as the file says, in whole pixels. That
+    /// extent takes no pixel decode. If Apple cannot read a file and LibRaw
+    /// is selected, use the helper's decoded dimensions after the camera crop.
     ///
     /// (The filter's own `nativeSize`, turned by its `orientation`, is the
     /// same number for every file tried — Sony, Fuji, Ricoh, Nikon, an
     /// reference device's DNG upright and on its side — and is what `PhotosHarness`
     /// holds this against.)
     nonisolated static func rawSize(_ url: URL) -> PixelSize? {
-        guard let extent = CIRAWFilter(imageURL: url)?.outputImage?.extent.integral,
-              !extent.isInfinite, extent.width >= 1, extent.height >= 1 else { return nil }
-        return PixelSize(width: Int(extent.width), height: Int(extent.height))
+        if let extent = CIRAWFilter(imageURL: url)?.outputImage?.extent.integral,
+           !extent.isInfinite, extent.width >= 1, extent.height >= 1 {
+            return PixelSize(width: Int(extent.width), height: Int(extent.height))
+        }
+        guard RawDecoderChoice.current == .libraw,
+              let decoded = LibRawDecode.decode(url, settings: DecodeSettings()) else { return nil }
+        return PixelSize(width: decoded.width, height: decoded.height)
     }
 
     /// EXIF's `DateTimeOriginal`, in the offset the camera wrote, or local time.
@@ -659,11 +672,14 @@ struct ImportService {
 
     /// Whether a file is this frame's original: by name, or by size and
     /// capture time when it was renamed.
-    func matches(_ url: URL, _ frame: LibraryFrame) -> Bool {
+    func matches(_ url: URL, _ frame: LibraryFrame) async -> Bool {
         if url.lastPathComponent.caseInsensitiveCompare(frame.fileName) == .orderedSame { return true }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        return Self.isSame(url, size: frame.originalSize, date: frame.captureDate)
+        let size = frame.originalSize, date = frame.captureDate
+        return await Task.detached(priority: .userInitiated) {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            return Self.isSame(url, size: size, date: date)
+        }.value
     }
 
     /// Whether a file is the picture of this size taken at this moment. The
@@ -671,8 +687,10 @@ struct ImportService {
     /// is what a RAW frame made before 2026-10-12 has for its own, or the
     /// decoder's, which is what one has since (`probe`).
     nonisolated private static func isSame(_ url: URL, size: PixelSize, date: Date) -> Bool {
-        guard let p = probe(url, rawFromDecoder: false), abs(p.captureDate.timeIntervalSince(date)) < 2 else { return false }
-        return p.size == size || (p.isRAW && rawSize(url) == size)
+        autoreleasepool {
+            guard let header = header(url), abs(header.captureDate.timeIntervalSince(date)) < 2 else { return false }
+            return header.size == size || (header.isRAW && rawSize(url) == size)
+        }
     }
 
     /// The frame's original inside a folder, subfolders included.
@@ -685,7 +703,7 @@ struct ImportService {
             if let byName = all.first(where: { $0.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame }) {
                 return byName
             }
-            // Renamed: the same pixels at the same moment. Headers only.
+            // For renamed files, read the capture time before asking for decoder dimensions.
             return all.lazy.prefix(2000).first { Self.isSame($0, size: size, date: date) }
         }.value
     }
