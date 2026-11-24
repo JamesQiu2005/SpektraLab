@@ -16633,6 +16633,28 @@
         }
       }
     },
+    "Last export" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回の書き出し"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次导出"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次匯出"
+          }
+        }
+      }
+    },
     "Last used" : {
       "localizations" : {
         "ja" : {
