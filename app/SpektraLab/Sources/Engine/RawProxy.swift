@@ -79,8 +79,21 @@ enum RawProxy {
     /// `lens`: the answer the proxy is made with, where the caller has taken one (`EngineRouter.prepare`).
     static func fileName(source: URL, decode: DecodeSettings, longEdge: Int, lens: LensResolution? = nil,
                          system: String = ProcessInfo.processInfo.operatingSystemVersionString) -> String {
-        RawProxyName.of(sourcePath: source.standardizedFileURL.path, pixelsKey: decode.pixelsKey(source: source, lens: lens), longEdge: longEdge,
-                        decoder: DevelopStamp.decoder, system: system)
+        var correction = lens ?? LensResolver.current(source, decode: decode)
+        if LensCorrection.sonyExtensions.contains(source.pathExtension.lowercased()) {
+            let opening = LensResolution(base: LensResolver.provisional(source), decode: decode)
+            // Apple's first decode already uses its lens correction where supported. LibRaw
+            // uses the embedded profile in either case, but its effective amounts may differ.
+            let sameCoreImageResolution = correction.why == .coreImage
+                && (RawDecoderChoice.current == .system || correction.amounts == opening.amounts)
+                && LensCorrection.appleSupportsLens(source)
+            if sameCoreImageResolution || correction.why == .noProfile || correction.why == .coreImageChangesNothing {
+                // Keep the opening name so it also works when the original is offline.
+                correction.base = opening.base
+            }
+        }
+        return RawProxyName.of(sourcePath: source.standardizedFileURL.path, pixelsKey: decode.pixelsKey + correction.word,
+                               longEdge: longEdge, decoder: DevelopStamp.decoder, system: system)
     }
 
     // MARK: the file
