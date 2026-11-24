@@ -952,10 +952,13 @@ final class AppServices {
         Log.note(.library, "lens database changed", ["lenses": LensLibrary.shared.lensCount])
     }
 
-    /// Settings › Develop › *RAW decoder* moved (2.4.2): every open RAW is decoded again by the decoder now chosen. Its
-    /// keys carry the decoder (`RawDecoderChoice.keyWord`), so nothing kept from the other one is shown for it; every
-    /// other develop, card and export reads the setting when it decodes.
-    func rawDecoderChanged() {
+    /// The export worker decodes one picture at a time. Keep the decoder choice stable until it finishes.
+    var canChangeRawDecoder: Bool { !exporter.isExporting }
+
+    /// Each open RAW is decoded again with the selected decoder. Its decode keys carry that choice.
+    func setRawDecoder(_ decoder: RawDecoderChoice) {
+        guard canChangeRawDecoder, settings.rawDecoder != decoder else { return }
+        settings.rawDecoder = decoder
         for case let session? in sessions.values.map(\.session) where session.frame?.developsFromRAW == true {
             session.sourceChanged()
         }
