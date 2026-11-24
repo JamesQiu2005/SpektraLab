@@ -21121,6 +21121,28 @@
         }
       }
     },
+    "One file was not added." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルを1件追加できませんでした。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 1 个文件未添加。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 1 個檔案未加入。"
+          }
+        }
+      }
+    },
     "One film for both exposures: a film chosen here is the whole's." : {
       "localizations" : {
         "ja" : {
