@@ -68,16 +68,17 @@ struct ExportEstimateRow: View {
 
     var body: some View {
         let value = bytes.map { L("About \(Fmt.fileSize($0))") } ?? "—"
-        DrawnBand(height: of == nil ? 46 : 68) {
-            DrawnText(L("File size"), 14, .semibold).leading(14).baseline(of == nil ? 29 : 25)
-            DrawnText(value, 14, .medium, Theme.secondaryText).trailingInset(14).baseline(of == nil ? 29 : 25)
-            if let of {
-                DrawnText(L("For \(of), the picture shown"), 11.5, .medium, Theme.dim).trailingInset(14).baseline(54)
+        let note = bytes.map { _ in of.map { L("From the preview of \($0)") } ?? L("From the preview") }
+        DrawnBand(height: 68) {
+            DrawnText(L("File size"), 14, .semibold).leading(14).baseline(25)
+            DrawnText(value, 14, .medium, Theme.secondaryText).trailingInset(14).baseline(25)
+            if let note {
+                DrawnText(note, 11.5, .medium, Theme.dim).trailingInset(14).baseline(54)
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L("File size") + ", " + value)
-        .accessibilityHint(of.map { L("For \($0), the picture shown") } ?? "")
+        .accessibilityHint(note ?? "")
     }
 }
 
