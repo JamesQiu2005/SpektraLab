@@ -12761,6 +12761,28 @@
         }
       }
     },
+    "Finish the export to change the RAW decoder." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しが完了すると RAW デコーダーを変更できます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导出完成后可更改 RAW 解码器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匯出完成後可更改 RAW 解碼器。"
+          }
+        }
+      }
+    },
     "Finished" : {
       "localizations" : {
         "ja" : {
