@@ -79,6 +79,11 @@ final class MacRenderCache {
     private weak var table: LightTableController?
     /// Each film's job asked by the table, by frame.
     private(set) var tableJobs: [LibraryFrame.ID: UUID] = [:]
+    private struct ContactSheetHold {
+        let frames: Set<LibraryFrame.ID>
+        var names: Set<String>
+    }
+    private var contactSheets: [UUID: ContactSheetHold] = [:]
     /// Films whose preview develop the table asked for (no full render to be had).
     private var tableDevelops: Set<LibraryFrame.ID> = []
     /// Renders asked for and not made (failed, or cancelled): not asked again while the table is open.
@@ -93,9 +98,10 @@ final class MacRenderCache {
         FullView.onState = { [weak self] frame, state in self?.pageRender(frame, state) }
         LightTableFullRead.onRead = { [weak model] url, bytes in model?.originals.copies.noteFull(url, bytes: bytes) }
         ended = NotificationCenter.default.addObserver(forName: .spkFullRenderEnded, object: nil, queue: .main) { [weak self] note in
-            guard let frame = note.userInfo?["frame"] as? UUID, let name = note.userInfo?["name"] as? String else { return }
+            guard let frame = note.userInfo?["frame"] as? UUID, let job = note.userInfo?["job"] as? UUID,
+                  let name = note.userInfo?["name"] as? String else { return }
             let made = note.userInfo?["made"] as? Bool ?? false
-            MainActor.assumeIsolated { self?.renderEnded(frame, name: name, made: made) }
+            MainActor.assumeIsolated { self?.renderEnded(frame, job: job, name: name, made: made) }
         }
     }
 
@@ -110,11 +116,11 @@ final class MacRenderCache {
         return (f, m)
     }
 
-    /// The full renders the limit may not take now (`AppServices.fullRendersInUse`): the current Develop
-    /// frame's, as it stands.
+    /// Full renders in use by Develop and active contact sheets.
     var pinned: Set<String> {
-        guard let current, let (_, m) = made(current) else { return [] }
-        return [m.ask.url.lastPathComponent]
+        var names = Set(contactSheets.values.flatMap(\.names))
+        if let current, let (_, m) = made(current) { names.insert(m.ask.url.lastPathComponent) }
+        return names
     }
 
     // MARK: - Develop
@@ -246,16 +252,16 @@ final class MacRenderCache {
         return out
     }
 
-    private func renderEnded(_ frame: LibraryFrame.ID, name: String, made: Bool) {
-        if let p = prefetch, p.frame == frame, FullRenderJobs.flight(for: p.job) == nil {
+    private func renderEnded(_ frame: LibraryFrame.ID, job: UUID, name: String, made: Bool) {
+        if let p = prefetch, p.job == job {
             prefetch = nil
             event(made ? "prefetch made" : "prefetch ended unmade", frame, job: p.job)
             consider()
         }
-        if tableJobs[frame] != nil {
+        if tableJobs[frame] == job {
             tableJobs[frame] = nil
             if !made { tableGaveUp.insert(name) }
-            event(made ? "table render made" : "table render ended unmade", frame)
+            event(made ? "table render made" : "table render ended unmade", frame, job: job)
             table?.rendersChanged()
             updateRings()
         }
@@ -271,7 +277,8 @@ final class MacRenderCache {
         c.fullRender = { [weak self] f in self?.fullRef(f) }
         c.wantsFull = { [weak self] ids in self?.tableWants(ids) }
         c.letsGo = { [weak self] ids in self?.tableLetsGo(ids) }
-        c.makesFullForExport = { [weak self] ids in await self?.makeAndWait(ids) }
+        c.makesFullForExport = { [weak self] ids, cancel in await self?.makeAndWait(ids, cancel: cancel) }
+        c.holdsFullForExport = { [weak self] ids in self?.holdForContactSheet(ids) ?? {} }
         if pass == nil, let model {
             Task { [weak self, weak c] in
                 guard let made = try? await FullDetail.shared(model.darkroom) else { return }
@@ -299,6 +306,9 @@ final class MacRenderCache {
             guard tableJobs[id] == nil, let f = model.library.frame(id) else { continue }
             if let m = FullRenderJobs.made(f, darkroom: model.darkroom) {
                 let name = m.ask.url.lastPathComponent
+                for token in Array(contactSheets.keys) where contactSheets[token]?.frames.contains(id) == true {
+                    contactSheets[token]?.names.insert(name)
+                }
                 if FullRenderJobs.reader(m) != nil { table?.rendersChanged(); continue }      // kept meanwhile
                 if tableGaveUp.contains(name) { continue }
                 guard let job = FullRenderJobs.submit(f, m, kind: .fullView, asker: .table,
@@ -336,17 +346,29 @@ final class MacRenderCache {
         updateRings()
     }
 
-    /// Before a contact sheet: the films it lacks, made, and waited for.
-    func makeAndWait(_ ids: Set<LibraryFrame.ID>) async {
-        tableWants(ids)
-        guard let model else { return }
-        for id in ids {
-            if let job = tableJobs[id] { _ = await model.scheduler.outcome(of: job) }
+    private func holdForContactSheet(_ ids: Set<LibraryFrame.ID>) -> () -> Void {
+        let token = UUID()
+        let names = Set(ids.compactMap { made($0)?.1.ask.url.lastPathComponent })
+        contactSheets[token] = ContactSheetHold(frames: ids, names: names)
+        return { [weak self] in
+            guard let self else { return }
+            self.contactSheets[token] = nil
+            self.model?.originals.copies.trimFull()
+            self.table?.rendersChanged()
         }
-        // A preview develop asked: until it has landed (a minute at most).
-        let end = Date().addingTimeInterval(60)
-        while Date() < end, ids.contains(where: { model.library.frame($0)?.develop.isBusy == true }) {
-            try? await Task.sleep(for: .milliseconds(100))
+    }
+
+    /// The sheet can stop waiting while the table's render jobs continue.
+    func makeAndWait(_ ids: Set<LibraryFrame.ID>, cancel: LightTableExportCancel) async {
+        guard let model else { return }
+        tableWants(ids)
+        let previewDeadline = ContinuousClock.now.advanced(by: .seconds(60))
+        while !cancel.isCancelled, !Task.isCancelled {
+            let rendering = ids.contains { tableJobs[$0] != nil }
+            let developing = ContinuousClock.now < previewDeadline &&
+                ids.contains { model.library.frame($0)?.develop.isBusy == true }
+            guard rendering || developing else { return }
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 

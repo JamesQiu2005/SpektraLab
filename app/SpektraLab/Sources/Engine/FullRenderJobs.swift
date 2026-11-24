@@ -132,7 +132,7 @@ enum FullRenderJobs {
             if case .finished = outcome { finished = true }
             if case .failed(let message) = outcome { failures[name] = (frame.id, message) }
             NotificationCenter.default.post(name: .spkFullRenderEnded, object: nil,
-                                            userInfo: ["frame": frame.id, "name": name, "made": finished])
+                                            userInfo: ["frame": frame.id, "job": id, "name": name, "made": finished])
         }
         return id
     }
