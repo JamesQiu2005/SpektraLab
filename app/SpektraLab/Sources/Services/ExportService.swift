@@ -353,7 +353,7 @@ final class ExportService {
             jobs[job.id] = item.id
             let watcher = Task { [weak self] in
                 // The scheduler's view of the job, mirrored into the sheet.
-                while !Task.isCancelled {
+                while !Task.isCancelled, self?.jobs[job.id] != nil {
                     if let s = self?.scheduler.snapshots.first(where: { $0.id == job.id }) {
                         switch s.state {
                         case .running(let p): self?.set(i, .running(p))
@@ -371,6 +371,13 @@ final class ExportService {
             jobs[job.id] = nil
             let file = darkroom?.takeExport(job.id)
             darkroom?.forget(job.id)
+            // Stop already marked this batch's rows. A replacement batch may
+            // own the same row indices by the time the old job returns.
+            if Task.isCancelled {
+                if case .written(let written)? = file { try? FileManager.default.removeItem(at: written.url) }
+                noted("stopped")
+                return
+            }
             switch outcome {
             case .finished:
                 guard folder != nil else { set(i, .done); continue }       // the simulation: its time, and no file

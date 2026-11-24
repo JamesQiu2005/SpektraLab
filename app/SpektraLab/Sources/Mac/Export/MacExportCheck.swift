@@ -60,6 +60,15 @@ enum MacExportCheck {
     // MARK: running
 
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
+        if arguments.contains("--export-restart-check") {
+            Task {
+                let passed = await checkStoppedBatchRestart()
+                print("export-restart-check: \(passed ? "PASS" : "FAIL")")
+                await model.macLibrary.host.shutdown()
+                exit(passed ? 0 : 1)
+            }
+            return
+        }
         // The folder is a path: anything else after `--export-check` is not this check's.
         guard let i = MacCheckFolder.index(of: "--export-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
@@ -89,6 +98,65 @@ enum MacExportCheck {
                 exit(0)
             }
         }
+    }
+
+    /// A scheduler job that stays in flight after Stop until the check lets
+    /// it return. A real engine can also finish while cancellation is in flight.
+    private actor RestartEngine: DevelopEngine {
+        nonisolated let name = "export restart check"
+        nonisolated let makesPictures = false
+        nonisolated let effectVersions = "check"
+        private var held: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+        func run(_ job: RenderJob, mode: RenderMode,
+                 progress: @escaping @Sendable (RenderProgress) -> Void) async throws -> RenderResult {
+            await withCheckedContinuation { held[job.id] = $0 }
+            return RenderResult(seconds: 0, peakBytes: 0, reprint: false, size: job.canvas)
+        }
+
+        func release(_ id: UUID) { held.removeValue(forKey: id)?.resume() }
+        func isHeld(_ id: UUID) -> Bool { held[id] != nil }
+        nonisolated func cancel(_ id: UUID) {}
+        func trim() async -> UInt64 { 0 }
+        func heldBytes() async -> UInt64 { 0 }
+    }
+
+    private static func checkStoppedBatchRestart() async -> Bool {
+        let engine = RestartEngine()
+        let queue = RenderQueue(engine: engine, defaults: nil)
+        let library = FrameCatalog(DemoLibrary.seed(.home))
+        guard library.frames.count >= 2 else { return false }
+        let exporter = ExportService(library: library, scheduler: queue)
+        let first = library.frames[0].id, next = library.frames[1].id
+        let recipe = ExportRecipe(format: .jpeg, size: .longEdge(320), colour: .sRGB, destination: .files)
+        exporter.start([first], recipe: recipe)
+        guard await until(5) { queue.snapshots.contains { $0.job.frameID == first } },
+              let firstJob = queue.snapshots.first(where: { $0.job.frameID == first })?.id else { return false }
+        let deadline = Date().addingTimeInterval(5)
+        while await !engine.isHeld(firstJob), Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        guard await engine.isHeld(firstJob) else { return false }
+
+        exporter.stop()
+        exporter.start([next], recipe: recipe)
+        guard await until(5) { queue.snapshots.contains { $0.job.frameID == next } },
+              let nextJob = queue.snapshots.first(where: { $0.job.frameID == next })?.id else {
+            await engine.release(firstJob)
+            return false
+        }
+        var earlyFinish = false
+        await engine.release(firstJob)
+        for _ in 0..<150 {
+            earlyFinish = earlyFinish || !exporter.isExporting
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        guard await engine.isHeld(nextJob) else { return false }
+        await engine.release(nextJob)
+        let finished = await until(5) { !exporter.isExporting }
+        print("export-restart-check: replacement ended before its job returned: \(earlyFinish)")
+        return !earlyFinish && finished && exporter.batch?.items.first?.id == next
+            && exporter.batch?.items.first?.state == .done
     }
 
     private final class Report {
