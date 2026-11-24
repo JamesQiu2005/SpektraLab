@@ -9,6 +9,9 @@
 //  - **Decoding is off the main thread**, inside its own autorelease pool, so a
 //    scroll does not pile up autoreleased buffers (the bench leaked 72 → 646 MB
 //    over four photos that way: the handoff, §7).
+//  - **Decoding is a few wide, the newest asking first**, and an asking given
+//    up before its decode began is never decoded (`ThumbnailStore.width`): a
+//    fast scroll leaves nothing in front of the tiles now on the page.
 //  - **The cache is bounded by bytes**, not by count, and is emptied on a
 //    memory warning — before the engine is asked to give anything back.
 //
@@ -77,6 +80,42 @@ final class ThumbnailStore: @unchecked Sendable {
     private let lock = NSLock()
     private var sizes: [String: Set<Int>] = [:]
 
+    /// How many decodes run side by side. Every asking used to go straight onto the concurrent queue,
+    /// which is as wide as GCD lets it be: 778 D850 NEFs on a USB hard disk, the grid scrolled fast
+    /// and the page left and come back to (an 8 GB M2 MacBook Air, 2.4.0), and a sample 17 s later
+    /// had 64 threads inside `CGImageSourceCreateThumbnailAtIndex`, all reading the disk. A disk
+    /// with one head gains little from that (150 NEFs: 41.5 s one at a time, 30.9 s 64 wide), and
+    /// 64 decodes held at once cost about 465 MB — on 8 GB a memory warning, `trim()`, and every
+    /// tile decoded again. Four is an M2's performance cores: from a fast disk a decode is the
+    /// processor's work, from this one the disk's. Not measured on an SSD.
+    private static let width = 4
+
+    /// One asking of `image(_:maxPixel:)` from when it is made until a worker takes it or its task
+    /// is cancelled. `continuation` and `cancelled` are read and written under the store's `lock`,
+    /// and whoever takes the continuation out, under the lock, is the one that resumes it: the
+    /// worker that decodes it, or the cancellation that gives it up — never both, never neither.
+    private final class Asking: @unchecked Sendable {
+        let picture: PictureRef
+        let maxPixel: Int
+        /// Set while the asking waits in `pending`, and only then.
+        var continuation: CheckedContinuation<UIImage?, Never>?
+        /// Its task was cancelled. This can come before the asking has a continuation at all (a
+        /// task already cancelled when it asks): `enqueue` then answers at once.
+        var cancelled = false
+
+        init(_ picture: PictureRef, _ maxPixel: Int) {
+            self.picture = picture
+            self.maxPixel = maxPixel
+        }
+    }
+
+    /// The askings no worker has taken yet, the newest last, and it is the last that is taken: what
+    /// was asked for most recently is what is on the page now (the cells just scrolled to, the
+    /// viewer's large picture), and it used to wait behind every tile the scroll had passed.
+    private var pending: [Asking] = []
+    /// The workers now on `queue`, `width` at most.
+    private var running = 0
+
     /// 64 MB of decoded pixels: about 110 tiles at 3×, or four canvases.
     init(byteLimit: Int = 64 << 20) {
         cache.totalCostLimit = byteLimit
@@ -133,10 +172,78 @@ final class ThumbnailStore: @unchecked Sendable {
     }
 
     /// The picture with its long edge at `maxPixel` pixels at most.
+    ///
+    /// A task cancelled before its decode has begun gets no decode: it is answered at once, with
+    /// the cache's picture if another asking has made it meanwhile, else nil. A cell's `.task` is
+    /// cancelled when the cell scrolls away, and its decode used to run all the same, its picture
+    /// thrown away: after a fast scroll, hundreds of them in front of the cells on the page (40 to
+    /// 60 s of blank tiles on the disk `width` was measured on). A decode that has begun runs to
+    /// its end — ImageIO cannot be stopped half way — and its picture is kept in the cache.
     func image(_ picture: PictureRef, maxPixel: Int) async -> UIImage? {
         if let hit = cached(picture, maxPixel: maxPixel) { return hit }
-        return await withCheckedContinuation { continuation in
-            queue.async { continuation.resume(returning: self.load(picture, maxPixel: maxPixel)) }
+        let asking = Asking(picture, maxPixel)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
+                self.enqueue(asking, continuation)
+            }
+        } onCancel: {
+            self.cancel(asking)
+        }
+    }
+
+    /// The asking put on the stack, and a worker started for it if fewer than `width` run. One whose
+    /// task was cancelled before it got here (the cancellation handler runs first, or on another
+    /// thread in between) is answered now and never waits.
+    private func enqueue(_ asking: Asking, _ continuation: CheckedContinuation<UIImage?, Never>) {
+        lock.lock()
+        if asking.cancelled {
+            lock.unlock()
+            continuation.resume(returning: cached(asking.picture, maxPixel: asking.maxPixel))
+            return
+        }
+        asking.continuation = continuation
+        pending.append(asking)
+        let starts = running < Self.width
+        if starts { running += 1 }
+        lock.unlock()
+        if starts { queue.async { self.drain() } }
+    }
+
+    /// The asking's task was cancelled. Still waiting: it is taken off the stack and answered here.
+    /// Already taken by a worker (its continuation is gone from it): the worker answers it. Not yet
+    /// on the stack: `enqueue` will see `cancelled`.
+    private func cancel(_ asking: Asking) {
+        lock.lock()
+        asking.cancelled = true
+        let continuation = asking.continuation
+        asking.continuation = nil
+        if continuation != nil, let at = pending.lastIndex(where: { $0 === asking }) { pending.remove(at: at) }
+        lock.unlock()
+        continuation?.resume(returning: cached(asking.picture, maxPixel: asking.maxPixel))
+    }
+
+    /// The newest asking still waiting, taken off the stack: from here it is the worker's to answer.
+    /// Nil when none waits, and the worker's place is given back under the same lock `enqueue` counts
+    /// the workers under — an asking put on after that starts a worker of its own.
+    private func next() -> (picture: PictureRef, maxPixel: Int, continuation: CheckedContinuation<UIImage?, Never>)? {
+        lock.lock()
+        defer { lock.unlock() }
+        while let asking = pending.popLast() {
+            guard let continuation = asking.continuation else { continue }
+            asking.continuation = nil
+            return (picture: asking.picture, maxPixel: asking.maxPixel, continuation: continuation)
+        }
+        running -= 1
+        return nil
+    }
+
+    /// One worker: decodes until nothing waits, then ends. `width` of them at most are on the queue,
+    /// and none of them waits for another — an idle one is a thread given back, not one held.
+    private func drain() {
+        while let job = next() {
+            autoreleasepool {
+                job.continuation.resume(returning: self.load(job.picture, maxPixel: job.maxPixel))
+            }
         }
     }
 
