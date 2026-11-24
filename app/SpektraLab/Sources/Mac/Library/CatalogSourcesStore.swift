@@ -64,6 +64,7 @@ final class CatalogSourcesStore: MacLibraryData {
     /// Bumped by each new selection or query, so a slow answer to an old one is dropped.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var metadataRevision = 0
+    @ObservationIgnored private var originalCheckRevision = 0
     @ObservationIgnored private var started = false
     @ObservationIgnored private var describing: Task<Void, Never>?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
@@ -306,7 +307,7 @@ final class CatalogSourcesStore: MacLibraryData {
         selectedCollectionID = tree.defaultSelection
         await reload()
         // A kept folder is looked at once it is on screen, then its new files are described.
-        if s.kind != .captureOneCatalog { await synchronize(id) }
+        if s.kind != .captureOneCatalog { await synchronize(id, checkingOriginals: false) }
     }
 
     func select(collection id: MacCollection.ID?) async {
@@ -330,10 +331,12 @@ final class CatalogSourcesStore: MacLibraryData {
             guard s.id == selectedSourceID else { return }
             tree = Self.tree(from: list, captureOne: s.kind == .captureOneCatalog)
             if s.acceptsFolders || s.kind == .folder || s.kind == .captureOneSession {
-                watchedFolders = try await client.watchedFolders(h).map {
+                let folders = try await client.watchedFolders(h).map {
                     MacWatchedFolder(id: $0.folder, url: URL(fileURLWithPath: $0.path), collectionID: $0.collection,
                                      isOnline: $0.online, imageCount: $0.imageCount, syncedAt: Self.utc($0.syncedAt))
                 }
+                guard s.id == selectedSourceID else { return }
+                watchedFolders = folders
                 if s.kind == .folder || s.kind == .captureOneSession {
                     let online = watchedFolders.allSatisfy(\.isOnline)
                     update(s.id) { $0.status = online ? .ready : .offline }
@@ -471,6 +474,7 @@ final class CatalogSourcesStore: MacLibraryData {
         generation += 1
         let g = generation
         let revision = metadataRevision
+        let wanted = keepingRows ? max(pageSize, loadedImageCount) : pageSize
         if !keepingRows { images = []; total = 0 }
         guard let s = selectedSource, s.isHelperBacked else { return }
         do {
@@ -478,11 +482,19 @@ final class CatalogSourcesStore: MacLibraryData {
             let q = try await libraryQuery(s, h)
             let page = try await client.images(h, q, offset: 0, limit: pageSize)
             guard g == generation else { return }
+            var loaded = page.images
+            let count = min(wanted, page.total)
+            while loaded.count < count {
+                let next = try await client.images(h, q, offset: loaded.count, limit: min(pageSize, count - loaded.count))
+                guard g == generation else { return }
+                guard !next.images.isEmpty else { break }
+                loaded += next.images
+            }
             // A header refresh may have read the page before an accepted metadata edit. Read again
             // instead of letting its older snapshot replace the rating/label the person just chose.
             guard revision == metadataRevision else { await reload(keepingRows: true); return }
             refreshFrameIndex()
-            images = page.images.flatMap { cells($0, source: s) }
+            images = loaded.flatMap { cells($0, source: s) }
             noteVariantNumbers()
             total = page.total
             let f = try await client.facets(h, q)
@@ -869,6 +881,12 @@ final class CatalogSourcesStore: MacLibraryData {
     // MARK: - keeping in step
 
     func synchronize(_ id: MacSource.ID?) async {
+        guard let id = id ?? selectedSourceID else { return }
+        await model?.library.recheckFolders()
+        await synchronize(id, checkingOriginals: true)
+    }
+
+    private func synchronize(_ id: MacSource.ID, checkingOriginals: Bool) async {
         guard let s = try? source(id), s.kind != .appLibrary else { return }
         lastAutoSync[s.id] = Date()
         do {
@@ -889,12 +907,36 @@ final class CatalogSourcesStore: MacLibraryData {
                 update(s.id) { $0.syncedAt = Date(); $0.status = offline ? .offline : .ready }
                 describeSoon(s)
             }
-            if changed, s.id == selectedSourceID {
+            if changed || checkingOriginals {
+                guard s.id == selectedSourceID else { return }
                 await refreshTree()
-                await reload()
+                guard s.id == selectedSourceID else { return }
+                if changed {
+                    await reload(keepingRows: true)
+                } else {
+                    await refreshLoadedOriginals(s.id)
+                }
             }
         } catch {
             failed(s, error)
+        }
+    }
+
+    /// A referenced file can disappear without changing any catalog row. Update only availability,
+    /// so the pages on screen, their selection and any metadata edits made during the check are kept.
+    private func refreshLoadedOriginals(_ id: MacSource.ID) async {
+        let g = generation
+        originalCheckRevision += 1
+        let revision = originalCheckRevision
+        let urls = Set(images.map(\.url))
+        let offline = await Task.detached(priority: .userInitiated) {
+            Dictionary(uniqueKeysWithValues: urls.map { ($0, !FileManager.default.fileExists(atPath: $0.path)) })
+        }.value
+        guard id == selectedSourceID, g == generation, revision == originalCheckRevision else { return }
+        for i in images.indices {
+            if let isOffline = offline[images[i].url], images[i].isOffline != isOffline {
+                images[i].isOffline = isOffline
+            }
         }
     }
 
@@ -902,7 +944,7 @@ final class CatalogSourcesStore: MacLibraryData {
     private func autoSync() async {
         guard let s = selectedSource, s.isHelperBacked else { return }
         if let last = lastAutoSync[s.id], Date().timeIntervalSince(last) < 60 { refreshDevelopInfo(); return }
-        await synchronize(s.id)
+        await synchronize(s.id, checkingOriginals: false)
         refreshDevelopInfo()
     }
 
@@ -922,9 +964,11 @@ final class CatalogSourcesStore: MacLibraryData {
             if self.tree.all.isEmpty {
                 await self.select(source: s.id)
             } else {
-                await self.synchronize(s.id)
+                await self.synchronize(s.id, checkingOriginals: false)
+                guard s.id == self.selectedSourceID else { return }
                 await self.refreshTree()
-                await self.reload()
+                guard s.id == self.selectedSourceID else { return }
+                await self.reload(keepingRows: true)
             }
         }
     }

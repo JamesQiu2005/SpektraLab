@@ -44,7 +44,39 @@ enum MacLibraryEntryCheck {
                 check(openedCatalog && store.selectedSource?.kind == .catalog && store.images.count == 2,
                       "Import opens .spkcatalog as a populated source")
                 check(importing.picked.isEmpty && importing.files.isEmpty, "catalog package never enters the photo scanner")
+                let pageSize = store.pageSize
+                store.pageSize = 1
+                await store.reload(keepingRows: true)
+                await store.loadAll()
                 let ids = store.images.map(\.id)
+                check(ids.count == 2, "both reference rows are loaded with a page size of one")
+                if let row = store.images.last {
+                    let made = try await store.frames(for: [row.id])
+                    if let frame = made.frames[row.id] {
+                        model.library.update(frame) { $0.edit.params.exposureCompensationEV = 1 }
+                        let away = out.appending(path: "moved-original.jpg")
+                        try FileManager.default.moveItem(at: row.url, to: away)
+                        defer {
+                            if FileManager.default.fileExists(atPath: away.path) {
+                                try? FileManager.default.moveItem(at: away, to: row.url)
+                            }
+                        }
+                        await store.synchronize(store.selectedSourceID)
+                        check(store.images.map(\.id) == ids && store.images.last?.isOffline == true,
+                              "reading again finds the missing referenced original on the second page without replacing either row")
+                        check(model.library.frame(frame)?.original == .missing, "reading again updates the adopted frame's original state")
+                        try FileManager.default.moveItem(at: away, to: row.url)
+                        await store.synchronize(store.selectedSourceID)
+                        check(store.images.map(\.id) == ids && store.images.last?.isOffline == false,
+                              "reading again finds the restored original with the same loaded rows")
+                        check(model.library.frame(frame)?.original == .available &&
+                              model.library.frame(frame)?.edit.params.exposureCompensationEV == 1,
+                              "the restored original keeps its frame and exposure edit")
+                    } else {
+                        check(false, "the reference materializes as a frame")
+                    }
+                }
+                store.pageSize = pageSize
                 try await store.setRating(4, for: ids)
                 try await store.setColorLabel(.green, for: ids)
                 check(store.images.count == 2 && store.images.allSatisfy { $0.rating == 4 && $0.colorLabel == .green },
