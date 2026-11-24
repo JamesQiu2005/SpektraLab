@@ -444,6 +444,29 @@ enum MacExportCheck {
         }
         r.step("D: estimates", 0, ["files": estimates])
 
+        // A Share keeps its encoded file until the sheet is done with it. Opening another
+        // export service must leave that file alone even when both use the same temp directory.
+        if let first = readable.first {
+            let share = ExportRecipe(format: .png, size: .full, colour: .sRGB, destination: .share)
+            r.check(run.start([first], recipe: share, folder: nil, exporter: model.exporter),
+                    "E: the PNG share begins")
+            _ = await watched(model)
+            if let file = run.shareFiles.first, let folder = model.exporter.batch?.folder {
+                let before = readBack(file)
+                r.check(before["complete"] as? Bool == true, "E: the PNG reads back before another service starts")
+                _ = ExportService(library: model.library, scheduler: model.scheduler)
+                let removed = await until(2) { !fm.fileExists(atPath: file.path) }
+                r.check(!removed && (readBack(file)["complete"] as? Bool == true),
+                        "E: starting another export service leaves the first share readable")
+                model.exporter.clear()
+                let cleared = await until(2) { !fm.fileExists(atPath: folder.path) }
+                r.check(cleared, "E: dismissing the share removes its own temporary directory")
+                r.step("E: share file ownership", 0, ["share": before, "removedByAnotherService": removed, "cleared": cleared])
+            } else {
+                r.check(false, "E: the PNG share produced a file")
+            }
+        }
+
         r.step("pages", 0, ["shown": pagesShown])
         return ["steps": r.steps, "failures": r.failures, "passed": r.failures.isEmpty,
                 "written": ISO8601DateFormatter().string(from: Date())]
