@@ -286,7 +286,7 @@ struct MacImage: Identifiable, Hashable, Sendable {
     let exposure: String?
     let pixelSize: PixelSize?
     /// Its file is not where the library says (a disk away, moved, deleted).
-    let isOffline: Bool
+    var isOffline: Bool
     let isTrashed: Bool
     /// Gone from a kept folder (listed only when asked).
     let isRemoved: Bool
