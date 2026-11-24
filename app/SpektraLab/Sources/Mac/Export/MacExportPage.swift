@@ -468,19 +468,21 @@ private struct MacExportScreen: View {
     private func estimateKey(_ recipe: ExportRecipe) -> String {
         guard let f = shown else { return "none" }
         let out = exporter.outputSize(f, recipe)
-        return [f.id.uuidString, f.shownDevelop?.stamp ?? "-", recipe.format.rawValue, "\(recipe.format.takesQuality ? recipe.quality : 0)",
+        return [f.id.uuidString, f.shownDevelop?.stamp ?? "-", recipe.format.rawValue, recipe.colour.rawValue,
+                "\(recipe.format.takesQuality ? recipe.quality : 0)",
                 "\(out.width)x\(out.height)"].joined(separator: "|")
     }
 
     /// The estimate for the picture shown (`ExportEstimate`), measured on its kept develop, a moment after
     /// the recipe stops moving: a dragged slider measures where it lands.
     private func measureEstimate(_ recipe: ExportRecipe) async {
-        guard let f = shown, let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { estimate = nil; return }
+        estimate = nil
+        guard let f = shown, let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { return }
         try? await Task.sleep(for: .milliseconds(150))
         guard !Task.isCancelled else { return }
-        let out = exporter.outputSize(f, recipe)
-        let bytes = await ExportEstimate.bytes(source: source, format: recipe.format, quality: recipe.quality,
-                                               pixels: out.width * out.height)
+        let prepared = exporter.prepared(f, recipe)
+        let bytes = await ExportEstimate.bytes(source: source, metadataFrom: prepared.source, recipe: recipe,
+                                               output: prepared.plan.output)
         guard !Task.isCancelled else { return }
         estimate = bytes
     }

@@ -473,7 +473,8 @@ enum MacExportCheck {
                         ExportRecipe(format: .jpeg, size: .full, colour: .sRGB, destination: .files),
                         ExportRecipe(format: .jpeg, size: .full, colour: .sRGB, destination: .files),
                         ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files),
-                        ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files)]
+                        ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files),
+                        ExportRecipe(format: .jpeg, size: .longEdge(960), colour: .sRGB, destination: .files)]
         recipesD[0].quality = 95; recipesD[0].naming = naming
         recipesD[1].quality = 80
         recipesD[4].quality = 70
@@ -482,6 +483,7 @@ enum MacExportCheck {
         recipesD[6].quality = 60
         recipesD[7].quality = 95
         recipesD[8].quality = 60
+        recipesD[9].quality = 80
         var estimates: [[String: Any]] = []
         for (i, recipe) in recipesD.enumerated() {
             let folder = out.appending(path: "exports-D\(i)-\(recipe.format.rawValue)")
@@ -493,10 +495,11 @@ enum MacExportCheck {
             for line in run.lines {
                 guard case .saved(let url) = line.state, let id = line.frameID, let f = model.library.frame(id),
                       let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { continue }
-                let made = model.exporter.outputSize(f, recipe)
+                let prepared = model.exporter.prepared(f, recipe)
+                let made = prepared.plan.output
                 let actual = (try? fm.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-                let guess = await ExportEstimate.bytes(source: source, format: recipe.format, quality: recipe.quality,
-                                                       pixels: made.width * made.height) ?? 0
+                let guess = await ExportEstimate.bytes(source: source, metadataFrom: prepared.source,
+                                                       recipe: recipe, output: made) ?? 0
                 let ratio = actual > 0 ? Double(guess) / Double(actual) : 0
                 estimates.append(["recipe": "\(recipe.format.rawValue) \(recipe.size.title) q\(recipe.quality)", "file": url.lastPathComponent,
                                   "pixels": made.width * made.height, "actual": actual, "estimate": guess, "ratio": round3(ratio)])

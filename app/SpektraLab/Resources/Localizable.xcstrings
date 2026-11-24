@@ -13223,28 +13223,6 @@
         }
       }
     },
-    "For %@, the picture shown" : {
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示中の %@ の場合"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按当前显示的 %@ 估算"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "依目前顯示的 %@ 估算"
-          }
-        }
-      }
-    },
     "For a folder, they are kept in SpektraLab's own library for it, on this Mac." : {
       "localizations" : {
         "ja" : {
@@ -13637,6 +13615,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "來自相機的成品"
+          }
+        }
+      }
+    },
+    "From the preview" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレビューから推定"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据预览估算"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根據預覽估算"
+          }
+        }
+      }
+    },
+    "From the preview of %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ のプレビューから推定"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根据 %@ 的预览估算"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "根據 %@ 的預覽估算"
           }
         }
       }
