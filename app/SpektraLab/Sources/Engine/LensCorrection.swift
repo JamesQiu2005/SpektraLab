@@ -60,8 +60,10 @@ enum LensCorrection {
     static func prepare(_ filter: CIRAWFilter, url: URL, decode: DecodeSettings, coreImageAlways: Bool,
                         resolution: LensResolution? = nil) -> Corrector {
         let r = resolution ?? LensResolver.current(url, decode: decode)
-        applied.withLock { $0[url.standardizedFileURL.path] = r.word }
+        let path = url.standardizedFileURL.path
+        applied.withLock { $0[path] = r.word }
         let supported = filter.isLensCorrectionSupported
+        appleSupport.withLock { $0[path] = supported }
         func coreImage(_ on: Bool) { if coreImageAlways || supported { filter.isLensCorrectionEnabled = on } }
         guard r.on else { coreImage(false); return .nobody }
         switch (r.base.corrector, r.settled) {
@@ -92,6 +94,19 @@ enum LensCorrection {
     /// holds a develop's key to (`MacLensCheck`, the race: a picture is never kept under a key that does not name the
     /// corrector it was decoded with).
     static let applied = Locked<[String: String]>([:])
+
+    /// A RAW's own filter decides whether Apple corrects it. The measured verdict is shared by
+    /// camera, lens and focal length, so the proxy asks the file when it needs this distinction.
+    static func appleSupportsLens(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        if let supported = appleSupport.withLock({ $0[path] }) { return supported }
+        guard let filter = CIRAWFilter(imageURL: url) else { return false }
+        let supported = filter.isLensCorrectionSupported
+        appleSupport.withLock { $0[path] = supported }
+        return supported
+    }
+
+    private static let appleSupport = Locked<[String: Bool]>([:])
 
     /// Installs the step of `profile` at `amounts`; false (nothing installed) where the amounts leave it nothing to do.
     private static func install(_ profile: LensProfile, on filter: CIRAWFilter, amounts: Amounts) -> Bool {
