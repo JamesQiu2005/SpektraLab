@@ -492,6 +492,38 @@ enum MacSettingsCheck {
         if let added { await store.select(source: added.id) }
         r.step("H: a catalog moved, then its Cache deleted", ms(since: t0), moveFacts)
 
+        if let picture {
+            do {
+                let managed = try await store.newCatalog(named: "Moved Managed Check", in: libraries)
+                guard let oldRoot = managed.url else { throw MacLibraryError.notSupported("the catalog has no path") }
+                _ = try await store.importFiles([picture], into: managed.id, mode: .copy)
+                await store.select(source: managed.id)
+                guard let row = store.images.first, let frame = try await store.frames(for: [row.id]).frames[row.id] else {
+                    throw MacLibraryError.notSupported("the managed picture made no frame")
+                }
+                model.library.update(frame) { $0.edit.params.exposureCompensationEV = 1 }
+                let oldHandle = try await store.handle(managed)
+                try await store.client.close(oldHandle)
+                let elsewhere = libraries.appending(path: "Restored Catalog")
+                try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+                let newRoot = elsewhere.appending(path: oldRoot.lastPathComponent)
+                try fm.moveItem(at: oldRoot, to: newRoot)
+                let reopened = try await store.open(newRoot)
+                let again = try await store.frames(for: [row.id]).frames[row.id]
+                let kept = model.library.frame(frame)
+                r.check(reopened.id == managed.id, "I: a moved managed catalog keeps its source ID")
+                r.check(again == frame && kept?.edit.params.exposureCompensationEV == 1,
+                        "I: a moved managed picture carries its original edited frame")
+                r.check(kept?.picture.fileURL?.path.hasPrefix(newRoot.appending(path: "Originals").path + "/") == true,
+                        "I: the edited frame opens its original in the moved catalog")
+                r.step("I: a moved managed catalog", 0, ["sameSource": reopened.id == managed.id, "sameFrame": again == frame])
+                store.remove(source: reopened.id)
+                if reopened.id != managed.id { store.remove(source: managed.id) }
+            } catch {
+                r.check(false, "I: the managed catalog is moved and opened: \(error.localizedDescription)")
+            }
+        }
+
         // ---- E. The pictures, in four languages at two sizes (the scratch source still listed). ----
         let sizes: [(String, CGSize)] = [("min", CGSize(width: 847, height: 539)), ("large", CGSize(width: 1440, height: 900))]
         var drawn: [String] = []
