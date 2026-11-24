@@ -3,6 +3,7 @@
 //      CFFIXED_USER_HOME=<scratch>/home SpektraLab --render-check <dir> [--render-check-exit]
 //          [--render-check-pictures <folder> …] [--render-check-volume <folder>]
 //      CFFIXED_USER_HOME=<same>/home  SpektraLab --render-check <dir2> --render-check-relaunch <dir> [--render-check-exit]
+//      --render-check-contact-sheet checks Stop during render preparation and the export's full-render retention.
 //
 //  Writes `<dir>/report.json`, every step timed. What is counted is read from the scheduler itself — its
 //  jobs as it shows them (`snapshots`, sampled every 10 ms) and its records (`records`) — never from a
@@ -63,8 +64,9 @@ enum MacRenderCheck {
             pictures = [URL(fileURLWithPath: root + "/Nikon Z7ii"), URL(fileURLWithPath: root + "/A7m3")]
         }
         let relaunch = value("--render-check-relaunch").map { URL(fileURLWithPath: $0) }
+        let contactSheet = arguments.contains("--render-check-contact-sheet")
         let volumePath = value("--render-check-volume") ?? ProcessInfo.processInfo.environment["SPK_TEST_DISK"]
-        guard relaunch != nil || volumePath?.isEmpty == false else {
+        guard contactSheet || relaunch != nil || volumePath?.isEmpty == false else {
             print("render-check: supply --render-check-volume or SPK_TEST_DISK; no fixtures were run")
             if arguments.contains("--render-check-exit") { exit(2) }
             return
@@ -76,7 +78,8 @@ enum MacRenderCheck {
             try? await Task.sleep(for: .seconds(1.5))
             #if SPK_ENGINE
             let report: [String: Any]
-            if let relaunch { report = await runRelaunch(model, out: out, previous: relaunch) }
+            if contactSheet { report = await runContactSheet(model, out: out, pictures: pictures) }
+            else if let relaunch { report = await runRelaunch(model, out: out, previous: relaunch) }
             else { report = await run(model, out: out, pictures: pictures, volume: volume) }
             #else
             let report: [String: Any] = ["failures": ["this build has no engine"]]
@@ -188,6 +191,102 @@ enum MacRenderCheck {
 
     private static func name(_ model: AppServices, _ id: UUID) -> String { model.library.frame(id)?.fileName ?? id.uuidString }
     private static func describe(_ s: [JobWatch.Seen]) -> [String] { s.map { "\($0.kind.rawValue) \($0.tier.rawValue) \($0.outcome ?? "")" } }
+
+    private static func runContactSheet(_ model: AppServices, out: URL, pictures: [URL]) async -> [String: Any] {
+        let r = Report()
+        let fm = FileManager.default
+        guard model.library.frames.isEmpty, model.darkroom.makesPictures else {
+            r.check(false, "contact sheet needs a clean scratch library and a real engine")
+            return r.json
+        }
+        let files = pictures.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
+            .filter { $0.pathExtension.lowercased() == "nef" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let source = out.appending(path: "RAWs")
+        let store = model.macLibrary
+        let cache = model.renderCache
+        let copies = model.originals.copies
+        let scheduler = model.scheduler
+        let priorDecoder = model.settings.rawDecoder
+        let priorScene = scheduler.frontend.scene
+        let priorLimit = copies.fullLimit
+        defer {
+            scheduler.frontend.scene = priorScene
+            model.settings.rawDecoder = priorDecoder
+            copies.fullLimit = priorLimit
+        }
+        do {
+            guard files.count >= 2 else { r.check(false, "provide two Nikon NEFs"); return r.json }
+            try fm.createDirectory(at: source, withIntermediateDirectories: true)
+            for file in files.prefix(2) { try fm.copyItem(at: file, to: source.appending(path: file.lastPathComponent)) }
+            model.settings.rawDecoder = .system
+            await store.start()
+            _ = try await store.open(source)
+            await store.loadAll()
+            let rows = store.images.map(\.id)
+            let frames = try await store.frames(for: rows).frames.values
+            guard frames.count == 2 else { r.check(false, "both RAWs became frames"); return r.json }
+            for id in frames {
+                model.library.update(id) { $0.edit.filmEdge.active = true; $0.edit.filmEdge.format = .f6x9; $0.edit.filmEdge.mode = .strip }
+            }
+            scheduler.frontend.scene = .background
+            try await store.putOnLightTable(rows)
+            _ = await until(20) { LightTableCheckHook.table?.model.pile.count == 2 }
+            guard let table = LightTableCheckHook.table, table.model.pile.count == 2 else {
+                r.check(false, "both films are on the table"); return r.json
+            }
+            _ = table.setTable(paper: .a6, portrait: false)
+            var choice = LightTableExportChoice()
+            choice.kind = .contactSheet
+            choice.style = .layoutOnly
+            choice.format = .jpg
+            choice.shortEdge = LightTableExportPlan.shortEdges.upperBound
+            let sheet = LightTableExportPlan.sheet(half: table.model.half, style: choice.style, shortEdge: choice.shortEdge)
+            r.check(table.lackingForExport(pixelsPerMM: sheet.k) == Set(frames), "the cold contact sheet needs both full renders")
+
+            let stop = LightTableExportCancel()
+            var cancelled = false
+            let stopped = Task {
+                do { _ = try await LightTableExport.run(choice, table: table, cancel: stop, progress: { _ in }) }
+                catch { cancelled = (error as? LightTableExportFailure) == .cancelled }
+            }
+            let waiting = await until(20) { cache.tableJobs.count == 2 }
+            r.check(waiting, "both real RAW renders are queued while the scheduler is in the background")
+            let began = ContinuousClock.now
+            stop.cancel()
+            let prompt = await until(1) { cancelled }
+            r.step("Stop during preparation", ms(since: began), ["cancelled_before_resuming_scheduler": prompt, "jobs_still_queued": cache.tableJobs.count])
+            r.check(prompt, "Stop returns before the blocked renders can finish")
+            scheduler.frontend.scene = .active
+            await stopped.value
+            _ = await until(60) { scheduler.isIdle && cache.tableJobs.isEmpty }
+            let sizes = frames.compactMap { model.library.frame($0) }.compactMap { FullRenderJobs.made($0, darkroom: model.darkroom) }.map { made in
+                Int64(FullRender.Header(width: made.plan.engineCanvas.width, height: made.plan.engineCanvas.height,
+                                       tile: FullRender.tile, stamp: "", turnsAfter: 0).fileBytes)
+            }
+            guard sizes.count == 2, let limit = sizes.max() else { r.check(false, "two full render plans"); return r.json }
+            copies.fullLimit = limit
+            table.rendersChanged()
+            let made = try await LightTableExport.run(choice, table: table, cancel: LightTableExportCancel(), progress: { _ in })
+            let reads = made.report?.filmReads ?? []
+            let output = out.appending(path: "Contact sheet.jpg")
+            try fm.copyItem(at: made.url, to: output)
+            try? fm.removeItem(at: made.url.deletingLastPathComponent())
+            let image = CGImageSourceCreateWithURL(output as CFURL, nil)
+            let properties = image.flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] } ?? [:]
+            let used = copies.fulls.values.reduce(Int64(0)) { $0 + $1.bytes }
+            r.step("Contact sheet under a one-render cache limit", 0, [
+                "sheet": [sheet.width, sheet.height], "file": output.lastPathComponent, "cache_limit": limit,
+                "cache_bytes_after_export": used, "estimated_render_bytes": sizes,
+                "reads": reads.map { ["edge": $0.edge, "from": $0.from] }
+            ])
+            r.check(reads.count == 2 && reads.allSatisfy { $0.from == "full render" && $0.edge > 0 },
+                    "both films are read from full renders even though they cannot both stay in the cache")
+            r.check(used <= limit, "the cache returns within its limit after export")
+            r.check(properties[kCGImagePropertyPixelWidth] as? Int == sheet.width &&
+                    properties[kCGImagePropertyPixelHeight] as? Int == sheet.height, "ImageIO reads back the contact sheet at the planned size")
+        } catch { r.check(false, "contact sheet could not finish: \(error)") }
+        return r.json
+    }
 
     // MARK: - the run
 

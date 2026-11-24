@@ -378,9 +378,9 @@ enum LightTableExport {
     /// drew it; a contact sheet in bands on a thread of its own. `progress` is called on the main thread.
     static func run(_ choice: LightTableExportChoice, table: LightTableController, cancel: LightTableExportCancel,
                     progress: @escaping (Double) -> Void) async throws -> (url: URL, report: LightTableExportReport?) {
-        let url = folder().appendingPathComponent(fileName(choice))
         switch choice.kind {
         case .poster:
+            let url = folder().appendingPathComponent(fileName(choice))
             progress(0)
             guard let image = await table.share() else { throw LightTableExportFailure.noGPU }
             if cancel.isCancelled { throw LightTableExportFailure.cancelled }
@@ -392,25 +392,36 @@ enum LightTableExport {
             progress(1)
             return (url, nil)
         case .contactSheet:
+            if cancel.isCancelled || Task.isCancelled { throw LightTableExportFailure.cancelled }
             guard let renderer = table.renderer else { throw LightTableExportFailure.noGPU }
+            let release = table.holdsFullForExport?(Set(table.model.pile.map(\.id)))
+            defer { release?() }
             // The films the sheet shows larger than anything kept of them are made first (the Mac's
             // `MacRenderCache`), one job each, and waited for; elsewhere nobody is asked and each is read
             // from what there is.
             let sheet = LightTableExportPlan.sheet(half: table.model.half, style: choice.style, shortEdge: choice.shortEdge)
+            table.rendersChanged()
             let lacking = table.lackingForExport(pixelsPerMM: sheet.k)
             if !lacking.isEmpty, let make = table.makesFullForExport {
                 progress(0)
-                await make(lacking)
-                if cancel.isCancelled { throw LightTableExportFailure.cancelled }
+                await make(lacking, cancel)
+                if cancel.isCancelled || Task.isCancelled { throw LightTableExportFailure.cancelled }
                 table.rendersChanged()
             }
             let films = table.exportFilms()
             let exporter = LightTableExporter(renderer: renderer, films: films, half: table.model.half, choice: choice)
             let tell: @Sendable (Double) -> Void = { p in DispatchQueue.main.async { progress(p) } }
-            let report = try await Task.detached(priority: .userInitiated) {
-                try exporter.write(to: url, cancel: cancel, progress: tell)
-            }.value
-            return (url, report)
+            let destination = folder()
+            let url = destination.appendingPathComponent(fileName(choice))
+            do {
+                let report = try await Task.detached(priority: .userInitiated) {
+                    try exporter.write(to: url, cancel: cancel, progress: tell)
+                }.value
+                return (url, report)
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+                throw error
+            }
         }
     }
 

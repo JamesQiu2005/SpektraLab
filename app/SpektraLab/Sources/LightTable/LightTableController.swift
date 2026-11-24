@@ -116,7 +116,9 @@ final class LightTableController {
     @ObservationIgnored var letsGo: ((Set<UUID>) -> Void)?
     /// Before a contact sheet is drawn: the films it will read larger than anything kept of them are made,
     /// and waited for (`LightTableExport.run`).
-    @ObservationIgnored var makesFullForExport: ((Set<UUID>) async -> Void)?
+    @ObservationIgnored var makesFullForExport: ((Set<UUID>, LightTableExportCancel) async -> Void)?
+    /// Keeps these films' full renders until the sheet's encoder has finished reading them.
+    @ObservationIgnored var holdsFullForExport: ((Set<UUID>) -> (() -> Void))?
     /// The films whose picture is being made, and how far (0…1; below 0, waiting its turn): each drawn
     /// with the develop ring, as a developing tile is (`LightTableMetalView`).
     /// Observed (2026-10-24): the Mac's rail draws the same ring on its tiles.
