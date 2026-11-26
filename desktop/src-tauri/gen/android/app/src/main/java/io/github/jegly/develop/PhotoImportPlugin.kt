@@ -21,6 +21,8 @@ import java.io.File
  * are copied into the app's storage (files/Photos) under their own names, and their paths are returned.
  * Picking the same photograph again reuses its copy (same name and size), so its edits come back with it.
  */
+private const val EDITS = ".spektra.json"
+
 @TauriPlugin
 class PhotoImportPlugin(private val activity: Activity) : Plugin(activity) {
 
@@ -49,13 +51,45 @@ class PhotoImportPlugin(private val activity: Activity) : Plugin(activity) {
       try {
         val dir = File(activity.filesDir, "Photos").apply { mkdirs() }
         val paths = JSArray()
-        for (uri in uris) paths.put(copyIn(uri, dir).absolutePath)
+        // An "Original + edits" export is a photograph and its edits (NAME.spektra.json): the photographs
+        // first, so each edits file can follow its photograph's name here (which may have gained a number).
+        val (edits, photos) = uris.partition { displayName(it).endsWith(EDITS) }
+        val named = mutableMapOf<String, String>()   // picked name -> name in files/Photos
+        for (uri in photos) {
+          val f = copyIn(uri, dir)
+          named[displayName(uri)] = f.name
+          paths.put(f.absolutePath)
+        }
+        for (uri in edits) {
+          val photo = displayName(uri).removeSuffix(EDITS)
+          copyEdits(uri, File(dir, (named[photo] ?: photo) + EDITS))
+        }
         invoke.resolve(JSObject().apply { put("paths", paths) })
       } catch (e: Exception) {
         Logger.error("import failed: ${e.message}")
         invoke.reject(e.message ?: "Could not import the photographs")
       }
     }.start()
+  }
+
+  private fun displayName(uri: Uri): String {
+    activity.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+      if (c.moveToFirst()) c.getString(0)?.let { return it }
+    }
+    return ""
+  }
+
+  /**
+   * An edits file, beside its photograph in files/Photos. Always copied fresh: the app takes it into its
+   * own store when the photograph is next opened (files.rs SidecarStore::load), replacing older edits.
+   */
+  private fun copyEdits(uri: Uri, target: File) {
+    val part = File(target.parentFile, ".importing-" + target.name)
+    activity.contentResolver.openInputStream(uri).use { input ->
+      requireNotNull(input) { "Android could not open ${target.name}" }
+      part.outputStream().use { input.copyTo(it) }
+    }
+    if (!part.renameTo(target)) throw IllegalStateException("could not save ${target.name}")
   }
 
   private fun copyIn(uri: Uri, dir: File): File {

@@ -12,6 +12,7 @@ import { thumbs } from '../state/thumbs';
 import { platform } from '../platform';
 import { type CellPhoto, type LayoutDoc, LAYOUT_ASPECTS, LAYOUT_DEFAULT, LAYOUT_TEMPLATES, cellRects, coverPlacement, decodeLayout, sheetSize, templateOf } from '@shared/layouts';
 import { exportLayout } from '../export/layoutExport';
+import { SHARED_PICTURES, destination } from '../export/exporter';
 import type { ExportSpace } from '../export/recipes';
 
 const KEY = 'develop.layout';
@@ -104,14 +105,18 @@ export function LayoutPage() {
   };
   const runExport = async () => {
     const ext = format === 'tiff16' ? 'tif' : format === 'png' ? 'png' : 'jpg';
-    const target = await platform().pickSave(tz('Export the layout', '导出排版'), `Layout.${ext}`, ext);
+    // Android: no save dialog that gives a path; the sheet goes to Pictures/Develop (exporter.ts destination).
+    const d = platform().shared ? await destination('', 'Layout', ext, 'addSuffix', SHARED_PICTURES) : null;
+    if (d && 'skipped' in d) return;
+    const target = d ? d.write : await platform().pickSave(tz('Export the layout', '导出排版'), `Layout.${ext}`, ext);
     if (!target) return;
     setBusy(true);
     try {
       const r = await exportLayout({ ...doc, cells }, { path: target, format, quality: 92, colorSpace: space }, (done, total, name) =>
         setStatus(name ? tz(`Developing ${name} (${done + 1} of ${total})…`, `正在冲洗 ${name}（${done + 1}/${total}）…`) : tz('Writing…', '正在写入…')),
       );
-      setStatus(tz(`Written: ${baseName(r.path)}, ${r.width} × ${r.height}`, `已写入：${baseName(r.path)}，${r.width} × ${r.height}`));
+      const where = d ? await d.finish(r.path) : baseName(r.path);
+      setStatus(tz(`Written: ${where}, ${r.width} × ${r.height}`, `已写入：${where}，${r.width} × ${r.height}`));
     } catch (e) {
       setStatus(tz('Not written: ', '未写入：') + (e as Error).message);
     } finally {

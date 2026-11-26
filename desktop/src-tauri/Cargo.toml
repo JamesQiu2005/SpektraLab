@@ -25,6 +25,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt-multi-thread"] }
 sha2 = "0.10"
 log = "0.4"
+# Android uploads arrive base64-encoded in parts (lib.rs upload_part): the WebView there sends JSON only.
+base64 = "0.22"
 
 [target.'cfg(any(target_os = "linux", windows))'.dependencies]
 tauri-plugin-single-instance = "2"

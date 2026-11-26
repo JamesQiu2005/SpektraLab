@@ -35,6 +35,8 @@ export function browserPlatform(): Platform {
       return 'localStorage:sidecar:' + image;
     },
     sidecarPath: async (image) => 'localStorage:sidecar:' + image,
+    // The layout harness has no files to copy.
+    exportOriginal: async (_image, dir, name) => [`${dir}/${name}`],
     async storeRead(area, name) {
       const v = ls()?.getItem(`store:${area}/${name}`);
       return v ? JSON.parse(v) : null;

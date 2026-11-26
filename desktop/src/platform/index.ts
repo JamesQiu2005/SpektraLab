@@ -23,6 +23,20 @@ export interface AppPaths {
   version: string;
   /** Android: the app's own photographs (everything Import copied in). */
   photos?: string | null;
+  /** Android: where exports are written before they move to shared storage (SharedStorage). */
+  exporting?: string | null;
+}
+
+/**
+ * Android's shared storage (MediaStore). An export there is written into app storage first (`staging`), then
+ * moved to a shared folder such as "Pictures/Develop", where the gallery and other apps see it.
+ */
+export interface SharedStorage {
+  staging(): Promise<string>;
+  /** Whether the app already saved `name` in `dir`. */
+  exists(dir: string, name: string): Promise<boolean>;
+  /** Moves the file at `path` to `dir` as `name`; returns where it landed (Android may adjust the name). */
+  publish(path: string, dir: string, name: string, mime: string, overwrite: boolean): Promise<string>;
 }
 
 export interface Platform {
@@ -32,6 +46,8 @@ export interface Platform {
   sidecarLoad(image: string): Promise<unknown | null>;
   sidecarSave(image: string, sidecar: unknown): Promise<string>;
   sidecarPath(image: string): Promise<string>;
+  /** "Original + edits": copies `image` to `dir/name` with its edits beside it; the files written, it first. */
+  exportOriginal(image: string, dir: string, name: string, overwrite: boolean): Promise<string[]>;
   storeRead(area: string, name: string): Promise<unknown | null>;
   storeWrite(area: string, name: string, value: unknown): Promise<void>;
   takeLaunchPaths(): Promise<string[]>;
@@ -50,6 +66,8 @@ export interface Platform {
   setTitle(title: string): Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   toggleFullscreen(): Promise<void>;
+  /** Android only: exports go to shared storage instead of a folder the user picks. */
+  readonly shared?: SharedStorage;
 }
 
 let instance: Platform | null = null;

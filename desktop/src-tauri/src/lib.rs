@@ -7,6 +7,7 @@ pub mod framing;
 pub mod host;
 pub mod no_network;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,6 +25,8 @@ struct AppState {
     sidecars: files::SidecarStore,
     /// Paths from the command line (open-with) not yet taken by the webview.
     launch_paths: Mutex<Vec<String>>,
+    /// Payloads being sent in parts (`upload_part`), by upload id.
+    uploads: Mutex<HashMap<String, Vec<u8>>>,
 }
 
 fn reply_bytes(reply: host::Reply) -> Response {
@@ -73,6 +76,48 @@ async fn host_request_upload(state: State<'_, AppState>, request: Request<'_>) -
     Ok(reply_bytes(reply))
 }
 
+/// One part of a payload, base64. Android's WebView cannot hand a request body to the app, so Tauri sends
+/// everything there as JSON, and a whole image (a Uint8Array becomes an array of numbers) runs the WebView out
+/// of memory. The app sends it in parts instead (src/host/tauriTransport.ts), then `host_request_uploaded`.
+/// The part at offset 0 starts the upload afresh.
+#[tauri::command]
+fn upload_part(state: State<'_, AppState>, id: String, offset: usize, data: String) -> Result<(), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).map_err(|e| e.to_string())?;
+    let mut uploads = state.uploads.lock().unwrap();
+    if offset == 0 {
+        uploads.insert(id.clone(), Vec::new());
+    }
+    let buf = uploads.get_mut(&id).ok_or("upload not started")?;
+    let have = buf.len();
+    if have != offset {
+        uploads.remove(&id);
+        return Err(format!("upload part at byte {offset}, expected {have}"));
+    }
+    buf.extend_from_slice(&bytes);
+    Ok(())
+}
+
+/// Forget an upload that will not be sent (a part failed).
+#[tauri::command]
+fn upload_discard(state: State<'_, AppState>, id: String) {
+    state.uploads.lock().unwrap().remove(&id);
+}
+
+/// `host_request_upload` for a payload sent in parts.
+#[tauri::command]
+async fn host_request_uploaded(
+    state: State<'_, AppState>,
+    id: String,
+    method: String,
+    params: Value,
+    timeout_ms: Option<u64>,
+) -> Result<Response, String> {
+    let payload = state.uploads.lock().unwrap().remove(&id).ok_or("upload not found")?;
+    let reply = state.host.request(&method, params, payload, timeout_of(timeout_ms)).await;
+    Ok(reply_bytes(reply))
+}
+
 #[tauri::command]
 fn host_state(state: State<'_, AppState>) -> Value {
     state.host.state()
@@ -108,6 +153,24 @@ fn sidecar_load(state: State<'_, AppState>, image: String) -> Option<Value> {
 #[tauri::command]
 fn sidecar_save(state: State<'_, AppState>, image: String, sidecar: Value) -> Result<String, String> {
     state.sidecars.save(&PathBuf::from(image), &sidecar).map(|p| p.display().to_string())
+}
+
+/// "Original + edits": a copy of the photograph with its edits beside it (files.rs `export_original`).
+/// Returns the files written, the photograph first.
+#[tauri::command]
+fn export_original(
+    state: State<'_, AppState>,
+    image: String,
+    dir: String,
+    name: String,
+    overwrite: bool,
+) -> Result<Vec<String>, String> {
+    let dir = PathBuf::from(dir);
+    if !dir.is_absolute() {
+        return Err(format!("{} is not absolute", dir.display()));
+    }
+    files::export_original(&state.sidecars, &PathBuf::from(image), &dir, &name, overwrite)
+        .map(|v| v.iter().map(|p| p.display().to_string()).collect())
 }
 
 #[tauri::command]
@@ -196,6 +259,83 @@ async fn pick_photos(app: AppHandle) -> Result<Vec<String>, String> {
     }
 }
 
+/// Android's shared storage (gen/android/.../SharedStoragePlugin.kt): exports go to Pictures/Develop
+/// (Download/Develop for a .cube) through MediaStore, which needs no permission for the app's own files.
+#[cfg(target_os = "android")]
+mod android_shared {
+    pub struct Saver(pub tauri::plugin::PluginHandle<tauri::Wry>);
+
+    pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+        tauri::plugin::Builder::new("shared-storage")
+            .setup(|app, api| {
+                use tauri::Manager;
+                let handle = api.register_android_plugin("io.github.jegly.develop", "SharedStoragePlugin")?;
+                app.manage(Saver(handle));
+                Ok(())
+            })
+            .build()
+    }
+}
+
+/// Whether the app already saved `name` in shared folder `dir` (e.g. "Pictures/Develop"). Android only.
+#[tauri::command]
+async fn shared_exists(app: AppHandle, dir: String, name: String) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        #[derive(serde::Deserialize)]
+        struct Found {
+            exists: bool,
+        }
+        let saver = app.state::<android_shared::Saver>();
+        let r: Found = saver
+            .0
+            .run_mobile_plugin_async("exists", json!({"dir": dir, "name": name}))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(r.exists)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, dir, name);
+        Err("shared_exists is for Android".into())
+    }
+}
+
+/// Moves the written file at `path` into shared folder `dir` as `name` and returns where it landed
+/// ("Pictures/Develop/<name as Android stored it>"). Android only.
+#[tauri::command]
+async fn shared_publish(
+    app: AppHandle,
+    path: String,
+    dir: String,
+    name: String,
+    mime: String,
+    overwrite: bool,
+) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        #[derive(serde::Deserialize)]
+        struct Saved {
+            location: String,
+        }
+        let saver = app.state::<android_shared::Saver>();
+        let r: Saved = saver
+            .0
+            .run_mobile_plugin_async(
+                "publish",
+                json!({"path": path, "dir": dir, "name": name, "mime": mime, "overwrite": overwrite}),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(r.location)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, path, dir, name, mime, overwrite);
+        Err("shared_publish is for Android".into())
+    }
+}
+
 #[tauri::command]
 fn take_launch_paths(state: State<'_, AppState>) -> Vec<String> {
     std::mem::take(&mut *state.launch_paths.lock().unwrap())
@@ -213,15 +353,22 @@ fn app_paths(app: AppHandle, state: State<'_, AppState>) -> Value {
         "os": std::env::consts::OS,
         // Android: where Import keeps the photographs (PhotoImportPlugin.kt: files/Photos, beside files/engine).
         "photos": android_photos_dir(),
+        // Android: where exports are written before they go to Pictures/Develop (SharedStoragePlugin.kt).
+        "exporting": android_files_dir().map(|d| d.join("Exporting").display().to_string()),
         "version": app.package_info().version.to_string(),
     })
 }
 
 fn android_photos_dir() -> Option<String> {
+    android_files_dir().map(|d| d.join("Photos").display().to_string())
+}
+
+/// Android: the app's files folder (MainActivity puts the engine in files/engine).
+fn android_files_dir() -> Option<PathBuf> {
     #[cfg(target_os = "android")]
     {
         let engine = std::env::var("DEVELOP_ANDROID_ENGINE").ok()?;
-        Some(PathBuf::from(engine).parent()?.join("Photos").display().to_string())
+        Some(PathBuf::from(engine).parent()?.to_path_buf())
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -308,7 +455,7 @@ pub fn run() {
     }
     #[cfg(target_os = "android")]
     {
-        builder = builder.plugin(android_import::init());
+        builder = builder.plugin(android_import::init()).plugin(android_shared::init());
     }
     builder
         .setup(|app| {
@@ -320,6 +467,7 @@ pub fn run() {
                 host: Arc::clone(&host),
                 sidecars: files::SidecarStore { dir: sidecar_dir },
                 launch_paths: Mutex::new(file_args(&argv)),
+                uploads: Mutex::new(HashMap::new()),
             });
             log::info!("Develop {} starting on {}", app.package_info().version, std::env::consts::OS);
             tauri::async_runtime::spawn(async move { host.start().await });
@@ -336,6 +484,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             host_request,
             host_request_upload,
+            upload_part,
+            upload_discard,
+            host_request_uploaded,
             host_state,
             host_diagnostics,
             host_restart,
@@ -344,11 +495,14 @@ pub fn run() {
             sidecar_load,
             sidecar_save,
             sidecar_path,
+            export_original,
             sidecar_remove,
             store_read,
             store_write,
             take_launch_paths,
             pick_photos,
+            shared_exists,
+            shared_publish,
             path_exists,
             ensure_dir,
             app_paths,

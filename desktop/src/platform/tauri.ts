@@ -5,16 +5,29 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { error as logError, info as logInfo, warn as logWarn } from '@tauri-apps/plugin-log';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import type { AppPaths, FileEntry, Platform } from './index';
+import type { AppPaths, FileEntry, Platform, SharedStorage } from './index';
+
+/** Android: exports through MediaStore (SharedStoragePlugin.kt via lib.rs `shared_*`). */
+const androidShared: SharedStorage = {
+  async staging() {
+    const p = (await invoke<AppPaths>('app_paths')).exporting;
+    if (!p) throw new Error('no export folder in app storage');
+    return p;
+  },
+  exists: (dir, name) => invoke<boolean>('shared_exists', { dir, name }),
+  publish: (path, dir, name, mime, overwrite) => invoke<string>('shared_publish', { path, dir, name, mime, overwrite }),
+};
 
 export function tauriPlatform(): Platform {
   return {
     kind: 'tauri',
+    shared: /Android/.test(navigator.userAgent) ? androidShared : undefined,
     listImages: (dir) => invoke<FileEntry[]>('list_images', { dir }),
     expandPaths: (paths) => invoke<FileEntry[]>('expand_paths', { paths }),
     sidecarLoad: (image) => invoke<unknown | null>('sidecar_load', { image }),
     sidecarSave: (image, sidecar) => invoke<string>('sidecar_save', { image, sidecar }),
     sidecarPath: (image) => invoke<string>('sidecar_path', { image }),
+    exportOriginal: (image, dir, name, overwrite) => invoke<string[]>('export_original', { image, dir, name, overwrite }),
     storeRead: (area, name) => invoke<unknown | null>('store_read', { area, name }),
     storeWrite: (area, name, value) => invoke<void>('store_write', { area, name, value }),
     takeLaunchPaths: () => invoke<string[]>('take_launch_paths'),

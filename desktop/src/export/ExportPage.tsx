@@ -12,12 +12,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Checkbox, NumberField, PillMenu, ScrubSlider, Section } from '../controls/controls';
 import { t, tz } from '../i18n';
 import { platform, baseName } from '../platform';
-import { select, sessionStore, setPages, useSession } from '../state/session';
+import { flushSave, select, sessionStore, setPages, useSession } from '../state/session';
+import { decodeSidecar, newSidecar } from '@shared/sidecar';
 import { Thumb } from '../windows/Filmstrip';
 import { GEOMETRY_DEFAULT } from '@shared/geometry';
 import { useOutput } from '../canvas/output';
 import { type ExportRecipe, DEFAULT_RECIPES, NAME_TOKENS, type NameToken, decodeRecipes, extensionOf } from './recipes';
-import { exportCube, exportFrame, hostWrites, outputFor, targetFor, type ExportOutcome } from './exporter';
+import { SHARED_DOWNLOADS, SHARED_PICTURES, exportCube, exportFrame, hostWrites, outputFor, targetFor, type ExportOutcome } from './exporter';
 
 const TOKEN_LABEL: Record<NameToken, () => string> = {
   originalName: () => tz('Org. Name', '原文件名'),
@@ -89,7 +90,7 @@ export function ExportPage() {
 
   useEffect(() => {
     if (!selection) return;
-    void targetFor(r, { path: selection, session: '', params, adjustments, geometry, native: native ?? { width: 1, height: 1 } }, catalog).then((x) => setSample(`${x.base}.${extensionOf(r)}`));
+    void targetFor(r, { path: selection, session: '', params, adjustments, geometry, native: native ?? { width: 1, height: 1 } }, catalog).then((x) => setSample(`${x.base}.${extensionOf(r, selection)}`));
   }, [r, selection, params, catalog, adjustments, geometry, native]);
 
   useEffect(() => {
@@ -110,11 +111,27 @@ export function ExportPage() {
     setLog([]);
     sessionStore.setState({ batchExporting: true });
     const back = sessionStore.getState().selection;
+    await flushSave(); // the open frame's last edit, before any file is written from it
     try {
       for (let i = 0; i < frames.length; i++) {
         if (stop.current) break;
         const path = frames[i]!;
         setProgress({ done: i, total: frames.length });
+        if (r.format === 'original') {
+          // The file and its saved edits: nothing to develop (and a photograph the GPU refuses still goes).
+          const raw = await platform().sidecarLoad(path).catch(() => null);
+          const sc = raw ? decodeSidecar(raw) : newSidecar();
+          const st = sessionStore.getState();
+          const outcome = await exportFrame(
+            r,
+            { path, session: '', params: sc.params, adjustments: sc.adjustments, geometry: sc.geometry, native: { width: 0, height: 0 } },
+            st.catalog,
+            st.hello?.methods as string[] | undefined,
+          );
+          platform().log(outcome.kind === 'failed' ? 'error' : 'info', `export ${baseName(path)}: ${JSON.stringify(outcome)}`);
+          setLog((l) => [...l, { name: baseName(path), outcome }]);
+          continue;
+        }
         await select(path);
         const ready = await waitForDeveloped(path);
         const s = sessionStore.getState();
@@ -181,7 +198,11 @@ export function ExportPage() {
                 { label: tz('Restore the built-in recipes', '恢复内置方案'), onSelect: () => save(DEFAULT_RECIPES) },
                 {
                   label: tz('Export the print as a .cube LUT…', '将相纸导出为 .cube LUT…'),
-                  onSelect: () => void exportCube(params.printStock, `${params.printStock}.cube`).catch((e) => platform().message('Develop', String(e), 'error')),
+                  onSelect: () =>
+                    void exportCube(params.printStock, `${params.printStock}.cube`)
+                      // Android: no dialog showed where it goes, so say where it went.
+                      .then((p) => (p && platform().shared ? platform().message('Develop', tz(`Saved to ${p}`, `已保存到 ${p}`)) : undefined))
+                      .catch((e) => platform().message('Develop', String(e), 'error')),
                 },
               ]}
             >
@@ -206,6 +227,16 @@ export function ExportPage() {
               </div>
             </Section>
             <Section id="exp-location" title={tz('Location', '位置')}>
+              {platform().shared ? (
+                // Android: exports go to the phone's shared Pictures folder, where the gallery shows them.
+                <div className="row">
+                  <span className="row-label">{tz('Folder', '文件夹')}</span>
+                  <span className="caption">{(() => {
+                    const d = r.format === 'original' ? SHARED_DOWNLOADS : SHARED_PICTURES;
+                    return r.subfolder.trim() ? `${d}/${r.subfolder.trim()}` : d;
+                  })()}</span>
+                </div>
+              ) : (
               <div className="row">
                 <span className="row-label">{tz('Folder', '文件夹')}</span>
                 <button
@@ -224,6 +255,7 @@ export function ExportPage() {
                   </button>
                 )}
               </div>
+              )}
               <div className="row">
                 <span className="row-label">{tz('Subfolder', '子文件夹')}</span>
                 <input className="unit-field" style={{ flex: 1, textAlign: 'left', padding: '0 6px' }} value={r.subfolder} onChange={(e) => edit({ subfolder: e.target.value.replace(/[\\/:]/g, '-') })} />
@@ -280,6 +312,7 @@ export function ExportPage() {
                     { value: 'png', label: 'PNG' },
                     { value: 'tiff', label: 'TIFF' },
                     { value: 'di', label: 'Digital Intermediate', disabled: !sessionStore.getState().gate.digitalIntermediate },
+                    { value: 'original', label: tz('Original + edits', '原文件 + 编辑') },
                   ]}
                   onChange={(v) => edit({ format: v, bitDepth: v === 'jpeg' || v === 'png' ? 8 : r.bitDepth })}
                 />
@@ -298,7 +331,7 @@ export function ExportPage() {
                 label={tz('Color Space', '色彩空间')}
                 value={r.colorSpace}
                 fill
-                disabled={r.format === 'di'}
+                disabled={r.format === 'di' || r.format === 'original'}
                 options={[
                   { value: 'sRGB', label: 'sRGB' },
                   { value: 'display-p3', label: 'Display P3' },
@@ -308,6 +341,7 @@ export function ExportPage() {
                 onChange={(v) => edit({ colorSpace: v })}
               />
               <ScrubSlider label={tz('Quality', '质量')} value={r.quality} range={[10, 100]} zero={92} snap={5} format={(v) => v.toFixed(0)} disabled={r.format !== 'jpeg'} onChange={(v) => edit({ quality: Math.round(v) })} />
+              {r.format !== 'original' && (
               <div className="row">
                 <span className="row-label">{tz('Long Edge', '长边')}</span>
                 <Checkbox on={r.longEdge === 0} label={tz('Original size', '原始尺寸')} onChange={(v) => edit({ longEdge: v ? 0 : 3000 })} />
@@ -315,10 +349,16 @@ export function ExportPage() {
                 {r.longEdge > 0 && <NumberField value={r.longEdge} decimals={0} onCommit={(v) => edit({ longEdge: Math.max(16, Math.round(v)) })} />}
                 <span className="caption num">{size ? `${size.width} × ${size.height}` : ''}</span>
               </div>
+              )}
             </Section>
             <Section id="exp-summary" title={tz('Summary', '摘要')}>
               <div className="caption">
-                {writesEdits
+                {r.format === 'original'
+                  ? tz(
+                      'A copy of the original file, untouched, and its edits beside it (name.spektra.json; a half-frame pair or double exposure also copies its second photograph). Develop on another computer or phone opens the copy with the edits: on Android, import both files. Other apps see the original only.',
+                      '原文件的未改动副本，旁边附上编辑（name.spektra.json；半格配对或二次曝光也会复制第二张照片）。在其他电脑或手机上的 Develop 打开副本时带有编辑：在 Android 上请同时导入这两个文件。其他应用只看到原文件。',
+                    )
+                  : writesEdits
                   ? tz('The file is the canvas’s frame: crop, rotation and Post-Dev included.', '文件即画布上的画面：包含裁剪、旋转与显影后调整。')
                   : tz('This engine writes the print only: the crop, rotation and Post-Dev grade are not in the file.', '此引擎只写入相纸画面：裁剪、旋转与显影后调整不会写入文件。')}
               </div>
@@ -327,7 +367,7 @@ export function ExportPage() {
                   {l.name}: {l.outcome.kind === 'written' ? `→ ${l.outcome.path}` : l.outcome.kind === 'skipped' ? tz(`skipped (${l.outcome.path} exists)`, `已跳过（${l.outcome.path} 已存在）`) : l.outcome.message}
                 </div>
               ))}
-              {log.some((l) => l.outcome.kind === 'written') && (
+              {!platform().shared && log.some((l) => l.outcome.kind === 'written') && (
                 <button
                   className="btn"
                   onClick={() => {

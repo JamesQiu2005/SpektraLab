@@ -29,7 +29,7 @@ describe('export recipes', () => {
   });
 
   it('host formats', () => {
-    expect(DEFAULT_RECIPES.map(hostFormat)).toEqual(['jpeg', 'tiff16', 'png', 'tiff16']);
+    expect(DEFAULT_RECIPES.filter((r) => r.format !== 'original').map(hostFormat)).toEqual(['jpeg', 'tiff16', 'png', 'tiff16']);
   });
 
   it('reads a hand-edited file leniently', () => {

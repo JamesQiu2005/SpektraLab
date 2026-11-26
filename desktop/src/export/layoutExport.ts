@@ -7,7 +7,7 @@ import { select, sessionStore } from '../state/session';
 import { type LayoutDoc, cellRects, coverPlacement, sheetSize } from '@shared/layouts';
 import { ADOBE_MID_GREY, PROPHOTO_MID_GREY, SRGB_MID_GREY, borderCode } from '@shared/adjustments';
 import { outputSize } from '@shared/geometry';
-import { filePixels } from './exporter';
+import { filePixels, rgba16 } from './exporter';
 import { waitForDeveloped } from './ExportPage';
 import type { ExportSpace } from './recipes';
 
@@ -49,7 +49,7 @@ export async function exportLayout(
       if (!ready || !s.engineSession || !s.nativeSize) throw new Error(`${cell.path}: the photograph did not develop`);
       const rr = await host().transport.request('render', { session: s.engineSession, tier: 'full', format: 'rgba16', display }, { timeoutMs: 1_800_000 });
       const info = rr.result.image as { width: number; height: number };
-      const src = new Uint16Array(rr.payload.buffer.slice(rr.payload.byteOffset, rr.payload.byteOffset + info.width * info.height * 8));
+      const src = rgba16(rr.payload, info.width, info.height);
       // The photograph as its edit frames it, then sized to cover the cell at its zoom.
       const own = outputSize(s.sidecar.geometry, { width: info.width, height: info.height });
       const place = coverPlacement(own.width, own.height, r.w, r.h, cell);

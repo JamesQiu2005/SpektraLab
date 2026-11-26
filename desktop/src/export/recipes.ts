@@ -2,7 +2,8 @@
 // colour space, size, naming, folder and what to do about an existing file.
 // Pure; `recipes.test.ts` pins the naming.
 
-export type ExportFormat = 'jpeg' | 'png' | 'tiff' | 'di';
+/** `original`: the photograph's own file, untouched, with its edits beside it (files.rs `export_original`). */
+export type ExportFormat = 'jpeg' | 'png' | 'tiff' | 'di' | 'original';
 export type ExportSpace = 'sRGB' | 'display-p3' | 'prophoto' | 'adobe-rgb';
 export type NameToken = 'originalName' | 'filmStock' | 'printStock' | 'date';
 export const NAME_TOKENS: NameToken[] = ['originalName', 'filmStock', 'printStock', 'date'];
@@ -30,9 +31,14 @@ export const DEFAULT_RECIPES: ExportRecipe[] = [
   { id: 'tiff-prophoto', name: 'TIFF 16-bit — ProPhoto', format: 'tiff', bitDepth: 16, colorSpace: 'prophoto', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'Develop', existing: 'addSuffix', naming: naming() },
   { id: 'png-srgb', name: 'PNG 8-bit — sRGB', format: 'png', bitDepth: 8, colorSpace: 'sRGB', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'Develop', existing: 'addSuffix', naming: naming() },
   { id: 'di', name: 'Digital Intermediate', format: 'di', bitDepth: 16, colorSpace: 'display-p3', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: '_prints', existing: 'addSuffix', naming: naming() },
+  { id: 'original', name: 'Original + edits', format: 'original', bitDepth: 16, colorSpace: 'display-p3', quality: 100, longEdge: 0, folder: { kind: 'besideOriginal' }, subfolder: 'Develop', existing: 'addSuffix', naming: { ...naming(), tokens: ['originalName'] } },
 ];
 
-export const extensionOf = (r: ExportRecipe) => (r.format === 'jpeg' ? 'jpg' : r.format === 'png' ? 'png' : 'tif');
+/** The file's extension; for `original`, the photograph's own (`source`), as it is written. */
+export const extensionOf = (r: ExportRecipe, source = '') => {
+  if (r.format === 'original') return /\.([^./\\]+)$/.exec(source)?.[1] ?? 'raw';
+  return r.format === 'jpeg' ? 'jpg' : r.format === 'png' ? 'png' : 'tif';
+};
 
 /** The host's `format` for a recipe. PNG is 8-bit only on this host. */
 export function hostFormat(r: ExportRecipe): 'tiff16' | 'tiff8' | 'jpeg' | 'png' {
