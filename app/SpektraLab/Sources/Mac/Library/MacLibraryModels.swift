@@ -57,6 +57,10 @@ struct MacSource: Identifiable, Codable, Hashable, Sendable {
     /// A SpektraLab catalog copied from a Capture One catalog (*Copy to SpektraLab Catalog…*, spklib
     /// 0.3.0): where from, and when it was last updated. Kept, and read again each time it opens.
     var copiedFrom: MacCopiedFrom?
+    /// A SpektraLab catalog's own identity, independent of its Finder path.
+    var catalogUUID: String?
+    /// Prior roots of this catalog, kept so a later launch can finish rebinding its originals.
+    var previousCatalogPaths: [String]?
 
     // Not kept: found again at each look.
     var status: Status = .unknown
@@ -67,7 +71,8 @@ struct MacSource: Identifiable, Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "id", kind = "kind", name = "name", path = "path", libraryPath = "libraryPath", addedAt = "addedAt",
-            openedAt = "openedAt", copiedFrom = "copiedFrom"
+            openedAt = "openedAt", copiedFrom = "copiedFrom", catalogUUID = "catalogUUID",
+            previousCatalogPaths = "previousCatalogPaths"
     }
 
     var url: URL? { path.map { URL(fileURLWithPath: $0) } }
@@ -281,7 +286,7 @@ struct MacImage: Identifiable, Hashable, Sendable {
     let exposure: String?
     let pixelSize: PixelSize?
     /// Its file is not where the library says (a disk away, moved, deleted).
-    let isOffline: Bool
+    var isOffline: Bool
     let isTrashed: Bool
     /// Gone from a kept folder (listed only when asked).
     let isRemoved: Bool

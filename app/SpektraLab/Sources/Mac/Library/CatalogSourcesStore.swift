@@ -64,6 +64,7 @@ final class CatalogSourcesStore: MacLibraryData {
     /// Bumped by each new selection or query, so a slow answer to an old one is dropped.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var metadataRevision = 0
+    @ObservationIgnored private var originalCheckRevision = 0
     @ObservationIgnored private var started = false
     @ObservationIgnored private var describing: Task<Void, Never>?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
@@ -228,8 +229,11 @@ final class CatalogSourcesStore: MacLibraryData {
             let h = try await c.open(URL(fileURLWithPath: path))
             handle = h.library
             let copied = Self.copiedFrom(h.info)
-            let changed = sources.first { $0.id == s.id }?.copiedFrom != copied
-            update(s.id) { $0.imageCount = h.info.counts.images; $0.copiedFrom = copied }
+            let catalogUUID = s.kind == .catalog ? h.info.uuid : nil
+            let changed = sources.first { $0.id == s.id }.map {
+                $0.copiedFrom != copied || $0.catalogUUID != catalogUUID
+            } ?? false
+            update(s.id) { $0.imageCount = h.info.counts.images; $0.copiedFrom = copied; $0.catalogUUID = catalogUUID }
             if changed { save() }
         case .captureOneCatalog:
             guard let path = s.path else { throw MacLibraryError.noSource }
@@ -295,7 +299,8 @@ final class CatalogSourcesStore: MacLibraryData {
         activity.problem = nil
         await working("Opening \(s.name)…") {
             do {
-                _ = try await self.handle(s)
+                let handle = try await self.handle(s)
+                try await self.rebindManagedOriginals(s, handle: handle)
                 self.update(id) { $0.status = .ready }
             } catch {
                 self.failed(s, error)
@@ -306,7 +311,7 @@ final class CatalogSourcesStore: MacLibraryData {
         selectedCollectionID = tree.defaultSelection
         await reload()
         // A kept folder is looked at once it is on screen, then its new files are described.
-        if s.kind != .captureOneCatalog { await synchronize(id) }
+        if s.kind != .captureOneCatalog { await synchronize(id, checkingOriginals: false) }
     }
 
     func select(collection id: MacCollection.ID?) async {
@@ -330,10 +335,12 @@ final class CatalogSourcesStore: MacLibraryData {
             guard s.id == selectedSourceID else { return }
             tree = Self.tree(from: list, captureOne: s.kind == .captureOneCatalog)
             if s.acceptsFolders || s.kind == .folder || s.kind == .captureOneSession {
-                watchedFolders = try await client.watchedFolders(h).map {
+                let folders = try await client.watchedFolders(h).map {
                     MacWatchedFolder(id: $0.folder, url: URL(fileURLWithPath: $0.path), collectionID: $0.collection,
                                      isOnline: $0.online, imageCount: $0.imageCount, syncedAt: Self.utc($0.syncedAt))
                 }
+                guard s.id == selectedSourceID else { return }
+                watchedFolders = folders
                 if s.kind == .folder || s.kind == .captureOneSession {
                     let online = watchedFolders.allSatisfy(\.isOnline)
                     update(s.id) { $0.status = online ? .ready : .offline }
@@ -471,6 +478,7 @@ final class CatalogSourcesStore: MacLibraryData {
         generation += 1
         let g = generation
         let revision = metadataRevision
+        let wanted = keepingRows ? max(pageSize, loadedImageCount) : pageSize
         if !keepingRows { images = []; total = 0 }
         guard let s = selectedSource, s.isHelperBacked else { return }
         do {
@@ -478,11 +486,19 @@ final class CatalogSourcesStore: MacLibraryData {
             let q = try await libraryQuery(s, h)
             let page = try await client.images(h, q, offset: 0, limit: pageSize)
             guard g == generation else { return }
+            var loaded = page.images
+            let count = min(wanted, page.total)
+            while loaded.count < count {
+                let next = try await client.images(h, q, offset: loaded.count, limit: min(pageSize, count - loaded.count))
+                guard g == generation else { return }
+                guard !next.images.isEmpty else { break }
+                loaded += next.images
+            }
             // A header refresh may have read the page before an accepted metadata edit. Read again
             // instead of letting its older snapshot replace the rating/label the person just chose.
             guard revision == metadataRevision else { await reload(keepingRows: true); return }
             refreshFrameIndex()
-            images = page.images.flatMap { cells($0, source: s) }
+            images = loaded.flatMap { cells($0, source: s) }
             noteVariantNumbers()
             total = page.total
             let f = try await client.facets(h, q)
@@ -741,7 +757,7 @@ final class CatalogSourcesStore: MacLibraryData {
         let target = folder.appending(path: name)
         let made = try await client.create(at: target, kind: kind, name: name)
         let s = MacSource(id: UUID(), kind: kind == .session ? .session : .catalog, name: name, path: made.info.path,
-                          libraryPath: made.info.path, addedAt: Date())
+                          libraryPath: made.info.path, addedAt: Date(), catalogUUID: kind == .catalog ? made.info.uuid : nil)
         sources.append(s)
         handles[s.id] = (made.library, await host.launches)
         save()
@@ -762,7 +778,21 @@ final class CatalogSourcesStore: MacLibraryData {
         let names = (try? fm.contentsOfDirectory(atPath: path)) ?? []
         if ext == "spkcatalog" || names.contains("Library.spkdb") {
             let h = try await client.open(url)
-            s = MacSource(id: UUID(), kind: .catalog, name: h.info.name, path: h.info.path, libraryPath: h.info.path, addedAt: Date())
+            let matches = sources.filter { $0.kind == .catalog && $0.catalogUUID == h.info.uuid }
+            if matches.count == 1, let existing = matches.first, let previous = existing.path,
+               !fm.fileExists(atPath: previous) {
+                update(existing.id) {
+                    $0.path = h.info.path
+                    $0.libraryPath = h.info.path
+                    $0.name = h.info.name
+                    $0.previousCatalogPaths = ($0.previousCatalogPaths ?? []).filter { $0 != previous } + [previous]
+                }
+                handles[existing.id] = (h.library, await host.launches)
+                await select(source: existing.id)
+                return try source(existing.id)
+            }
+            s = MacSource(id: UUID(), kind: .catalog, name: h.info.name, path: h.info.path, libraryPath: h.info.path,
+                          addedAt: Date(), catalogUUID: h.info.uuid)
         } else if picked.pathExtension.lowercased() == "spksession" || names.contains(where: { $0.lowercased().hasSuffix(".spksession") }) {
             let h = try await client.open(url)
             s = MacSource(id: UUID(), kind: .session, name: h.info.name, path: h.info.path, libraryPath: h.info.path, addedAt: Date())
@@ -788,6 +818,48 @@ final class CatalogSourcesStore: MacLibraryData {
         save()
         await select(source: s.id)
         return sources.first { $0.id == s.id } ?? s
+    }
+
+    /// Rebind only files under a known former Originals root that the moved catalog now lists
+    /// at its new root. Keep the original frame IDs, which own the edits and their history.
+    private func rebindManagedOriginals(_ source: MacSource, handle: String) async throws {
+        guard let past = source.previousCatalogPaths, let current = source.url, let library = model?.library else { return }
+        let fm = FileManager.default
+        let registered = Set(sources.compactMap(\.path).map(Self.key))
+        let roots = past.filter { !registered.contains(Self.key($0)) && !fm.fileExists(atPath: $0) }.map {
+            URL(fileURLWithPath: $0).appending(path: "Originals").standardizedFileURL.pathComponents
+        }
+        guard !roots.isEmpty else { return }
+        let originals = current.appending(path: "Originals")
+        let candidates = library.frames.compactMap { frame -> (LibraryFrame.ID, URL, URL)? in
+            guard let url = frame.picture.fileURL else { return nil }
+            let parts = url.standardizedFileURL.pathComponents
+            guard let root = roots.first(where: { parts.starts(with: $0) && parts.count > $0.count }) else { return nil }
+            let newURL = parts.dropFirst(root.count).reduce(originals) { $0.appending(path: String($1)) }
+            return (frame.id, url, newURL)
+        }
+        guard !candidates.isEmpty else { return }
+        let paths = Array(Set(candidates.map { $0.2 }))
+        var confirmed: Set<String> = []
+        for start in stride(from: 0, to: paths.count, by: 500) {
+            let batch = Array(paths[start..<min(start + 500, paths.count)])
+            let looked = try await client.lookup(handle, paths: batch)
+            confirmed.formUnion(looked.results.filter(\.found).map { Self.key($0.path) })
+        }
+        guard selectedSourceID == source.id, try self.source(source.id).url == current else { return }
+        var occupied = Set(library.frames.compactMap { frame in
+            frame.picture.fileURL.map { LibraryFileVariant(url: $0.standardizedFileURL, variant: frame.variant) }
+        })
+        library.batch {
+            for (id, old, new) in candidates {
+                guard confirmed.contains(Self.key(new.path)), fm.fileExists(atPath: new.path),
+                      let frame = library.frame(id), frame.picture.fileURL == old,
+                      occupied.insert(LibraryFileVariant(url: new.standardizedFileURL, variant: frame.variant)).inserted else { continue }
+                library.update(id) { $0.picture = .file(new); $0.original = .available }
+            }
+        }
+        frameIndexCount = -1
+        developedCache.removeValue(forKey: source.id)
     }
 
     /// A Capture One session or a Finder folder: a catalog of the app's own that references the folder.
@@ -869,6 +941,12 @@ final class CatalogSourcesStore: MacLibraryData {
     // MARK: - keeping in step
 
     func synchronize(_ id: MacSource.ID?) async {
+        guard let id = id ?? selectedSourceID else { return }
+        await model?.library.recheckFolders()
+        await synchronize(id, checkingOriginals: true)
+    }
+
+    private func synchronize(_ id: MacSource.ID, checkingOriginals: Bool) async {
         guard let s = try? source(id), s.kind != .appLibrary else { return }
         lastAutoSync[s.id] = Date()
         do {
@@ -889,12 +967,36 @@ final class CatalogSourcesStore: MacLibraryData {
                 update(s.id) { $0.syncedAt = Date(); $0.status = offline ? .offline : .ready }
                 describeSoon(s)
             }
-            if changed, s.id == selectedSourceID {
+            if changed || checkingOriginals {
+                guard s.id == selectedSourceID else { return }
                 await refreshTree()
-                await reload()
+                guard s.id == selectedSourceID else { return }
+                if changed {
+                    await reload(keepingRows: true)
+                } else {
+                    await refreshLoadedOriginals(s.id)
+                }
             }
         } catch {
             failed(s, error)
+        }
+    }
+
+    /// A referenced file can disappear without changing any catalog row. Update only availability,
+    /// so the pages on screen, their selection and any metadata edits made during the check are kept.
+    private func refreshLoadedOriginals(_ id: MacSource.ID) async {
+        let g = generation
+        originalCheckRevision += 1
+        let revision = originalCheckRevision
+        let urls = Set(images.map(\.url))
+        let offline = await Task.detached(priority: .userInitiated) {
+            Dictionary(uniqueKeysWithValues: urls.map { ($0, !FileManager.default.fileExists(atPath: $0.path)) })
+        }.value
+        guard id == selectedSourceID, g == generation, revision == originalCheckRevision else { return }
+        for i in images.indices {
+            if let isOffline = offline[images[i].url], images[i].isOffline != isOffline {
+                images[i].isOffline = isOffline
+            }
         }
     }
 
@@ -902,7 +1004,7 @@ final class CatalogSourcesStore: MacLibraryData {
     private func autoSync() async {
         guard let s = selectedSource, s.isHelperBacked else { return }
         if let last = lastAutoSync[s.id], Date().timeIntervalSince(last) < 60 { refreshDevelopInfo(); return }
-        await synchronize(s.id)
+        await synchronize(s.id, checkingOriginals: false)
         refreshDevelopInfo()
     }
 
@@ -922,9 +1024,11 @@ final class CatalogSourcesStore: MacLibraryData {
             if self.tree.all.isEmpty {
                 await self.select(source: s.id)
             } else {
-                await self.synchronize(s.id)
+                await self.synchronize(s.id, checkingOriginals: false)
+                guard s.id == self.selectedSourceID else { return }
                 await self.refreshTree()
-                await self.reload()
+                guard s.id == self.selectedSourceID else { return }
+                await self.reload(keepingRows: true)
             }
         }
     }
@@ -1614,7 +1718,7 @@ extension CatalogSourcesStore {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let made = try await client.create(at: url, kind: .catalog, name: url.deletingPathExtension().lastPathComponent)
         let s = MacSource(id: UUID(), kind: .catalog, name: made.info.name, path: made.info.path,
-                          libraryPath: made.info.path, addedAt: Date())
+                          libraryPath: made.info.path, addedAt: Date(), catalogUUID: made.info.uuid)
         sources.append(s)
         handles[s.id] = (made.library, await host.launches)
         save()
@@ -1639,7 +1743,7 @@ extension CatalogSourcesStore {
             try await self.client.copyCaptureOne(from, to: target, name: name, mirror: mirror)
         }
         var copy = MacSource(id: UUID(), kind: .catalog, name: made.info.name, path: made.info.path,
-                             libraryPath: made.info.path, addedAt: Date())
+                             libraryPath: made.info.path, addedAt: Date(), catalogUUID: made.info.uuid)
         copy.copiedFrom = Self.copiedFrom(made.info) ?? MacCopiedFrom(path: from.path, format: s.format, copiedAt: Date())
         copy.imageCount = made.info.counts.images
         sources.append(copy)
