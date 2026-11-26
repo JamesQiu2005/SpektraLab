@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.system.Os
 import android.util.Log
 import android.view.View
+import android.webkit.WebSettings
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
@@ -29,6 +31,24 @@ class MainActivity : TauriActivity() {
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.Builder(insets).setInsets(padded, Insets.NONE).build()
     }
+  }
+
+  /**
+   * Hardening on top of Tauri's own WebView settings (generated/RustWebView.kt, rewritten by every Tauri build,
+   * so set here). The page is the app's own, served by Tauri from the APK: it needs JavaScript and nothing that
+   * reaches files, content providers, location, other windows or Google's services.
+   */
+  override fun onWebViewCreate(webView: WebView) {
+    webView.settings.apply {
+      allowFileAccess = false                    // no file:// pages or reads
+      allowContentAccess = false                 // no content:// reads from the page (Import is native)
+      setGeolocationEnabled(false)               // Tauri's template turns it on; the app has no location
+      javaScriptCanOpenWindowsAutomatically = false
+      setSupportMultipleWindows(false)
+      mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+      safeBrowsingEnabled = false                // Safe Browsing asks Google's servers about pages
+    }
+    if (!BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(false)
   }
 
   /**

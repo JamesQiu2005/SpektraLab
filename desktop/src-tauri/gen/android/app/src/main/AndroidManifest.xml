@@ -1,12 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Develop for Android. No network: there is no INTERNET permission, so the kernel refuses sockets for the
-  whole app, the WebView included (Tauri's template adds INTERNET for its dev server; it is left out on purpose,
-  and cleartext traffic is off in every build).
+  Develop for Android. No network: every network, Wi-Fi, Bluetooth and NFC permission is removed (even if a
+  library asks for one), so the kernel refuses sockets for the whole app, the WebView included (Tauri's template
+  adds INTERNET for its dev server; it is removed on purpose). Cleartext traffic and backup are off in every build.
+  No "open with" filters on Android (tauri.android.conf.json): Android hands over content:// links, not files.
   extractNativeLibs: the engine host ships as lib/arm64-v8a/libspektralab_host.so and must exist as a real file
   to be started as a program (MainActivity passes its path to the Rust side).
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- No network of any kind, explicitly: each of these is removed even if a library asks for it. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" tools:node="remove" />
+    <uses-permission android:name="android.permission.NFC" tools:node="remove" />
 
     <application
         android:icon="@mipmap/ic_launcher"
@@ -14,8 +31,14 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.develop"
         android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:extractNativeLibs="true"
         android:usesCleartextTraffic="false">
+        <!-- The system WebView sends Google usage metrics and checks pages with Safe Browsing unless told not to. -->
+        <meta-data android:name="android.webkit.WebView.MetricsOptOut" android:value="true" />
+        <meta-data android:name="android.webkit.WebView.EnableSafeBrowsing" android:value="false" />
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"

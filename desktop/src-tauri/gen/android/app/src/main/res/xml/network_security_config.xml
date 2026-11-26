@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Belt and braces (the app has no network permission at all): no cleartext, and no trusted certificate
+     authorities, so even a TLS connection could not be made. -->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="false">
+    <trust-anchors />
+  </base-config>
+</network-security-config>

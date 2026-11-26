@@ -1,6 +1,6 @@
 [package]
 name = "develop"
-version = "1.0.0"
+version = "1.1.0"
 description = "Develop — film and print emulation for Linux, based on SpektraLab"
 authors = ["jegly", "SpektraLab contributors"]
 license = "GPL-3.0-or-later"

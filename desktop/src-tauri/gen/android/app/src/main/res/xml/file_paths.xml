@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The FileProvider (Tauri's template) may hand out only files the app puts in cache/shared: nothing of shared
+     storage, nothing of the app's photos or edits. The app's own code does not use it. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-  <external-path name="my_images" path="." />
-  <cache-path name="my_cache_images" path="." />
+  <cache-path name="shared" path="shared/" />
 </paths>

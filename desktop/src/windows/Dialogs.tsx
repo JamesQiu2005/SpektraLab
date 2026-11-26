@@ -218,7 +218,7 @@ export function AboutDialog() {
     <Frame open={open} onClose={() => setPages({ aboutOpen: false })} title="Develop" testId="about">
       <div className="dialog-body">
         <p>
-          {tz('Version', '版本')} {paths?.version ?? '1.0.0'} — {tz('film and print emulation for Linux. Based on SpektraLab (github.com/JamesQiu2005/SpektraLab) and its engine, derived from spektrafilm by Andrea Volpato.', 'Linux 上的胶片与相纸模拟。基于 SpektraLab（github.com/JamesQiu2005/SpektraLab）及其引擎；该引擎派生自 Andrea Volpato 的 spektrafilm。')}
+          {tz('Version', '版本')} {paths?.version ?? '1.1.0'} — {tz('film and print emulation for Linux. Based on SpektraLab (github.com/JamesQiu2005/SpektraLab) and its engine, derived from spektrafilm by Andrea Volpato.', 'Linux 上的胶片与相纸模拟。基于 SpektraLab（github.com/JamesQiu2005/SpektraLab）及其引擎；该引擎派生自 Andrea Volpato 的 spektrafilm。')}
         </p>
         <p className="caption">
           {tz(
