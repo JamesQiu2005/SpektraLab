@@ -75,6 +75,7 @@ final class MacExportRun {
     }
 
     private(set) var lines: [Line] = []
+    private(set) var pictureIDs: Set<MacImage.ID> = []
     private(set) var recipe: ExportRecipe?
     /// Where Files puts each picture; nil for Share.
     private(set) var folder: URL?
@@ -123,13 +124,14 @@ final class MacExportRun {
     /// under way already, no folder for Files, or the service refused it (`ExportService.start`).
     @discardableResult
     func start(_ frames: [LibraryFrame.ID], leftOut: [LeftOut] = [], recipe: ExportRecipe, folder: URL?,
-               exporter: ExportService) -> Bool {
+               exporter: ExportService, pictureIDs: Set<MacImage.ID> = []) -> Bool {
         guard !isRunning, !exporter.isExporting, !frames.isEmpty else { return false }
         if recipe.destination == .files, folder == nil { return false }
         exporter.start(frames, recipe: recipe)
         // A refused batch leaves nothing under way: the service says so in its log, the page by its button.
         guard exporter.isExporting, let batch = exporter.batch else { return false }
         self.exporter = exporter
+        self.pictureIDs = pictureIDs
         self.recipe = recipe
         self.folder = recipe.destination == .files ? folder : nil
         shareFiles = []
@@ -160,10 +162,11 @@ final class MacExportRun {
         exporter?.stop()
     }
 
-    /// The page is done with a finished batch's lines.
+    /// Clears the result of a finished batch.
     func reset() {
         guard !isRunning else { return }
         lines = []
+        pictureIDs = []
         recipe = nil
         folder = nil
         shareFiles = []

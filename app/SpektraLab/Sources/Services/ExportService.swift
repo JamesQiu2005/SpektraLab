@@ -33,6 +33,7 @@
 //  the measured engine's time and walks its stages, with no pixels to save;
 //  the sheet says so (`wroteFiles`).
 
+import Darwin
 import Foundation
 import Observation
 import os
@@ -123,15 +124,28 @@ final class ExportService {
         self.library = library
         self.scheduler = scheduler
         self.darkroom = darkroom
-        // Whatever an earlier launch left: a batch's files are its own, for as long as its sheet is.
-        let folder = Self.folder
-        Task.detached(priority: .utility) { try? FileManager.default.removeItem(at: folder) }
+        Task.detached(priority: .utility) { Self.discardAbandonedBatches() }
     }
 
     var isExporting: Bool { batch.map { !$0.finished } ?? false }
 
-    /// Where every batch's folder is.
-    nonisolated static var folder: URL { FileManager.default.temporaryDirectory.appendingPathComponent("Exports", isDirectory: true) }
+    /// The older shared Exports directory can be cleared by an older copy of the app at launch.
+    private nonisolated static var scratchRoot: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("SpektraLab-Exports", isDirectory: true)
+    }
+
+    /// Only remove a batch when its owning process has gone. An open Share can still need
+    /// its files even after the render itself finished.
+    private nonisolated static func discardAbandonedBatches() {
+        let fm = FileManager.default
+        let folders = (try? fm.contentsOfDirectory(at: scratchRoot, includingPropertiesForKeys: nil)) ?? []
+        for folder in folders {
+            let name = folder.lastPathComponent.split(separator: "-", maxSplits: 1)
+            guard name.count == 2, let owner = pid_t(name[0]), owner > 0, UUID(uuidString: String(name[1])) != nil,
+                  kill(owner, 0) == -1, errno == ESRCH else { continue }
+            try? fm.removeItem(at: folder)
+        }
+    }
 
     /// The film a frame is exported in, when it wears a film edge. Set by the
     /// app's model.
@@ -227,8 +241,8 @@ final class ExportService {
                         cappedFrom: made.plan.isCapped ? f.originalSize : nil, limit: limit(f, r))
         }
         guard !items.isEmpty else { return }
-        batch = Batch(recipe: recipe, items: items,
-                      folder: wroteFiles ? Self.folder.appendingPathComponent(UUID().uuidString, isDirectory: true) : nil)
+        let folder = wroteFiles ? Self.scratchRoot.appendingPathComponent("\(getpid())-\(UUID().uuidString)", isDirectory: true) : nil
+        batch = Batch(recipe: recipe, items: items, folder: folder)
         worker = Task { [weak self] in await self?.run() }
     }
 
@@ -353,7 +367,7 @@ final class ExportService {
             jobs[job.id] = item.id
             let watcher = Task { [weak self] in
                 // The scheduler's view of the job, mirrored into the sheet.
-                while !Task.isCancelled {
+                while !Task.isCancelled, self?.jobs[job.id] != nil {
                     if let s = self?.scheduler.snapshots.first(where: { $0.id == job.id }) {
                         switch s.state {
                         case .running(let p): self?.set(i, .running(p))
@@ -371,6 +385,13 @@ final class ExportService {
             jobs[job.id] = nil
             let file = darkroom?.takeExport(job.id)
             darkroom?.forget(job.id)
+            // Stop already marked this batch's rows. A replacement batch may
+            // own the same row indices by the time the old job returns.
+            if Task.isCancelled {
+                if case .written(let written)? = file { try? FileManager.default.removeItem(at: written.url) }
+                noted("stopped")
+                return
+            }
             switch outcome {
             case .finished:
                 guard folder != nil else { set(i, .done); continue }       // the simulation: its time, and no file

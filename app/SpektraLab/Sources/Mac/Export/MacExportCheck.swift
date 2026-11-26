@@ -60,6 +60,15 @@ enum MacExportCheck {
     // MARK: running
 
     static func startIfAsked(model: AppServices, arguments: [String] = CommandLine.arguments) {
+        if arguments.contains("--export-restart-check") {
+            Task {
+                let passed = await checkStoppedBatchRestart()
+                print("export-restart-check: \(passed ? "PASS" : "FAIL")")
+                await model.macLibrary.host.shutdown()
+                exit(passed ? 0 : 1)
+            }
+            return
+        }
         // The folder is a path: anything else after `--export-check` is not this check's.
         guard let i = MacCheckFolder.index(of: "--export-check", in: arguments) else { return }
         let out = URL(fileURLWithPath: arguments[i + 1])
@@ -89,6 +98,65 @@ enum MacExportCheck {
                 exit(0)
             }
         }
+    }
+
+    /// A scheduler job that stays in flight after Stop until the check lets
+    /// it return. A real engine can also finish while cancellation is in flight.
+    private actor RestartEngine: DevelopEngine {
+        nonisolated let name = "export restart check"
+        nonisolated let makesPictures = false
+        nonisolated let effectVersions = "check"
+        private var held: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+        func run(_ job: RenderJob, mode: RenderMode,
+                 progress: @escaping @Sendable (RenderProgress) -> Void) async throws -> RenderResult {
+            await withCheckedContinuation { held[job.id] = $0 }
+            return RenderResult(seconds: 0, peakBytes: 0, reprint: false, size: job.canvas)
+        }
+
+        func release(_ id: UUID) { held.removeValue(forKey: id)?.resume() }
+        func isHeld(_ id: UUID) -> Bool { held[id] != nil }
+        nonisolated func cancel(_ id: UUID) {}
+        func trim() async -> UInt64 { 0 }
+        func heldBytes() async -> UInt64 { 0 }
+    }
+
+    private static func checkStoppedBatchRestart() async -> Bool {
+        let engine = RestartEngine()
+        let queue = RenderQueue(engine: engine, defaults: nil)
+        let library = FrameCatalog(DemoLibrary.seed(.home))
+        guard library.frames.count >= 2 else { return false }
+        let exporter = ExportService(library: library, scheduler: queue)
+        let first = library.frames[0].id, next = library.frames[1].id
+        let recipe = ExportRecipe(format: .jpeg, size: .longEdge(320), colour: .sRGB, destination: .files)
+        exporter.start([first], recipe: recipe)
+        guard await until(5) { queue.snapshots.contains { $0.job.frameID == first } },
+              let firstJob = queue.snapshots.first(where: { $0.job.frameID == first })?.id else { return false }
+        let deadline = Date().addingTimeInterval(5)
+        while await !engine.isHeld(firstJob), Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        guard await engine.isHeld(firstJob) else { return false }
+
+        exporter.stop()
+        exporter.start([next], recipe: recipe)
+        guard await until(5) { queue.snapshots.contains { $0.job.frameID == next } },
+              let nextJob = queue.snapshots.first(where: { $0.job.frameID == next })?.id else {
+            await engine.release(firstJob)
+            return false
+        }
+        var earlyFinish = false
+        await engine.release(firstJob)
+        for _ in 0..<150 {
+            earlyFinish = earlyFinish || !exporter.isExporting
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        guard await engine.isHeld(nextJob) else { return false }
+        await engine.release(nextJob)
+        let finished = await until(5) { !exporter.isExporting }
+        print("export-restart-check: replacement ended before its job returned: \(earlyFinish)")
+        return !earlyFinish && finished && exporter.batch?.items.first?.id == next
+            && exporter.batch?.items.first?.state == .done
     }
 
     private final class Report {
@@ -405,7 +473,8 @@ enum MacExportCheck {
                         ExportRecipe(format: .jpeg, size: .full, colour: .sRGB, destination: .files),
                         ExportRecipe(format: .jpeg, size: .full, colour: .sRGB, destination: .files),
                         ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files),
-                        ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files)]
+                        ExportRecipe(format: .heif, size: .full, colour: .displayP3, destination: .files),
+                        ExportRecipe(format: .jpeg, size: .longEdge(960), colour: .sRGB, destination: .files)]
         recipesD[0].quality = 95; recipesD[0].naming = naming
         recipesD[1].quality = 80
         recipesD[4].quality = 70
@@ -414,6 +483,7 @@ enum MacExportCheck {
         recipesD[6].quality = 60
         recipesD[7].quality = 95
         recipesD[8].quality = 60
+        recipesD[9].quality = 80
         var estimates: [[String: Any]] = []
         for (i, recipe) in recipesD.enumerated() {
             let folder = out.appending(path: "exports-D\(i)-\(recipe.format.rawValue)")
@@ -425,10 +495,11 @@ enum MacExportCheck {
             for line in run.lines {
                 guard case .saved(let url) = line.state, let id = line.frameID, let f = model.library.frame(id),
                       let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { continue }
-                let made = model.exporter.outputSize(f, recipe)
+                let prepared = model.exporter.prepared(f, recipe)
+                let made = prepared.plan.output
                 let actual = (try? fm.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-                let guess = await ExportEstimate.bytes(source: source, format: recipe.format, quality: recipe.quality,
-                                                       pixels: made.width * made.height) ?? 0
+                let guess = await ExportEstimate.bytes(source: source, metadataFrom: prepared.source,
+                                                       recipe: recipe, output: made) ?? 0
                 let ratio = actual > 0 ? Double(guess) / Double(actual) : 0
                 estimates.append(["recipe": "\(recipe.format.rawValue) \(recipe.size.title) q\(recipe.quality)", "file": url.lastPathComponent,
                                   "pixels": made.width * made.height, "actual": actual, "estimate": guess, "ratio": round3(ratio)])
@@ -443,6 +514,29 @@ enum MacExportCheck {
             r.step("D\(i): \(recipe.format.rawValue) at \(recipe.size.title)", ms(since: t0), ["lines": run.lines.map { "\($0.name): \($0.state)" }])
         }
         r.step("D: estimates", 0, ["files": estimates])
+
+        // A Share keeps its encoded file until the sheet is done with it. Opening another
+        // export service must leave that file alone even when both use the same temp directory.
+        if let first = readable.first {
+            let share = ExportRecipe(format: .png, size: .full, colour: .sRGB, destination: .share)
+            r.check(run.start([first], recipe: share, folder: nil, exporter: model.exporter),
+                    "E: the PNG share begins")
+            _ = await watched(model)
+            if let file = run.shareFiles.first, let folder = model.exporter.batch?.folder {
+                let before = readBack(file)
+                r.check(before["complete"] as? Bool == true, "E: the PNG reads back before another service starts")
+                _ = ExportService(library: model.library, scheduler: model.scheduler)
+                let removed = await until(2) { !fm.fileExists(atPath: file.path) }
+                r.check(!removed && (readBack(file)["complete"] as? Bool == true),
+                        "E: starting another export service leaves the first share readable")
+                model.exporter.clear()
+                let cleared = await until(2) { !fm.fileExists(atPath: folder.path) }
+                r.check(cleared, "E: dismissing the share removes its own temporary directory")
+                r.step("E: share file ownership", 0, ["share": before, "removedByAnotherService": removed, "cleared": cleared])
+            } else {
+                r.check(false, "E: the PNG share produced a file")
+            }
+        }
 
         r.step("pages", 0, ["shown": pagesShown])
         return ["steps": r.steps, "failures": r.failures, "passed": r.failures.isEmpty,

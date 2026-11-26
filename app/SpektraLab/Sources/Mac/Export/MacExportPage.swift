@@ -167,8 +167,13 @@ private struct MacExportScreen: View {
 
     private var run: MacExportRun { .shared }
     private var frames: [LibraryFrame] { pictures.compactMap { $0.frameID.flatMap { library.frame($0) } } }
+    private var pictureIDs: Set<MacImage.ID> { Set(pictures.map(\.image.id)) }
     /// A batch under way, this page's or one it was opened over (Develop's Exporting).
     private var busy: Bool { run.isRunning || exporter.isExporting }
+    /// Results for a finished file batch belong to its selection. A running batch can always be stopped here.
+    private var showsRun: Bool {
+        run.isRunning || (run.isFinished && (run.recipe?.destination == .share || run.pictureIDs == pictureIDs))
+    }
 
     var body: some View {
         let binding = Binding(get: { recipe ?? opening }, set: { recipe = $0 })
@@ -193,7 +198,8 @@ private struct MacExportScreen: View {
             SystemShareSheet(items: sharing).ignoresSafeArea()
         }
         .onAppear {
-            if !run.isRunning { run.reset() }
+            // Files may finish with this page closed. Keep their result for the matching selection.
+            if !run.isRunning, run.recipe?.destination != .files { run.reset() }
             if let i = followed { focus = i }
             #if DEBUG
             // `--export-check`: the check presses this page's own Export, with its recipe and folder.
@@ -351,7 +357,7 @@ private struct MacExportScreen: View {
 
     private func footer(_ recipe: ExportRecipe) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !run.lines.isEmpty || exporter.isExporting { progress }
+            if showsRun { progress }
             if let refusal {
                 Text(L(shown: refusal)).font(Theme.Font.ui(12, .medium)).foregroundStyle(Theme.danger)
                     .fixedSize(horizontal: false, vertical: true)
@@ -375,6 +381,11 @@ private struct MacExportScreen: View {
     /// picture that did not go, with why.
     private var progress: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if run.isFinished, let recipe = run.recipe, recipe.destination == .files {
+                Text(L("Last export") + Fmt.dot + recipe.builtName)
+                    .font(Theme.Font.ui(11.5, .medium)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(alignment: .firstTextBaseline) {
                 Text(run.isRunning ? L("Exporting") : summary)
                     .font(Theme.Font.ui(13, .semibold)).foregroundStyle(Theme.text)
@@ -382,7 +393,9 @@ private struct MacExportScreen: View {
                 Spacer(minLength: 8)
                 if run.isRunning { Text(run.countText).font(Theme.Font.ui(12, .medium)).foregroundStyle(Theme.dim) }
             }
-            ProgressView(value: run.lines.isEmpty ? 0 : run.fraction).tint(Theme.accent)
+            if run.isRunning || run.recipe?.destination != .files {
+                ProgressView(value: run.lines.isEmpty ? 0 : run.fraction).tint(Theme.accent)
+            }
             if run.isRunning, let line = run.current {
                 Text(line.name + Fmt.dot + words(line))
                     .font(Theme.Font.ui(12, .medium)).foregroundStyle(Theme.accent)
@@ -400,6 +413,7 @@ private struct MacExportScreen: View {
                 Button(L("Show in Finder")) { UIApplication.shared.open(folder) }
                     .font(Theme.Font.ui(12.5, .semibold)).foregroundStyle(Theme.accent)
                     .buttonStyle(.plain)
+                    .help(MacExportFolder.place(folder))
             }
         }
         .padding(.bottom, 4)
@@ -454,19 +468,21 @@ private struct MacExportScreen: View {
     private func estimateKey(_ recipe: ExportRecipe) -> String {
         guard let f = shown else { return "none" }
         let out = exporter.outputSize(f, recipe)
-        return [f.id.uuidString, f.shownDevelop?.stamp ?? "-", recipe.format.rawValue, "\(recipe.format.takesQuality ? recipe.quality : 0)",
+        return [f.id.uuidString, f.shownDevelop?.stamp ?? "-", recipe.format.rawValue, recipe.colour.rawValue,
+                "\(recipe.format.takesQuality ? recipe.quality : 0)",
                 "\(out.width)x\(out.height)"].joined(separator: "|")
     }
 
     /// The estimate for the picture shown (`ExportEstimate`), measured on its kept develop, a moment after
     /// the recipe stops moving: a dragged slider measures where it lands.
     private func measureEstimate(_ recipe: ExportRecipe) async {
-        guard let f = shown, let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { estimate = nil; return }
+        estimate = nil
+        guard let f = shown, let source = (f.shownDevelop?.picture ?? f.picture).fileURL else { return }
         try? await Task.sleep(for: .milliseconds(150))
         guard !Task.isCancelled else { return }
-        let out = exporter.outputSize(f, recipe)
-        let bytes = await ExportEstimate.bytes(source: source, format: recipe.format, quality: recipe.quality,
-                                               pixels: out.width * out.height)
+        let prepared = exporter.prepared(f, recipe)
+        let bytes = await ExportEstimate.bytes(source: source, metadataFrom: prepared.source, recipe: recipe,
+                                               output: prepared.plan.output)
         guard !Task.isCancelled else { return }
         estimate = bytes
     }
@@ -505,7 +521,7 @@ private struct MacExportScreen: View {
         let leftOut = pictures.compactMap { p -> MacExportRun.LeftOut? in
             p.why.map { .init(name: p.image.fileName, why: $0) }
         }
-        run.start(frames.map(\.id), leftOut: leftOut, recipe: recipe, folder: folder, exporter: exporter)
+        run.start(frames.map(\.id), leftOut: leftOut, recipe: recipe, folder: folder, exporter: exporter, pictureIDs: pictureIDs)
     }
 
     // MARK: the preview
@@ -623,7 +639,8 @@ private struct MacExportScreen: View {
     /// A cell's corner: under way, saved, not saved or never begun, stopped. Nothing before a batch, but
     /// for a picture that cannot go at all.
     @ViewBuilder private func badge(_ p: MacExportPage.Picture) -> some View {
-        let state: MacExportRun.Line.State? = p.frameID.flatMap { run.line(for: $0)?.state } ?? p.why.map { .leftOut($0) }
+        let batchState = showsRun ? p.frameID.flatMap { run.line(for: $0)?.state } : nil
+        let state = batchState ?? p.why.map { .leftOut($0) }
         switch state {
         case .running(let progress)?:
             ProgressRing(progress: progress.fraction, diameter: MacMetric.pt(16), lineWidth: 2)

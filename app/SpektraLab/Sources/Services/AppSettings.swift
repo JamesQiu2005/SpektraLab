@@ -113,7 +113,7 @@ final class AppSettings {
     /// **RAW decoder** (Settings › Develop; 2.4.2): Apple's — the default, every release's before 2.4.2 — or LibRaw, in its
     /// own helper (`LibRawDecode`). Handed to the decode as `RawDecoderChoice.current`, at launch and on a change; moving it
     /// is another picture of every RAW (its keys say which decoder made it), and the open ones are developed again
-    /// (`AppServices.rawDecoderChanged`).
+    /// (`AppServices.setRawDecoder`).
     var rawDecoder = RawDecoderChoice.system {
         didSet {
             RawDecoderChoice.current = rawDecoder
