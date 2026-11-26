@@ -101,7 +101,7 @@ struct LocateSheet: View {
         let how = looking
         Task {
             let found = how == .folder ? await service.search(folder: url, for: frame)
-                                       : (service.matches(url, frame) ? url : nil)
+                                       : (await service.matches(url, frame) ? url : nil)
             if let found {
                 service.relink(frame.id, to: found)
                 router.dismissSheet()

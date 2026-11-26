@@ -277,6 +277,7 @@ private struct MacImportPage: View {
     @State private var asking: MacImportPicker = .sources
     /// The first Finder panel has been shown: cancelling it closes the flow.
     @State private var askedFirst = false
+    @State private var showingFailures = false
     @FocusState private var naming: Bool
     /// A drag the page takes is over it (`MacImportDropZone`): its picks grow by what is dropped.
     @State private var dropWatch = MacImportDropWatch()
@@ -304,7 +305,7 @@ private struct MacImportPage: View {
         .background { keys }
         .macPageActions(confirmTitle: session.importTitle, confirmEnabled: session.canImport && !choosingSources && !panelShown,
                         cancelEnabled: session.progress == nil && !choosingSources && !panelShown,
-                        confirm: { Task { if await session.run() != nil { done() } } }, cancel: cancel)
+                        confirm: startImport, cancel: cancel)
         .onChange(of: naming) { _, on in browser.typing = on }
         .onChange(of: panelShown) { _, up in session.finderUp = up || choosingSources }
         // A drop on the page, or on the window while the page is up: what was dropped joins the picks.
@@ -357,6 +358,53 @@ private struct MacImportPage: View {
         } onCancellation: {
             cancelled()
         }
+        .sheet(isPresented: $showingFailures, onDismiss: done) {
+            if let result = session.result {
+                failureSummary(result)
+            }
+        }
+    }
+
+    private func startImport() {
+        Task {
+            guard let result = await session.run() else { return }
+            if result.failed.isEmpty { done() } else { showingFailures = true }
+        }
+    }
+
+    private func failureSummary(_ result: MacImportSession.Result) -> some View {
+        VStack(alignment: .leading, spacing: MacMetric.pt(12)) {
+            Text(result.failed.count == 1 ? L("One file was not added.") : L("\(result.failed.count.formatted()) files were not added."))
+                .font(MacMetric.font(14, .semibold))
+                .accessibilityAddTraits(.isHeader)
+            Text(L("Added \(result.added.formatted())."))
+                .foregroundStyle(Theme.secondaryText)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: MacMetric.pt(12)) {
+                    ForEach(result.failed.keys.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }), id: \.self) { path in
+                        VStack(alignment: .leading, spacing: MacMetric.pt(3)) {
+                            if !path.isEmpty {
+                                Text(verbatim: URL(fileURLWithPath: path).lastPathComponent)
+                                    .font(MacMetric.font(12, .semibold))
+                                    .help(path)
+                            }
+                            if let reason = result.failed[path] {
+                                Text(L(shown: reason)).foregroundStyle(Theme.secondaryText)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .textSelection(.enabled)
+            }
+            Button(L("Done")) { showingFailures = false }
+                .buttonStyle(MacImportButtonStyle(kind: .primary))
+                .keyboardShortcut(.defaultAction)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .font(MacMetric.font(12))
+        .padding(MacMetric.pt(20))
+        .frame(width: MacMetric.pt(460), height: MacMetric.pt(280))
     }
 
     private func ask(_ what: MacImportPicker) {
@@ -434,9 +482,7 @@ private struct MacImportPage: View {
                     .buttonStyle(MacImportButtonStyle(kind: .plain))
                     .keyboardShortcut(.cancelAction)
             }
-            Button(session.importTitle) {
-                Task { if await session.run() != nil { done() } }
-            }
+            Button(session.importTitle, action: startImport)
             .buttonStyle(MacImportButtonStyle(kind: .primary))
             .disabled(!session.canImport)
             .keyboardShortcut(.defaultAction)
